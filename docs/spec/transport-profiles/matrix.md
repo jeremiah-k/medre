@@ -50,11 +50,21 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 | reactions         | `"native"` |
 | edits             | `"native"` |
 | deletes           | `"native"` |
-| attachments       | `False`    |
+| attachments       | `True`     |
 | store_and_forward | `False`    |
 | direct_messages   | `True`     |
 | channels          | `True`     |
 | topic_rooms       | `True`     |
+
+`attachments: True` means Matrix participates in the generic durable
+attachment relay: inbound media bytes can be retained at admission and
+outbound `message.file` events render as native media — both only while
+`attachments.enabled` is `true` in the runtime configuration. With the
+feature disabled, no bytes are fetched, stored, or transferred, and media
+events carry honest unavailable descriptors
+([configuration.md §2.6](../configuration.md#26-attachmentconfig),
+[event-model.md §5.5](../event-model.md#55-messagefile-attachment-descriptor)).
+Native edits remain text-only either way.
 
 ### Mutation eligibility (native edits and deletes)
 
@@ -245,7 +255,12 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 **Remote delivery:** The homeserver is responsible for fan-out. MEDRE treats the returned `event_id` as confirmation of _local acceptance only_ — it does not track whether other federation servers or clients received the event.
 
-**Rate-limit handling:** `M_LIMIT_EXCEEDED` / HTTP 429 raises `AdapterSendError(transient=True)` immediately so the pipeline retry worker can honour `retry_after_ms`.
+**Rate-limit handling:** `M_LIMIT_EXCEEDED` / HTTP 429 raises
+`AdapterSendError(transient=True)` immediately so the pipeline retry worker can
+honour `retry_after_ms`. Media-upload HTTP 5xx responses and exhausted network
+transport failures are also transient even when nio reports the generic
+`M_UNKNOWN` errcode; the HTTP status/transport failure remains the classification
+authority for retryable server/network failures.
 
 **Permanent errors** (`M_FORBIDDEN`, `M_NOT_FOUND`, encrypted-room without crypto, etc.) raise `AdapterPermanentError` without retry.
 
@@ -550,9 +565,11 @@ so a hostile or broken value cannot park delivery indefinitely.
   binding proof (see [Mutation eligibility](#mutation-eligibility-native-edits-and-deletes));
   unresolvable or unauthorized targets are suppressed with a stable reason,
   never guessed.
-- **Native edits are text-only.** Binary attachments are unsupported outbound
-  (`attachments=False`), so edits of media events are out of scope; text edits
-  render `m.replace`/`m.new_content`.
+- **Native edits are text-only.** Media content never participates in native
+  edits: an edit whose content is a media msgtype, or whose target is a
+  stored media original, fails closed with the stable
+  `attachment_edit_unsupported` reason; text edits render
+  `m.replace`/`m.new_content`.
 - **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
   homeserver's dedup window, but duplicates are still possible across restarts, replay,
   or changed delivery identity. Redactions use their own deterministic
@@ -564,9 +581,14 @@ so a hostile or broken value cannot park delivery indefinitely.
   E2EE sends.
 - **No room-key backup workflow.** MEDRE does not manage Matrix room-key
   backup/import/export or interactive verification ceremonies.
-- **No outbound attachment rendering.** Inbound image/audio/video/file events
-  are normalized as `message.file` with safe native media descriptors, while
-  `attachments=False` remains the outbound capability.
+- **Outbound media requires retained bytes and an enabled policy.** Inbound
+  image/audio/video/file events are normalized as `message.file` with safe
+  native media descriptors. Outbound media renders a fresh destination
+  upload from association-scoped retained bytes
+  ([matrix-event-shape.md §9.5](../matrix-event-shape.md#95-media-send_media));
+  with `attachments.enabled=false`, or for unavailable descriptors, media
+  delivery fails closed with `attachment_unavailable:<reason>` instead of
+  degrading to a text message.
 - **Room-state tracking cap.** Maximum 10 000 rooms tracked in session `_room_states`; oldest evicted on overflow.
 - **Self-message suppression** only matches `config.user_id`; bot-to-bot echoes from other Matrix users are not suppressed.
 

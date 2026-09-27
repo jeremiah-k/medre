@@ -18,6 +18,10 @@ from typing import Any
 from medre.adapters._native_metadata import current_namespace as _current_namespace
 from medre.adapters._native_metadata import versioned_namespace as _versioned_namespace
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.core.events.attachments import (
+    ATTACHMENT_KINDS,
+    AttachmentDescriptor,
+)
 
 MATRIX_NATIVE_NAMESPACE = "matrix"
 MATRIX_NATIVE_SCHEMA_VERSION = 1
@@ -165,6 +169,33 @@ def matrix_media_descriptor(
     )
     descriptor.update({key: value for key, value in values if value is not None})
     return descriptor
+
+
+def attachment_candidate_from_matrix_media(
+    media: Mapping[str, Any] | None,
+) -> AttachmentDescriptor | None:
+    """Build a declared attachment descriptor from the native media shape.
+
+    The native Matrix media projection is adapter-owned provenance; this is
+    the one typed mapping into the transport-neutral descriptor.  Only
+    declared fields are produced — no ``content_ref``, no unavailable
+    reason — so the result is the in-flight declared form the adapter (and,
+    when bytes are admitted, core storage) rewrites before persistence.
+    """
+    if not isinstance(media, Mapping):
+        return None
+    kind = _nonempty_str(media.get("kind"))
+    if kind is None or kind not in ATTACHMENT_KINDS:
+        return None
+    return AttachmentDescriptor(
+        kind=kind,
+        filename=_nonempty_str(media.get("filename")),
+        mime_type=_nonempty_str(media.get("mime_type")),
+        size_bytes=_optional_int(media.get("size_bytes")),
+        width=_optional_int(media.get("width")),
+        height=_optional_int(media.get("height")),
+        duration_ms=_optional_int(media.get("duration_ms")),
+    )
 
 
 def matrix_relay_metadata(content: dict[str, Any]) -> dict[str, object] | None:

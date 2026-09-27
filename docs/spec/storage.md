@@ -14,7 +14,9 @@ This document specifies the MEDRE storage layer. The current SQLite backend pers
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
 projection and its `conversation_projection_state`, `native_message_refs`,
 `delivery_receipts`, `delivery_outbox`,
-`durable_ingress_work`, `adapter_checkpoints`, a schema-reserved `plugin_state` table,
+`durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
+`attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
+`plugin_state` table,
 and schema metadata.
 
 The following tables are **planned — not implemented; tracked for
@@ -1093,7 +1095,69 @@ The native-ref uniqueness rule remains the replay idempotency key for protocols 
 as Matrix whose decoder may generate a fresh canonical UUID when replaying the same
 native event.
 
-### 4.12 adapter_checkpoints
+### 4.12 attachment_blobs
+
+```sql
+CREATE TABLE IF NOT EXISTS attachment_blobs (
+    content_ref TEXT PRIMARY KEY,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+    media_kind TEXT,
+    mime_type TEXT,
+    created_at TEXT NOT NULL,
+    data BLOB NOT NULL
+);
+```
+
+Durable attachment content, stored **content-addressed**: `content_ref` is
+`sha256:<64 lowercase hex>` computed by core admission from the supplied
+bytes, and one row exists per unique retained byte string. Identical content
+admitted by multiple events is stored once (`INSERT OR IGNORE`) and consumes
+quota once — dedup never double-counts. `size_bytes` is the non-negative
+measured length of `data` (zero-byte files are valid), never a wire-declared
+value; `data` is the plaintext payload (see
+[security-privacy.md §2.5](security-privacy.md#25-durable-attachment-content)).
+Ordinary event queries never select `data`.
+
+Retention policy is quota-shaped and operator-owned:
+
+- Admission counts the **total of unique retained bytes**; new content is
+  admitted only when the total plus the new content's measured length fits
+  within the configured `attachments.max_retained_bytes`.
+- A measured length beyond `attachments.max_attachment_bytes` is a
+  permanent, pre-transaction decision: the event still admits with an
+  `oversized` unavailable descriptor and the transaction never stores the
+  oversized content.
+- Reaching the quota rejects new content explicitly (the event still admits
+  with an honest `quota_exceeded` unavailable descriptor); rejected bytes and
+  their event association are not written. **Nothing is evicted**. There is
+  no eviction, GC, or TTL. Raising (or lowering) capacity is an operator action.
+
+Existing schema-version-1 databases gain both attachment tables
+automatically: the tables are created by `CREATE TABLE IF NOT EXISTS` at
+open and are intentionally absent from the pre-release required-column
+shape guard (§10.2), so an older prerelease database is upgraded in place
+rather than rejected. No rows are backfilled — pre-existing `message.file`
+events keep whatever descriptor they were admitted with.
+
+### 4.13 event_attachment_associations
+
+```sql
+CREATE TABLE IF NOT EXISTS event_attachment_associations (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    content_ref TEXT NOT NULL REFERENCES attachment_blobs(content_ref),
+    created_at TEXT NOT NULL
+);
+```
+
+Event → content association; one primary attachment per canonical event. The
+association is the **only authority** for loading retained bytes for an
+event: a `content_ref` named in a render payload without this association is
+forged and MUST fail (§8.18). The event, its inbound native ref, its ingress
+work marker, the blob, and this association commit in **one atomic
+transaction** (§7); there is no state in which an event advertises retained
+content the transaction did not store.
+
+### 4.14 adapter_checkpoints
 
 ```sql
 CREATE TABLE adapter_checkpoints (
@@ -1116,7 +1180,7 @@ durable ingress worker routes the admitted events because the corresponding
 `durable_ingress_work` rows survive restart. Transport-specific continuity evidence,
 such as Matrix abandoned-room causes, belongs in `metadata`.
 
-### 4.13 Index Policy
+### 4.15 Index Policy
 
 All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.
 
@@ -1369,6 +1433,29 @@ recovery SQL does not require or hard-code that index, so read-only recovery
 remains correct on a database that has not yet been reopened read-write to
 create it. `replay_run_id` remains execution provenance and is not part of the
 lineage key.
+
+### 8.18 Attachment content access
+
+#### load_attachment_content(event_id, content_ref)
+
+Returns verified retained bytes for one canonical event and is
+**association-scoped**:
+
+- The stored `event_attachment_associations` row is the only authority. A
+  `content_ref` that does not match the event's association is a forged
+  reference and fails with reason `association_missing`.
+- Blob absence fails with `content_missing`.
+- Every load re-verifies both the SHA-256 digest and the measured size
+  against the stored `content_ref`/`size_bytes`; a mismatch fails with
+  `integrity_failed`.
+- Failures raise `AttachmentContentUnavailableError` with the stable reason.
+  There is **never** an implicit refetch, source-key recovery, or content
+  substitution; restart/replay reads retained bytes only.
+
+#### attachment_retained_bytes()
+
+- Returns the total size of unique retained bytes (`SUM(size_bytes)` over
+  `attachment_blobs`) as a read-only diagnostics figure.
 
 ## 9. Delivery Outbox Semantics
 

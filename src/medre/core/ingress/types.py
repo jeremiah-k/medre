@@ -21,11 +21,12 @@ INGRESS_WORK_STATUS_VALUES: frozenset[str] = frozenset(get_args(IngressWorkStatu
 class DurableIngressDeferredError(RuntimeError):
     """Signal that durable ingress must remain pending for a later attempt.
 
-    Raised only after canonical ingress admission has succeeded when routing
-    cannot safely transfer responsibility to durable delivery state.  The
-    ingress worker releases the work row back to ``pending`` without consuming
-    the terminal processing-failure budget.  A deferred row is retried on a later
-    poll cycle rather than repeatedly reclaimed in the same cycle.
+    This signal has two ownership points.  Before canonical admission, a
+    transport may use it to reject/redispatch the native event without advancing
+    its source cursor.  After canonical admission, the ingress worker uses it
+    when routing cannot safely transfer responsibility to durable delivery
+    state; the work row returns to ``pending`` without consuming the terminal
+    processing-failure budget.
     """
 
     def __init__(self, event_id: str, reasons: tuple[str, ...]) -> None:
@@ -36,6 +37,34 @@ class DurableIngressDeferredError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class InboundAttachmentContent:
+    """Verified plaintext bytes admitted alongside one canonical event.
+
+    Binary ingress data travels separately from the persisted canonical
+    envelope through this narrow value.  The adapter supplies bytes it has
+    already bounded, integrity-verified, and (for encrypted sources)
+    decrypted; core computes the authoritative content identity and
+    measured length from the supplied bytes and never trusts a
+    wire-supplied content identifier.
+    """
+
+    data: bytes
+    declared_size: int | None = None
+    """Source-declared size for mismatch evidence; never trusted."""
+
+
+@dataclass(frozen=True)
+class AttachmentAdmissionFact:
+    """Outcome of admitting attachment bytes with one canonical event."""
+
+    retained: bool
+    content_ref: str | None = None
+    size_bytes: int | None = None
+    reason: str | None = None
+    """Stable secret-free reason when bytes were not retained."""
+
+
+@dataclass(frozen=True)
 class AdmissionResult:
     """Result of atomically admitting one canonical inbound event."""
 
@@ -43,6 +72,8 @@ class AdmissionResult:
     created: bool
     provenance: IngressProvenance
     work_status: IngressWorkStatus
+    attachment: AttachmentAdmissionFact | None = None
+    """Outcome for admitted binary content, when bytes were supplied."""
 
     @property
     def duplicate(self) -> bool:

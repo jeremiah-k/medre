@@ -90,4 +90,4 @@ async def test_durable_admission_delegates_to_context() -> None:
     adapter.ctx = ctx
 
     assert await adapter.admit_inbound(event, "recovered") is result
-    ctx.admit_inbound.assert_awaited_once_with(event, "recovered")
+    ctx.admit_inbound.assert_awaited_once_with(event, "recovered", attachment=None)

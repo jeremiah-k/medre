@@ -338,6 +338,12 @@ class MedreApp:
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
     _outbox_storage_authoritative: bool = field(default=False, init=False)
     _storage_initialized: bool = field(default=False, init=False)
+    # Attachment transfer seam: runtime-wide permits + policy snapshot +
+    # limits, assembled in start() when the attachments section is enabled
+    # and durable storage is present.  Permits are closed during shutdown.
+    _attachment_permits: Any = field(default=None, init=False)
+    _attachment_limits: Any = field(default=None, init=False)
+    _attachment_seam: Any = field(default=None, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -778,6 +784,13 @@ class MedreApp:
                     f"Failed to initialise storage: {exc}{path_hint}"
                 ) from exc
 
+        # 1.1 Assemble the attachment transfer seam: generic policy
+        #     snapshot, runtime-wide bounded transfer permits, and
+        #     association-scoped retained-content access.  Absent (None on
+        #     AdapterContext) unless the attachments section is explicitly
+        #     enabled AND durable storage is present.
+        self._assemble_attachment_seam()
+
         # 1.25 Rebuild derived conversation membership before any worker or
         #      adapter can consume stale pre-crash projection state.  Canonical
         #      events remain immutable; this is a deterministic current-state
@@ -943,6 +956,7 @@ class MedreApp:
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
+                        attachments=self._attachment_seam,
                         report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
                     )
                     await adapter.start(ctx)
@@ -1629,6 +1643,14 @@ class MedreApp:
                     adapter_id,
                 )
 
+        # 1.9 Attachment transfer permits stop accepting new acquisitions
+        # after every adapter stopped; in-flight holders keep their permits
+        # until their bounded transfer completes or its deadline releases.
+        if self._attachment_permits is not None:
+            self._attachment_permits.close()
+            self._attachment_permits = None
+            self._attachment_seam = None
+
         # 2. Stop the pipeline runner.
         try:
             await self.pipeline_runner.stop()
@@ -2202,6 +2224,14 @@ class MedreApp:
         _cancelled: asyncio.CancelledError | None = None
         _cleared_cancels = 0
 
+        # Attachment transfer permits stop accepting new acquisitions
+        # before any other subsystem unwinds; in-flight holders keep their
+        # permits until their bounded transfer deadline releases them.
+        if self._attachment_permits is not None:
+            self._attachment_permits.close()
+            self._attachment_permits = None
+            self._attachment_seam = None
+
         # Stop durable ingress worker if startup got far enough to create it.
         if self._ingress_worker is not None:
             try:
@@ -2353,9 +2383,19 @@ class MedreApp:
     def _make_admit_inbound(self) -> Any:
         """Return a protocol-provenance durable ingress admission callable."""
         runner = self.pipeline_runner
+        attachment_limits = self._attachment_limits
 
-        async def _admit(event: Any, provenance: Any) -> Any:
-            return await runner.admit_ingress(event, provenance)
+        async def _admit(
+            event: Any,
+            provenance: Any,
+            attachment: Any = None,
+        ) -> Any:
+            return await runner.admit_ingress(
+                event,
+                provenance,
+                attachment=attachment,
+                attachment_limits=attachment_limits,
+            )
 
         return _admit
 
@@ -2377,3 +2417,71 @@ class MedreApp:
             await runner.admit_ingress(event, "live")
 
         return _publish
+
+    def _assemble_attachment_seam(self) -> None:
+        """Build the runtime-wide attachment transfer seam, or clear it.
+
+        The seam is injected into every adapter's
+        :class:`~medre.core.contracts.adapter.AdapterContext` and bundles:
+
+        * the immutable policy snapshot (enabled flag, per-attachment byte
+          cap, transfer deadline);
+        * runtime-wide bounded transfer permits (closed during shutdown);
+        * storage-backed, association-scoped retained-content access;
+        * the storage-side admission byte limits used by
+          ``_make_admit_inbound``.
+
+        Nothing is assembled when the generic attachments section is
+        disabled or durable storage is absent — adapters then see
+        ``attachments=None`` and must admit descriptor-only attachments.
+        """
+        from medre.core.ingress import (
+            AttachmentLimits,
+            AttachmentPolicyState,
+            AttachmentRuntimeSeam,
+            AttachmentTransferPermits,
+        )
+        from medre.core.storage.sqlite.storage import StorageAttachmentAccess
+
+        self._attachment_permits = None
+        self._attachment_limits = None
+        self._attachment_seam = None
+        attachments_config = getattr(self.config, "attachments", None)
+        if attachments_config is None or not attachments_config.enabled:
+            return
+        if self.storage is None:
+            _logger.warning(
+                "attachments.enabled=true but durable storage is absent; "
+                "attachment bytes will not be retained"
+            )
+            return
+        policy = AttachmentPolicyState(
+            enabled=True,
+            max_attachment_bytes=attachments_config.max_attachment_bytes,
+            transfer_timeout_seconds=attachments_config.transfer_timeout_seconds,
+        )
+        permits = AttachmentTransferPermits(
+            max_concurrent=attachments_config.max_concurrent_transfers,
+            acquire_timeout_seconds=min(
+                float(attachments_config.transfer_timeout_seconds), 30.0
+            ),
+        )
+        self._attachment_permits = permits
+        self._attachment_limits = AttachmentLimits(
+            max_attachment_bytes=attachments_config.max_attachment_bytes,
+            max_retained_bytes=attachments_config.max_retained_bytes,
+        )
+        self._attachment_seam = AttachmentRuntimeSeam(
+            policy=policy,
+            permits=permits,
+            content=StorageAttachmentAccess(self.storage, policy),
+        )
+        _logger.info(
+            "Attachment relay enabled: max_attachment_bytes=%d "
+            "max_retained_bytes=%d max_concurrent_transfers=%d "
+            "transfer_timeout_seconds=%s",
+            attachments_config.max_attachment_bytes,
+            attachments_config.max_retained_bytes,
+            attachments_config.max_concurrent_transfers,
+            attachments_config.transfer_timeout_seconds,
+        )

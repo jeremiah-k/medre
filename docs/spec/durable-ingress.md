@@ -9,8 +9,12 @@ an event until MEDRE has durably accepted that event.
 Durable admission atomically creates all of the following SQLite state:
 
 - the canonical event and inline relations;
-- the inbound native-message reference, when the transport provides one; and
-- a durable ingress-work marker.
+- the inbound native-message reference, when the transport provides one;
+- a durable ingress-work marker; and
+- when the adapter supplies verified plaintext bytes via
+  `InboundAttachmentContent`, the content-addressed blob, the
+  event/content association, and the payload descriptor rewrite — all in
+  the same transaction (see [storage.md §4.12–§4.13](storage.md#412-attachment_blobs)).
 
 The native message identity is the idempotency key when present. Re-admission of
 that identity MUST return the original canonical event identity and MUST NOT
@@ -25,6 +29,42 @@ or recovery provenance. Protocol-aware adapters MAY use `admit_inbound` to
 provide richer provenance, but they do not bypass the same canonical admission
 transaction. Storage-less direct app construction is a test-only compatibility
 path and does not provide this guarantee.
+
+## Inbound attachment bytes
+
+Binary attachment data travels separately from the persisted canonical
+envelope through the narrow `InboundAttachmentContent` value: an adapter
+supplies bytes it has already bounded, integrity-verified, and (for
+encrypted sources) decrypted, and core computes the authoritative content
+identity (SHA-256) and measured length **from the supplied bytes** — a
+wire-declared size is evidence at most, never authority.
+
+The admission decision is honest under both failure classes:
+
+- **Transient failures stay retryable but bounded.** Permit contention,
+  transfer timeout, and network failure raise `DurableIngressDeferredError`
+  before the event is admitted. Matrix keeps the native event pending without
+  advancing its source cursor, while MEDRE persists a retry count keyed by the
+  native room/event identity. After three transient attachment-acquisition
+  failures, the event admits descriptor-only with `fetch_exhausted`; ordinary
+  post-admission durable-ingress deferrals retain their existing work-row
+  semantics and do not consume the terminal processing-failure budget. The
+  retry-count checkpoint is bounded: entries clear on admission or when an
+  event is consumed without a further dispatch, and recording past a fixed
+  cap evicts the least recently deferred identity.
+- **Permanent media problems admit descriptor-only.** Malformed locators,
+  unsupported encrypted-media structures, digest mismatches, oversized or
+  quota-rejected content, and media that is gone at the source produce an
+  honest unavailable descriptor (one of the stable reason codes — see
+  [event-model.md §5.5](event-model.md#55-messagefile-attachment-descriptor))
+  and the event admits without bytes. The sync cursor keeps advancing; a
+  permanently unavailable attachment MUST NOT poison the cursor or be
+  disguised as retained content.
+
+Deduplication interacts with admission idempotency: re-admitting a known
+native identity returns the original canonical event and never replaces the
+originally retained bytes, and identical content admitted by different
+events is stored once and consumes quota once.
 
 ## Provenance
 

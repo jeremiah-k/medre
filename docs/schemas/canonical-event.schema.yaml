@@ -218,6 +218,13 @@ $defs:
         description: >-
           Stable machine-readable snake_case reason code + context (e.g.
           'ambiguous:multiple_distinct_native_targets'); null for clean binds.
+      target_event_kind:
+        type: ["string", "null"]
+        default: null
+        description: >-
+          Stored canonical EventKind of the binding target, when it was read
+          during binding; renderers use it to reject edits of immutable media
+          originals.
     required: [status]
     additionalProperties: false
 

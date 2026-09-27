@@ -94,7 +94,7 @@ def _admit(
     *,
     event_id: str,
     native_id: str | None,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, object | None]:
     return sync_admit_ingress(
         db,
         lock,
@@ -120,10 +120,12 @@ def test_sync_admit_ingress_covers_new_duplicate_and_repair_paths(
     assert _admit(ingress_db, lock, event_id="evt-1", native_id="$same") == (
         "evt-1",
         True,
+        None,
     )
     assert _admit(ingress_db, lock, event_id="evt-2", native_id="$same") == (
         "evt-1",
         False,
+        None,
     )
 
     ingress_db.execute("DELETE FROM durable_ingress_work WHERE event_id='evt-1'")
@@ -131,6 +133,7 @@ def test_sync_admit_ingress_covers_new_duplicate_and_repair_paths(
     assert _admit(ingress_db, lock, event_id="evt-3", native_id="$same") == (
         "evt-1",
         False,
+        None,
     )
     repaired = ingress_db.execute(
         "SELECT status FROM durable_ingress_work WHERE event_id='evt-1'"
@@ -144,7 +147,7 @@ def test_sync_admit_ingress_deduplicates_canonical_id_without_native_ref(
     lock = threading.Lock()
 
     assert _admit(ingress_db, lock, event_id="evt-canonical", native_id=None)[1]
-    event_id, created = _admit(
+    event_id, created, _fact = _admit(
         ingress_db, lock, event_id="evt-canonical", native_id=None
     )
 

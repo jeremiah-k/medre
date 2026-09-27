@@ -61,6 +61,7 @@ from medre.adapter_registry import get_adapter_spec, registered_transports
 from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.model import (
+    AttachmentConfig,
     GenericAdapterRuntimeConfig,
     RetryConfig,
     RuntimeConfig,
@@ -73,9 +74,11 @@ from medre.core.observability.sanitization import (
 )
 
 __all__ = [
+    "ATTACHMENTS_ENV_PREFIX",
     "RETRY_ENV_PREFIX",
     "ROUTE_ENV_PREFIX",
     "ROUTE_ENV_NAMES",
+    "apply_attachment_overrides",
     "apply_env_overrides",
     "apply_instance_env_overrides",
     "apply_retry_overrides",
@@ -111,7 +114,17 @@ _ADAPTER_ENV_PREFIX = "MEDRE_ADAPTER__"
 ROUTE_ENV_PREFIX = "MEDRE_ROUTE__"
 ROUTE_ENV_NAMES: frozenset[str] = frozenset()
 
+ATTACHMENTS_ENV_PREFIX = "MEDRE_ATTACHMENTS__"
+
 RETRY_ENV_PREFIX = "MEDRE_RETRY__"
+
+_ATTACHMENTS_FIELD_MAP: dict[str, str] = {
+    "ENABLED": "enabled",
+    "MAX_ATTACHMENT_BYTES": "max_attachment_bytes",
+    "MAX_RETAINED_BYTES": "max_retained_bytes",
+    "MAX_CONCURRENT_TRANSFERS": "max_concurrent_transfers",
+    "TRANSFER_TIMEOUT_SECONDS": "transfer_timeout_seconds",
+}
 
 _REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = tuple(
     f"MEDRE_{transport.upper().replace('-', '_')}_"
@@ -686,6 +699,65 @@ def _parse_retry_env_vars(
     return result
 
 
+def _parse_attachment_env_vars(
+    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+) -> dict[str, ParsedAdapterEnvValue]:
+    """Parse ``MEDRE_ATTACHMENTS__<FIELD>`` vars from *environ*.
+
+    Returns a mapping of field name → ParsedAdapterEnvValue.
+    Raises ConfigValidationError for malformed, unsupported, or duplicate
+    fields.
+    """
+    prefix = ATTACHMENTS_ENV_PREFIX
+    result: dict[str, ParsedAdapterEnvValue] = {}
+    malformed: list[str] = []
+    unsupported: list[str] = []
+    duplicates: list[str] = []
+
+    for name, value in environ.items():
+        if not name.startswith(prefix):
+            continue
+        remainder = name[len(prefix) :]
+        if not remainder:
+            malformed.append(name)
+            continue
+        if "__" in remainder:
+            malformed.append(name)
+            continue
+        field_upper = remainder.upper()
+        if field_upper not in _ATTACHMENTS_FIELD_MAP:
+            unsupported.append(name)
+            continue
+        field_name = _ATTACHMENTS_FIELD_MAP[field_upper]
+        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
+        if field_name in result:
+            duplicates.append(
+                f"{result[field_name].env_var_name} and {name} both normalize "
+                f"to attachments field {field_name!r}"
+            )
+            continue
+        result[field_name] = parsed
+
+    if malformed:
+        raise ConfigValidationError(
+            f"Malformed MEDRE_ATTACHMENTS__ environment variable(s): "
+            f"{sorted(malformed)}. Expected shape: "
+            f"MEDRE_ATTACHMENTS__<FIELD> with a single, non-empty field name."
+        )
+    if unsupported:
+        raise ConfigValidationError(
+            f"Unsupported MEDRE_ATTACHMENTS__ field(s): "
+            f"{sorted(unsupported)}. Supported fields: "
+            f"{sorted(_ATTACHMENTS_FIELD_MAP.keys())}"
+        )
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate normalized attachments fields: {'; '.join(duplicates)}. "
+            f"Each attachments field must come from exactly one env var."
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # MedreEnvConfig
 # ---------------------------------------------------------------------------
@@ -713,6 +785,9 @@ class MedreEnvConfig:
     max_inflight_replay_events: str | None = None
     shutdown_drain_timeout_seconds: str | None = None
     delivery_acquire_timeout_seconds: str | None = None
+
+    # -- Attachments policy overrides --
+    attachments_overrides: dict[str, str] = field(default_factory=dict)
 
     # -- Instance-scoped adapter overrides --
     instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(
@@ -816,6 +891,25 @@ class MedreEnvConfig:
                     parsed.env_var_name,
                     parsed.raw_value,
                     source_kind="retry",
+                    target_field=field_name,
+                )
+
+        # Attachments policy overrides.
+        attachments_overrides = _parse_attachment_env_vars(source)
+        if attachments_overrides:
+            object.__setattr__(
+                instance,
+                "attachments_overrides",
+                {
+                    field_name: parsed.raw_value
+                    for field_name, parsed in attachments_overrides.items()
+                },
+            )
+            for field_name, parsed in attachments_overrides.items():
+                provenance.record(
+                    parsed.env_var_name,
+                    parsed.raw_value,
+                    source_kind="attachments",
                     target_field=field_name,
                 )
 
@@ -1426,6 +1520,41 @@ def apply_retry_overrides(
     return dataclasses.replace(config, retry=new_retry)
 
 
+def apply_attachment_overrides(
+    config: RuntimeConfig,
+    attachments_overrides: dict[str, str],
+) -> RuntimeConfig:
+    """Apply ``MEDRE_ATTACHMENTS__<FIELD>`` overrides to *config*.
+
+    Returns a new RuntimeConfig with attachment overrides applied and
+    revalidated as a whole (cross-field rules included).
+    Raises ConfigValidationError if values fail type coercion or
+    validation.
+    """
+    if not attachments_overrides:
+        return config
+
+    kwargs: dict[str, Any] = {
+        f.name: getattr(config.attachments, f.name) for f in fields(config.attachments)
+    }
+
+    hints = get_type_hints(AttachmentConfig)
+    for field_name, raw_value in attachments_overrides.items():
+        if field_name not in kwargs:
+            raise ConfigValidationError(f"Unknown attachments field {field_name!r}")
+        field_type = hints.get(field_name)
+        coerced = _coerce_field_value(
+            raw_value,
+            field_name,
+            field_type,
+            f"MEDRE_ATTACHMENTS__{field_name.upper()}",
+        )
+        kwargs[field_name] = coerced
+
+    new_attachments = AttachmentConfig(**kwargs).validate()
+    return dataclasses.replace(config, attachments=new_attachments)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1548,5 +1677,10 @@ def apply_env_overrides(
     # Retry overrides
     # ------------------------------------------------------------------
     config = apply_retry_overrides(config, env.retry_overrides)
+
+    # ------------------------------------------------------------------
+    # Attachment policy overrides
+    # ------------------------------------------------------------------
+    config = apply_attachment_overrides(config, env.attachments_overrides)
 
     return config

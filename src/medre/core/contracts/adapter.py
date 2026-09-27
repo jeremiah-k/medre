@@ -31,7 +31,13 @@ from medre.core.contracts.delivery import AdapterHandoffResult, DeliveryFeedback
 from medre.core.events.canonical import CanonicalEvent
 
 if TYPE_CHECKING:
-    from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
+    from medre.core.ingress import (
+        AdapterCheckpoint,
+        AdmissionResult,
+        AttachmentRuntimeSeam,
+        InboundAttachmentContent,
+        IngressProvenance,
+    )
     from medre.core.rendering.renderer import RenderingResult
 
 
@@ -268,6 +274,11 @@ class AdapterContext:
         Optional durable-admission callable. Protocol adapters with reliable
         cursor/provenance semantics may use this instead of ``publish_inbound``
         so external cursor advancement is decoupled from downstream routing.
+        It is called as ``admit_inbound(event, provenance, attachment=None)``
+        where ``attachment`` (:class:`~medre.core.ingress.InboundAttachmentContent`)
+        carries verified plaintext attachment bytes separately from the
+        canonical envelope; core owns content identity, measured length,
+        quota, and the atomic event/content association.
     load_checkpoint / commit_checkpoint:
         Optional application-owned cursor persistence bound to this adapter
         instance. The stream name is supplied by the adapter; checkpoint
@@ -286,6 +297,11 @@ class AdapterContext:
         Adapters use this one boundary for deferred hand-off completion,
         deferred terminal failure, and post-hand-off observations. Core
         remains lifecycle authority.
+    attachments:
+        Optional runtime-wide attachment seam (policy snapshot, bounded
+        transfer permits, and content access). Protocol adapters use it to
+        fetch inbound media under the operator policy and to load retained
+        bytes for outbound media delivery.
     """
 
     adapter_id: str
@@ -293,14 +309,13 @@ class AdapterContext:
     logger: logging.Logger
     clock: Callable[[], datetime]
     shutdown_event: Any  # asyncio.Event – avoided import to prevent hard dep
-    admit_inbound: (
-        Callable[[CanonicalEvent, IngressProvenance], Awaitable[AdmissionResult]] | None
-    ) = None
+    admit_inbound: Callable[..., Awaitable[AdmissionResult]] | None = None
     load_checkpoint: Callable[[str], Awaitable[AdapterCheckpoint | None]] | None = None
     commit_checkpoint: Callable[[str, str, str], Awaitable[None]] | None = None
     report_delivery_feedback: Callable[[DeliveryFeedback], Awaitable[None]] | None = (
         None
     )
+    attachments: AttachmentRuntimeSeam | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -550,18 +565,27 @@ class AdapterContract(ABC):
             await ctx.publish_inbound(event)
 
     async def admit_inbound(
-        self, event: CanonicalEvent, provenance: IngressProvenance
+        self,
+        event: CanonicalEvent,
+        provenance: IngressProvenance,
+        *,
+        attachment: InboundAttachmentContent | None = None,
     ) -> AdmissionResult:
         """Durably admit an event using protocol-supplied provenance.
 
         Unlike :meth:`publish_inbound`, this path intentionally does not apply
         the generic adapter-start timestamp filter. Protocol evidence such as
         Matrix ``RECOVERED`` provenance is authoritative for continuity.
+
+        *attachment*, when supplied, carries verified plaintext attachment
+        bytes alongside the event's declared attachment descriptor; core
+        admission owns content identity, measured length, quota, and the
+        atomic event/content association.
         """
         ctx = getattr(self, "ctx", None)
         if ctx is None or ctx.admit_inbound is None:
             raise RuntimeError("durable ingress admission is not wired")
-        return await ctx.admit_inbound(event, provenance)
+        return await ctx.admit_inbound(event, provenance, attachment=attachment)
 
     def get_codec(self) -> AdapterCodec | None:
         """Return the adapter's codec, if it supports the codec pattern.

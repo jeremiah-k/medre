@@ -2,24 +2,36 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from msgspec import structs as msgspec_structs
+
 from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef
+from medre.core.events.attachments import (
+    ATTACHMENT_PAYLOAD_KEY,
+    AttachmentDescriptor,
+    declared_descriptor_from_event_payload,
+)
 from medre.core.ingress import (
     INGRESS_PROVENANCE_VALUES,
     INGRESS_WORK_STATUS_VALUES,
     AdapterCheckpoint,
     AdmissionResult,
+    AttachmentLimits,
+    InboundAttachmentContent,
     IngressProvenance,
     IngressWorkItem,
     IngressWorkStatus,
 )
+from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.backend import DuplicateEventError, StorageError
 from medre.core.storage.sqlite.connection import (
+    AttachmentAdmissionPlan,
     sync_admit_ingress,
     sync_claim_ingress_work,
     sync_upsert_checkpoint,
@@ -100,12 +112,24 @@ class _IngressMixin:
         provenance: IngressProvenance,
         *,
         suppress_routing: bool = False,
+        attachment: InboundAttachmentContent | None = None,
+        attachment_limits: AttachmentLimits | None = None,
     ) -> AdmissionResult:
         """Atomically persist event, inbound native ref, and durable work.
 
         The native identity is the idempotency key when one is available.
         Duplicate native admission returns the original canonical event ID
-        without creating a second event or work row.
+        without creating a second event or work row and never replaces the
+        originally retained bytes.
+
+        When *attachment* carries verified plaintext bytes, content identity
+        (SHA-256) and measured length are computed here — never trusted from
+        the wire — and the canonical event, content blob, event/content
+        association, native ref, and work marker commit in one transaction.
+        Content that exceeds the per-attachment cap or would exceed the
+        unique-retained quota is still admitted, with the payload descriptor
+        rewritten to the honest ``oversized``/``quota_exceeded`` unavailable
+        state and no bytes stored.
         """
         if provenance not in INGRESS_PROVENANCE_VALUES:
             raise ValueError(f"unsupported ingress provenance: {provenance!r}")
@@ -115,7 +139,19 @@ class _IngressMixin:
         now = _now_iso()
         suppress = suppress_routing or provenance == "history"
         work_status = "suppressed_history" if suppress else "pending"
+
+        attachment_plan: AttachmentAdmissionPlan | None = None
         event_ops = self._event_admission_ops(event)
+        if attachment is not None:
+            limits = attachment_limits or AttachmentLimits()
+            attachment_plan = self._build_attachment_plan(
+                event,
+                event_ops=event_ops,
+                attachment=attachment,
+                limits=limits,
+                now_iso=now,
+            )
+
         native_identity = None
         native_insert = None
         if inbound_ref is not None:
@@ -146,7 +182,7 @@ class _IngressMixin:
             )
         db = self._require_db()
         try:
-            event_id, created = await self._run_in_thread(
+            event_id, created, attachment_fact = await self._run_in_thread(
                 sync_admit_ingress,
                 db,
                 self._lock,
@@ -157,14 +193,18 @@ class _IngressMixin:
                 provenance=provenance,
                 work_status=work_status,
                 now_iso=now,
+                attachment_plan=attachment_plan,
             )
             if not created:
-                return await self._admission_result_for_existing(event_id)
+                return await self._admission_result_for_existing(
+                    event_id, attachment_fact=attachment_fact
+                )
             return AdmissionResult(
                 event_id=event_id,
                 created=True,
                 provenance=provenance,
                 work_status=work_status,
+                attachment=attachment_fact,
             )
         except sqlite3.IntegrityError as exc:
             msg = str(exc)
@@ -174,7 +214,114 @@ class _IngressMixin:
         except sqlite3.Error as exc:
             raise StorageError(f"Durable ingress admission failed: {exc}") from exc
 
-    async def _admission_result_for_existing(self, event_id: str) -> AdmissionResult:
+    def _build_attachment_plan(
+        self,
+        event: CanonicalEvent,
+        *,
+        event_ops: list[tuple[str, tuple[Any, ...]]],
+        attachment: InboundAttachmentContent,
+        limits: AttachmentLimits,
+        now_iso: str,
+    ) -> AttachmentAdmissionPlan:
+        """Prepare atomic binary retention for one admission.
+
+        Bytes without a declared descriptor are a caller contract violation
+        and raise.  A measured length beyond the per-attachment cap is a
+        permanent, pre-transaction decision: the event still admits with an
+        ``oversized`` unavailable descriptor, and the plan carries no blob
+        work so the transaction never stores oversized content.  The
+        quota/dedup decision is deferred to the transaction itself.
+        """
+        declared = declared_descriptor_from_event_payload(event.payload)
+        if declared is None:
+            raise ValueError(
+                "attachment bytes supplied for an event without a declared "
+                f"attachment descriptor: {event.event_id}"
+            )
+        if not isinstance(attachment.data, (bytes, bytearray, memoryview)):
+            raise ValueError("attachment data must be bytes-like")
+        payload_bytes = bytes(attachment.data)
+        measured = len(payload_bytes)
+        digest = hashlib.sha256(payload_bytes).hexdigest()
+        content_ref = f"sha256:{digest}"
+
+        if measured > limits.max_attachment_bytes:
+            unavailable = declared.with_unavailable("oversized")
+            unavailable_event = self._event_with_attachment_descriptor(
+                event, unavailable
+            )
+            unavailable_ops = self._event_admission_ops(unavailable_event)
+            return AttachmentAdmissionPlan(
+                content_ref=content_ref,
+                size_bytes=measured,
+                max_retained_bytes=limits.max_retained_bytes,
+                retained_event_ops=unavailable_ops,
+                unavailable_event_ops=unavailable_ops,
+                retain_ops=[],
+                media_kind=declared.kind,
+                mime_type=declared.mime_type,
+                forced_unavailable_reason="oversized",
+            )
+
+        retained_event = self._event_with_attachment_descriptor(
+            event, declared.with_retained_content(content_ref, measured)
+        )
+        quota_event = self._event_with_attachment_descriptor(
+            event, declared.with_unavailable("quota_exceeded")
+        )
+        retain_ops: list[tuple[str, tuple[Any, ...]]] = [
+            (
+                """
+                INSERT OR IGNORE INTO attachment_blobs
+                    (content_ref, size_bytes, media_kind, mime_type, created_at, data)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    content_ref,
+                    measured,
+                    declared.kind,
+                    declared.mime_type,
+                    now_iso,
+                    sqlite3.Binary(payload_bytes),
+                ),
+            ),
+            (
+                """
+                INSERT INTO event_attachment_associations
+                    (event_id, content_ref, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (event.event_id, content_ref, now_iso),
+            ),
+        ]
+        return AttachmentAdmissionPlan(
+            content_ref=content_ref,
+            size_bytes=measured,
+            max_retained_bytes=limits.max_retained_bytes,
+            retained_event_ops=self._event_admission_ops(retained_event),
+            unavailable_event_ops=self._event_admission_ops(quota_event),
+            retain_ops=retain_ops,
+            media_kind=declared.kind,
+            mime_type=declared.mime_type,
+        )
+
+    @staticmethod
+    def _event_with_attachment_descriptor(
+        event: CanonicalEvent, descriptor: AttachmentDescriptor
+    ) -> CanonicalEvent:
+        """Return a copy of *event* whose payload carries *descriptor*."""
+        payload = {
+            **event.payload,
+            ATTACHMENT_PAYLOAD_KEY: descriptor.to_payload(),
+        }
+        return msgspec_structs.replace(event, payload=payload)
+
+    async def _admission_result_for_existing(
+        self,
+        event_id: str,
+        *,
+        attachment_fact: AttachmentAdmissionFact | None = None,
+    ) -> AdmissionResult:
         row = await self._read_one(
             SELECT_INGRESS_WORK_STATE,
             (event_id,),
@@ -197,11 +344,36 @@ class _IngressMixin:
             )
         provenance: IngressProvenance = stored_provenance
         status: IngressWorkStatus = stored_status
+        if attachment_fact is None:
+            attachment_fact = await self._attachment_fact_for_event(event_id)
         return AdmissionResult(
             event_id=event_id,
             created=False,
             provenance=provenance,
             work_status=status,
+            attachment=attachment_fact,
+        )
+
+    async def _attachment_fact_for_event(
+        self, event_id: str
+    ) -> AttachmentAdmissionFact | None:
+        """Return the stored retention fact for an already-admitted event."""
+        row = await self._read_one(
+            """
+            SELECT a.content_ref, b.size_bytes
+            FROM event_attachment_associations a
+            JOIN attachment_blobs b ON b.content_ref = a.content_ref
+            WHERE a.event_id = ?
+            """,
+            (event_id,),
+        )
+        if row is None:
+            return None
+        return AttachmentAdmissionFact(
+            retained=True,
+            content_ref=str(row["content_ref"]),
+            size_bytes=int(row["size_bytes"]),
+            reason=None,
         )
 
     async def put_adapter_checkpoint(

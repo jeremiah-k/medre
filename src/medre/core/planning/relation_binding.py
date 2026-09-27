@@ -358,6 +358,7 @@ class RelationBindingAuthority:
 
         tuple_records = groups[0]
         candidate = tuple_records[0]
+        target_kind = target_event.event_kind if target_event is not None else None
 
         if not is_mutation:
             return RelationTargetFact(
@@ -367,6 +368,7 @@ class RelationBindingAuthority:
                 native_message_id=candidate.native_message_id,
                 native_thread_id=candidate.native_thread_id,
                 direction=candidate.direction,
+                target_event_kind=target_kind,
             )
 
         # -- Mutation bound_owned proof ------------------------------------
@@ -378,6 +380,7 @@ class RelationBindingAuthority:
                 reason=REASON_INBOUND_ONLY_MATCH,
                 native_channel_id=candidate.native_channel_id,
                 native_message_id=candidate.native_message_id,
+                target_event_kind=target_kind,
             )
         if len(directions) > 1:
             return self._fact(
@@ -386,6 +389,7 @@ class RelationBindingAuthority:
                 reason=REASON_DIRECTION_CONFLICT,
                 native_channel_id=candidate.native_channel_id,
                 native_message_id=candidate.native_message_id,
+                target_event_kind=target_kind,
             )
 
         original_facts = _identity_facts(target_event)
@@ -397,6 +401,7 @@ class RelationBindingAuthority:
                 reason=REASON_ORIGINAL_IDENTITY_INCOMPLETE,
                 native_channel_id=candidate.native_channel_id,
                 native_message_id=candidate.native_message_id,
+                target_event_kind=target_kind,
             )
         if not _identity_complete(mutation_facts):
             return self._fact(
@@ -405,6 +410,7 @@ class RelationBindingAuthority:
                 reason=REASON_MUTATION_IDENTITY_INCOMPLETE,
                 native_channel_id=candidate.native_channel_id,
                 native_message_id=candidate.native_message_id,
+                target_event_kind=target_kind,
             )
         if original_facts != mutation_facts:
             return self._fact(
@@ -413,6 +419,7 @@ class RelationBindingAuthority:
                 reason=REASON_IDENTITY_MISMATCH,
                 native_channel_id=candidate.native_channel_id,
                 native_message_id=candidate.native_message_id,
+                target_event_kind=target_kind,
             )
 
         return RelationTargetFact(
@@ -422,6 +429,7 @@ class RelationBindingAuthority:
             native_message_id=candidate.native_message_id,
             native_thread_id=candidate.native_thread_id,
             direction="outbound",
+            target_event_kind=target_kind,
         )
 
     # -- Internal helpers --------------------------------------------------
@@ -434,6 +442,7 @@ class RelationBindingAuthority:
         reason: str | None,
         native_channel_id: str | None = None,
         native_message_id: str | None = None,
+        target_event_kind: str | None = None,
     ) -> RelationTargetFact:
         """Build a fact; unbound statuses carry no native tuple evidence."""
         return RelationTargetFact(
@@ -442,4 +451,5 @@ class RelationBindingAuthority:
             native_channel_id=native_channel_id,
             native_message_id=native_message_id,
             reason=reason,
+            target_event_kind=target_event_kind,
         )

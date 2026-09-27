@@ -129,6 +129,61 @@ room event itself was received through Matrix room encryption.
 Encrypted-media keys, IVs, hashes, and thumbnail decryption material MUST NOT be
 persisted in the canonical native namespace.
 
+### 4.1 Canonical attachment descriptor
+
+Alongside the native projection above, a producer that resolves
+`message.file` events emits one transport-neutral attachment descriptor in
+the payload under the `attachment` key — the retained/unavailable states and
+reason codes are normative in
+[event-model.md §5.5](event-model.md#55-messagefile-attachment-descriptor).
+The native `media` object keeps protocol provenance (`mxc_uri`,
+`encrypted`, thumbnail locators) that the canonical descriptor never
+carries; the two describe one attachment from different sides of the
+adapter boundary.
+
+### 4.2 Bounded authenticated download
+
+When durable attachment retention is enabled
+([configuration.md §2.6](configuration.md#26-attachmentconfig)), inbound
+bytes are acquired through a bounded model, in this order:
+
+1. Gate first, network last: kind/media-projection check, attachment
+   policy, durable-admission availability, and provenance are all decided
+   before any request is made.
+2. The locator is parsed and validated (an MXC locator with a well-formed
+   server name and non-empty media id); anything else is
+   `malformed_source` and is never requested.
+3. The download goes to the **authenticated media endpoint of the
+   configured homeserver only**, with the access token in the
+   `Authorization` header and **redirects never followed** (a 3xx is a
+   permanent input problem). The stream is capped at
+   `attachments.max_attachment_bytes`; a stream that crosses the cap fails
+   as `oversized`.
+4. Encrypted media are verified and decrypted with the pinned SDK before
+   admission: structure is validated first (`v2`, JWK symmetric key,
+   `A256CTR`, present IV/hashes — else `malformed_source` /
+   `unsupported_source`), then the ciphertext SHA-256 is verified
+   (`integrity_failed` on mismatch). No new cipher code exists in the
+   adapter.
+5. One runtime-wide transfer permit covers the whole acquisition, under the
+   `transfer_timeout_seconds` deadline.
+
+Transient failures (network, timeout, permit contention) stay retryable via
+the durable-ingress deferral path
+([durable-ingress.md](durable-ingress.md)). MEDRE persists that acquisition
+budget against the stable native Matrix room/event identity; after three
+failed attempts the event admits descriptor-only as `fetch_exhausted` so the
+source cursor cannot remain blocked forever. Other permanent media problems
+admit descriptor-only with their stable reason and the sync cursor advances.
+
+### 4.3 Media edits are rejected
+
+Native edits are text-only. An edit whose rendered content is a media
+msgtype, or whose bound target is a stored `message.file` original, fails
+closed with the stable `attachment_edit_unsupported` reason — attachment
+bytes are immutable once admitted, and no `m.replace` may replace media
+content.
+
 ## 5. Encryption and Verification Provenance
 
 The Matrix namespace records only bounded facts needed to explain how the event
@@ -180,8 +235,8 @@ that consumer.
 
 This document defines an ingress serialization contract; outbound wire behavior
 is owned by the [Matrix transport profile](transport-profiles/matrix.md), which
-now documents native edits, deletes, and threads alongside their mutation
-eligibility rules.
+documents native edits, deletes, threads, and `send_media` media egress
+alongside their mutation-eligibility rules.
 
 This contract also does not integrate MMRelay into MEDRE. It defines a stable
 serialization boundary that MMRelay or another producer can adopt independently.
@@ -210,9 +265,12 @@ payload key `_matrix_operation` (module
 ```
 
 - `kind` is `send_event` (text, reply, reaction, thread, edit — anything with
-  wire content) or `redact_event`.
+  wire content), `send_media` (§9.5), or `redact_event`.
 - `send_event` requires non-empty `event_type` and `content`; `redact_event`
-  requires `redacts_event_id`. Mixing per-kind fields is invalid, unknown
+  requires `redacts_event_id`; `send_media` requires a well-formed
+  `content_ref` and must not carry bytes, key material, or any `url`/`file`
+  key (the adapter inserts the fresh upload reference after transfer).
+  Mixing per-kind fields is invalid, unknown
   fields are rejected, and a missing envelope is a permanent delivery error.
   Nothing under `_matrix_operation` ever reaches the homeserver.
 - The envelope deliberately carries no room identity; routing stays in
@@ -298,3 +356,45 @@ independent explicit reply parent is bound in the destination room, MEDRE
 degrades to a plain Matrix reply to that parent. Only when neither target is
 bindable does it degrade to an ordinary message without `m.relates_to`.
 Source-platform IDs are never placed into destination content.
+
+### 9.5 Media (`send_media`)
+
+A retained `message.file` event renders as a closed `send_media` operation
+(`kind: "send_media"`), carrying `content_ref` plus a pure wire template:
+
+```json
+{
+  "_matrix_operation": {
+    "kind": "send_media",
+    "event_type": null,
+    "content": {
+      "msgtype": "m.image",
+      "body": "photo.jpg",
+      "info": { "size": 12345, "mimetype": "image/jpeg" },
+      "filename": "photo.jpg"
+    },
+    "redacts_event_id": null,
+    "reason": null,
+    "content_ref": "sha256:…"
+  }
+}
+```
+
+- The template carries the msgtype for the descriptor's media kind (unknown
+  kinds stay `m.file`, never a guessed executable/image type), the safe
+  filename/MIME/info metadata, the preserved caption with exactly one relay
+  attribution, and the destination-scoped reply/thread relation when one is
+  bound.
+- The operation carries **no bytes, no key material, and never a source
+  MXC**: forwarding a source URI as a delivered file is prohibited, and the
+  renderer fails closed on an unavailable descriptor with
+  `attachment_unavailable:<reason>`.
+- Delivery uploads the retained bytes (loaded through the
+  association-scoped, integrity-verified content seam under one transfer
+  permit) as a **fresh upload to the destination homeserver**: ordinary
+  media upload for plaintext destinations; for encrypted destinations the
+  bytes are encrypted client-side first and the wire `file` object is built
+  from transient SDK decryption info whose keys are discarded after the one
+  wire event is built. Only then is the room message sent through the
+  shared send path (deterministic txn id, shared cooldown/retry ownership).
+- Media edits remain unsupported: `attachment_edit_unsupported` (§4.3).

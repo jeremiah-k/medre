@@ -37,6 +37,7 @@ class RuntimeConfig:
     storage: StorageConfig        # backend, path
     limits: RuntimeLimits         # inflight delivery/replay limits, drain timeout
     retry: RetryConfig            # retry worker: enabled, interval, batch_size, max_attempts
+    attachments: AttachmentConfig # durable attachment relay policy (disabled by default)
     adapters: AdapterConfigSet    # grouped by transport type
     routes: RouteConfigSet        # ordered, validated route definitions
 ```
@@ -88,6 +89,40 @@ changing the root config model.
 | `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
+### 2.6 AttachmentConfig
+
+`attachments` configures the generic durable-attachment relay: whether
+attachment bytes are retained at admission and whether retained bytes may be
+transferred. The feature is **disabled by default**; enabling it is an
+explicit operator decision.
+
+| Field                      | Default     | Description                                                                       |
+| -------------------------- | ----------- | --------------------------------------------------------------------------------- |
+| `enabled`                  | `False`     | Master switch for retaining and transferring attachment bytes                     |
+| `max_attachment_bytes`     | `10485760`  | Maximum measured size of one primary attachment (bytes; 10 MiB default)           |
+| `max_retained_bytes`       | `268435456` | Maximum total of unique retained attachment bytes (bytes; 256 MiB default)        |
+| `max_concurrent_transfers` | `2`         | Maximum concurrent binary transfers (downloads and uploads combined) runtime-wide |
+| `transfer_timeout_seconds` | `60.0`      | Deadline in seconds for one binary transfer                                       |
+
+Validation rules (enforced by `AttachmentConfig.validate()` at load time and
+after environment overrides):
+
+- `max_attachment_bytes` and `max_retained_bytes` MUST be positive integers.
+- `transfer_timeout_seconds` MUST be a positive finite number.
+- Booleans are never accepted where a number is required.
+- `max_attachment_bytes` MUST NOT exceed `max_retained_bytes`.
+- `max_concurrent_transfers` MUST be an integer >= 1.
+
+Disabled semantics: when `enabled` is `False`, no attachment bytes are
+fetched, stored, or delivered, and previously retained bytes are not
+transferred either. Adapters admit `message.file` events with honest
+unavailable descriptors instead of bytes (see
+[event-model.md §5.5](event-model.md#55-messagefile-attachment-descriptor)
+and [storage.md §4.12](storage.md#412-attachment_blobs)). Raising or
+lowering `max_retained_bytes` is an operator action — the runtime adds no
+automatic binary retention, TTL, or GC (see
+[storage.md §4.12](storage.md#412-attachment_blobs)).
+
 ## 3. YAML Schema
 
 The typed config model in `src/medre/config/model.py` and
@@ -119,17 +154,18 @@ the structural requirements that the spec relies on.
 ### 3.2 Top-Level Sections
 
 The root mapping MAY contain the following keys. The typed leaf tables in
-§2.1–§2.5 are the field-level normative reference for each non-adapter
+§2.1–§2.6 are the field-level normative reference for each non-adapter
 section.
 
-| Key        | Typed model        | Field table | Notes                                         |
-| ---------- | ------------------ | ----------- | --------------------------------------------- |
-| `runtime`  | `RuntimeOptions`   | §2.1        | Carries the nested `limits` table — see §2.4. |
-| `logging`  | `LoggingConfig`    | §2.2        |                                               |
-| `storage`  | `StorageConfig`    | §2.3        |                                               |
-| `retry`    | `RetryConfig`      | §2.5        |                                               |
-| `adapters` | `AdapterConfigSet` | §3.3        | Per-transport grouping.                       |
-| `routes`   | `RouteConfigSet`   | §3.4        | Per-route targeting and channel mapping.      |
+| Key           | Typed model        | Field table | Notes                                         |
+| ------------- | ------------------ | ----------- | --------------------------------------------- |
+| `runtime`     | `RuntimeOptions`   | §2.1        | Carries the nested `limits` table — see §2.4. |
+| `logging`     | `LoggingConfig`    | §2.2        |                                               |
+| `storage`     | `StorageConfig`    | §2.3        |                                               |
+| `retry`       | `RetryConfig`      | §2.5        |                                               |
+| `attachments` | `AttachmentConfig` | §2.6        | Disabled unless explicitly enabled.           |
+| `adapters`    | `AdapterConfigSet` | §3.3        | Per-transport grouping.                       |
+| `routes`      | `RouteConfigSet`   | §3.4        | Per-route targeting and channel mapping.      |
 
 `runtime.limits` is the YAML path for the `RuntimeLimits` table (§2.4). A
 top-level `limits:` key is rejected by the loader as an unknown root key —
@@ -457,10 +493,22 @@ frozen instance via `dataclasses.replace()`.
 
 ### 5.1 Core Overrides
 
-| Variable          | Target                 |
-| ----------------- | ---------------------- |
-| `MEDRE_DB_PATH`   | `config.storage.path`  |
-| `MEDRE_LOG_LEVEL` | `config.logging.level` |
+| Variable                                      | Target                                        |
+| --------------------------------------------- | --------------------------------------------- |
+| `MEDRE_DB_PATH`                               | `config.storage.path`                         |
+| `MEDRE_LOG_LEVEL`                             | `config.logging.level`                        |
+| `MEDRE_ATTACHMENTS__ENABLED`                  | `config.attachments.enabled`                  |
+| `MEDRE_ATTACHMENTS__MAX_ATTACHMENT_BYTES`     | `config.attachments.max_attachment_bytes`     |
+| `MEDRE_ATTACHMENTS__MAX_RETAINED_BYTES`       | `config.attachments.max_retained_bytes`       |
+| `MEDRE_ATTACHMENTS__MAX_CONCURRENT_TRANSFERS` | `config.attachments.max_concurrent_transfers` |
+| `MEDRE_ATTACHMENTS__TRANSFER_TIMEOUT_SECONDS` | `config.attachments.transfer_timeout_seconds` |
+
+`MEDRE_ATTACHMENTS__<FIELD>` variables follow the same parse → coerce →
+revalidate pipeline as adapter overrides: values are type-coerced against
+the `AttachmentConfig` field types, the whole config is revalidated after
+overrides (cross-field rules included), and unknown, malformed, or
+duplicate fields are rejected with `ConfigValidationError`. Supported
+field names are exactly the five fields of §2.6.
 
 ### 5.2 Adapter Overrides and Env-First Creation
 

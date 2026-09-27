@@ -18,6 +18,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from medre.core.ingress.types import DurableIngressDeferredError
+
 MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
     {
         "M_FORBIDDEN",
@@ -66,6 +68,23 @@ def is_nio_rate_limited_response(response: Any) -> bool:
         return True
     transport_response = getattr(response, "transport_response", None)
     return getattr(transport_response, "status", None) == 429
+
+
+# Internal durable-admission metadata. MatrixSession injects the count recorded
+# for the stable native (room,event) identity before the adapter decodes a
+# fresh canonical UUID. The key is intentionally adapter-private and never
+# enters persisted canonical event metadata.
+MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY = "_medre_attachment_fetch_deferral_count"
+MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS = 3
+
+
+class MatrixAttachmentFetchDeferredError(DurableIngressDeferredError):
+    """Retryable Matrix media acquisition that must keep the native event pending.
+
+    This marker lets :class:`MatrixSession` persist only attachment-fetch
+    deferrals at the native event/checkpoint boundary without changing the
+    semantics of other :class:`DurableIngressDeferredError` users.
+    """
 
 
 class MatrixError(Exception):
@@ -137,3 +156,25 @@ class MatrixProvisionError(MatrixError):
                 "Reconcile these resources before retrying."
             )
         super().__init__(message)
+
+
+class MatrixMediaError(MatrixError):
+    """Base error for native media transfers."""
+
+
+class MatrixMediaUnavailableError(MatrixMediaError):
+    """Permanent media input problem; retrying the same input cannot help.
+
+    ``reason`` carries a stable secret-free code matching the canonical
+    attachment descriptor's ``unavailable_reason`` vocabulary subset used
+    for ingress rejection: ``malformed_source``, ``unsupported_source``,
+    ``integrity_failed``, ``oversized``, ``content_missing``.
+    """
+
+    def __init__(self, message: str, *, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class MatrixMediaTransientError(MatrixMediaError):
+    """Retryable media acquisition/transient transfer failure."""

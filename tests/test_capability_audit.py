@@ -376,17 +376,6 @@ class TestMembershipVisibility:
             ), f"{transport} unexpectedly declares presence support"
 
 
-class TestAttachmentSupport:
-    """attachments: whether the adapter can carry file attachments."""
-
-    def test_no_adapter_claims_attachments(self) -> None:
-        """No adapter implements file transfer.  Honest omission."""
-        for transport in TRANSPORTS:
-            assert (
-                _get_fake_caps(transport).attachments is False
-            ), f"{transport} unexpectedly declares attachment support"
-
-
 class TestHistoryRetrieval:
     """store_and_forward: whether the adapter supports message persistence."""
 

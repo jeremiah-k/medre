@@ -54,7 +54,9 @@ from medre.core.events.canonical import (
 from medre.core.events.kinds import EventKind
 from medre.core.ingress import (
     AdmissionResult,
+    AttachmentLimits,
     DurableIngressDeferredError,
+    InboundAttachmentContent,
     IngressProvenance,
 )
 from medre.core.observability.correlation import correlation_scope
@@ -769,13 +771,20 @@ class PipelineRunner:
         return outcomes
 
     async def admit_ingress(
-        self, event: CanonicalEvent, provenance: IngressProvenance
+        self,
+        event: CanonicalEvent,
+        provenance: IngressProvenance,
+        *,
+        attachment: InboundAttachmentContent | None = None,
+        attachment_limits: AttachmentLimits | None = None,
     ) -> AdmissionResult:
         """Durably admit one inbound event without routing it inline.
 
         Relation and conversation identity are resolved before the atomic
         storage boundary.  Storage then commits the canonical event, inbound
-        native reference, and durable work marker in one transaction.
+        native reference, durable work marker — and, when *attachment* bytes
+        are supplied, the content blob plus event/content association — in
+        one transaction.
         """
         self._validate_event(event)
         with correlation_scope(
@@ -795,6 +804,8 @@ class PipelineRunner:
                     inbound_ref,
                     provenance,
                     suppress_routing=suppress_routing,
+                    attachment=attachment,
+                    attachment_limits=attachment_limits,
                 )
                 # Repair on both new and duplicate admission.  If a previous
                 # process committed ingress facts but failed during projection

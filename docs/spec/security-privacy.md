@@ -76,6 +76,31 @@ before they enter logs or diagnostic output.
 These are adapter-reported values. Adapter implementations MUST ensure that
 error messages and message IDs do not contain credentials.
 
+### 2.5 Durable Attachment Content
+
+When `attachments.enabled` is `true` (see
+[configuration.md §2.6](configuration.md#26-attachmentconfig)), retained
+attachment bytes are stored **plaintext at rest** in the `attachment_blobs`
+table, exactly like message payloads: storage is append-friendly local
+SQLite and is not encrypted at rest. Operators who require confidentiality
+at rest MUST protect the database file like any other plaintext payload
+store.
+
+- `content_ref` (`sha256:<64 lowercase hex>`) is a **local integrity
+  digest** computed from the stored bytes. It is not a pointer to any
+  remote resource, carries no transport provenance, and reveals nothing
+  beyond the fact that some retained bytes hash to that value.
+- Upload encryption keys and IVs for Matrix encrypted-media uploads are
+  transient inside the adapter that created them. They MUST NEVER enter
+  canonical events, receipts, outbox state, logs, diagnostics, or envelopes
+  (see [matrix-event-shape.md §4](matrix-event-shape.md#4-media-descriptors)).
+- Downloads use the **authenticated media endpoint of the configured
+  homeserver only**. The access token travels in the `Authorization`
+  header — never in the URL — and **redirects are never followed**: a 3xx
+  answer from the media endpoint is a permanent input problem, not a
+  redirect to follow. MEDRE never requests media from a server other than
+  the configured homeserver.
+
 ## 3. Privacy Boundaries
 
 ### 3.1 What Never Goes Into Canonical Metadata

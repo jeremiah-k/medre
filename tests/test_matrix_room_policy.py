@@ -85,7 +85,15 @@ def _wire_ingress(**config_overrides: Any) -> tuple[
     _published, ctx = make_adapter_context()
     admitted: list[tuple[str, str]] = []
 
-    async def _admit(event: Any, provenance: str) -> AdmissionResult:
+    async def _admit(
+        event: Any,
+        provenance: str,
+        *,
+        attachment: Any = None,
+        attachment_limits: Any = None,
+    ) -> AdmissionResult:
+        assert attachment is None
+        assert attachment_limits is None
         admitted.append((event.event_id, provenance))
         return AdmissionResult(
             event_id=event.event_id,

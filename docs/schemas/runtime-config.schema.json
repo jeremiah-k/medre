@@ -119,6 +119,42 @@
         }
       }
     },
+    "attachments": {
+      "type": "object",
+      "description": "Generic durable-attachment relay policy (AttachmentConfig). Disabled by default: while enabled is false, no attachment bytes are fetched, stored, or transferred, and media events carry honest unavailable descriptors. Range and cross-field validation (positive integers, max_attachment_bytes <= max_retained_bytes, max_concurrent_transfers >= 1, positive finite timeout, booleans are not integers) is enforced by the typed config dataclass at load time.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for retaining and transferring attachment bytes. When false, previously retained bytes are not transferred either."
+        },
+        "max_attachment_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10485760,
+          "description": "Maximum measured size of one primary attachment in bytes (default 10 MiB). Must not exceed max_retained_bytes."
+        },
+        "max_retained_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 268435456,
+          "description": "Maximum total of unique retained attachment bytes in bytes (default 256 MiB). Reaching the quota rejects new content explicitly; nothing is evicted — no retention, TTL, or GC. Raising capacity is an operator action."
+        },
+        "max_concurrent_transfers": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Maximum concurrent binary transfers (downloads and uploads combined) across the whole runtime."
+        },
+        "transfer_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 60.0,
+          "description": "Deadline in seconds for one binary transfer."
+        }
+      }
+    },
     "adapters": {
       "type": "object",
       "description": "Adapter instances grouped by registered built-in transport. This schema snapshots the current built-in registry and remains fail-closed: unknown transport groups are rejected. A registry contract test requires these property names to match medre.adapter_registry.registered_transports(). Per-instance field validation is performed by adapter-config.schema.json and the registered typed adapter config dataclass at load time.",

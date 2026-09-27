@@ -356,7 +356,7 @@ class TestFakeMatrixCapabilities:
         assert caps.reactions == "native"
         assert caps.edits == "native"
         assert caps.deletes == "native"
-        assert caps.attachments is False
+        assert caps.attachments is True
         assert caps.direct_messages is True
         assert caps.channels is True
         assert caps.topic_rooms is True

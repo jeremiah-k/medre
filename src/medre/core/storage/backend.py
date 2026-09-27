@@ -30,8 +30,11 @@ from medre.core.events import (
 from medre.core.ingress import (
     AdapterCheckpoint,
     AdmissionResult,
+    AttachmentLimits,
+    InboundAttachmentContent,
     IngressProvenance,
     IngressWorkItem,
+    StoredAttachmentContent,
 )
 
 # ---------------------------------------------------------------------------
@@ -879,10 +882,35 @@ class StorageBackend(Protocol):
         provenance: IngressProvenance,
         *,
         suppress_routing: bool = False,
+        attachment: InboundAttachmentContent | None = None,
+        attachment_limits: AttachmentLimits | None = None,
     ) -> AdmissionResult:
         """Atomically persist event, native identity, and pending work.
 
+        When *attachment* bytes are supplied, the event's content blob,
+        event/content association, and payload descriptor rewrite commit in
+        the same transaction, bounded by *attachment_limits*.
+
         Authority: **create** (atomic).
+        """
+        ...
+
+    async def load_attachment_content(
+        self, event_id: str, content_ref: str
+    ) -> StoredAttachmentContent:
+        """Return verified retained attachment bytes for one event.
+
+        Authority: **list/get** (read-only, association-scoped, integrity
+        verified).  Raises
+        :class:`~medre.core.ingress.content.AttachmentContentUnavailableError`
+        with a stable reason; never refetches or substitutes.
+        """
+        ...
+
+    async def attachment_retained_bytes(self) -> int:
+        """Return the total size of unique retained attachment bytes.
+
+        Authority: **list/get** (read-only diagnostics).
         """
         ...
 
