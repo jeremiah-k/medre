@@ -248,7 +248,6 @@ class TestRenderingEvidencePropagation:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             fallback_applied=None,
             truncated=False,
             rendered_text_chars=5,

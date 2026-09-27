@@ -457,7 +457,6 @@ class TestEvidenceSizeBounded:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=True,
             fallback_applied=None,
             rendered_text_chars=50,

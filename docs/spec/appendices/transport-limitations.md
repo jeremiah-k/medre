@@ -217,9 +217,7 @@ mechanisms:
    by a synthetic lifecycle receipt. Capability-filter diagnostics that never create
    a target receipt likewise remain part of the replay result only.
 
-5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
-   production code path currently sets this field.
-6. **Delivery evidence strength differs by transport.** Matrix synchronous hand-off
+5. **Delivery evidence strength differs by transport.** Matrix synchronous hand-off
    normally proves homeserver acceptance. LXMF initial hand-off proves local
    LXMRouter acceptance, while later SDK delivery states are post-hand-off observations,
    while later callback-emitted terminal provider states are persisted
