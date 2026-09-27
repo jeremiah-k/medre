@@ -153,6 +153,9 @@ adapters:
 #                       "bidirectional"
 #   priority         - integer route matching/planning priority (default 100);
 #                       lower values run first. Not transport-native QoS.
+#   ownership        - "shared" (default) allows overlapping route sources;
+#                       "exclusive" rejects overlap with another enabled
+#                       exclusive route during preflight/startup.
 #   enabled          - true (default) or false
 #   source_room      - Matrix room ID on the source side (alias for
 #                       source_channel)
@@ -221,6 +224,7 @@ routes:
     dest_adapters: [radio]
     directionality: source_to_dest
     priority: 100
+    ownership: shared
     enabled: true
     dest_channel: '1'
     # Only bridge plain message events (not reactions, edits, etc.).

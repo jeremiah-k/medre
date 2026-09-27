@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfigSet, RouteDirectionality
 
@@ -19,6 +20,7 @@ def _routes_validate(config_path: str | None) -> None:
     """Load config and validate route definitions, printing a summary."""
     try:
         config, source, paths = load_config(config_path)
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
@@ -90,11 +92,19 @@ def _routes_validate(config_path: str | None) -> None:
 
     # Validate route expansion and expanded ID uniqueness (matches startup).
     from medre.config.errors import ConfigValidationError as _CVE
+    from medre.core.routing.router import find_route_conflicts as _find_route_conflicts
     from medre.runtime.route_engine import RouteValidationError as _RVE
     from medre.runtime.route_engine import build_runtime_routes as _build_runtime_routes
 
     try:
-        _build_runtime_routes(routes)
+        _built_routes = _build_runtime_routes(routes)
+        # Exclusive-ownership validation shares the startup authority so
+        # `routes validate`, `routes plan`, and runtime cannot disagree.
+        for _a_id, _b_id in _find_route_conflicts(_built_routes):
+            errors.append(
+                f"Exclusive routes {_a_id!r} and {_b_id!r} "
+                f"have overlapping source specifications"
+            )
     except (_RVE, _CVE) as exc:
         errors.append(str(exc))
 
@@ -213,7 +223,9 @@ def _routes_topology(config_path: str | None) -> None:
 
         on_off = "[ON]" if route.enabled else "[OFF]"
 
-        print(f"  {on_off} {rid}  priority={route.priority}")
+        print(
+            f"  {on_off} {rid}  priority={route.priority} ownership={route.ownership}"
+        )
         print(f"    {source_str} {arrow} {dest_str}{target_str}")
 
         # Policy summary
@@ -279,6 +291,7 @@ def _routes_list(config_path: str | None) -> None:
         print(f"    status:        {status}")
         print(f"    direction:     {direction}")
         print(f"    priority:      {route.priority}")
+        print(f"    ownership:     {route.ownership}")
         print(f"    sources:       [{sources}]")
         print(f"    destinations:  [{dests}]")
 
@@ -327,6 +340,7 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
     """
     try:
         config, _source, _paths = load_config(config_path)
+        config = apply_env_overrides(config, _paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
@@ -348,8 +362,8 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
 
 
 def _plan_has_errors(plan) -> bool:
-    """True if any route entry carries a blocking error."""
-    return any(entry.error is not None for entry in plan.routes)
+    """True if route expansion or exclusive-ownership validation fails."""
+    return bool(plan.conflicts) or any(entry.error is not None for entry in plan.routes)
 
 
 def _format_adapter_ref(adapter_id: str, transport: str | None) -> str:
@@ -422,7 +436,8 @@ def _render_route_plan(plan) -> None:
         leg_count = len(entry.legs)
         print(
             f"  {entry.route_id} [{entry.directionality}] {marker}"
-            f" priority={entry.priority} — {leg_count} leg(s)"
+            f" priority={entry.priority} ownership={entry.ownership}"
+            f" — {leg_count} leg(s)"
         )
         if entry.error is not None:
             print(f"    \u2717 error: {entry.error}")
@@ -458,13 +473,24 @@ def _render_route_plan(plan) -> None:
             print(f"    \u26a0 {w}")
         print()
 
+    # -- Exclusive ownership conflicts ------------------------------------
+    if plan.conflicts:
+        print(f"Exclusive route conflicts ({len(plan.conflicts)}):")
+        for conflict in plan.conflicts:
+            print(
+                "  ✗ "
+                f"{conflict.route_a_id} ({conflict.expanded_route_a_id}) overlaps "
+                f"{conflict.route_b_id} ({conflict.expanded_route_b_id})"
+            )
+        print()
+
     # -- Disabled routes ---------------------------------------------------
     if disabled_entries:
         print(f"Disabled routes ({len(disabled_entries)}):")
         for entry in disabled_entries:
             print(
                 f"  {entry.route_id} [{entry.directionality}] [OFF] "
-                f"priority={entry.priority}"
+                f"priority={entry.priority} ownership={entry.ownership}"
             )
         print()
 

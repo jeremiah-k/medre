@@ -6,7 +6,7 @@ to which adapters.  Package-level imports:
 * From :mod:`~medre.core.routing.models`:
   ``RouteSource``, ``RouteDestination``, ``RouteTarget``, ``Route``.
 * From :mod:`~medre.core.routing.router`:
-  ``Router``, ``RouteConflictError``.
+  ``Router``, ``RouteConflictError``, ``find_route_conflicts``.
 """
 
 from medre.core.routing.models import (
@@ -18,6 +18,7 @@ from medre.core.routing.models import (
 from medre.core.routing.router import (
     RouteConflictError,
     Router,
+    find_route_conflicts,
 )
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "RouteConflictError",
     "RouteDestination",
     "Router",
+    "find_route_conflicts",
     "RouteSource",
     "RouteTarget",
 ]

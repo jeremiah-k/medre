@@ -291,6 +291,9 @@ Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 - An integer `priority` (default `100`); lower values are matched and planned
   first, with expanded route ID as the deterministic tie-breaker. This is
   route ordering, not transport QoS.
+- An `ownership` value (`shared` by default, or `exclusive`). Enabled
+  exclusive routes whose expanded source match domains overlap are rejected
+  by offline route planning and runtime startup. Shared routes may overlap.
 - An `enabled` flag (validated even when `false`; disabled routes are not
   registered).
 - Optional targeting fields `source_channel` / `dest_channel` and their
@@ -539,7 +542,7 @@ Examples:
 
 ### 5.3 Route Overrides
 
-Route overrides follow the pattern `MEDRE_ROUTE__<TOKEN>__<FIELD>`.
+Route overrides follow the pattern `MEDRE_ROUTE__<TOKEN>__<FIELD>`. Scalar route authority fields including `PRIORITY` and `OWNERSHIP` are supported for existing or env-created routes; complex `policy`, `retry`, and `context_map` structures remain YAML-only.
 
 ### 5.4 Unsupported Patterns
 

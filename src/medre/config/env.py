@@ -1300,6 +1300,7 @@ def _build_route_data_from_env_fields(
             "dest_adapters": list(existing.dest_adapters),
             "directionality": existing.directionality.value,
             "priority": existing.priority,
+            "ownership": existing.ownership,
             "enabled": existing.enabled,
             "source_channel": existing.source_channel,
             "dest_channel": existing.dest_channel,
@@ -1325,6 +1326,10 @@ def _build_route_data_from_env_fields(
             route_data["policy"] = dataclasses.asdict(existing.policy)
         if existing.retry is not None:
             route_data["retry"] = dataclasses.asdict(existing.retry)
+        if existing.dest_destination is not None:
+            route_data["dest_destination"] = dataclasses.asdict(
+                existing.dest_destination
+            )
         if existing.source_origin_label is not None:
             route_data["source_origin_label"] = existing.source_origin_label
         if existing.dest_origin_label is not None:
@@ -1352,6 +1357,8 @@ def _build_route_data_from_env_fields(
             route_data["directionality"] = parsed.raw_value.strip().lower()
         elif fname == "priority":
             route_data["priority"] = _coerce_int(parsed.raw_value, parsed.env_var_name)
+        elif fname == "ownership":
+            route_data["ownership"] = parsed.raw_value.strip().lower()
         elif fname == "enabled":
             route_data["enabled"] = _coerce_bool(parsed.raw_value, parsed.env_var_name)
         elif fname in (
@@ -1367,7 +1374,7 @@ def _build_route_data_from_env_fields(
                 f"Unsupported route field {fname!r} in "
                 f"{parsed.env_var_name!r}. Supported fields: "
                 f"source_adapters, dest_adapters, directionality, priority, "
-                f"enabled, source_channel, dest_channel, "
+                f"ownership, enabled, source_channel, dest_channel, "
                 f"source_room, dest_room{extra}."
             )
 

@@ -35,6 +35,7 @@ from medre.config.routes import (
     ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
+    RouteDestinationConfig,
     RouteDirectionality,
     RouteRetryConfig,
 )
@@ -559,6 +560,7 @@ class TestRouteEnvCreation:
         assert route.dest_adapters == ("adapter-b",)
         assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
         assert route.priority == 100
+        assert route.ownership == "shared"
         assert route.enabled is True
 
     def test_route_priority_created_and_overridden_from_env(
@@ -576,6 +578,22 @@ class TestRouteEnvCreation:
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__PRIORITY", "7")
         overridden = apply_env_overrides(_make_config_with_route()).routes.routes[0]
         assert overridden.priority == 7
+
+    def test_route_ownership_created_and_overridden_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "adapter-a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__OWNERSHIP", "exclusive")
+        created = apply_env_overrides(_make_base_config()).routes.routes[0]
+        assert created.ownership == "exclusive"
+
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS")
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS")
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__OWNERSHIP")
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__OWNERSHIP", "exclusive")
+        overridden = apply_env_overrides(_make_config_with_route()).routes.routes[0]
+        assert overridden.ownership == "exclusive"
 
     # (b) Override existing config route: ENABLED=false preserves other fields.
     def test_override_existing_config_route(
@@ -988,6 +1006,7 @@ def _make_config_with_route_complex() -> RuntimeConfig:
         source_adapters=("adapter-a",),
         dest_adapters=("adapter-b",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
+        ownership="exclusive",
         enabled=True,
         context_map={"0": ContextMapEntry(dest_context="!room1:matrix.org")},
         policy=BridgePolicy(allowed_event_types=("message",)),
@@ -1033,6 +1052,13 @@ class TestRouteOverridePreservesComplexFields:
         assert route.policy is not None
         assert route.policy.allowed_event_types == ("message",)
 
+    def test_ownership_preserved_on_unrelated_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
+        route = apply_env_overrides(_make_config_with_route_complex()).routes.routes[0]
+        assert route.ownership == "exclusive"
+
     def test_retry_preserved_on_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """retry is preserved when overriding a route via env."""
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
@@ -1043,6 +1069,34 @@ class TestRouteOverridePreservesComplexFields:
         assert route.retry is not None
         assert route.retry.enabled is True
         assert route.retry.max_attempts == 5
+
+    def test_structured_destination_preserved_on_ownership_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        destination = RouteDestinationConfig(
+            kind="lxmf_destination",
+            destination_hash="a" * 32,
+            destination_name="mobile-peer",
+        )
+        route = RouteConfig(
+            route_id="toml-route",
+            source_adapters=("adapter-a",),
+            dest_adapters=("adapter-b",),
+            dest_destination=destination,
+        )
+        base = RuntimeConfig(
+            runtime=RuntimeOptions(name="test"),
+            logging=LoggingConfig(level="INFO"),
+            storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+            adapters=AdapterConfigSet(),
+            routes=RouteConfigSet(routes=(route,)),
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__OWNERSHIP", "exclusive")
+
+        overridden = apply_env_overrides(base).routes.routes[0]
+
+        assert overridden.ownership == "exclusive"
+        assert overridden.dest_destination == destination
 
 
 # ---------------------------------------------------------------------------

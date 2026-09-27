@@ -12,6 +12,8 @@ intended to be called from the framework's event processing pipeline.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 
@@ -81,6 +83,26 @@ def _sources_overlap(a: RouteSource, b: RouteSource) -> bool:
     if a.channel is not None and b.channel is not None and a.channel != b.channel:
         return False
     return True
+
+
+def find_route_conflicts(routes: Iterable[Route]) -> list[tuple[str, str]]:
+    """Return deterministic enabled-exclusive route overlap pairs.
+
+    Disabled routes do not participate because they cannot match runtime events.
+    Shared routes are intentionally overlap-permissive; a conflict exists only
+    when two enabled routes both declare ``ownership="exclusive"`` and their
+    source specifications can match the same canonical event.
+    """
+    exclusive = sorted(
+        (route for route in routes if route.enabled and route.ownership == "exclusive"),
+        key=lambda route: route.id,
+    )
+    conflicts: list[tuple[str, str]] = []
+    for i, route_a in enumerate(exclusive):
+        for route_b in exclusive[i + 1 :]:
+            if _sources_overlap(route_a.source, route_b.source):
+                conflicts.append((route_a.id, route_b.id))
+    return conflicts
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +226,20 @@ class Router:
 
     # -- Validation -------------------------------------------------------
 
+    def find_conflicts(
+        self, replacements: Iterable[Route] = ()
+    ) -> list[tuple[str, str]]:
+        """Return conflicts after overlaying candidate route replacements.
+
+        Existing routes remain part of the candidate router state unless a
+        replacement carries the same route ID, matching :meth:`add_route`
+        semantics.  The router itself is not mutated.
+        """
+        candidates = dict(self._routes)
+        for route in replacements:
+            candidates[route.id] = route
+        return find_route_conflicts(candidates.values())
+
     def validate_no_conflicts(self) -> None:
         """Validate that no two exclusive routes have overlapping sources.
 
@@ -213,10 +249,7 @@ class Router:
             If two routes with ``ownership="exclusive"`` have source
             specifications that can match the same event.
         """
-        exclusive = [
-            route for route in self._routes.values() if route.ownership == "exclusive"
-        ]
-        for i, route_a in enumerate(exclusive):
-            for route_b in exclusive[i + 1 :]:
-                if _sources_overlap(route_a.source, route_b.source):
-                    raise RouteConflictError(route_a.id, route_b.id)
+        conflicts = self.find_conflicts()
+        if conflicts:
+            route_a_id, route_b_id = conflicts[0]
+            raise RouteConflictError(route_a_id, route_b_id)

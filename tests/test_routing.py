@@ -18,6 +18,7 @@ from medre.core.routing import (
     Router,
     RouteSource,
     RouteTarget,
+    find_route_conflicts,
 )
 
 
@@ -212,6 +213,39 @@ class TestConflictValidation:
         assert err.route_a_id in ("e1", "e2")
         assert err.route_b_id in ("e1", "e2")
 
+    def test_disabled_exclusive_route_does_not_conflict(self) -> None:
+        enabled = Route(
+            id="enabled",
+            source=RouteSource(adapter="a", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t1")],
+            ownership="exclusive",
+        )
+        disabled = Route(
+            id="disabled",
+            source=RouteSource(adapter="a", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t2")],
+            ownership="exclusive",
+            enabled=False,
+        )
+        assert find_route_conflicts([disabled, enabled]) == []
+        Router(routes=[disabled, enabled]).validate_no_conflicts()
+
+    def test_conflict_pairs_are_deterministic_by_route_id(self) -> None:
+        routes = [
+            Route(
+                id=rid,
+                source=RouteSource(adapter="a", event_kinds=(), channel=None),
+                targets=[RouteTarget(adapter=f"target-{rid}")],
+                ownership="exclusive",
+            )
+            for rid in ("zeta", "alpha", "middle")
+        ]
+        assert find_route_conflicts(routes) == [
+            ("alpha", "middle"),
+            ("alpha", "zeta"),
+            ("middle", "zeta"),
+        ]
+
     def test_exclusive_routes_no_overlap_passes(self) -> None:
         """Exclusive routes with disjoint sources pass validation."""
         r1 = Route(
@@ -264,6 +298,29 @@ class TestAddRemoveRoutes:
         router = Router()
         with pytest.raises(KeyError):
             router.remove_route("nope")
+
+    def test_find_conflicts_overlays_replacements_by_route_id(self) -> None:
+        replace_me = Route(
+            id="replace_me",
+            source=RouteSource(adapter="old", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t1")],
+            ownership="exclusive",
+        )
+        other = Route(
+            id="other",
+            source=RouteSource(adapter="new", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t2")],
+            ownership="exclusive",
+        )
+        replacement = Route(
+            id="replace_me",
+            source=RouteSource(adapter="new", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t3")],
+            ownership="exclusive",
+        )
+        router = Router(routes=[replace_me, other])
+
+        assert router.find_conflicts([replacement]) == [("other", "replace_me")]
 
 
 # ===================================================================

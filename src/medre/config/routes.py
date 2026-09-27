@@ -981,6 +981,11 @@ class RouteDestinationConfig:
 
 
 # Canonical field names accepted in a ``[routes.<id>]`` section.  Every
+# Closed ownership vocabulary shared by from_dict and __post_init__. The
+# isinstance-str guard keeps unhashable YAML values (lists/mappings) on the
+# ConfigValidationError path instead of raising TypeError.
+_ROUTE_OWNERSHIPS: frozenset[str] = frozenset({"shared", "exclusive"})
+
 # field that :meth:`RouteConfig.from_dict` pops must be listed here so the
 # unknown-key rejection can flag typos rather than silently dropping them.
 _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
@@ -989,6 +994,7 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "dest_adapters",
         "directionality",
         "priority",
+        "ownership",
         "enabled",
         "source_channel",
         "dest_channel",
@@ -1021,6 +1027,10 @@ class RouteConfig:
     priority:
         Route matching/planning priority. Lower values are planned first;
         equal priorities are ordered by expanded route ID. Defaults to ``100``.
+    ownership:
+        Route overlap policy: ``"shared"`` allows overlap with other routes;
+        ``"exclusive"`` rejects overlap with another enabled exclusive route
+        at startup. Defaults to ``"shared"``.
     enabled:
         Whether this route is enabled at startup.
     source_channel:
@@ -1088,6 +1098,7 @@ class RouteConfig:
     context_map: dict[str, ContextMapEntry] | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
+    ownership: str = "shared"
 
     def __post_init__(self) -> None:
         """Normalize enum-typed fields and the ``context_map`` shape.
@@ -1105,6 +1116,15 @@ class RouteConfig:
             raise ConfigValidationError(
                 f"Route {self.route_id!r}: 'priority' must be an integer, "
                 f"got {self.priority!r}",
+                section_path=f"routes.{self.route_id}",
+            )
+        if (
+            not isinstance(self.ownership, str)
+            or self.ownership not in _ROUTE_OWNERSHIPS
+        ):
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'ownership' must be 'shared' or "
+                f"'exclusive', got {self.ownership!r}",
                 section_path=f"routes.{self.route_id}",
             )
         if not isinstance(self.directionality, RouteDirectionality):
@@ -1221,6 +1241,15 @@ class RouteConfig:
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'priority' must be an integer, "
                 f"got {priority!r}",
+                section_path=section_path,
+            )
+
+        # --- ownership ---
+        ownership = data.pop("ownership", "shared")
+        if not isinstance(ownership, str) or ownership not in _ROUTE_OWNERSHIPS:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'ownership' must be 'shared' or "
+                f"'exclusive', got {ownership!r}",
                 section_path=section_path,
             )
 
@@ -1468,6 +1497,7 @@ class RouteConfig:
             dest_adapters=dest_adapters,
             directionality=directionality,
             priority=priority,
+            ownership=ownership,
             enabled=enabled,
             source_channel=source_channel,
             dest_channel=dest_channel,

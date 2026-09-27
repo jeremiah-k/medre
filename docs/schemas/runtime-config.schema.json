@@ -243,6 +243,12 @@
           "default": 100,
           "description": "Route matching/planning priority. Lower values run first; equal priorities break ties by expanded route_id lexicographically. This does not request transport QoS."
         },
+        "ownership": {
+          "type": "string",
+          "enum": ["shared", "exclusive"],
+          "default": "shared",
+          "description": "Route overlap authority. Shared routes may overlap; enabled exclusive routes must not have overlapping source match domains."
+        },
         "enabled": {
           "type": "boolean",
           "default": true,
