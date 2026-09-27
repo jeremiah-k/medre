@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 from medre.config.errors import ConfigValidationError
 from medre.config.route_expansion import EXPANSION_ID_PATTERNS_HINT, expand_route_config
 from medre.config.routes import RouteDirectionality
+from medre.core.routing.router import find_route_conflicts
 from medre.runtime.route_engine import RouteValidationError, check_route_loops
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 __all__ = [
     "AdapterSummary",
     "RoutePlan",
+    "RouteConflictSummary",
     "RoutePlanEntry",
     "RoutePlanLeg",
     "build_route_plan",
@@ -125,6 +127,22 @@ class RoutePlanLeg:
 
 
 @dataclass(frozen=True)
+class RouteConflictSummary:
+    """One blocking overlap between enabled exclusive expanded routes.
+
+    Both config-level and expanded IDs are retained because one config route
+    may expand into several runtime legs.  The expanded IDs identify the exact
+    conflicting pair while the config IDs point operators back to editable
+    configuration.
+    """
+
+    route_a_id: str
+    route_b_id: str
+    expanded_route_a_id: str
+    expanded_route_b_id: str
+
+
+@dataclass(frozen=True)
 class RoutePlanEntry:
     """One config-level route and its expansion outcome.
 
@@ -139,6 +157,9 @@ class RoutePlanEntry:
         ``"dest_to_source"``, ``"bidirectional"``).
     priority:
         Configured route priority. Lower values are matched/planned first.
+    ownership:
+        ``"shared"`` permits overlap; ``"exclusive"`` conflicts with another
+        enabled exclusive route whose source can match the same event.
     legs:
         Expanded legs produced from this route.  Empty when disabled or
         when expansion failed.
@@ -153,6 +174,7 @@ class RoutePlanEntry:
     enabled: bool
     directionality: str
     priority: int
+    ownership: str
     legs: list[RoutePlanLeg]
     warnings: list[str]
     error: str | None
@@ -166,6 +188,7 @@ class RoutePlan:
     routes: list[RoutePlanEntry]
     total_legs: int
     loops: list[str]  # from check_route_loops
+    conflicts: list[RouteConflictSummary]
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +248,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     enabled=False,
                     directionality=rc.directionality.value,
                     priority=rc.priority,
+                    ownership=rc.ownership,
                     legs=[],
                     warnings=["disabled"],
                     error=None,
@@ -245,6 +269,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     enabled=True,
                     directionality=rc.directionality.value,
                     priority=rc.priority,
+                    ownership=rc.ownership,
                     legs=[],
                     warnings=[],
                     error=f"references unknown adapter(s): {sorted(set(missing))}. "
@@ -263,6 +288,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     enabled=True,
                     directionality=rc.directionality.value,
                     priority=rc.priority,
+                    ownership=rc.ownership,
                     legs=[],
                     warnings=[],
                     error=str(exc),
@@ -290,6 +316,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     enabled=True,
                     directionality=rc.directionality.value,
                     priority=rc.priority,
+                    ownership=rc.ownership,
                     legs=[],
                     warnings=[],
                     error=collision_error,
@@ -317,6 +344,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 enabled=True,
                 directionality=rc.directionality.value,
                 priority=rc.priority,
+                ownership=rc.ownership,
                 legs=legs,
                 warnings=warnings,
                 error=None,
@@ -324,9 +352,19 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
         )
         all_expanded_routes.extend(leg.route for leg in expanded_legs)
 
-    # -- Loop detection over the aggregate expansion ------------------------
-    loops = check_route_loops(all_expanded_routes)
+    # -- Aggregate validation over the successful expansion -----------------
+    conflicts: list[RouteConflictSummary] = []
+    for route_a_id, route_b_id in find_route_conflicts(all_expanded_routes):
+        conflicts.append(
+            RouteConflictSummary(
+                route_a_id=seen_expanded_ids[route_a_id],
+                route_b_id=seen_expanded_ids[route_b_id],
+                expanded_route_a_id=route_a_id,
+                expanded_route_b_id=route_b_id,
+            )
+        )
 
+    loops = check_route_loops(all_expanded_routes)
     total_legs = sum(len(e.legs) for e in route_entries)
 
     return RoutePlan(
@@ -334,6 +372,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
         routes=route_entries,
         total_legs=total_legs,
         loops=loops,
+        conflicts=conflicts,
     )
 
 

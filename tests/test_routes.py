@@ -85,6 +85,7 @@ class TestRouteConfigValid:
         assert r.dest_adapters == ("radio",)
         assert r.directionality == RouteDirectionality.SOURCE_TO_DEST
         assert r.priority == 100
+        assert r.ownership == "shared"
         assert r.enabled is True
         assert r.source_channel is None
         assert r.dest_channel is None
@@ -215,6 +216,44 @@ class TestRoutePriorityValidation:
                     "dest_adapters": ["b"],
                     "priority": value,
                 },
+            )
+
+
+class TestRouteOwnershipValidation:
+    """Route ownership is explicit, closed, and backward compatible."""
+
+    def test_explicit_exclusive_ownership_parsed(self) -> None:
+        route = RouteConfig.from_dict(
+            "exclusive_route",
+            {
+                "source_adapters": ["a"],
+                "dest_adapters": ["b"],
+                "ownership": "exclusive",
+            },
+        )
+        assert route.ownership == "exclusive"
+
+    @pytest.mark.parametrize(
+        "value", ["private", "EXCLUSIVE", "", 1, None, ["exclusive"], {"exclusive": 1}]
+    )
+    def test_invalid_ownership_rejected(self, value: object) -> None:
+        with pytest.raises(ConfigValidationError, match="ownership.*shared.*exclusive"):
+            RouteConfig.from_dict(
+                "bad_ownership",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "ownership": value,
+                },
+            )
+
+    def test_direct_construction_rejects_invalid_ownership(self) -> None:
+        with pytest.raises(ConfigValidationError, match="ownership.*shared.*exclusive"):
+            RouteConfig(
+                route_id="bad_direct",
+                source_adapters=("a",),
+                dest_adapters=("b",),
+                ownership="private",
             )
 
 

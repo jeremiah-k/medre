@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from medre.core.routing.models import Route
-from medre.core.routing.router import Router
+from medre.core.routing.router import RouteConflictError, Router, find_route_conflicts
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
@@ -534,6 +534,9 @@ def register_routes(
         If config route expansion fails in the compiler (e.g. duplicate
         expanded route IDs across the set, or a direct-constructed route
         violating runtime-semantic boundary invariants).
+    RouteConflictError
+        If two enabled routes with ``ownership="exclusive"`` have overlapping
+        source specifications after expansion.
     """
     if built_adapter_ids is None:
         built_adapter_ids = adapter_ids
@@ -558,6 +561,11 @@ def register_routes(
     legs = expand_route_configs(route_config_set)
     routes = [leg.route for leg in legs]
     provenance = {leg.route.id: leg.config_route_id for leg in legs}
+
+    conflicts = find_route_conflicts(routes)
+    if conflicts:
+        route_a_id, route_b_id = conflicts[0]
+        raise RouteConflictError(route_a_id, route_b_id)
 
     if not routes:
         _logger.info("No enabled routes to register")

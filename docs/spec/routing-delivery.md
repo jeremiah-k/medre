@@ -3,7 +3,7 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Authoritative specification for MEDRE route model, fanout, loop suppression, delivery planning, retry/outbox semantics, failure taxonomy, local acceptance vs remote delivery, and non-goals.
-> **Last reviewed:** 2026-08-22
+> **Last reviewed:** 2026-09-27
 
 This document is the single normative reference for everything between "the pipeline has a derived event ready to deliver" and "the adapter reports back with a receipt." An implementer MUST be able to build routing and delivery from these definitions without consulting any other document.
 
@@ -27,11 +27,11 @@ class RouteSource:
 
 Matching rules:
 
-| Field         | Match behavior                                                                             |
-| ------------- | ------------------------------------------------------------------------------------------ |
-| `adapter`     | Exact match on adapter instance name. `None` is a wildcard matching any adapter.           |
-| `event_kinds` | Event MUST have an `event_kind` present in this list. The list MUST NOT be empty.          |
-| `channel`     | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel. |
+| Field         | Match behavior                                                                                            |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| `adapter`     | Exact match on adapter instance name. `None` is a wildcard matching any adapter.                          |
+| `event_kinds` | Non-empty: event MUST have an `event_kind` present in this list. Empty: wildcard matching any event kind. |
+| `channel`     | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel.                |
 
 All three fields are ANDed together. A source matches only when every non-None field matches the corresponding event field.
 
@@ -97,19 +97,23 @@ The `kind` field determines the addressing model:
 ```python
 @dataclass
 class Route:
-    route_id: str
-    from_: RouteSource          # Structured source matching criteria
-    to: list[RouteTarget]       # One or more structured targets
-    enabled: bool
-    filters: dict               # Additional filter criteria (tags, metadata values)
-    priority: int = 100         # Route ordering priority (lower = earlier)
+    id: str
+    source: RouteSource
+    targets: list[RouteTarget]
+    priority: int = 100
+    fanout_strategy: str = "broadcast"
+    ownership: str = "shared"
+    enabled: bool = True
+    policy: RoutePolicy | None = None
 ```
 
-- `route_id` MUST be unique across all routes. Duplicate route IDs in configuration are a startup error.
-- `to` is a list of one or more targets. An empty `to` list is a configuration error.
-- `priority` determines route matching/planning ordering when multiple routes match. Lower numbers run first; the configuration default is `100`. It does not request transport-level QoS or native message priority.
-- `filters` provides extensible matching beyond the core fields.
-- `enabled: false` means the route is loaded but never matches. Disabled routes do not participate in routing.
+- `id` MUST be unique across the expanded runtime route set. Duplicate expanded IDs are a startup/preflight error.
+- `targets` is a list of one or more targets. An empty list is a configuration error.
+- `priority` determines matching/planning ordering when multiple routes match. Lower numbers run first; the configuration default is `100`. It does not request transport-level QoS or native message priority.
+- `fanout_strategy` is currently fixed to `"broadcast"`: every target receives an independent delivery plan. No weighted/first-success fanout mode is implemented.
+- `ownership` is `"shared"` by default. Shared routes MAY overlap. Two enabled `"exclusive"` routes MUST NOT have source specifications that can match the same canonical event; offline planning and runtime startup reject such overlap before transport I/O.
+- `enabled: false` means the route never matches and does not participate in exclusive-overlap validation.
+- `policy` is the compiled static route allowlist. MEDRE does not currently expose a separate generic route `filters` mapping.
 
 ### 2.6 Configuration Representation
 
@@ -193,16 +197,19 @@ The routing engine evaluates **all enabled routes** against each derived event. 
 ### 3.1 Matching Algorithm
 
 1. Filter out routes where `enabled` is `false`.
-2. For each remaining route, evaluate `from_` against the event:
+2. For each remaining route, evaluate `source` against the event:
    - `adapter`: event's `source_adapter` MUST equal this value, unless `None` (wildcard).
-   - `event_kinds`: event's `event_kind` MUST be present in this list.
+   - `event_kinds`: when non-empty, the event's `event_kind` MUST be present; an empty tuple is a wildcard matching any event kind.
    - `channel`: event's `source_channel_id` MUST equal this value, unless `None` (wildcard).
-3. If the core fields match, evaluate `filters` (tag matching, metadata values). Implementation of filter matching is extensible.
-4. Collect all matching routes.
+3. Collect all matching routes.
 
-### 3.2 Non-Exclusive Matching
+Additional route allowlists are evaluated by the compiled `RoutePolicy` during delivery planning, after source matching and before adapter side effects. There is no separate generic `filters` evaluator in the current runtime.
 
-Routes are **non-exclusive** by default. If an event matches routes A and B, both routes fire. The event gets delivered to all targets from both routes. There is no deduplication at the route level. Deduplication, if needed, is handled by the `DeduplicationPolicy` at the event policy stage.
+### 3.2 Shared and Exclusive Ownership
+
+Routes are **shared** by default. If an event matches shared routes A and B, both routes fire and independent delivery plans are built for all targets. There is no first-match-wins behavior and no route-level deduplication.
+
+`ownership="exclusive"` is a configuration safety assertion, not a runtime winner-selection rule. Two enabled exclusive routes whose source domains overlap are invalid configuration and are rejected by both `medre routes plan` and runtime startup. Exclusive routes MAY overlap shared routes; both still match at runtime. Disabled routes do not participate in conflict detection.
 
 ### 3.3 Route Ordering
 
@@ -1353,34 +1360,29 @@ Route policy suppression is a cross-transport failure classification. It occurs 
 
 **General principle:** The runtime does not suppress duplicate sends. Retries after transient failures MAY produce duplicates if the first send succeeded but the response was lost. Radio operators expect duplicates. Bridge fan-out produces independent deliveries per target.
 
-## 17. Route Startup and Dynamic Reload
+## 17. Route Startup and Reload Scope
 
 ### 17.1 Startup Validation
 
 When the runtime loads route configuration:
 
-1. All route IDs MUST be unique. Duplicate `route_id` values are a startup error.
-2. Every `to[].adapter` MUST reference an adapter that exists in the `adapters` configuration. Referencing a non-existent adapter is a startup error.
-3. Every `from_.adapter` that is not `None` MUST reference an existing adapter.
-4. `from_.event_kinds` MUST NOT be empty.
-5. `to` list MUST NOT be empty.
+1. Config route IDs MUST be unique, and expansion MUST produce unique runtime route IDs.
+2. Every enabled route's `source_adapters` and `dest_adapters` references MUST resolve to an adapter ID in the assembled runtime configuration.
+3. Both adapter sides MUST be non-empty and MUST NOT overlap within a single config route.
+4. `BridgePolicy.allowed_event_types` MAY be empty; empty compiles to an empty `RouteSource.event_kinds` tuple and therefore means "match any event kind". A non-empty tuple restricts source matching to those event kinds.
+5. Every expanded runtime route MUST have at least one target.
 6. `channel` and `destination` on the same `RouteTarget` MUST NOT both be set when `destination.kind` is `"channel"` or `"matrix_room"`.
-7. Routes referencing disabled adapters MAY be loaded but will never match.
-8. Unknown keys in route policy sections are rejected at config load time. Allowlist values MUST be arrays of strings; bare strings are rejected.
-9. Source and destination adapters MUST NOT overlap within a single route.
+7. Unknown route/policy keys are rejected at config load time; policy allowlists MUST be arrays of strings and bare strings are rejected.
+8. Two enabled routes with `ownership="exclusive"` MUST NOT expand to overlapping source match domains. This validation runs before adapter-build degradation so transport availability cannot hide an invalid ownership claim.
+9. Disabled routes are validated structurally but are not expanded, registered, matched, or considered for exclusive-overlap conflicts.
 
-### 17.2 Dynamic Reload
+### 17.2 Runtime Reload Scope
 
-When route configuration is reloaded at runtime:
+MEDRE does **not** currently implement dynamic route/config reload. Route configuration is loaded and compiled during startup and remains fixed for the lifetime of that runtime instance. Changing route configuration requires a runtime restart. A future reload mechanism MUST preserve the same validation and atomicity authorities defined here before it can be advertised as supported behavior.
 
-- New routes are added to the active set immediately and begin matching new events.
-- Removed routes are removed from the active set. In-flight delivery plans for removed routes continue to completion.
-- Modified routes are replaced atomically. Events currently being routed that already matched the old version continue with the old match. New events see the updated route.
-- Configuration validation runs before applying changes. If validation fails, the old configuration remains active and an error is logged.
+### 17.3 Route Registration and Match Order
 
-### 17.3 Route Registration Order
-
-Routes register in the same order they appear in configuration. Registration is deterministic. `validate_route_adapter_refs` runs before any route is registered. If any enabled route references an adapter ID not present in the assembled runtime, startup fails.
+Successful expanded routes are registered deterministically from configuration expansion. Registration order is not routing precedence. At match time, all matching enabled routes are sorted by `(priority, expanded route_id)` before delivery-plan construction. `validate_route_adapter_refs` and exclusive-overlap validation run before any route is registered.
 
 ### 17.4 Offline Route Plan
 
@@ -1394,6 +1396,13 @@ transport SDK, or performing any network or hardware I/O.
 The `medre routes plan` operator command is the offline rendering of this
 expansion. Its properties:
 
+- **Startup-equivalent ownership validation.** The plan reports overlapping
+  enabled exclusive expanded routes as blocking conflicts and exits with the
+  configuration-error status. This uses the same pure conflict detector as
+  runtime startup and performs no adapter I/O.
+- **Ownership visibility.** Each config route entry includes its `shared` /
+  `exclusive` ownership value so the preflight output explains why overlap is
+  permitted or rejected.
 - **Per-leg effective origin label and provenance.** The plan shows the
   _effective_ `origin_label` for every expanded leg — the value the
   renderer would emit — and identifies its source within the §17.5.2

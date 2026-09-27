@@ -61,6 +61,7 @@ routes:
     dest_adapters: [radio]
     directionality: source_to_dest
     priority: 25
+    ownership: exclusive
     source_room: '!room:fake.local'
     dest_channel: '1'
 """
@@ -185,6 +186,19 @@ routes:
           destination_name: mobile-peer-1
 """
 
+# Two enabled exclusive routes with the same source domain.
+_CONFIG_EXCLUSIVE_CONFLICT = _CONFIG_NO_ROUTES + """\
+routes:
+  first_exclusive:
+    source_adapters: [main]
+    dest_adapters: [radio]
+    ownership: exclusive
+  second_exclusive:
+    source_adapters: [main]
+    dest_adapters: [radio]
+    ownership: exclusive
+"""
+
 # Truly minimal config — runtime only, no adapters, no routes.
 _CONFIG_EMPTY = "runtime: {}\n"
 
@@ -223,6 +237,7 @@ def test_no_routes_plan_has_zero_routes_and_legs(tmp_path: Path) -> None:
     assert plan.routes == []
     assert plan.total_legs == 0
     assert plan.loops == []
+    assert plan.conflicts == []
 
 
 def test_no_routes_plan_still_lists_adapters(tmp_path: Path) -> None:
@@ -232,6 +247,27 @@ def test_no_routes_plan_still_lists_adapters(tmp_path: Path) -> None:
     assert len(plan.adapters) == 2
     ids = {a.adapter_id for a in plan.adapters}
     assert ids == {"main", "radio"}
+
+
+# ===========================================================================
+# Exclusive ownership conflicts are preflight-visible
+# ===========================================================================
+
+
+def test_exclusive_conflicts_are_reported_with_config_and_expanded_ids(
+    tmp_path: Path,
+) -> None:
+    config = _load(tmp_path, _CONFIG_EXCLUSIVE_CONFLICT)
+    plan = build_route_plan(config)
+    assert len(plan.conflicts) == 1
+    conflict = plan.conflicts[0]
+    assert (conflict.route_a_id, conflict.route_b_id) == (
+        "first_exclusive",
+        "second_exclusive",
+    )
+    assert conflict.expanded_route_a_id == "first_exclusive"
+    assert conflict.expanded_route_b_id == "second_exclusive"
+    assert {entry.ownership for entry in plan.routes} == {"exclusive"}
 
 
 # ===========================================================================
@@ -247,6 +283,7 @@ def test_simple_route_produces_one_forward_leg(tmp_path: Path) -> None:
     assert entry.enabled is True
     assert entry.directionality == "source_to_dest"
     assert entry.priority == 25
+    assert entry.ownership == "exclusive"
     assert entry.error is None
     assert len(entry.legs) == 1
     assert plan.total_legs == 1

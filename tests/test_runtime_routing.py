@@ -28,7 +28,13 @@ from medre.config.routes import (
     RouteDirectionality,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing import (
+    Route,
+    RouteConflictError,
+    Router,
+    RouteSource,
+    RouteTarget,
+)
 from medre.runtime.route_engine import (
     RouteValidationError,
     build_runtime_routes,
@@ -71,6 +77,7 @@ def _rc(
     *,
     enabled: bool = True,
     priority: int = 100,
+    ownership: str = "shared",
     directionality: RouteDirectionality = RouteDirectionality.SOURCE_TO_DEST,
     policy: BridgePolicy | None = None,
     source_channel: str | None = None,
@@ -83,6 +90,7 @@ def _rc(
         dest_adapters=dests,
         directionality=directionality,
         priority=priority,
+        ownership=ownership,
         enabled=enabled,
         policy=policy,
         source_channel=source_channel,
@@ -168,6 +176,12 @@ class TestBuildRuntimeRoutes:
         rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), priority=17),))
         routes = build_runtime_routes(rcs)
         assert [route.priority for route in routes] == [17]
+
+    def test_ownership_is_preserved_on_runtime_routes(self) -> None:
+        """Config ownership survives config-to-core expansion."""
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), ownership="exclusive"),))
+        routes = build_runtime_routes(rcs)
+        assert [route.ownership for route in routes] == ["exclusive"]
 
     def test_empty_route_config_set(self) -> None:
         """Empty config set yields empty routes."""
@@ -388,6 +402,35 @@ class TestValidateRouteAdapterRefs:
 
 class TestRegisterRoutes:
     """register_routes validates, builds, and registers routes on a Router."""
+
+    def test_enabled_exclusive_overlap_fails_before_registration(self) -> None:
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("exclusive_a", ("a",), ("b",), ownership="exclusive"),
+                _rc("exclusive_b", ("a",), ("c",), ownership="exclusive"),
+            )
+        )
+        router = Router()
+        with pytest.raises(RouteConflictError, match="exclusive_a.*exclusive_b"):
+            register_routes(router, rcs, frozenset({"a", "b", "c"}))
+        assert router.match(_make_event(source_adapter="a")) == []
+
+    def test_disabled_exclusive_overlap_does_not_conflict(self) -> None:
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("exclusive_a", ("a",), ("b",), ownership="exclusive"),
+                _rc(
+                    "exclusive_b",
+                    ("a",),
+                    ("c",),
+                    ownership="exclusive",
+                    enabled=False,
+                ),
+            )
+        )
+        router = Router()
+        result = register_routes(router, rcs, frozenset({"a", "b", "c"}))
+        assert [route.id for route in result.registered_routes] == ["exclusive_a"]
 
     def test_routes_registered_on_router(self) -> None:
         """Routes appear in Router.match() results."""
