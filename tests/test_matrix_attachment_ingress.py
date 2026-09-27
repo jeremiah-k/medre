@@ -22,7 +22,6 @@ import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
-from medre.adapters.matrix.session import MatrixSession
 from medre.adapters.matrix.errors import (
     MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
     MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
@@ -30,6 +29,7 @@ from medre.adapters.matrix.errors import (
     MatrixMediaTransientError,
     MatrixMediaUnavailableError,
 )
+from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events.attachments import ATTACHMENT_PAYLOAD_KEY
