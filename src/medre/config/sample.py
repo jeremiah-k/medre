@@ -141,8 +141,8 @@ adapters:
 # Routes - named bridge routes between adapters
 # ---------------------------------------------------------------------------
 # Each routes.<id> mapping defines a static route from one or more source
-# adapters to one or more destination adapters.  Routes are evaluated in the
-# order they appear in this file.
+# adapters to one or more destination adapters. Matching routes are ordered by
+# priority (lower first), then by expanded route ID for deterministic ties.
 #
 # Required fields:
 #   source_adapters  - list of adapter IDs that originate messages
@@ -151,6 +151,8 @@ adapters:
 # Optional fields:
 #   directionality   - "source_to_dest" (default), "dest_to_source", or
 #                       "bidirectional"
+#   priority         - integer route matching/planning priority (default 100);
+#                       lower values run first. Not transport-native QoS.
 #   enabled          - true (default) or false
 #   source_room      - Matrix room ID on the source side (alias for
 #                       source_channel)
@@ -218,6 +220,7 @@ routes:
     source_adapters: [main]
     dest_adapters: [radio]
     directionality: source_to_dest
+    priority: 100
     enabled: true
     dest_channel: '1'
     # Only bridge plain message events (not reactions, edits, etc.).

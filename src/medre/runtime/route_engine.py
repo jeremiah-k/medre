@@ -7,9 +7,10 @@ resulting core :class:`~medre.core.routing.models.Route` objects with
 the :class:`~medre.core.routing.router.Router`.
 
 It is deliberately transport-agnostic and SDK-free: it contains no
-platform-specific expansion logic.  Route ordering is deterministic:
-routes are registered in the same order they appear in the
-:class:`RouteConfigSet`.
+platform-specific expansion logic. Registration preserves the
+:class:`RouteConfigSet` expansion order for stable inspection; runtime
+matching order is owned by :class:`~medre.core.routing.router.Router` and is
+``(priority, route_id)`` regardless of registration order.
 
 Public symbols
 --------------

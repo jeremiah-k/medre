@@ -310,6 +310,7 @@ def _expand_standard_route(
             id=route_id,
             source=source,
             targets=targets,
+            priority=rc.priority,
             enabled=rc.enabled,
             policy=route_policy,
         )
@@ -415,6 +416,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
                                 ),
                             )
                         ],
+                        priority=rc.priority,
                         enabled=rc.enabled,
                         policy=route_policy,
                     ),
@@ -439,6 +441,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
                         targets=[
                             RouteTarget(adapter=src_id, channel=key, destination=None)
                         ],
+                        priority=rc.priority,
                         enabled=rc.enabled,
                         policy=route_policy,
                     ),

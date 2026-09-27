@@ -154,8 +154,9 @@ class Router:
     def match(self, event: CanonicalEvent) -> list[Route]:
         """Return all routes whose source filter matches *event*.
 
-        Only enabled routes are considered.  Routes are returned in
-        insertion order.
+        Only enabled routes are considered. Routes are returned in
+        deterministic delivery order: lower ``priority`` first, then
+        lexicographic route ID for ties.
 
         Parameters
         ----------
@@ -168,11 +169,12 @@ class Router:
             All enabled routes whose :attr:`Route.source` matches the
             event.
         """
-        return [
+        matched = [
             route
             for route in self._routes.values()
             if route.enabled and _source_matches(route.source, event)
         ]
+        return sorted(matched, key=lambda route: (route.priority, route.id))
 
     def resolve_targets(
         self,

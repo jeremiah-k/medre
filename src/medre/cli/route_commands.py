@@ -106,7 +106,10 @@ def _routes_validate(config_path: str | None) -> None:
         sources = ", ".join(route.source_adapters)
         dests = ", ".join(route.dest_adapters)
         marker = "[ON]" if route.enabled else "[OFF]"
-        print(f"  {marker} {rid}: {status}  ({sources} --{direction}--> {dests})")
+        print(
+            f"  {marker} {rid}: {status} priority={route.priority} "
+            f" ({sources} --{direction}--> {dests})"
+        )
 
         # Print per-route warnings grouped under the route
         if rid in route_warnings:
@@ -210,7 +213,7 @@ def _routes_topology(config_path: str | None) -> None:
 
         on_off = "[ON]" if route.enabled else "[OFF]"
 
-        print(f"  {on_off} {rid}")
+        print(f"  {on_off} {rid}  priority={route.priority}")
         print(f"    {source_str} {arrow} {dest_str}{target_str}")
 
         # Policy summary
@@ -275,6 +278,7 @@ def _routes_list(config_path: str | None) -> None:
         print(f"  {route.route_id}:")
         print(f"    status:        {status}")
         print(f"    direction:     {direction}")
+        print(f"    priority:      {route.priority}")
         print(f"    sources:       [{sources}]")
         print(f"    destinations:  [{dests}]")
 
@@ -418,7 +422,7 @@ def _render_route_plan(plan) -> None:
         leg_count = len(entry.legs)
         print(
             f"  {entry.route_id} [{entry.directionality}] {marker}"
-            f" — {leg_count} leg(s)"
+            f" priority={entry.priority} — {leg_count} leg(s)"
         )
         if entry.error is not None:
             print(f"    \u2717 error: {entry.error}")
@@ -458,7 +462,10 @@ def _render_route_plan(plan) -> None:
     if disabled_entries:
         print(f"Disabled routes ({len(disabled_entries)}):")
         for entry in disabled_entries:
-            print(f"  {entry.route_id} [{entry.directionality}] [OFF]")
+            print(
+                f"  {entry.route_id} [{entry.directionality}] [OFF] "
+                f"priority={entry.priority}"
+            )
         print()
 
     # -- Errors summary ----------------------------------------------------

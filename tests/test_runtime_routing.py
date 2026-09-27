@@ -70,6 +70,7 @@ def _rc(
     dests: tuple[str, ...],
     *,
     enabled: bool = True,
+    priority: int = 100,
     directionality: RouteDirectionality = RouteDirectionality.SOURCE_TO_DEST,
     policy: BridgePolicy | None = None,
     source_channel: str | None = None,
@@ -81,6 +82,7 @@ def _rc(
         source_adapters=sources,
         dest_adapters=dests,
         directionality=directionality,
+        priority=priority,
         enabled=enabled,
         policy=policy,
         source_channel=source_channel,
@@ -160,6 +162,12 @@ class TestBuildRuntimeRoutes:
         )
         routes = build_runtime_routes(rcs)
         assert [r.id for r in routes] == ["alpha", "beta", "gamma"]
+
+    def test_priority_is_preserved_on_runtime_routes(self) -> None:
+        """Config priority survives config-to-core expansion."""
+        rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",), priority=17),))
+        routes = build_runtime_routes(rcs)
+        assert [route.priority for route in routes] == [17]
 
     def test_empty_route_config_set(self) -> None:
         """Empty config set yields empty routes."""
@@ -426,6 +434,27 @@ class TestRegisterRoutes:
         router = Router()
         result = register_routes(router, rcs, frozenset({"a"}))
         assert result.registered_routes == ()
+
+    def test_matches_order_by_priority_then_route_id(self) -> None:
+        """Runtime matching follows the routing spec, not registration order."""
+        rcs = RouteConfigSet(
+            routes=(
+                _rc("z-default", ("a",), ("d1",), priority=100),
+                _rc("z-fast", ("a",), ("d2",), priority=10),
+                _rc("a-fast", ("a",), ("d3",), priority=10),
+                _rc("a-default", ("a",), ("d4",), priority=100),
+            )
+        )
+        router = Router()
+        register_routes(router, rcs, frozenset({"a", "d1", "d2", "d3", "d4"}))
+
+        matched = router.match(_make_event(source_adapter="a"))
+        assert [route.id for route in matched] == [
+            "a-fast",
+            "z-fast",
+            "a-default",
+            "z-default",
+        ]
 
     def test_multiple_routes_match_simultaneously(self) -> None:
         """Multiple routes can match the same event."""

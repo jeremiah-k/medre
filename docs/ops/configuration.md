@@ -421,6 +421,7 @@ routes:
     dest_adapters:
       - radio
     directionality: bidirectional
+    priority: 50
     enabled: true
     source_room: "!room:example.com"
     dest_channel: "1"
@@ -434,6 +435,7 @@ routes:
 | `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                     |
 | `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                     |
 | `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                 |
+| `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.       |
 | `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                    |
 | `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`. |
 

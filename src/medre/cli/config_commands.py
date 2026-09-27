@@ -192,7 +192,8 @@ def _config_check(config_path: str | None) -> None:
             dests = ", ".join(route.dest_adapters)
             on_off = "[ON]" if route.enabled else "[OFF]"
             print(
-                f"  {on_off} {route.route_id}: {status}  ({sources} --{direction}--> {dests})"
+                f"  {on_off} {route.route_id}: {status} priority={route.priority} "
+                f" ({sources} --{direction}--> {dests})"
             )
 
         route_enabled = sum(1 for r in route_list if r.enabled)

@@ -1299,6 +1299,7 @@ def _build_route_data_from_env_fields(
             "source_adapters": list(existing.source_adapters),
             "dest_adapters": list(existing.dest_adapters),
             "directionality": existing.directionality.value,
+            "priority": existing.priority,
             "enabled": existing.enabled,
             "source_channel": existing.source_channel,
             "dest_channel": existing.dest_channel,
@@ -1349,6 +1350,8 @@ def _build_route_data_from_env_fields(
             ]
         elif fname == "directionality":
             route_data["directionality"] = parsed.raw_value.strip().lower()
+        elif fname == "priority":
+            route_data["priority"] = _coerce_int(parsed.raw_value, parsed.env_var_name)
         elif fname == "enabled":
             route_data["enabled"] = _coerce_bool(parsed.raw_value, parsed.env_var_name)
         elif fname in (
@@ -1363,7 +1366,7 @@ def _build_route_data_from_env_fields(
             raise ConfigValidationError(
                 f"Unsupported route field {fname!r} in "
                 f"{parsed.env_var_name!r}. Supported fields: "
-                f"source_adapters, dest_adapters, directionality, "
+                f"source_adapters, dest_adapters, directionality, priority, "
                 f"enabled, source_channel, dest_channel, "
                 f"source_room, dest_room{extra}."
             )

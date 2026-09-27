@@ -988,6 +988,7 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "source_adapters",
         "dest_adapters",
         "directionality",
+        "priority",
         "enabled",
         "source_channel",
         "dest_channel",
@@ -1017,6 +1018,9 @@ class RouteConfig:
         Tuple of destination adapter IDs.
     directionality:
         Direction of event flow.
+    priority:
+        Route matching/planning priority. Lower values are planned first;
+        equal priorities are ordered by expanded route ID. Defaults to ``100``.
     enabled:
         Whether this route is enabled at startup.
     source_channel:
@@ -1072,6 +1076,7 @@ class RouteConfig:
     source_adapters: tuple[str, ...]
     dest_adapters: tuple[str, ...]
     directionality: RouteDirectionality | str = RouteDirectionality.SOURCE_TO_DEST
+    priority: int = 100
     enabled: bool = True
     source_channel: str | None = None
     dest_channel: str | None = None
@@ -1096,6 +1101,12 @@ class RouteConfig:
         only on the YAML path, so programmatic routes silently kept
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
+        if not isinstance(self.priority, int) or isinstance(self.priority, bool):
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'priority' must be an integer, "
+                f"got {self.priority!r}",
+                section_path=f"routes.{self.route_id}",
+            )
         if not isinstance(self.directionality, RouteDirectionality):
             try:
                 coerced = RouteDirectionality(self.directionality)
@@ -1203,6 +1214,15 @@ class RouteConfig:
 
         # --- directionality (coerced by RouteConfig.__post_init__) ---
         directionality = data.pop("directionality", "source_to_dest")
+
+        # --- priority ---
+        priority = data.pop("priority", 100)
+        if not isinstance(priority, int) or isinstance(priority, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'priority' must be an integer, "
+                f"got {priority!r}",
+                section_path=section_path,
+            )
 
         # --- enabled ---
         enabled: bool = data.pop("enabled", True)
@@ -1447,6 +1467,7 @@ class RouteConfig:
             source_adapters=source_adapters,
             dest_adapters=dest_adapters,
             directionality=directionality,
+            priority=priority,
             enabled=enabled,
             source_channel=source_channel,
             dest_channel=dest_channel,

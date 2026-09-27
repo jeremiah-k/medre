@@ -157,6 +157,9 @@ class Route:
     ownership:
         Whether this route is ``"exclusive"`` (no other exclusive route
         may overlap) or ``"shared"`` (overlaps allowed).
+    priority:
+        Route matching/planning priority. Lower values are matched and planned first. Routes
+        with equal priority are ordered by route ID for deterministic behavior.
     enabled:
         Whether this route is currently enabled.
     policy:
@@ -167,6 +170,7 @@ class Route:
     id: str
     source: RouteSource
     targets: list[RouteTarget]
+    priority: int = 100
     fanout_strategy: str = "broadcast"
     ownership: str = "shared"
     enabled: bool = True

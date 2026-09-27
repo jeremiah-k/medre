@@ -84,6 +84,7 @@ class TestRouteConfigValid:
         assert r.source_adapters == ("main",)
         assert r.dest_adapters == ("radio",)
         assert r.directionality == RouteDirectionality.SOURCE_TO_DEST
+        assert r.priority == 100
         assert r.enabled is True
         assert r.source_channel is None
         assert r.dest_channel is None
@@ -192,6 +193,29 @@ def test_origin_labels_default_none() -> None:
 # ---------------------------------------------------------------------------
 # RouteConfig — validation errors
 # ---------------------------------------------------------------------------
+
+
+class TestRoutePriorityValidation:
+    """Route priority accepts integers only and defaults compatibly."""
+
+    def test_explicit_priority_parsed(self) -> None:
+        route = RouteConfig.from_dict(
+            "priority_route",
+            {"source_adapters": ["a"], "dest_adapters": ["b"], "priority": -7},
+        )
+        assert route.priority == -7
+
+    @pytest.mark.parametrize("value", [True, 1.5, "10", None])
+    def test_non_integer_priority_rejected(self, value: object) -> None:
+        with pytest.raises(ConfigValidationError, match="priority.*integer"):
+            RouteConfig.from_dict(
+                "bad_priority",
+                {
+                    "source_adapters": ["a"],
+                    "dest_adapters": ["b"],
+                    "priority": value,
+                },
+            )
 
 
 class TestRouteConfigValidation:
