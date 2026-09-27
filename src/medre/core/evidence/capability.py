@@ -54,10 +54,10 @@ def derive_capability_evidence(
         "loop_suppressed",
         "policy_suppressed",
     }
-    if suppressed and error:
+    if suppressed:
         if capability_reason:
             result["suppression_reason"] = capability_reason
-        else:
+        elif error:
             stripped = _SUPPRESSION_PREFIX_RE.sub("", error, count=1).strip()
             result["suppression_reason"] = stripped or error
     return result

@@ -520,6 +520,21 @@ class TestDeriveCapabilityEvidenceUnit:
         )
         assert result["suppression_reason"] == "structured decision reason"
 
+    def test_capability_reason_preserved_when_suppression_has_no_error(self) -> None:
+        result = _derive_capability_evidence(
+            None,
+            "capability_suppressed",
+            "suppressed",
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="structured decision reason",
+            delivery_strategy="skip",
+        )
+        assert result["suppression_reason"] == "structured decision reason"
+        assert result["capability_field"] == "reactions"
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
     def test_capability_suppressed_error_prefix_stripped(self) -> None:
         result = _derive_capability_evidence(
             error="capability_suppressed: reactions unsupported by adapter (event has reaction relation)",
@@ -652,6 +667,17 @@ class TestStructuredCapabilityEvidenceAuthority:
         assert report["suppression_reason"] == (
             "renderer cannot preserve this relation"
         )
+
+    def test_report_preserves_structured_reason_without_error(self) -> None:
+        receipt = _cap_suppressed_receipt(
+            error=None,
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="structured reason without error text",
+            delivery_strategy="skip",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["suppression_reason"] == "structured reason without error text"
 
     def test_structured_fields_independent_of_rendering_evidence(self) -> None:
         """rendering_evidence is observational; it never supplies structure."""

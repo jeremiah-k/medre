@@ -535,6 +535,23 @@ class TestCapabilitySuppressionMetadata:
         assert entry.delivery_strategy == "skip"
         assert entry.suppression_reason == "display wording may change"
 
+    def test_structured_suppression_reason_survives_without_error(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    status="suppressed",
+                    failure_kind="capability_suppressed",
+                    error=None,
+                    capability_level="unsupported",
+                    capability_field="reactions",
+                    capability_reason="structured decision reason",
+                    delivery_strategy="skip",
+                )
+            ]
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.suppression_reason == "structured decision reason"
+
     def test_structured_fields_populate_strategy(self) -> None:
         ledger = build_delivery_outcome_ledger(
             receipts=[
