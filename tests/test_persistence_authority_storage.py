@@ -33,6 +33,16 @@ from medre.core.storage.sqlite.schema import (
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
+#: Tables present in the DDL but deliberately absent from _REQUIRED_COLUMNS:
+#: they are created additively on pre-existing schema-version-1 databases,
+#: so the pre-release shape guard must not demand their columns there.
+_ADDITIVE_DDL_TABLES = frozenset(
+    {
+        "attachment_blobs",
+        "event_attachment_associations",
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -467,14 +477,30 @@ class TestDDLRequiredColumnsParity:
         )
 
     def test_all_ddl_tables_have_required_columns_entry(self) -> None:
-        """Every CREATE TABLE in _SCHEMA has a corresponding _REQUIRED_COLUMNS entry."""
+        """Every CREATE TABLE in _SCHEMA has a corresponding _REQUIRED_COLUMNS entry.
+
+        Additive tables are the documented exception: they must stay out of
+        ``_REQUIRED_COLUMNS`` so the pre-release shape guard does not demand
+        their columns from pre-existing schema-version-1 databases before
+        their own DDL runs.
+        """
         all_tables = re.findall(
             r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", _SCHEMA, re.IGNORECASE
         )
-        for table_name in all_tables:
-            assert (
-                table_name in _REQUIRED_COLUMNS
-            ), f"Table {table_name} found in _SCHEMA but not in _REQUIRED_COLUMNS"
+        unregistered = [
+            table_name
+            for table_name in all_tables
+            if table_name not in _REQUIRED_COLUMNS
+            and table_name not in _ADDITIVE_DDL_TABLES
+        ]
+        assert unregistered == [], (
+            "Tables found in _SCHEMA but not in _REQUIRED_COLUMNS (register "
+            "them in _REQUIRED_COLUMNS, or in _ADDITIVE_DDL_TABLES with the "
+            "schema-additivity rationale):\n"
+            + "\n".join(f"  - {table}" for table in unregistered)
+        )
+        stale = sorted(_ADDITIVE_DDL_TABLES - set(all_tables))
+        assert stale == [], f"Additive tables absent from _SCHEMA DDL: {stale}"
 
 
 # ===================================================================

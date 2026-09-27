@@ -253,6 +253,7 @@ async def test_codec_media_message_yields_file_kind_and_native_media_projection(
     }
 
 
+@pytest.mark.matrix_sdk
 def test_codec_encrypted_flag_follows_content_file_presence() -> None:
     pytest.importorskip("nio")
     from nio.crypto.attachments import encrypt_attachment
@@ -372,6 +373,7 @@ async def test_fetch_success_admits_plaintext_bytes_with_declared_descriptor() -
     assert adapter._inbound_attachment_unavailable == 0
 
 
+@pytest.mark.matrix_sdk
 async def test_encrypted_media_is_decrypted_before_admission() -> None:
     pytest.importorskip("nio")
     from nio.crypto.attachments import decrypt_attachment, encrypt_attachment

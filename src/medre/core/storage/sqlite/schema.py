@@ -276,10 +276,10 @@ CREATE TABLE IF NOT EXISTS adapter_checkpoints (
 -- consumes quota once.  ``data`` is the plaintext payload (see
 -- docs/spec/security-privacy.md); ordinary event queries never select it.
 -- NOTE: this and ``event_attachment_associations`` below are additive
--- tables created by the DDL above; they are intentionally absent from
--- ``_REQUIRED_COLUMNS`` so pre-existing schema-version-1 databases gain
--- them through ``CREATE TABLE IF NOT EXISTS`` instead of failing the
--- pre-release shape guard.
+-- tables; they are intentionally absent from ``_REQUIRED_COLUMNS`` so a
+-- pre-existing schema-version-1 database gains them additively instead of
+-- failing the pre-release shape guard, and they are registered as
+-- additive in the DDL-parity test.
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     content_ref TEXT PRIMARY KEY,
     size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
