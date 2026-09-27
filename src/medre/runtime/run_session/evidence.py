@@ -97,7 +97,7 @@ async def _poll_for_receipts(
 
     Returns the receipt list (may be empty on timeout).
     """
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
     while True:
         try:
             receipts = await storage.list_receipts_for_event(event_id)
@@ -106,7 +106,7 @@ async def _poll_for_receipts(
         except Exception:
             # cleanup-silent: retry on next poll cycle until deadline.
             pass
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         if now >= deadline:
             break
         await asyncio.sleep(min(interval, deadline - now))
