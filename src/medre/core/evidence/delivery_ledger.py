@@ -40,6 +40,7 @@ from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
     TERMINAL_RECEIPT_STATUSES,
 )
+from medre.core.evidence.capability import derive_capability_evidence
 from medre.core.evidence.failure_taxonomy import (
     resolve_taxon,
     taxon_category,
@@ -77,6 +78,10 @@ def _normalize_receipt(rec: Any) -> dict[str, Any]:
         "receipt_kind": _getattr_or_get(rec, "receipt_kind"),
         "error": _getattr_or_get(rec, "error"),
         "failure_kind": _getattr_or_get(rec, "failure_kind"),
+        "capability_level": _getattr_or_get(rec, "capability_level"),
+        "capability_field": _getattr_or_get(rec, "capability_field"),
+        "capability_reason": _getattr_or_get(rec, "capability_reason"),
+        "delivery_strategy": _getattr_or_get(rec, "delivery_strategy"),
         "attempt_number": _getattr_or_get(rec, "attempt_number", 1),
         "next_retry_at": _getattr_or_get(rec, "next_retry_at"),
         "source": _getattr_or_get(rec, "source", "live"),
@@ -114,80 +119,6 @@ def _normalize_outbox_item(item: Any) -> dict[str, Any]:
         "updated_at": _getattr_or_get(item, "updated_at"),
         "created_at": _getattr_or_get(item, "created_at"),
     }
-
-
-# ---------------------------------------------------------------------------
-# Capability-evidence derivation (pure, mirrors reporting logic)
-# ---------------------------------------------------------------------------
-
-
-def _derive_capability_fields(
-    error: str | None,
-    rendering_evidence: str | None,
-    failure_kind: str | None,
-    status: str,
-) -> dict[str, Any]:
-    """Derive capability-suppression fields from receipt data.
-
-    Pure re-implementation of ``reporting._derive_capability_evidence``
-    so the evidence layer does not import from the runtime package.
-    """
-    result: dict[str, Any] = {
-        "suppression_reason": None,
-        "capability_field": None,
-        "capability_level": None,
-        "delivery_strategy": None,
-    }
-
-    # 1. Try rendering_evidence JSON first.
-    if rendering_evidence is not None:
-        try:
-            ev = json.loads(rendering_evidence)
-            if isinstance(ev, dict):
-                result["capability_level"] = ev.get("capability_level")
-                result["delivery_strategy"] = ev.get("delivery_strategy")
-        except (json.JSONDecodeError, ValueError, TypeError):
-            pass
-
-    # 2. Suppressed receipts: derive from error text.
-    if status == "suppressed" and error:
-        import re
-
-        cap_match = re.match(r"^capability_suppressed:\s*(.+)$", error)
-        if cap_match:
-            reason_text = cap_match.group(1).strip()
-            result["suppression_reason"] = reason_text
-            field_match = re.match(r"^(\w+)\s+(unsupported|fallback)\b", reason_text)
-            if field_match:
-                result["capability_field"] = field_match.group(1)
-                level = field_match.group(2)
-                result["capability_level"] = level
-                result["delivery_strategy"] = (
-                    "skip" if level == "unsupported" else "fallback_text"
-                )
-            elif failure_kind == "capability_suppressed":
-                result["capability_level"] = "unsupported"
-                result["delivery_strategy"] = "skip"
-        elif error.startswith("plan_skip:") or error.startswith("delivery_skipped:"):
-            result["suppression_reason"] = error
-            result["delivery_strategy"] = "skip"
-            if failure_kind == "capability_suppressed":
-                result["capability_level"] = "unsupported"
-        elif failure_kind == "loop_suppressed":
-            result["suppression_reason"] = error
-        elif failure_kind == "policy_suppressed":
-            result["suppression_reason"] = error
-        else:
-            result["suppression_reason"] = error
-
-    # Safety net for capability_suppressed.
-    if failure_kind == "capability_suppressed":
-        if result["capability_level"] not in ("unsupported", "fallback"):
-            result["capability_level"] = "unsupported"
-        if result["delivery_strategy"] not in ("skip", "fallback_text"):
-            result["delivery_strategy"] = "skip"
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +378,6 @@ def build_delivery_outcome_ledger(
                 "failure_kind"
             )
             error = (current_attempt or {}).get("error") or outbox.get("error_summary")
-            rendering_evidence = (current_attempt or {}).get("rendering_evidence")
             next_retry_raw = (current_attempt or {}).get("next_retry_at") or outbox.get(
                 "next_attempt_at"
             )
@@ -470,7 +400,6 @@ def build_delivery_outcome_ledger(
             generation_evidence = authority or latest_attempt or {}
             failure_kind = generation_evidence.get("failure_kind")
             error = generation_evidence.get("error")
-            rendering_evidence = generation_evidence.get("rendering_evidence")
             next_retry_raw = generation_evidence.get("next_retry_at")
             current_attempt_number = generation_evidence.get("attempt_number")
             source = str(generation_evidence.get("source") or "live")
@@ -483,14 +412,17 @@ def build_delivery_outcome_ledger(
         )
         taxon_str = taxon.value if taxon else None
         taxon_cat = taxon_category(taxon) if taxon else None
-        cap = _derive_capability_fields(
+        cap = derive_capability_evidence(
             error=error,
-            rendering_evidence=rendering_evidence,
             failure_kind=failure_kind,
             status=str(
                 (current_attempt or generation_evidence).get("status")
                 or lifecycle_status
             ),
+            capability_level=generation_evidence.get("capability_level"),
+            capability_field=generation_evidence.get("capability_field"),
+            capability_reason=generation_evidence.get("capability_reason"),
+            delivery_strategy=generation_evidence.get("delivery_strategy"),
         )
 
         provenance = generation_evidence

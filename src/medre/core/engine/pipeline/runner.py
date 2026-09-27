@@ -1378,6 +1378,10 @@ class PipelineRunner:
         route_id: str,
         failure_kind: DeliveryFailureKind,
         error: str,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
@@ -1398,6 +1402,10 @@ class PipelineRunner:
             route_id=route_id,
             failure_kind=failure_kind,
             error=error,
+            capability_level=capability_level,
+            capability_field=capability_field,
+            capability_reason=capability_reason,
+            delivery_strategy=delivery_strategy,
             source=source,
             replay_run_id=replay_run_id,
         )
@@ -1412,6 +1420,10 @@ class PipelineRunner:
         route_id: str,
         failure_kind: DeliveryFailureKind,
         error: str,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
@@ -1424,6 +1436,10 @@ class PipelineRunner:
             route_id=route_id,
             failure_kind=failure_kind,
             error=error,
+            capability_level=capability_level,
+            capability_field=capability_field,
+            capability_reason=capability_reason,
+            delivery_strategy=delivery_strategy,
             source=source,
             replay_run_id=replay_run_id,
         )

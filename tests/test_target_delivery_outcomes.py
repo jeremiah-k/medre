@@ -164,6 +164,10 @@ def _make_route_and_plan(
     adapter_id: str = "test_adapter",
     plan_id: str = "plan-001",
     method: str = "direct",
+    *,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
 ) -> tuple[Any, Any]:
     from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
     from medre.core.routing.models import Route, RouteSource, RouteTarget
@@ -183,6 +187,9 @@ def _make_route_and_plan(
         event_id="evt-001",
         target=target,
         primary_strategy=DeliveryStrategy(method=method),
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
     )
     return route, plan
 
@@ -214,6 +221,29 @@ class TestSuccessfulSentDelivery:
         assert receipt.error is None
         assert len(storage.receipts) == 1
         assert storage.receipts[0] is receipt
+
+    async def test_sent_receipt_persists_structured_capability_decision(self) -> None:
+        adapter = _FakeAdapter(
+            result=AdapterHandoffResult(
+                native_message_id="$msg-capability",
+                native_channel_id="!room:server",
+            )
+        )
+        svc, _ = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan(
+            method="fallback_text",
+            capability_level="fallback",
+            capability_field="replies",
+            capability_reason="native reply unavailable",
+        )
+
+        receipt = await svc.deliver_to_target(event, route, plan)
+
+        assert receipt.capability_level == "fallback"
+        assert receipt.capability_field == "replies"
+        assert receipt.capability_reason == "native reply unavailable"
+        assert receipt.delivery_strategy == "fallback_text"
 
     async def test_native_ref_stored_on_sent(self) -> None:
         """Successful sent delivery persists a NativeMessageRef."""

@@ -11,7 +11,6 @@ live transports, no SDKs, no config files.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -71,6 +70,10 @@ def _receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     rendering_evidence: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         receipt_id=receipt_id,
@@ -82,6 +85,10 @@ def _receipt(
         status=status,
         error=error,
         failure_kind=failure_kind,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         attempt_number=attempt_number,
         next_retry_at=next_retry_at,
         source=source,
@@ -315,12 +322,6 @@ class TestEvidenceShowsStrategyChosen:
         """delivery_strategy='direct' surfaces for native-sent receipts."""
         event_id = "ev-opdiag-strat-001"
         db_path = str(tmp_path / "strategy-direct.db")
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "direct",
-                "capability_level": "native",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -329,7 +330,8 @@ class TestEvidenceShowsStrategyChosen:
                     receipt_id="rcpt-strat-1",
                     event_id=event_id,
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="native",
+                    delivery_strategy="direct",
                 ),
             ],
         )
@@ -340,12 +342,6 @@ class TestEvidenceShowsStrategyChosen:
         """delivery_strategy='fallback_text' surfaces for fallback receipts."""
         event_id = "ev-opdiag-strat-002"
         db_path = str(tmp_path / "strategy-fallback.db")
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "fallback_text",
-                "capability_level": "fallback",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -354,7 +350,8 @@ class TestEvidenceShowsStrategyChosen:
                     receipt_id="rcpt-strat-fb-1",
                     event_id=event_id,
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="fallback",
+                    delivery_strategy="fallback_text",
                 ),
             ],
         )
@@ -375,6 +372,9 @@ class TestEvidenceShowsStrategyChosen:
                     status="suppressed",
                     failure_kind="capability_suppressed",
                     error="capability_suppressed: reactions unsupported by adapter",
+                    capability_level="unsupported",
+                    capability_field="reactions",
+                    delivery_strategy="skip",
                 ),
             ],
         )
@@ -382,10 +382,11 @@ class TestEvidenceShowsStrategyChosen:
         assert entry["delivery_strategy"] == "skip"
 
     async def test_strategy_in_report_dict(self) -> None:
-        """delivery_receipt_to_report_dict extracts delivery_strategy from rendering_evidence."""
+        """delivery_receipt_to_report_dict surfaces the persisted delivery_strategy."""
         receipt = _receipt(
             status="sent",
-            rendering_evidence='{"delivery_strategy": "direct", "capability_level": "native"}',
+            capability_level="native",
+            delivery_strategy="direct",
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["delivery_strategy"] == "direct"
@@ -413,6 +414,9 @@ class TestEvidenceShowsCapabilityField:
                     status="suppressed",
                     failure_kind="capability_suppressed",
                     error="capability_suppressed: reactions unsupported by adapter (event has reaction relation)",
+                    capability_level="unsupported",
+                    capability_field="reactions",
+                    delivery_strategy="skip",
                 ),
             ],
         )
@@ -425,6 +429,9 @@ class TestEvidenceShowsCapabilityField:
             status="suppressed",
             failure_kind="capability_suppressed",
             error="capability_suppressed: text unsupported by adapter (event_kind=message.telemetry)",
+            capability_level="unsupported",
+            capability_field="text",
+            delivery_strategy="skip",
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["capability_field"] == "text"
@@ -867,13 +874,6 @@ class TestEvidenceBundleCoversAllStages:
         """Render stage: delivery_strategy from rendering evidence is captured."""
         event_id = "ev-opdiag-stages-004"
         db_path = str(tmp_path / "stages-render.db")
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "direct",
-                "capability_level": "native",
-                "truncated": False,
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -881,7 +881,8 @@ class TestEvidenceBundleCoversAllStages:
                 _receipt(
                     event_id=event_id,
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="native",
+                    delivery_strategy="direct",
                 ),
             ],
         )
@@ -910,12 +911,6 @@ class TestEvidenceBundleCoversAllStages:
         """A single evidence bundle contains data from all pipeline stages."""
         event_id = "ev-opdiag-stages-all-001"
         db_path = str(tmp_path / "stages-all.db")
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "fallback_text",
-                "capability_level": "fallback",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -928,7 +923,8 @@ class TestEvidenceBundleCoversAllStages:
                     route_id="route-stage-omni",
                     delivery_plan_id="dp-stage-omni",
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="fallback",
+                    delivery_strategy="fallback_text",
                     source="live",
                 ),
             ],

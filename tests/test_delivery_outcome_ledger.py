@@ -37,6 +37,10 @@ def _receipt(
     attempt_number: int = 1,
     error: str | None = None,
     failure_kind: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
     next_retry_at: datetime | None = None,
     source: str = "live",
     replay_run_id: str | None = None,
@@ -57,6 +61,10 @@ def _receipt(
         status=status,
         error=error,
         failure_kind=failure_kind,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         attempt_number=attempt_number,
         next_retry_at=next_retry_at,
         source=source,
@@ -482,34 +490,78 @@ class TestReplayOriginProvenance:
 
 
 class TestCapabilitySuppressionMetadata:
-    """Capability fields derived from rendering_evidence JSON and error."""
+    """Structured fields are authoritative; legacy derivation still works."""
 
-    def test_rendering_evidence_populates_strategy(self) -> None:
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "direct",
-                "capability_level": "native",
-            }
-        )
+    def test_structured_fields_override_stale_rendering_evidence(self) -> None:
         ledger = build_delivery_outcome_ledger(
             receipts=[
                 _receipt(
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="fallback",
+                    capability_field="replies",
+                    capability_reason="native reply unavailable",
+                    delivery_strategy="fallback_text",
+                    rendering_evidence=json.dumps(
+                        {
+                            "delivery_strategy": "direct",
+                            "capability_level": "native",
+                        }
+                    ),
+                )
+            ]
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.capability_field == "replies"
+        assert entry.capability_level == "fallback"
+        assert entry.delivery_strategy == "fallback_text"
+
+    def test_structured_suppression_does_not_depend_on_reason_grammar(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    status="suppressed",
+                    failure_kind="capability_suppressed",
+                    error="capability_suppressed: display wording may change",
+                    capability_level="unsupported",
+                    capability_field="reactions",
+                    capability_reason="display wording may change",
+                    delivery_strategy="skip",
+                )
+            ]
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.capability_field == "reactions"
+        assert entry.capability_level == "unsupported"
+        assert entry.delivery_strategy == "skip"
+        assert entry.suppression_reason == "display wording may change"
+
+    def test_structured_fields_populate_strategy(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    status="sent",
+                    capability_level="native",
+                    capability_field="reactions",
+                    delivery_strategy="direct",
                 )
             ]
         )
         entry = next(iter(ledger.entries.values()))
         assert entry.delivery_strategy == "direct"
         assert entry.capability_level == "native"
+        assert entry.capability_field == "reactions"
 
-    def test_suppressed_error_populates_capability_field(self) -> None:
+    def test_suppressed_receipt_passes_structured_fields_through(self) -> None:
         ledger = build_delivery_outcome_ledger(
             receipts=[
                 _receipt(
                     status="suppressed",
                     failure_kind="capability_suppressed",
                     error="capability_suppressed: reactions unsupported by adapter (event has reaction relation)",
+                    capability_level="unsupported",
+                    capability_field="reactions",
+                    capability_reason="reactions unsupported by adapter (event has reaction relation)",
+                    delivery_strategy="skip",
                 )
             ]
         )
@@ -521,17 +573,12 @@ class TestCapabilitySuppressionMetadata:
         assert "reactions unsupported" in entry.suppression_reason
 
     def test_fallback_capability_populated(self) -> None:
-        evidence = json.dumps(
-            {
-                "delivery_strategy": "fallback_text",
-                "capability_level": "fallback",
-            }
-        )
         ledger = build_delivery_outcome_ledger(
             receipts=[
                 _receipt(
                     status="sent",
-                    rendering_evidence=evidence,
+                    capability_level="fallback",
+                    delivery_strategy="fallback_text",
                 )
             ]
         )
@@ -613,7 +660,8 @@ class TestJsonSafeOutput:
                     receipt_id="r-json-1",
                     status="sent",
                     delivery_plan_id="dp-json",
-                    rendering_evidence='{"delivery_strategy": "direct", "capability_level": "native"}',
+                    capability_level="native",
+                    delivery_strategy="direct",
                 ),
             ]
         )

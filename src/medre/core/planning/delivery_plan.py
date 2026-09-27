@@ -436,6 +436,10 @@ class RetryExecutor:
         source: str = "live",
         replay_run_id: str | None = None,
         target_channel: str | None = None,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``failed`` receipt for a retryable transient failure.
 
@@ -482,6 +486,10 @@ class RetryExecutor:
             target_channel=target_channel,
             status="failed",
             error=error,
+            capability_level=capability_level,
+            capability_field=capability_field,
+            capability_reason=capability_reason,
+            delivery_strategy=delivery_strategy,
             next_retry_at=now + backoff,
             created_at=now,
             attempt_number=attempt_number,
@@ -513,6 +521,10 @@ class RetryExecutor:
         replay_run_id: str | None = None,
         target_channel: str | None = None,
         outbox_id: str | None = None,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``dead_lettered`` receipt after all retries are
         exhausted.
@@ -560,6 +572,10 @@ class RetryExecutor:
             status="dead_lettered",
             receipt_kind="lifecycle",
             error=error,
+            capability_level=capability_level,
+            capability_field=capability_field,
+            capability_reason=capability_reason,
+            delivery_strategy=delivery_strategy,
             next_retry_at=None,
             created_at=now,
             attempt_number=attempt_number,

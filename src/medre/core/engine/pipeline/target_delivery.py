@@ -55,7 +55,10 @@ from medre.core.contracts.adapter import (
 from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
-from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.receipt_factory import (
+    build_delivery_receipt,
+    plan_capability_receipt_fields,
+)
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -685,6 +688,7 @@ class TargetDeliveryService:
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
+                **plan_capability_receipt_fields(plan),
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(_skip_receipt)
@@ -728,6 +732,7 @@ class TargetDeliveryService:
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
+                **plan_capability_receipt_fields(plan),
                 **self._lifecycle.extract_retry_fields(plan),
             )
             await self._storage.append_receipt(_gate_receipt)
@@ -1030,6 +1035,7 @@ class TargetDeliveryService:
             parent_receipt_id=parent_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
+            **plan_capability_receipt_fields(plan),
             **self._lifecycle.extract_retry_fields(plan),
             rendering_evidence=_rendering_evidence,
             outbox_id=outbox_id,
@@ -1110,6 +1116,7 @@ class TargetDeliveryService:
             source=source,
             replay_run_id=replay_run_id,
             outbox_id=outbox_id,
+            **plan_capability_receipt_fields(plan),
             **self._lifecycle.extract_retry_fields(plan),
         )
         await self._storage.append_receipt(attempt_receipt)

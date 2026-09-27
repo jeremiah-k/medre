@@ -184,6 +184,9 @@ class TestSkipStrategyDefenseInDepth:
             event_id=event.event_id,
             target=RouteTarget(adapter="dest"),
             primary_strategy=DeliveryStrategy(method="skip"),
+            capability_level="unsupported",
+            capability_field="text",
+            capability_reason="text unavailable at target",
         )
 
         try:
@@ -193,6 +196,10 @@ class TestSkipStrategyDefenseInDepth:
             assert receipt.error is not None
             assert "delivery_skipped" in receipt.error
             assert "skip" in receipt.error
+            assert receipt.capability_level == "unsupported"
+            assert receipt.capability_field == "text"
+            assert receipt.capability_reason == "text unavailable at target"
+            assert receipt.delivery_strategy == "skip"
             # Adapter never called.
             assert len(adapter.delivered_payloads) == 0
         finally:

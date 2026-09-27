@@ -17,8 +17,13 @@ from __future__ import annotations
 import importlib
 import inspect
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
-from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.receipt_factory import (
+    build_delivery_receipt,
+    capability_receipt_fields,
+    plan_capability_receipt_fields,
+)
 from medre.core.events.canonical import DeliveryReceipt
 
 # -- Helpers -----------------------------------------------------------------
@@ -179,6 +184,31 @@ class TestAttemptAndParent:
         assert r.parent_receipt_id is None
 
 
+class TestCapabilityDecisionFields:
+    """Structured capability facts are preserved without parsing prose."""
+
+    def test_fields_default_none(self) -> None:
+        receipt = build_delivery_receipt(**_base_kwargs())
+        assert receipt.capability_level is None
+        assert receipt.capability_field is None
+        assert receipt.capability_reason is None
+        assert receipt.delivery_strategy is None
+
+    def test_fields_round_trip(self) -> None:
+        receipt = build_delivery_receipt(
+            **_base_kwargs(
+                capability_level="fallback",
+                capability_field="reactions",
+                capability_reason="operator-facing explanation",
+                delivery_strategy="fallback_text",
+            )
+        )
+        assert receipt.capability_level == "fallback"
+        assert receipt.capability_field == "reactions"
+        assert receipt.capability_reason == "operator-facing explanation"
+        assert receipt.delivery_strategy == "fallback_text"
+
+
 class TestRenderingEvidence:
     """rendering_evidence is preserved exactly."""
 
@@ -224,6 +254,90 @@ class TestErrorPassthrough:
         # The annotations should be str | None, not Exception or similar.
         assert "Exception" not in str(error_param.annotation)
         assert "Exception" not in str(failure_kind_param.annotation)
+
+
+class TestPlanCapabilityReceiptFields:
+    """The shared plan sanitizer keeps planner-failure evidence persistable."""
+
+    @staticmethod
+    def _plan(**overrides: object) -> SimpleNamespace:
+        plan = SimpleNamespace(
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="reactions unsupported by adapter",
+            primary_strategy=SimpleNamespace(method="skip"),
+        )
+        for key, value in overrides.items():
+            setattr(plan, key, value)
+        return plan
+
+    def test_valid_decision_passes_through(self) -> None:
+        fields = plan_capability_receipt_fields(self._plan())
+        assert fields == {
+            "capability_level": "unsupported",
+            "capability_field": "reactions",
+            "capability_reason": "reactions unsupported by adapter",
+            "delivery_strategy": "skip",
+        }
+
+    def test_invalid_level_degrades_to_none_and_gates_text(self) -> None:
+        fields = plan_capability_receipt_fields(self._plan(capability_level="bogus"))
+        assert fields == {
+            "capability_level": None,
+            "capability_field": None,
+            "capability_reason": None,
+            "delivery_strategy": "skip",
+        }
+
+    def test_invalid_strategy_degrades_to_none(self) -> None:
+        fields = plan_capability_receipt_fields(
+            self._plan(primary_strategy=SimpleNamespace(method="teleport"))
+        )
+        assert fields["capability_level"] == "unsupported"
+        assert fields["capability_field"] == "reactions"
+        assert fields["delivery_strategy"] is None
+
+    def test_sanitized_fields_always_satisfy_receipt_validation(self) -> None:
+        fields = plan_capability_receipt_fields(self._plan(capability_level="bogus"))
+        # The sanitizer output must be constructible as a receipt even when
+        # the plan itself was malformed (suppression/dead-letter persistence).
+        receipt = build_delivery_receipt(**_base_kwargs(**fields))
+        assert receipt.capability_level is None
+        assert receipt.capability_field is None
+        assert receipt.capability_reason is None
+        assert receipt.delivery_strategy == "skip"
+
+    def test_unhashable_and_non_string_plan_values_degrade_to_none(self) -> None:
+        fields = plan_capability_receipt_fields(
+            self._plan(
+                capability_level=["unsupported"],
+                capability_field=42,
+                capability_reason={"k": "v"},
+                primary_strategy=SimpleNamespace(method=["skip"]),
+            )
+        )
+        assert fields == {
+            "capability_level": None,
+            "capability_field": None,
+            "capability_reason": None,
+            "delivery_strategy": None,
+        }
+
+    def test_metadata_fallback_treats_malformed_values_as_absent(self) -> None:
+        fields = capability_receipt_fields(
+            metadata={
+                "capability_level": ["native"],
+                "delivery_strategy": {"method": "direct"},
+                "capability_field": 7,
+                "capability_reason": None,
+            }
+        )
+        assert fields == {
+            "capability_level": None,
+            "capability_field": None,
+            "capability_reason": None,
+            "delivery_strategy": None,
+        }
 
 
 class TestNoPersistenceImports:

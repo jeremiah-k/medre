@@ -77,6 +77,10 @@ def _receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     rendering_evidence: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         receipt_id=receipt_id,
@@ -88,6 +92,10 @@ def _receipt(
         status=status,
         error=error,
         failure_kind=failure_kind,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         attempt_number=attempt_number,
         next_retry_at=next_retry_at,
         source=source,
@@ -1283,25 +1291,18 @@ class TestReceiptSelectionOrder:
 # ===================================================================
 
 
-class TestRenderingEvidenceEnrichedFields:
-    """Non-null rendering_evidence JSON populates capability_level and
+class TestStructuredCapabilityFields:
+    """Structured receipt fields populate capability_level and
     delivery_strategy in delivery_state_by_target entries."""
 
     @pytest.mark.asyncio
-    async def test_sent_receipt_with_rendering_evidence_populates_cap_fields(
+    async def test_sent_receipt_with_structured_fields_populates_cap_fields(
         self, tmp_path: Any
     ) -> None:
-        """A sent receipt carrying rendering_evidence JSON produces non-None
-        capability_level and delivery_strategy in the target-keyed entry."""
+        """A sent receipt carrying structured capability fields produces
+        non-None capability_level and delivery_strategy in the entry."""
         event_id = "ev-tk-rev-cap-001"
         db_path = str(tmp_path / "rev-cap.db")
-        _evidence = json.dumps(
-            {
-                "renderer": "matrix",
-                "capability_level": "native",
-                "delivery_strategy": "direct",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -1314,7 +1315,8 @@ class TestRenderingEvidenceEnrichedFields:
                     route_id="route-a",
                     delivery_plan_id="dp-001",
                     status="sent",
-                    rendering_evidence=_evidence,
+                    capability_level="native",
+                    delivery_strategy="direct",
                 ),
             ],
         )
@@ -1323,33 +1325,20 @@ class TestRenderingEvidenceEnrichedFields:
         assert len(dsbt) == 1
         entry = next(iter(dsbt.values()))
 
-        assert entry["capability_level"] == "native", (
-            f"Expected capability_level='native' from rendering_evidence, "
-            f"got {entry['capability_level']!r}"
-        )
-        assert entry["delivery_strategy"] == "direct", (
-            f"Expected delivery_strategy='direct' from rendering_evidence, "
-            f"got {entry['delivery_strategy']!r}"
-        )
+        assert entry["capability_level"] == "native"
+        assert entry["delivery_strategy"] == "direct"
         # Sanity: standard fields still correct.
         assert entry["target_adapter"] == "matrix"
         assert entry["status"] == "sent"
 
     @pytest.mark.asyncio
-    async def test_fallback_rendering_evidence_populates_fallback_fields(
+    async def test_fallback_structured_fields_populate_fallback_fields(
         self, tmp_path: Any
     ) -> None:
-        """A receipt with fallback rendering_evidence produces
+        """A receipt with a fallback decision produces
         capability_level='fallback' and delivery_strategy='fallback_text'."""
         event_id = "ev-tk-rev-fb-001"
         db_path = str(tmp_path / "rev-fb.db")
-        _evidence = json.dumps(
-            {
-                "renderer": "meshtastic",
-                "capability_level": "fallback",
-                "delivery_strategy": "fallback_text",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -1362,7 +1351,8 @@ class TestRenderingEvidenceEnrichedFields:
                     route_id="route-b",
                     delivery_plan_id="dp-002",
                     status="sent",
-                    rendering_evidence=_evidence,
+                    capability_level="fallback",
+                    delivery_strategy="fallback_text",
                 ),
             ],
         )
@@ -1431,17 +1421,10 @@ class TestReplaySourceFields:
     async def test_replay_receipt_with_evidence_carries_all_enriched_fields(
         self, tmp_path: Any
     ) -> None:
-        """A replay receipt that also has rendering_evidence populates source,
+        """A replay receipt with structured capability fields populates source,
         replay_run_id, capability_level and delivery_strategy simultaneously."""
         event_id = "ev-tk-replay-ev-001"
         db_path = str(tmp_path / "replay-ev.db")
-        _evidence = json.dumps(
-            {
-                "renderer": "lxmf",
-                "capability_level": "native",
-                "delivery_strategy": "direct",
-            }
-        )
         await _build_db(
             db_path,
             event_id,
@@ -1456,7 +1439,8 @@ class TestReplaySourceFields:
                     status="sent",
                     source="replay",
                     replay_run_id="run-xyz-999",
-                    rendering_evidence=_evidence,
+                    capability_level="native",
+                    delivery_strategy="direct",
                 ),
             ],
         )
@@ -1468,7 +1452,7 @@ class TestReplaySourceFields:
         # Replay fields.
         assert entry["source"] == "replay"
         assert entry["replay_run_id"] == "run-xyz-999"
-        # Capability fields from rendering_evidence.
+        # Capability fields from the structured receipt decision.
         assert entry["capability_level"] == "native"
         assert entry["delivery_strategy"] == "direct"
         # Standard fields.

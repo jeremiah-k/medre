@@ -90,6 +90,44 @@ class TestUnknownReceiptStatusRejected:
         assert rows[0]["cnt"] == 0
 
 
+class TestCapabilityFieldValidation:
+    """Structured capability fields are closed-vocabulary at construction."""
+
+    def test_receipt_rejects_unknown_capability_level(self) -> None:
+        with pytest.raises(ValueError, match="invalid delivery capability_level"):
+            DeliveryReceipt(
+                receipt_id="rcpt-bad-level",
+                event_id="evt-bad-level",
+                delivery_plan_id="plan-bad-level",
+                target_adapter="adapter",
+                status="sent",
+                capability_level="partial",  # type: ignore[arg-type]
+            )
+
+    def test_receipt_rejects_unknown_delivery_strategy(self) -> None:
+        with pytest.raises(ValueError, match="invalid delivery strategy"):
+            DeliveryReceipt(
+                receipt_id="rcpt-bad-strategy",
+                event_id="evt-bad-strategy",
+                delivery_plan_id="plan-bad-strategy",
+                target_adapter="adapter",
+                status="sent",
+                delivery_strategy="teleport",  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.parametrize("field_name", ["capability_field", "capability_reason"])
+    def test_receipt_rejects_non_string_capability_text(self, field_name: str) -> None:
+        with pytest.raises(ValueError, match=f"{field_name} must be a string or None"):
+            DeliveryReceipt(
+                receipt_id=f"rcpt-bad-{field_name}",
+                event_id=f"evt-bad-{field_name}",
+                delivery_plan_id=f"plan-bad-{field_name}",
+                target_adapter="adapter",
+                status="sent",
+                **{field_name: 42},  # type: ignore[arg-type]
+            )
+
+
 class TestDeliveryProvenanceValidation:
     """Receipt provenance is canonical at model, storage, and SQLite boundaries."""
 

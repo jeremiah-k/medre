@@ -1,25 +1,136 @@
 """Pure helper for constructing :class:`DeliveryReceipt` instances.
 
-This module provides a single function, :func:`build_delivery_receipt`, that
-assembles a :class:`~medre.core.events.canonical.DeliveryReceipt` from explicit
-caller-supplied fields.  It performs **no** lifecycle decisions, exception
-classification, retry scheduling, or persistence.
+This module assembles :class:`~medre.core.events.canonical.DeliveryReceipt`
+instances from explicit caller-supplied fields and sanitizes structured
+capability-decision fields for receipt construction.  It performs **no**
+lifecycle decisions, exception classification, retry scheduling, or
+persistence.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol
 
 from medre.core.events.canonical import (
+    DELIVERY_CAPABILITY_LEVELS,
+    DELIVERY_STRATEGY_METHODS,
     DeliveryConfirmationLevel,
     DeliveryReceipt,
     DeliveryReceiptKind,
     DeliverySource,
 )
 
-__all__ = ["build_delivery_receipt"]
+if TYPE_CHECKING:
+
+    class _PlanStrategyView(Protocol):
+        method: str
+
+    class _PlanCapabilityView(Protocol):
+        """Read-only structural view of the plan fields the sanitizer reads."""
+
+        capability_level: str | None
+        capability_field: str | None
+        capability_reason: str | None
+        primary_strategy: _PlanStrategyView
+
+
+__all__ = [
+    "build_delivery_receipt",
+    "capability_receipt_fields",
+    "plan_capability_receipt_fields",
+]
+
+
+def capability_receipt_fields(
+    *,
+    receipt: DeliveryReceipt | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, str | None]:
+    """Return safe structured capability fields for receipt lineage.
+
+    A prior immutable receipt is authoritative when available.  Deferred
+    callbacks can race the queued receipt append, so durable outbox metadata is
+    the fallback source for that narrow case.  Malformed metadata is ignored
+    rather than allowed to block persistence of a transport outcome that has
+    already happened.
+    """
+    if receipt is not None:
+        return {
+            "capability_level": receipt.capability_level,
+            "capability_field": receipt.capability_field,
+            "capability_reason": receipt.capability_reason,
+            "delivery_strategy": receipt.delivery_strategy,
+        }
+
+    values = metadata or {}
+    # isinstance-first so unhashable or malformed metadata values are treated
+    # as absent rather than raising during persistence of a decided outcome.
+    raw_level = values.get("capability_level")
+    level = (
+        raw_level
+        if isinstance(raw_level, str) and raw_level in DELIVERY_CAPABILITY_LEVELS
+        else None
+    )
+    raw_strategy = values.get("delivery_strategy")
+    strategy = (
+        raw_strategy
+        if isinstance(raw_strategy, str) and raw_strategy in DELIVERY_STRATEGY_METHODS
+        else None
+    )
+    raw_field = values.get("capability_field")
+    raw_reason = values.get("capability_reason")
+    return {
+        "capability_level": level,
+        "capability_field": (
+            raw_field if level is not None and isinstance(raw_field, str) else None
+        ),
+        "capability_reason": (
+            raw_reason if level is not None and isinstance(raw_reason, str) else None
+        ),
+        "delivery_strategy": strategy,
+    }
+
+
+def plan_capability_receipt_fields(plan: _PlanCapabilityView) -> dict[str, str | None]:
+    """Return a plan's structured capability decision, validated for receipts.
+
+    Planner-failure evidence must remain persistable even when a malformed plan
+    carries an unknown capability level or strategy; the plan's capability text
+    is kept only when the level is valid and the text is a string.  Every
+    receipt-construction site that has a plan MUST go through this sanitizer so
+    suppression, dead-letter, and skip evidence can never raise at persistence
+    time.
+    """
+    level = plan.capability_level
+    valid_level = (
+        level
+        if isinstance(level, str) and level in DELIVERY_CAPABILITY_LEVELS
+        else None
+    )
+    strategy = plan.primary_strategy.method
+    valid_strategy = (
+        strategy
+        if isinstance(strategy, str) and strategy in DELIVERY_STRATEGY_METHODS
+        else None
+    )
+    field_text = plan.capability_field
+    reason_text = plan.capability_reason
+    return {
+        "capability_level": valid_level,
+        "capability_field": (
+            field_text
+            if valid_level is not None and isinstance(field_text, str)
+            else None
+        ),
+        "capability_reason": (
+            reason_text
+            if valid_level is not None and isinstance(reason_text, str)
+            else None
+        ),
+        "delivery_strategy": valid_strategy,
+    }
 
 
 def build_delivery_receipt(
@@ -45,6 +156,10 @@ def build_delivery_receipt(
     parent_receipt_id: str | None = None,
     error: str | None = None,
     failure_kind: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
     adapter_message_id: str | None = None,
     next_retry_at: datetime | None = None,
     retry_max_attempts: int | None = None,
@@ -95,6 +210,10 @@ def build_delivery_receipt(
         Error message if the delivery failed.
     failure_kind:
         Categorisation of the failure, if any.
+    capability_level / capability_field / capability_reason / delivery_strategy:
+        Structured capability decision evidence copied from delivery planning.
+        Optional only for receipts built without a plan (e.g. retry lineage
+        reconstruction from durable outbox metadata).
     adapter_message_id:
         Native message ID assigned by the target adapter.
     next_retry_at:
@@ -146,6 +265,10 @@ def build_delivery_receipt(
         receipt_kind=receipt_kind,
         error=error,
         failure_kind=failure_kind,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         adapter_message_id=adapter_message_id,
         next_retry_at=next_retry_at,
         attempt_number=attempt_number,

@@ -543,7 +543,7 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 6. Startup-derived health values (`adapters.{id}.health`, `startup.startup_health`) do not reflect post-startup state changes. If an adapter crashes after startup, these values will still show the startup-time state.
 7. Runtime event buffers are in-memory only and not persisted across restarts.
 
-**Planning authority boundary for diagnostics and evidence.** Diagnostics and evidence are derived-only consumers of `DeliveryPlan` fields (`capability_level`, `capability_field`, `capability_reason`, `primary_strategy`). They observe and record what the planning pipeline decided; they do not re-decide capability or strategy. The one exception is replay execution (§ 14.5): replay intentionally re-runs planning against current capabilities and configuration rather than reusing the original live `DeliveryPlan`. This is by design — replay produces its own `DeliveryPlan` instances and dispatches them through the delivery pipeline with `source="replay"`, so replay outcomes reflect current transport reality, not stale historical planning state. Replay planning uses the same `CapabilityDecisionResolver` as live delivery (see Routing and Delivery Specification, § 6.3.8).
+**Planning authority boundary for diagnostics and evidence.** Diagnostics and evidence are derived-only consumers of `DeliveryPlan` fields (`capability_level`, `capability_field`, `capability_reason`, `primary_strategy`). Delivery receipts persist those planning facts as structured fields, and operator reporting reads those structured fields directly. Human-readable capability reasons are display text, not a machine-readable encoding. Diagnostics observe and record what the planning pipeline decided; they do not re-decide capability or strategy. The one exception is replay execution (§ 14.5): replay intentionally re-runs planning against current capabilities and configuration rather than reusing the original live `DeliveryPlan`. This is by design — replay produces its own `DeliveryPlan` instances and dispatches them through the delivery pipeline with `source="replay"`, so replay outcomes reflect current transport reality, not stale historical planning state. Replay planning uses the same `CapabilityDecisionResolver` as live delivery (see Routing and Delivery Specification, § 6.3.8).
 
 ## 13. Pre-Release Contractual Guarantees
 
@@ -692,24 +692,23 @@ An operator inspecting these signals can answer: "Why was this message truncated
 5. Rendering evidence MUST NOT duplicate the payload content.
 6. Rendering evidence is observational. It explains decisions; it does not control them.
 
-## 14.8 Capability-Evidence Derivation in Report Dicts
+## 14.8 Capability Evidence in Report Dicts
 
-The `delivery_receipt_to_report_dict()` helper in `medre.runtime.reporting` enriches every receipt report dict with capability-evidence fields derived from the receipt's `error` text and/or `rendering_evidence` JSON. No storage schema changes are required; the enrichment is derived at report time from existing receipt fields.
+The `delivery_receipt_to_report_dict()` helper in `medre.runtime.reporting` exposes capability evidence from the structured fields persisted on each `DeliveryReceipt`. Receipts store `capability_level`, `capability_field`, `capability_reason`, and `delivery_strategy` directly; human-readable reason text is display evidence rather than a machine encoding. The shared helper in `medre.core.evidence.capability` passes the structured fields through and derives only the operator-facing `suppression_reason` display text; nothing parses reason or error wording to recover structure.
 
-### 14.8.1 Derived Fields
+### 14.8.1 Evidence Fields
 
-| Field                | Source                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `suppression_reason` | Parsed from `error` text when `status == "suppressed"` and error matches capability suppression patterns.           |
-| `capability_field`   | The `AdapterCapabilities` field that caused suppression (e.g. `reactions`, `replies`). Derived from error text.     |
-| `capability_level`   | The three-level decision (`"native"`, `"fallback"`, `"unsupported"`). From `rendering_evidence` JSON or error text. |
-| `delivery_strategy`  | The delivery strategy (`"direct"`, `"fallback_text"`, `"skip"`). From `rendering_evidence` JSON or error text.      |
+| Field                | Current source                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `suppression_reason` | `capability_reason` for capability suppression when present; otherwise the sanitized suppression `error` with its `<kind>:` prefix stripped. |
+| `capability_field`   | Structured `DeliveryReceipt.capability_field`.                                                                                               |
+| `capability_level`   | Structured `DeliveryReceipt.capability_level` (`"native"`, `"fallback"`, or `"unsupported"`).                                                |
+| `delivery_strategy`  | Structured `DeliveryReceipt.delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`, etc.).                                              |
 
 Resolution order:
 
-1. If `rendering_evidence` contains valid JSON with capability fields, those values are used directly.
-2. If `status == "suppressed"` and `error` matches known capability suppression patterns, the fields are parsed from the error text.
-3. Otherwise, fields are `None`.
+1. Structured receipt fields are authoritative whenever present.
+2. Any field that is `None` on the receipt is `None` in the report; no text-derived recovery exists.
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
@@ -854,7 +853,7 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.3 ReceiptSummary
 
-Each delivery receipt is represented as a `ReceiptSummary` containing receipt ID, sequence, target adapter/channel, status, attempt number, source, replay run ID, failure kind, error, parsed rendering evidence, and created_at timestamp. Full payloads are excluded.
+Each delivery receipt is represented as a `ReceiptSummary` containing receipt ID, sequence, target adapter/channel, status, attempt number, source, replay run ID, failure kind, error, the structured capability fields (`capability_level`, `capability_field`, `capability_reason`, `delivery_strategy`), parsed rendering evidence, and created_at timestamp. Full payloads are excluded.
 
 ### 16.4 JSON Safety and Deterministic Ordering
 
@@ -905,18 +904,18 @@ The evidence bundle is:
 
 An operator inspecting an :class:`EvidenceBundle` or a report dict from :func:`delivery_receipt_to_report_dict` can answer the following traceability questions from evidence alone, without consulting logs or source code:
 
-| Question                                  | Evidence source                                                                | Key fields                                                                                                   |
-| ----------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                                   |
-| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                                   |
-| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                               |
-| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                                       |
-| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                                |
-| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression               |
-| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"failed"`, `"suppressed"`, `"dead_lettered"`, `"cancelled"`, `"abandoned"`) |
-| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                                         |
-| Was this live, retry, or replay evidence? | Receipt                                                                        | `source` (`"live"`, `"retry"`, or `"replay"`), `replay_run_id`                                               |
-| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted)               |
+| Question                                  | Evidence source                                        | Key fields                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`             | `event_id`, `event_kind`, `source_adapter`                                                                   |
+| Which route matched?                      | `delivery_state_by_target` entry or receipt            | `route_id`                                                                                                   |
+| Which target was selected?                | `delivery_state_by_target` composite key               | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                               |
+| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt            | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                                       |
+| What strategy was chosen?                 | Structured receipt field or `delivery_state_by_target` | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                                |
+| What capability field drove the decision? | Structured receipt field or `delivery_state_by_target` | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression               |
+| What is the delivery status?              | Receipt                                                | `status` (`"sent"`, `"queued"`, `"failed"`, `"suppressed"`, `"dead_lettered"`, `"cancelled"`, `"abandoned"`) |
+| Why did delivery fail?                    | Receipt and enrichment                                 | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                                         |
+| Was this live, retry, or replay evidence? | Receipt                                                | `source` (`"live"`, `"retry"`, or `"replay"`), `replay_run_id`                                               |
+| How many retry attempts occurred?         | Receipt chain                                          | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted)               |
 
 ### 17.1 Evidence Completeness Per Pipeline Stage
 
@@ -927,25 +926,23 @@ The evidence bundle covers all five pipeline stages for a single event:
 | Store          | Event persisted in storage                         | `event_summary` with `event_id`, `event_kind`, `source_adapter`             |
 | Route          | Route matched and route ID assigned                | `route_id` on receipt, in `delivery_state_by_target`                        |
 | Plan           | Delivery plan constructed with deterministic ID    | `delivery_plan_id` on receipt, in `delivery_state_by_target`                |
-| Render         | Rendering strategy and capability level captured   | `rendering_evidence` JSON with `delivery_strategy`, `capability_level`      |
+| Render         | Rendering strategy and capability level captured   | Structured receipt fields plus observational `rendering_evidence` JSON      |
 | Deliver        | Delivery outcome status and failure classification | `status`, `failure_kind`, `error` on receipt, in `delivery_state_by_target` |
 
 A single evidence bundle for a fully-processed event contains data from all five stages simultaneously.
 
 ### 17.2 Report Dict Enrichment
 
-:func:`delivery_receipt_to_report_dict` enriches every receipt report dict with
-the following derived fields. No storage schema changes are required; enrichment
-is derived at report time from existing receipt fields:
+:func:`delivery_receipt_to_report_dict` exposes the structured capability fields persisted on receipts and derives only display text at report time.
 
-| Field                 | Source                                                                                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `suppression_reason`  | Parsed from `error` text when `status == "suppressed"` and error matches capability or loop suppression patterns.      |
-| `capability_field`    | The :class:`AdapterCapabilities` field that caused suppression (e.g. `reactions`, `replies`). Derived from error text. |
-| `capability_level`    | The three-level decision (`"native"`, `"fallback"`, `"unsupported"`). From `rendering_evidence` JSON or error text.    |
-| `delivery_strategy`   | The delivery strategy (`"direct"`, `"fallback_text"`, `"skip"`). From `rendering_evidence` JSON or error text.         |
-| `failure_kind_detail` | More specific classification derived from error patterns (e.g. `"e2ee_blocked"`, `"meshtastic_queue_rejected"`).       |
-| `retryable`           | Derived from `status`, `failure_kind`, and `next_retry_at`. `True` only for transient failures or scheduled retries.   |
+| Field                 | Current source                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `suppression_reason`  | Structured `capability_reason` for capability suppression when available; otherwise sanitized suppression `error`.   |
+| `capability_field`    | Structured `DeliveryReceipt.capability_field`.                                                                       |
+| `capability_level`    | Structured `DeliveryReceipt.capability_level`.                                                                       |
+| `delivery_strategy`   | Structured `DeliveryReceipt.delivery_strategy`.                                                                      |
+| `failure_kind_detail` | More specific classification derived from error patterns (e.g. `"e2ee_blocked"`, `"meshtastic_queue_rejected"`).     |
+| `retryable`           | Derived from `status`, `failure_kind`, and `next_retry_at`. `True` only for transient failures or scheduled retries. |
 
 ### 17.3 delivery_state_by_target Enrichment
 
@@ -1065,10 +1062,10 @@ Each ledger entry contains:
 | `latest_attempt_status`      | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
 | `latest_attempt_number`      | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
 | `ambiguous_outcome`          | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
-| `delivery_strategy`          | Rendering evidence / error                 | Strategy used (`direct`, `fallback_text`, `skip`) when derivable.                              |
-| `capability_field`           | Error                                      | Capability field that triggered suppression, or `null`.                                        |
-| `capability_level`           | Rendering evidence / error                 | Capability decision when derivable.                                                            |
-| `suppression_reason`         | Error                                      | Human-readable suppression reason, if applicable.                                              |
+| `delivery_strategy`          | Structured receipt                         | Strategy used (`direct`, `fallback_text`, `skip`) when available.                              |
+| `capability_field`           | Structured receipt                         | Capability field that drove the decision, or `null`.                                           |
+| `capability_level`           | Structured receipt                         | Capability decision when available.                                                            |
+| `suppression_reason`         | Structured reason / sanitized error        | Human-readable suppression reason, if applicable.                                              |
 | `retry_state`                | Lifecycle/retry metadata                   | Derived display label only; not mutable authority.                                             |
 | `failure_kind`               | Current attempt / outbox                   | Current-generation failure classification, if applicable.                                      |
 | `failure_taxon`              | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |

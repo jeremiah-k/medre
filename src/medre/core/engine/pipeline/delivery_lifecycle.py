@@ -104,7 +104,11 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.delivery_state import (
     is_valid_queued_to_sent_transition as _is_valid_queued_to_sent_transition,
 )
-from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.receipt_factory import (
+    build_delivery_receipt,
+    capability_receipt_fields,
+    plan_capability_receipt_fields,
+)
 from medre.core.events.canonical import (
     DeliveryObservation,
     DeliveryReceipt,
@@ -664,6 +668,10 @@ class DeliveryLifecycleService:
                 if failure_kind is not None
                 else previous_receipt.failure_kind
             ),
+            capability_level=previous_receipt.capability_level,
+            capability_field=previous_receipt.capability_field,
+            capability_reason=previous_receipt.capability_reason,
+            delivery_strategy=previous_receipt.delivery_strategy,
             attempt_number=previous_receipt.attempt_number,
             parent_receipt_id=previous_receipt.receipt_id,
             source=previous_receipt.source,
@@ -771,6 +779,9 @@ class DeliveryLifecycleService:
             replay_run_id=replay_run_id,
             target_channel=target_channel,
             outbox_id=outbox_id,
+            # Shared plan sanitizer: dead-letter evidence stays persistable
+            # even when a malformed plan carries unknown capability values.
+            **plan_capability_receipt_fields(plan),
         )
         await storage.append_receipt(dead_receipt)
         return dead_receipt
@@ -788,6 +799,10 @@ class DeliveryLifecycleService:
         route_id: str,
         failure_kind: DeliveryFailureKind,
         error: str,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
@@ -835,6 +850,10 @@ class DeliveryLifecycleService:
             receipt_kind="lifecycle",
             error=error,
             failure_kind=failure_kind.value,
+            capability_level=capability_level,
+            capability_field=capability_field,
+            capability_reason=capability_reason,
+            delivery_strategy=delivery_strategy,
             source=source,
             replay_run_id=replay_run_id,
         )
@@ -1078,6 +1097,10 @@ class DeliveryLifecycleService:
             ),
             retry_jitter=(
                 queued_receipt.retry_jitter if queued_receipt is not None else None
+            ),
+            **capability_receipt_fields(
+                receipt=queued_receipt,
+                metadata=outbox.metadata,
             ),
             rendering_evidence=(
                 queued_receipt.rendering_evidence

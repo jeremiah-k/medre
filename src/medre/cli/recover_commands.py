@@ -240,31 +240,20 @@ async def _build_event_recovery_runbook(
             entry["error"] = sanitize_error(error_msg)
         if getattr(r, "next_retry_at", None) is not None:
             entry["next_retry_at"] = r.next_retry_at
-        # Derive suppression reason for operator visibility.
+        # Surface capability/suppression evidence through the same structured
+        # authority used by reports and evidence ledgers.
+        receipt_failure_kind = getattr(r, "failure_kind", None) or inferred
         cap = _derive_capability_evidence(
             error_msg,
-            getattr(r, "rendering_evidence", None),
-            inferred,
+            receipt_failure_kind,
             r.status,
+            capability_level=getattr(r, "capability_level", None),
+            capability_field=getattr(r, "capability_field", None),
+            capability_reason=getattr(r, "capability_reason", None),
+            delivery_strategy=getattr(r, "delivery_strategy", None),
         )
         if cap.get("suppression_reason"):
             entry["suppression_reason"] = cap["suppression_reason"]
-        else:
-            # Check receipt's own failure_kind for capability/policy suppression
-            # when the inferred kind doesn't capture it.
-            rk = getattr(r, "failure_kind", None)
-            if (
-                rk in ("capability_suppressed", "policy_suppressed", "loop_suppressed")
-                and error_msg
-            ):
-                import re as _re
-
-                cap_match = _re.match(
-                    r"^(?:capability_suppressed|policy_suppressed|loop_suppressed):\s*(.+)$",
-                    error_msg,
-                )
-                if cap_match:
-                    entry["suppression_reason"] = cap_match.group(1).strip()
         # Include replay context if present.
         r_source = getattr(r, "source", "live")
         r_run_id = getattr(r, "replay_run_id", None)
