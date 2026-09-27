@@ -65,6 +65,49 @@ class TestReplayRouteAttribution:
         assert "route-1" in attr.route_ids
         assert attr.replay_mode == "re_route"
 
+    async def test_re_route_attribution_preserves_priority_order(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """RE_ROUTE observes the same priority ordering as live routing."""
+        event = make_replay_event(source_adapter="src")
+        await temp_storage.append(event)
+
+        router = Router(
+            routes=[
+                Route(
+                    id="z-default",
+                    source=RouteSource(adapter="src", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="d1")],
+                    priority=100,
+                ),
+                Route(
+                    id="z-fast",
+                    source=RouteSource(adapter="src", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="d2")],
+                    priority=10,
+                ),
+                Route(
+                    id="a-fast",
+                    source=RouteSource(adapter="src", event_kinds=(), channel=None),
+                    targets=[RouteTarget(adapter="d3")],
+                    priority=10,
+                ),
+            ]
+        )
+        engine = make_engine(temp_storage, pipeline=StubPipeline(router=router))
+
+        results = [
+            r async for r in engine.replay(ReplayRequest(mode=ReplayMode.RE_ROUTE))
+        ]
+
+        route_result = results[1]
+        assert route_result.route_attribution is not None
+        assert route_result.route_attribution.route_ids == (
+            "a-fast",
+            "z-fast",
+            "z-default",
+        )
+
     async def test_route_attribution_in_dry_run_result(
         self,
         temp_storage: SQLiteStorage,

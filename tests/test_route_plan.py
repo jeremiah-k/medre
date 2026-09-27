@@ -60,6 +60,7 @@ routes:
     source_adapters: [main]
     dest_adapters: [radio]
     directionality: source_to_dest
+    priority: 25
     source_room: '!room:fake.local'
     dest_channel: '1'
 """
@@ -245,6 +246,7 @@ def test_simple_route_produces_one_forward_leg(tmp_path: Path) -> None:
     entry = _entry_by_id(plan, "matrix_to_radio")
     assert entry.enabled is True
     assert entry.directionality == "source_to_dest"
+    assert entry.priority == 25
     assert entry.error is None
     assert len(entry.legs) == 1
     assert plan.total_legs == 1

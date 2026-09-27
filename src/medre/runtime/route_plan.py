@@ -137,6 +137,8 @@ class RoutePlanEntry:
     directionality:
         The config route's directionality value (``"source_to_dest"``,
         ``"dest_to_source"``, ``"bidirectional"``).
+    priority:
+        Configured route priority. Lower values are matched/planned first.
     legs:
         Expanded legs produced from this route.  Empty when disabled or
         when expansion failed.
@@ -150,6 +152,7 @@ class RoutePlanEntry:
     route_id: str
     enabled: bool
     directionality: str
+    priority: int
     legs: list[RoutePlanLeg]
     warnings: list[str]
     error: str | None
@@ -221,6 +224,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     route_id=rc.route_id,
                     enabled=False,
                     directionality=rc.directionality.value,
+                    priority=rc.priority,
                     legs=[],
                     warnings=["disabled"],
                     error=None,
@@ -240,6 +244,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     route_id=rc.route_id,
                     enabled=True,
                     directionality=rc.directionality.value,
+                    priority=rc.priority,
                     legs=[],
                     warnings=[],
                     error=f"references unknown adapter(s): {sorted(set(missing))}. "
@@ -257,6 +262,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     route_id=rc.route_id,
                     enabled=True,
                     directionality=rc.directionality.value,
+                    priority=rc.priority,
                     legs=[],
                     warnings=[],
                     error=str(exc),
@@ -283,6 +289,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     route_id=rc.route_id,
                     enabled=True,
                     directionality=rc.directionality.value,
+                    priority=rc.priority,
                     legs=[],
                     warnings=[],
                     error=collision_error,
@@ -309,6 +316,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 route_id=rc.route_id,
                 enabled=True,
                 directionality=rc.directionality.value,
+                priority=rc.priority,
                 legs=legs,
                 warnings=warnings,
                 error=None,

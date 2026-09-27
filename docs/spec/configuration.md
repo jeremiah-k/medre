@@ -288,6 +288,9 @@ Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 - The source and dest adapter ID tuples (`source_adapters`, `dest_adapters`)
   and the `directionality` (`source_to_dest` | `dest_to_source` |
   `bidirectional`).
+- An integer `priority` (default `100`); lower values are matched and planned
+  first, with expanded route ID as the deterministic tie-breaker. This is
+  route ordering, not transport QoS.
 - An `enabled` flag (validated even when `false`; disabled routes are not
   registered).
 - Optional targeting fields `source_channel` / `dest_channel` and their

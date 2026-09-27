@@ -238,6 +238,11 @@
           "default": "source_to_dest",
           "description": "Direction of event flow."
         },
+        "priority": {
+          "type": "integer",
+          "default": 100,
+          "description": "Route matching/planning priority. Lower values run first; equal priorities break ties by expanded route_id lexicographically. This does not request transport QoS."
+        },
         "enabled": {
           "type": "boolean",
           "default": true,

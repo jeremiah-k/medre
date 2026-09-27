@@ -554,6 +554,26 @@ def test_mapping_leg_ids_are_stable_when_unrelated_context_is_inserted() -> None
     assert "__maph" in before_ids["bravo"]
 
 
+def test_context_map_expansion_preserves_priority() -> None:
+    """Every generated context-map leg inherits its config route priority."""
+    route = RouteConfig.from_dict(
+        "priority_map",
+        {
+            "source_adapters": ["radio"],
+            "dest_adapters": ["matrix"],
+            "directionality": "bidirectional",
+            "priority": 23,
+            "context_map": {
+                "0": _entry("!zero:example.com"),
+                "1": _entry("!one:example.com"),
+            },
+        },
+    )
+    legs = expand_route_config(route)
+    assert len(legs) == 4
+    assert {leg.route.priority for leg in legs} == {23}
+
+
 class TestContextMapExpansion:
     """Compiler expansion of context_map routes."""
 

@@ -100,14 +100,14 @@ class Route:
     route_id: str
     from_: RouteSource          # Structured source matching criteria
     to: list[RouteTarget]       # One or more structured targets
-    priority: int               # Delivery priority (lower = higher priority)
     enabled: bool
     filters: dict               # Additional filter criteria (tags, metadata values)
+    priority: int = 100         # Route ordering priority (lower = earlier)
 ```
 
 - `route_id` MUST be unique across all routes. Duplicate route IDs in configuration are a startup error.
 - `to` is a list of one or more targets. An empty `to` list is a configuration error.
-- `priority` determines delivery ordering when multiple routes match. Lower numbers deliver first.
+- `priority` determines route matching/planning ordering when multiple routes match. Lower numbers run first; the configuration default is `100`. It does not request transport-level QoS or native message priority.
 - `filters` provides extensible matching beyond the core fields.
 - `enabled: false` means the route is loaded but never matches. Disabled routes do not participate in routing.
 
@@ -209,10 +209,15 @@ Routes are **non-exclusive** by default. If an event matches routes A and B, bot
 Matching routes are sorted by `priority` (ascending, lower is higher priority) before delivery plan construction. This ordering influences:
 
 - Which delivery plans are constructed first.
-- The order in which the adapter execution stage dequeues and processes deliveries.
+- The order in which the adapter execution stage admits/dequeues deliveries into its bounded worker pool.
 - Policy evaluation order when per-route limits apply.
 
-Route ordering is deterministic: priority ascending, then `route_id` lexicographic for ties.
+Priority does **not** serialize delivery. When delivery concurrency is greater
+than one, several ordered items may be in flight together and a later route may
+complete before an earlier route. Priority defines deterministic planning and
+admission order, not completion order.
+
+Route ordering is deterministic: priority ascending, then the expanded runtime `route_id` lexicographically for ties. Expansion preserves the config route's priority on every generated leg, so bidirectional and `context_map` routes participate in the same ordering rule.
 
 ### 3.4 No Match Behavior
 

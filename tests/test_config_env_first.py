@@ -558,7 +558,24 @@ class TestRouteEnvCreation:
         assert route.source_adapters == ("adapter-a",)
         assert route.dest_adapters == ("adapter-b",)
         assert route.directionality == RouteDirectionality.SOURCE_TO_DEST
+        assert route.priority == 100
         assert route.enabled is True
+
+    def test_route_priority_created_and_overridden_from_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS", "adapter-a")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS", "adapter-b")
+        monkeypatch.setenv("MEDRE_ROUTE__MY_ROUTE__PRIORITY", "-20")
+        created = apply_env_overrides(_make_base_config()).routes.routes[0]
+        assert created.priority == -20
+
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__SOURCE_ADAPTERS")
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__DEST_ADAPTERS")
+        monkeypatch.delenv("MEDRE_ROUTE__MY_ROUTE__PRIORITY")
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__PRIORITY", "7")
+        overridden = apply_env_overrides(_make_config_with_route()).routes.routes[0]
+        assert overridden.priority == 7
 
     # (b) Override existing config route: ENABLED=false preserves other fields.
     def test_override_existing_config_route(
