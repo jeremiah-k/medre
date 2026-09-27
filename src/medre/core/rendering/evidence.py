@@ -287,7 +287,7 @@ class RenderingEvidence:
     *Decision inputs* (from :class:`RenderingContext`):
         ``renderer``, ``delivery_strategy``, ``target_adapter``,
         ``target_platform``, ``target_channel``, ``max_text_chars``,
-        ``max_text_bytes``, ``capability_level``, ``capability_policy``.
+        ``max_text_bytes``, ``capability_level``.
 
     *Outputs / diagnostics* (from :class:`RenderingResult`):
         ``fallback_applied``, ``truncated``.
@@ -321,9 +321,6 @@ class RenderingEvidence:
         which the normal pipeline populates from the capability decision
         (via :class:`CapabilityDecisionResolver`) when available.  Defaults
         to ``"native"`` when no capability decision is supplied.
-    capability_policy:
-        Optional policy hint from the context, or ``None``.  Reserved
-        for forward compatibility; the default pipeline does not set it.
     fallback_applied:
         Fallback reason tag, or ``None`` when no fallback was applied.
     truncated:
@@ -370,7 +367,6 @@ class RenderingEvidence:
     max_text_chars: int | None
     max_text_bytes: int | None
     capability_level: CapabilityLevel
-    capability_policy: str | None
 
     # --- Outputs / diagnostics (RenderingResult) ---
     fallback_applied: FallbackApplied | None
@@ -445,7 +441,6 @@ class RenderingEvidence:
             max_text_chars=ctx.max_text_chars,
             max_text_bytes=ctx.max_text_bytes,
             capability_level=ctx.capability_level,
-            capability_policy=ctx.capability_policy,
             fallback_applied=result.fallback_applied,
             truncated=result.truncated,
             rendered_text_chars=rendered_chars,
@@ -481,7 +476,6 @@ class RenderingEvidence:
             "max_text_chars": self.max_text_chars,
             "max_text_bytes": self.max_text_bytes,
             "capability_level": self.capability_level,
-            "capability_policy": self.capability_policy,
             "fallback_applied": self.fallback_applied,
             "truncated": self.truncated,
             "rendered_text_chars": self.rendered_text_chars,

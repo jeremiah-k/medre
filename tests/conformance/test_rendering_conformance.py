@@ -274,7 +274,6 @@ class TestRenderingEvidenceConformance:
             "max_text_chars",
             "max_text_bytes",
             "capability_level",
-            "capability_policy",
             "fallback_applied",
             "truncated",
             "rendered_text_chars",

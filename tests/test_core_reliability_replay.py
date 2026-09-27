@@ -38,7 +38,6 @@ async def test_re_render_uses_persisted_live_rendering_context(
             "max_text_chars": 123,
             "max_text_bytes": 321,
             "capability_level": "fallback",
-            "capability_policy": None,
             "fallback_applied": "thread_fallback_text",
             "truncated": False,
             "rendered_text_chars": 5,

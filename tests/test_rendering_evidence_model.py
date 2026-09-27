@@ -143,7 +143,6 @@ class TestRenderingEvidenceModel:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=False,
             fallback_applied=None,
             rendered_text_chars=None,
@@ -166,7 +165,6 @@ class TestRenderingEvidenceModel:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=False,
             fallback_applied=None,
             rendered_text_chars=5,
@@ -192,7 +190,6 @@ class TestRenderingEvidenceModel:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=False,
             fallback_applied=None,
             rendered_text_chars=100,
@@ -213,7 +210,6 @@ class TestRenderingEvidenceModel:
             "max_text_chars",
             "max_text_bytes",
             "capability_level",
-            "capability_policy",
             "fallback_applied",
             "truncated",
             "rendered_text_chars",
@@ -230,7 +226,6 @@ class TestRenderingEvidenceModel:
         # None fields must be explicitly present (not omitted).
         assert d["target_platform"] is None
         assert d["target_channel"] is None
-        assert d["capability_policy"] is None
         assert d["fallback_applied"] is None
 
         # The dict must round-trip through JSON without error.
@@ -271,7 +266,6 @@ class TestDeliveryReceiptRenderingEvidence:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=False,
             fallback_applied=None,
             rendered_text_chars=5,
@@ -466,7 +460,6 @@ class TestEvidenceSerializationHardening:
             max_text_chars=None,
             max_text_bytes=None,
             capability_level="native",
-            capability_policy=None,
             truncated=False,
             fallback_applied=None,
             rendered_text_chars=5,

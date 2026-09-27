@@ -104,14 +104,11 @@ class RenderingContext:
     its native payload fields).  The pipeline does **not** bypass
     target-native renderers based on this field.
 
-    **Populated and reserved fields** — ``max_text_bytes`` is wired
+    **Populated fields** — ``max_text_bytes`` is wired
     from adapter capabilities by the pipeline.  ``capability_level``
     is populated from the :class:`CapabilityDecisionResolver` via
     :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
-    when rendering occurs through the normal pipeline.  ``capability_policy``
-    is defined as part of the context protocol for forward compatibility
-    and caller-provided plumbing, but the default pipeline does **not**
-    populate it; it remains ``None`` unless a caller explicitly sets it.
+    when rendering occurs through the normal pipeline.
     Renderers MUST treat ``delivery_strategy`` as the authoritative
     dispatch signal.
 
@@ -146,12 +143,6 @@ class RenderingContext:
         to ``"native"`` when no capability decision is available.
         Renderers should rely on ``delivery_strategy`` as the
         authoritative dispatch signal.
-    capability_policy:
-        Optional policy hint governing rendering behaviour (e.g.
-        ``"strict"`` for hard reject on capability mismatch,
-        ``"lenient"`` for best-effort).  ``None`` when no policy is
-        set.  **Reserved**: not currently wired by the default
-        pipeline.
     source_origin_label:
         Optional source-context origin label threaded from the matched
         route's configuration.  This is a *source-side* label, not a
@@ -181,7 +172,6 @@ class RenderingContext:
     max_text_chars: int | None = None
     max_text_bytes: int | None = None
     capability_level: CapabilityLevel = "native"
-    capability_policy: str | None = None
     source_origin_label: str | None = None
     target_destination: RouteDestination | None = None
 

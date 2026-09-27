@@ -370,11 +370,7 @@ The following behaviors have synthetic-tier test coverage but lack `live_service
    result. Same-run duplicate execution is represented by the durable outbox claim
    and the replay result; it does not append synthetic lifecycle evidence.
 
-5. **`capability_policy` is reserved and unpopulated.**
-   `RenderingContext.capability_policy` defaults to `None` and is not set by the
-   current pipeline. No test exercises this field.
-
-6. **No live-service or hardware validation for deterministic plan IDs, suppression
+5. **No live-service or hardware validation for deterministic plan IDs, suppression
    gates, retry lineage, or operator diagnostics.** All tests use fake adapters and
    synthetic configurations. No test validates these behaviours against real
    transport endpoints.
