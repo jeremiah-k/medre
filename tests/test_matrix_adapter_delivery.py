@@ -109,7 +109,7 @@ class TestEncryptedRoomSafetyErrorPropagation:
         with pytest.raises(AdapterSendError) as exc_info:
             with pytest.MonkeyPatch.context() as mp:
                 # Make _check_encrypted_room_safety raise transient MatrixSendError
-                def _raise_transient(self_inner, room_id):
+                def _raise_transient(self_inner, room_id, *, room_encrypted=False):
                     raise MatrixSendError("encrypted room rejected", transient=True)
 
                 mp.setattr(
@@ -131,7 +131,7 @@ class TestEncryptedRoomSafetyErrorPropagation:
         with pytest.raises(AdapterPermanentError) as exc_info:
             with pytest.MonkeyPatch.context() as mp:
 
-                def _raise_permanent(self_inner, room_id):
+                def _raise_permanent(self_inner, room_id, *, room_encrypted=False):
                     raise MatrixSendError(
                         "encrypted room permanently blocked", transient=False
                     )

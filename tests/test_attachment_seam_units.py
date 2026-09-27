@@ -8,6 +8,9 @@ and association-scoped retained-content reads.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import pytest
 
 from medre.adapters.matrix.event_shape import (
@@ -108,7 +111,10 @@ def test_media_candidate_requires_mapping_and_known_kind() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _admitted_storage(data: bytes = b"payload") -> tuple[SQLiteStorage, str, str]:
+@asynccontextmanager
+async def _admitted_storage(
+    data: bytes = b"payload",
+) -> AsyncIterator[tuple[SQLiteStorage, str, str]]:
     from medre.core.events.attachments import AttachmentDescriptor
     from medre.core.events.canonical import NativeMessageRef
 
@@ -143,20 +149,26 @@ async def _admitted_storage(data: bytes = b"payload") -> tuple[SQLiteStorage, st
     )
     fact = result.attachment
     assert fact is not None and fact.retained
-    return storage, "evt-media", fact.content_ref
+    try:
+        yield storage, "evt-media", fact.content_ref
+    finally:
+        await storage.close()
 
 
 async def test_admission_requires_declared_descriptor() -> None:
     storage = SQLiteStorage(":memory:")
     await storage.initialize()
     event = make_storage_event("evt-plain", event_kind="message.created")
-    with pytest.raises(ValueError, match="without a declared attachment"):
-        await storage.admit_ingress(
-            event,
-            None,
-            "live",
-            attachment=InboundAttachmentContent(data=b"x", declared_size=None),
-        )
+    try:
+        with pytest.raises(ValueError, match="without a declared attachment"):
+            await storage.admit_ingress(
+                event,
+                None,
+                "live",
+                attachment=InboundAttachmentContent(data=b"x", declared_size=None),
+            )
+    finally:
+        await storage.close()
 
 
 async def test_admission_rejects_non_bytes_payload() -> None:
@@ -171,95 +183,111 @@ async def test_admission_rejects_non_bytes_payload() -> None:
             "attachment": AttachmentDescriptor(kind="file").to_declared_payload(),
         },
     )
-    with pytest.raises(ValueError, match="bytes-like"):
-        await storage.admit_ingress(
-            event,
-            None,
-            "live",
-            attachment=InboundAttachmentContent(data="not-bytes", declared_size=None),
-        )
+    try:
+        with pytest.raises(ValueError, match="bytes-like"):
+            await storage.admit_ingress(
+                event,
+                None,
+                "live",
+                attachment=InboundAttachmentContent(
+                    data="not-bytes", declared_size=None
+                ),
+            )
+    finally:
+        await storage.close()
 
 
 async def test_retained_reads_are_association_scoped_and_verified() -> None:
-    storage, event_id, content_ref = await _admitted_storage(b"payload-bytes")
+    async with _admitted_storage(b"payload-bytes") as (storage, event_id, content_ref):
+        stored = await storage.load_attachment_content(event_id, content_ref)
+        assert stored.data == b"payload-bytes"
 
-    stored = await storage.load_attachment_content(event_id, content_ref)
-    assert stored.data == b"payload-bytes"
-
-    with pytest.raises(AttachmentContentUnavailableError, match="association"):
-        await storage.load_attachment_content(event_id, "sha256:" + "f" * 64)
-    with pytest.raises(AttachmentContentUnavailableError, match="association"):
-        await storage.load_attachment_content("evt-other", content_ref)
+        with pytest.raises(AttachmentContentUnavailableError, match="association"):
+            await storage.load_attachment_content(event_id, "sha256:" + "f" * 64)
+        with pytest.raises(AttachmentContentUnavailableError, match="association"):
+            await storage.load_attachment_content("evt-other", content_ref)
 
 
 async def test_missing_blob_fails_with_content_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    storage, event_id, content_ref = await _admitted_storage(b"payload-bytes")
-
-    # Simulate a lost blob row (association intact) and verify the honest
-    # failure reason; the association FK must be relaxed to delete it.
-    storage._db.execute("PRAGMA foreign_keys = OFF")
-    storage._db.execute("DELETE FROM attachment_blobs")
-    storage._db.commit()
-    storage._db.execute("PRAGMA foreign_keys = ON")
-    with pytest.raises(AttachmentContentUnavailableError, match="missing") as excinfo:
-        await storage.load_attachment_content(event_id, content_ref)
-    assert excinfo.value.reason == "content_missing"
+    async with _admitted_storage(b"payload-bytes") as (storage, event_id, content_ref):
+        # Simulate a lost blob row (association intact) and verify the honest
+        # failure reason; the association FK must be relaxed to delete it.
+        storage._db.execute("PRAGMA foreign_keys = OFF")
+        storage._db.execute("DELETE FROM attachment_blobs")
+        storage._db.commit()
+        storage._db.execute("PRAGMA foreign_keys = ON")
+        with pytest.raises(
+            AttachmentContentUnavailableError, match="missing"
+        ) as excinfo:
+            await storage.load_attachment_content(event_id, content_ref)
+        assert excinfo.value.reason == "content_missing"
 
 
 async def test_policy_disabled_blocks_retained_reads() -> None:
     from medre.core.storage.sqlite.storage import StorageAttachmentAccess
 
-    storage, event_id, content_ref = await _admitted_storage(b"payload-bytes")
-    access = StorageAttachmentAccess(
-        storage,
-        AttachmentPolicyState(
-            enabled=False, max_attachment_bytes=10, transfer_timeout_seconds=1.0
-        ),
-    )
-    with pytest.raises(AttachmentContentUnavailableError, match="policy is disabled"):
-        await access.load_for_event(event_id, content_ref)
+    async with _admitted_storage(b"payload-bytes") as (storage, event_id, content_ref):
+        access = StorageAttachmentAccess(
+            storage,
+            AttachmentPolicyState(
+                enabled=False,
+                max_attachment_bytes=10,
+                transfer_timeout_seconds=1.0,
+            ),
+        )
+        with pytest.raises(
+            AttachmentContentUnavailableError, match="policy is disabled"
+        ):
+            await access.load_for_event(event_id, content_ref)
 
 
 async def test_retained_bytes_total_counts_unique_blobs() -> None:
     from medre.core.events.attachments import AttachmentDescriptor
     from medre.core.events.canonical import NativeMessageRef
 
-    storage, _event_id, content_ref = await _admitted_storage(b"payload-bytes")
-
-    # A second event admitting identical bytes must deduplicate: the blob
-    # store holds one row and the total counts it once.
-    event = make_storage_event(
-        "evt-media-2",
-        event_kind="message.file",
-        payload={
-            "body": "file.bin",
-            "attachment": AttachmentDescriptor(
-                kind="file", filename="file.bin", mime_type="application/octet-stream"
-            ).to_declared_payload(),
-        },
-    )
-    ref = NativeMessageRef(
-        id="nmr-evt-media-2",
-        event_id="evt-media-2",
-        adapter="fake_transport",
-        native_channel_id="ch-0",
-        native_message_id="native-evt-media-2",
-        native_thread_id=None,
-        native_relation_id=None,
-        direction="inbound",
-        created_at=event.timestamp,
-    )
-    result = await storage.admit_ingress(
-        event,
-        ref,
-        "live",
-        attachment=InboundAttachmentContent(data=b"payload-bytes", declared_size=None),
-    )
-    assert result.attachment is not None and result.attachment.retained
-    assert await storage.attachment_retained_bytes() == len(b"payload-bytes")
+    async with _admitted_storage(b"payload-bytes") as (
+        storage,
+        _event_id,
+        content_ref,
+    ):
+        # A second event admitting identical bytes must deduplicate: the blob
+        # store holds one row and the total counts it once.
+        event = make_storage_event(
+            "evt-media-2",
+            event_kind="message.file",
+            payload={
+                "body": "file.bin",
+                "attachment": AttachmentDescriptor(
+                    kind="file",
+                    filename="file.bin",
+                    mime_type="application/octet-stream",
+                ).to_declared_payload(),
+            },
+        )
+        ref = NativeMessageRef(
+            id="nmr-evt-media-2",
+            event_id="evt-media-2",
+            adapter="fake_transport",
+            native_channel_id="ch-0",
+            native_message_id="native-evt-media-2",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+            created_at=event.timestamp,
+        )
+        result = await storage.admit_ingress(
+            event,
+            ref,
+            "live",
+            attachment=InboundAttachmentContent(
+                data=b"payload-bytes", declared_size=None
+            ),
+        )
+        assert result.attachment is not None and result.attachment.retained
+        assert await storage.attachment_retained_bytes() == len(b"payload-bytes")
 
 
 async def test_admission_rejects_unsupported_provenance() -> None:
@@ -274,13 +302,16 @@ async def test_admission_rejects_unsupported_provenance() -> None:
             "attachment": AttachmentDescriptor(kind="file").to_declared_payload(),
         },
     )
-    with pytest.raises(ValueError, match="unsupported ingress provenance"):
-        await storage.admit_ingress(
-            event,
-            None,
-            "not-a-provenance",
-            attachment=InboundAttachmentContent(data=b"x", declared_size=None),
-        )
+    try:
+        with pytest.raises(ValueError, match="unsupported ingress provenance"):
+            await storage.admit_ingress(
+                event,
+                None,
+                "not-a-provenance",
+                attachment=InboundAttachmentContent(data=b"x", declared_size=None),
+            )
+    finally:
+        await storage.close()
 
 
 async def test_duplicate_admission_reports_original_retained_fact() -> None:

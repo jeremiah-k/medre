@@ -108,6 +108,13 @@ def _nio_module(**extra: object) -> SimpleNamespace:
 
 
 def _media_session(monkeypatch: pytest.MonkeyPatch, http: StubHttpSession):
+    # The adapter imports aiohttp lazily inside download_media; the default
+    # CI environment does not install it, so the boundary is stubbed too.
+    monkeypatch.setitem(
+        sys.modules,
+        "aiohttp",
+        SimpleNamespace(ClientTimeout=lambda **kwargs: SimpleNamespace(**kwargs)),
+    )
     monkeypatch.setitem(sys.modules, "nio", _nio_module())
     session = MatrixSession(make_matrix_config())
     session._client = SimpleNamespace(
