@@ -26,6 +26,7 @@ from medre.adapters.matrix.errors import (
     MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
     MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
     MatrixAttachmentFetchDeferredError,
+    MatrixConnectionError,
     MatrixMediaTransientError,
     MatrixMediaUnavailableError,
 )
@@ -445,6 +446,21 @@ async def test_transient_media_error_defers_ingress_without_admission() -> None:
 
     assert isinstance(excinfo.value.event_id, str) and excinfo.value.event_id
     assert any("transient failure" in reason for reason in excinfo.value.reasons)
+    assert admit.calls == []
+    assert adapter._inbound_attachment_deferred == 1
+    assert adapter._inbound_attachment_unavailable == 0
+
+
+async def test_connection_error_defers_ingress_without_admission() -> None:
+    session = StubMatrixSession()
+    session.download_result = MatrixConnectionError("client is not connected")
+    adapter, admit = make_adapter(session, seam=make_seam())
+
+    with pytest.raises(MatrixAttachmentFetchDeferredError) as excinfo:
+        await adapter._on_room_message(media_event(), "live")
+
+    assert isinstance(excinfo.value.event_id, str) and excinfo.value.event_id
+    assert any("connection failure" in reason for reason in excinfo.value.reasons)
     assert admit.calls == []
     assert adapter._inbound_attachment_deferred == 1
     assert adapter._inbound_attachment_unavailable == 0

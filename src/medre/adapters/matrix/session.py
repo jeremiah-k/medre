@@ -1225,16 +1225,24 @@ class MatrixSession:
             # ``_LiveCallbackError(accepted=True)`` (live) or logs+drops
             # (recovered).  Do NOT translate to CallbackNotAcceptedError;
             # that would loop forever.
-            unexpected_key = self._attachment_fetch_deferral_key(normalized)
-            if unexpected_key is not None:
-                # The event is consumed either way and will not be
-                # redispatched, so its deferral entry is dead state.
-                await self._prune_attachment_fetch_deferral(unexpected_key)
             self._logger.exception(
                 "MATRIX_ADMISSION_UNEXPECTED_ERROR: provenance=%s event_id=%s",
                 provenance_value,
                 getattr(event, "event_id", None),
             )
+            unexpected_key = self._attachment_fetch_deferral_key(normalized)
+            if unexpected_key is not None:
+                # The event is consumed either way and will not be
+                # redispatched, so its deferral entry is dead state.
+                try:
+                    await self._prune_attachment_fetch_deferral(unexpected_key)
+                except Exception:
+                    # Cleanup must never replace the admission exception that
+                    # determines nio's accepted/consumed callback semantics.
+                    self._logger.warning(
+                        "Failed to prune Matrix attachment fetch deferral",
+                        exc_info=True,
+                    )
             raise
 
     @staticmethod

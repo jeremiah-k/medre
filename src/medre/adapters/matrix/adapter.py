@@ -1441,6 +1441,14 @@ class MatrixAdapter(AdapterContract):
                 f"attachment fetch transient failure: {exc}",
                 exc,
             )
+        except MatrixConnectionError as exc:
+            return self._defer_or_exhaust_attachment_fetch(
+                native_event,
+                canonical,
+                declared,
+                f"attachment fetch connection failure: {exc}",
+                exc,
+            )
         except OSError as exc:
             return self._defer_or_exhaust_attachment_fetch(
                 native_event,

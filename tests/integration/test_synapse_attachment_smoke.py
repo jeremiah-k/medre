@@ -590,7 +590,6 @@ class TestSynapseAttachmentSmoke:
             dest_user_id=synapse_env.test_user_id,
             dest_access_token=synapse_env.test_access_token,
         )
-        await harness.start()
         # Live-provenance retention first: the media must arrive after the
         # live sync boundary (startup backlog is history-suppressed).
         try:
@@ -846,40 +845,42 @@ class TestSynapseEncryptedAttachmentSmoke:
                 send_response, "event_id"
             ), f"encrypted send failed: {send_response}"
 
-            try:
-                result = await harness.wait_for_file_admission("secret-photo.png")
-                assert result.attachment is not None and result.attachment.retained
-                stored = await storage.load_attachment_content(
-                    result.event_id, result.attachment.content_ref
-                )
-                assert (
-                    stored.data == _MEDIA_BYTES
-                ), "decrypted attachment bytes must equal the original"
-                await harness.runner.process_admitted_event(result.event_id)
-                relayed = await harness.wait_for_relay()
-                content = relayed["content"]
-                assert "url" in content, "plaintext destination carries a plain url"
-                downloaded = _download_media(env, env.test_access_token, content["url"])
-                assert downloaded == _MEDIA_BYTES
-                # No file key material in any persisted canonical evidence.
-                canonical = await storage.get(result.event_id)
-                canonical_payload = json.dumps(canonical.payload)
-                assert keys["key"]["k"] not in canonical_payload
-                assert keys["iv"] not in canonical_payload
-                assert keys["hashes"]["sha256"] not in canonical_payload
-                report = {
-                    "transport": "matrix",
-                    "evidence_level": "docker_synapse_e2ee_source_media",
-                    "event_and_attachment_decrypted": True,
-                    "no_file_keys_in_canonical_evidence": True,
-                    "identical_bytes": True,
-                }
-                logger.info("encrypted-source attachment report: %s", report)
-            finally:
-                await harness.stop()
-                await storage.close()
+            result = await harness.wait_for_file_admission("secret-photo.png")
+            assert result.attachment is not None and result.attachment.retained
+            stored = await storage.load_attachment_content(
+                result.event_id, result.attachment.content_ref
+            )
+            assert (
+                stored.data == _MEDIA_BYTES
+            ), "decrypted attachment bytes must equal the original"
+            await harness.runner.process_admitted_event(result.event_id)
+            relayed = await harness.wait_for_relay()
+            content = relayed["content"]
+            assert "url" in content, "plaintext destination carries a plain url"
+            downloaded = _download_media(env, env.test_access_token, content["url"])
+            assert downloaded == _MEDIA_BYTES
+            # No file key material in any persisted canonical evidence.
+            canonical = await storage.get(result.event_id)
+            canonical_payload = json.dumps(canonical.payload)
+            assert keys["key"]["k"] not in canonical_payload
+            assert keys["iv"] not in canonical_payload
+            assert keys["hashes"]["sha256"] not in canonical_payload
+            report = {
+                "transport": "matrix",
+                "evidence_level": "docker_synapse_e2ee_source_media",
+                "event_and_attachment_decrypted": True,
+                "no_file_keys_in_canonical_evidence": True,
+                "identical_bytes": True,
+            }
+            logger.info("encrypted-source attachment report: %s", report)
         finally:
-            await env.close_test_e2ee_client()
+            try:
+                await env.close_test_e2ee_client()
+            finally:
+                try:
+                    await harness.stop()
+                finally:
+                    await storage.close()
 
     async def test_plaintext_source_uploads_ciphertext_to_encrypted_room(
         self,
@@ -970,9 +971,12 @@ class TestSynapseEncryptedAttachmentSmoke:
                 # proof below uses the receiving client when key exchange
                 # completed in time).
                 ciphertext_blob = json.dumps(encrypted_event)
-                assert (
-                    "into-e2ee.bin" not in ciphertext_blob.split("ciphertext")[-1][:50]
-                )
+                assert "into-e2ee.bin" not in ciphertext_blob
+                encrypted_content = encrypted_event.get("content")
+                assert isinstance(encrypted_content, dict)
+                assert "ciphertext" in encrypted_content
+                assert "url" not in encrypted_content
+                assert "file" not in encrypted_content
 
                 if receiver is None:
                     pytest.xfail(

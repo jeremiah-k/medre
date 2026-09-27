@@ -88,8 +88,12 @@ previously stored files.
   capped at three attempts using a restart-persistent counter keyed by stable
   native Matrix identity; exhaustion admits descriptor-only as
   `fetch_exhausted` instead of leaving one event pending forever. Malformed
-  encrypted-media key/IV/hash values classify as `malformed_source`; fake
-  Matrix delivery now rejects an explicitly disabled attachment policy.
+  encrypted-media key/IV/hash values classify as `malformed_source`; disconnected
+  Matrix media fetches stay inside that same transient budget; retry-state
+  cleanup cannot replace the original admission failure; fake Matrix delivery
+  rejects an explicitly disabled attachment policy; and oversized integer
+  transfer deadlines fail configuration validation instead of leaking an
+  `OverflowError`.
 - Hardening from adversarial review: quota-rejected bytes are never written or
   associated behind an unavailable descriptor; zero-byte attachments retain
   normally with measured size `0`; a transfer waiter that has not acquired a

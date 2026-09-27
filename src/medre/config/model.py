@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Self, get_args, get_type_hints
@@ -286,7 +287,14 @@ class AttachmentConfig:
                 "attachments.transfer_timeout_seconds must be a positive "
                 f"finite number, got {timeout!r}"
             )
-        if not float(timeout) > 0 or float(timeout) == float("inf"):
+        try:
+            timeout_value = float(timeout)
+        except OverflowError as exc:
+            raise ConfigValidationError(
+                "attachments.transfer_timeout_seconds must be a positive "
+                f"finite number, got {timeout!r}"
+            ) from exc
+        if not math.isfinite(timeout_value) or timeout_value <= 0:
             raise ConfigValidationError(
                 "attachments.transfer_timeout_seconds must be a positive "
                 f"finite number, got {timeout!r}"

@@ -375,6 +375,55 @@ async def test_unexpected_admission_error_prunes_attachment_fetch_deferral(
     assert session._attachment_fetch_deferrals == {}
 
 
+async def test_prune_failure_preserves_original_unexpected_admission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    original = RuntimeError("boom")
+
+    async def reject(_event: dict[str, object], _provenance: str) -> None:
+        raise original
+
+    session = _durable_session(admission_callback=reject)
+    session._attachment_fetch_deferrals["a" * 64] = 1
+    # MatrixSession defines __slots__, so patches go through the class; the
+    # key helper is a staticmethod and must stay one to keep its arity.
+    monkeypatch.setattr(
+        MatrixSession,
+        "_attachment_fetch_deferral_key",
+        staticmethod(lambda _normalized: "a" * 64),
+    )
+    monkeypatch.setattr(
+        MatrixSession,
+        "_prune_attachment_fetch_deferral",
+        AsyncMock(side_effect=OSError("checkpoint unavailable")),
+    )
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$media",
+        body="photo.png",
+        source={
+            "event_id": "$media",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.image", "body": "photo.png"},
+        },
+    )
+
+    caplog.set_level("WARNING", logger="medre.adapters.matrix.session")
+    with pytest.raises(RuntimeError, match="boom") as caught:
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+
+    assert caught.value is original
+    messages = [record.message for record in caplog.records]
+    assert any("MATRIX_ADMISSION_UNEXPECTED_ERROR" in message for message in messages)
+    assert any(
+        "Failed to prune Matrix attachment fetch deferral" in message
+        for message in messages
+    )
+
+
 @pytest.mark.parametrize(
     "metadata_json",
     [

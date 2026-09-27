@@ -8,6 +8,7 @@ Run narrowly::
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,6 +38,7 @@ class TestAttachmentConfigValidation:
             {"max_concurrent_transfers": True},
             {"transfer_timeout_seconds": 0},
             {"transfer_timeout_seconds": float("inf")},
+            {"transfer_timeout_seconds": 10**1000},
             {"transfer_timeout_seconds": True},
             # per-attachment cap larger than the total retained budget
             {"max_attachment_bytes": 512, "max_retained_bytes": 256},
@@ -163,6 +165,7 @@ class TestRuntimeAttachmentSeam:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         app = self._app(AttachmentConfig(enabled=True), storage=None)
+        caplog.set_level(logging.WARNING, logger="medre.runtime.app")
         app._assemble_attachment_seam()
         assert app._attachment_seam is None
         assert any(
