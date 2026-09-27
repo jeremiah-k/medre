@@ -398,18 +398,6 @@ def _transport_for(module: str) -> str | None:
     return transport
 
 
-def _extract_string_kwargs(call_node: _ast.Call, param_name: str) -> str | None:
-    """Extract a string keyword argument from an AST Call node."""
-    for kw in call_node.keywords:
-        if (
-            kw.arg == param_name
-            and isinstance(kw.value, _ast.Constant)
-            and isinstance(kw.value.value, str)
-        ):
-            return kw.value.value
-    return None
-
-
 def _collect_adapter_strings(
     node: _ast.AST, lineno: int, results: list[tuple[str, int, str]]
 ) -> None:
@@ -438,8 +426,8 @@ def _collect_adapter_strings(
 def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     """Extract dynamic adapter module strings from Python source.
 
-    Parses AST for legacy builder factories/renderer specs, registry-like
-    assignments containing ``medre.adapters.*`` symbol references, dynamic
+    Parses AST for registry-like assignments containing
+    ``medre.adapters.*`` symbol references, dynamic
     ``importlib.import_module()`` calls, and ``__import__()`` calls.
 
     Alias-aware: recognizes aliased imports such as
@@ -458,17 +446,10 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     results: list[tuple[str, int, str]] = []
 
     for node in _ast.walk(tree):
-        # _AdapterFactory(module="medre.adapters....", ...)
         if isinstance(node, _ast.Call):
             func = node.func
-            if isinstance(func, _ast.Name) and func.id == "_AdapterFactory":
-                module = _extract_string_kwargs(node, "module")
-                if module:
-                    results.append(
-                        (module, node.lineno, f"dynamic builder assembly: {module}")
-                    )
             # __import__("medre.adapters....", ...)
-            elif (
+            if (
                 isinstance(func, _ast.Name)
                 and resolve_call_name(func.id, aliases) == "__import__"
             ):
@@ -565,7 +546,6 @@ def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
                     if (
                         any(part in upper for part in _REGISTRY_NAME_PARTS)
                         and target.id != "_ADAPTER_RENDERER_SPECS"
-                        and target.id != "_AdapterFactory"
                     ):
                         target_name = target.id
                         value_node = node.value

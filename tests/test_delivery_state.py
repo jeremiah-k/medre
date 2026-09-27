@@ -534,6 +534,11 @@ class TestConvergenceClassificationConformance:
                     "target_channel": channel,
                     "route_id": "route-1",
                     "status": receipt_status,
+                    "receipt_kind": (
+                        "attempt"
+                        if receipt_status in {"queued", "sent", "failed"}
+                        else "lifecycle"
+                    ),
                     "attempt_number": 1,
                     "sequence": 1,
                     "source": "live",

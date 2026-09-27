@@ -253,7 +253,8 @@ Binding is destination-scoped. Candidates are stored `NativeMessageRef`
 records with `adapter == <destination adapter instance>` and — when the
 destination context (native room/channel id) is known —
 `native_channel_id == <destination context>`. When the destination context is
-unknown (legacy replay contexts), adapter-only matching is allowed. Identical
+unknown (routes without an explicit destination channel), adapter-only
+matching is allowed. Identical
 `(native_channel_id, native_message_id)` tuples are deduplicated; more than
 one DISTINCT tuple yields `ambiguous`. Core never guesses.
 

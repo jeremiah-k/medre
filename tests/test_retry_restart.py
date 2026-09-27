@@ -24,7 +24,6 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.core.observability.classification import infer_failure_kind
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
@@ -185,8 +184,7 @@ class _RetryWorker:
             return False
         if receipt.failure_kind is not None:
             return receipt.failure_kind == "adapter_transient"
-        kind = infer_failure_kind(receipt.error, receipt.status)
-        return kind == "adapter_transient"
+        return receipt.failure_kind == "adapter_transient"
 
 
 # ---------------------------------------------------------------------------

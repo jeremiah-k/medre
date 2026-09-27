@@ -254,6 +254,7 @@ async def _make_populated_db_with_failure(
     event_id: str = "ev-evidence-fail-001",
     receipt_status: str = "failed",
     receipt_error: str | None = "TimeoutError: connection timed out",
+    receipt_failure_kind: str | None = None,
     receipt_source: str = "live",
     replay_run_id: str | None = None,
 ) -> str:
@@ -294,6 +295,7 @@ async def _make_populated_db_with_failure(
         source=receipt_source,
         replay_run_id=replay_run_id,
         error=receipt_error,
+        failure_kind=receipt_failure_kind,
         created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
     )
     await storage.append_receipt(receipt)
@@ -725,6 +727,7 @@ class TestIncidentSummary:
             event_id="ev-evidence-retry-001",
             receipt_status="failed",
             receipt_error="TimeoutError: connection timed out",
+            receipt_failure_kind="adapter_transient",
         )
 
         report = await collect_evidence_bundle(
@@ -746,6 +749,7 @@ class TestIncidentSummary:
             event_id="ev-evidence-perm-001",
             receipt_status="failed",
             receipt_error="permission denied",
+            receipt_failure_kind="adapter_permanent",
         )
 
         report = await collect_evidence_bundle(
@@ -765,6 +769,7 @@ class TestIncidentSummary:
             event_id="ev-evidence-op-001",
             receipt_status="failed",
             receipt_error="delivery_capacity_exceeded",
+            receipt_failure_kind="capacity_rejection",
         )
 
         report = await collect_evidence_bundle(
@@ -1033,6 +1038,7 @@ class TestEvidenceStorageSectionEquivalence:
             event_id="ev-equiv-fail-001",
             receipt_status="failed",
             receipt_error="TimeoutError: connection timed out",
+            receipt_failure_kind="adapter_transient",
         )
 
         config_report = await collect_evidence_bundle(

@@ -72,6 +72,9 @@ def _receipt(
         "target_channel": target_channel,
         "route_id": route_id,
         "status": status,
+        "receipt_kind": (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        ),
         "attempt_number": attempt_number,
         "sequence": sequence,
         "source": source,
@@ -397,6 +400,7 @@ class TestMissingPlanId:
             "target_adapter": "radio",
             "target_channel": "ch-0",
             "status": "sent",
+            "receipt_kind": "attempt",
             "attempt_number": 1,
             "sequence": 0,
             "created_at": _TS,

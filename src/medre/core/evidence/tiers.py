@@ -130,9 +130,9 @@ def infer_evidence_tier(
     if source_adapter is not None and source_adapter.startswith("fake_"):
         return EvidenceTier.SYNTHETIC.value
 
-    # Priority 3: replay origin → synthetic.  ``sources_seen`` retains the
-    # legacy direct-replay signal; ``has_replay_origin`` also catches retries
-    # that originated from a named replay.
+    # Priority 3: replay origin → synthetic.  ``sources_seen`` carries the
+    # direct-replay signal; ``has_replay_origin`` also catches retries that
+    # originated from a named replay run.
     if has_replay_origin or "replay" in sources_seen:
         return EvidenceTier.SYNTHETIC.value
 

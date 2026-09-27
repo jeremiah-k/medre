@@ -94,6 +94,7 @@ class _FakeReceipt:
         attempt_number: int = 1,
         error: str | None = None,
         failure_kind: str | None = None,
+        receipt_kind: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
         target_channel: str | None = None,
@@ -107,6 +108,9 @@ class _FakeReceipt:
         self.attempt_number = attempt_number
         self.error = error
         self.failure_kind = failure_kind
+        self.receipt_kind = receipt_kind or (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        )
         self.delivery_plan_id = "plan-1"
         self.route_id = route_id
         self.adapter_message_id = None
@@ -813,119 +817,6 @@ class TestReplayWithEvent:
 # ---------------------------------------------------------------------------
 
 
-class TestFailureKindClassification:
-    """Tests for failure-kind inference from receipt error/status fields."""
-
-    def test_infer_adapter_transient_from_timeout_error(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("TimeoutError: connection timed out", "failed")
-            == "adapter_transient"
-        )
-
-    def test_infer_adapter_transient_from_connection_reset(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("ConnectionResetError: connection reset", "failed")
-            == "adapter_transient"
-        )
-
-    def test_dead_lettered_without_failure_signal_remains_unknown(self) -> None:
-        """Lifecycle terminal status alone must not invent retryability."""
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert infer_failure_kind("some error", "dead_lettered") == "unknown"
-
-    def test_infer_adapter_permanent_from_generic_error(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert infer_failure_kind("permission denied", "failed") == "adapter_permanent"
-
-    def test_infer_renderer_failure(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("no renderer registered for event_kind", "failed")
-            == "renderer_failure"
-        )
-
-    def test_infer_adapter_missing(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("adapter_missing: adapter 'x' not registered", "failed")
-            == "adapter_missing"
-        )
-
-    def test_infer_capacity_rejection(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("delivery_capacity_exceeded", "failed")
-            == "capacity_rejection"
-        )
-
-    def test_infer_shutdown_rejection(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("delivery_rejected_shutdown", "failed")
-            == "shutdown_rejection"
-        )
-
-    def test_infer_deadline_exceeded(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("deadline_exceeded: plan deadline passed", "failed")
-            == "deadline_exceeded"
-        )
-
-    def test_infer_unknown_no_error(self) -> None:
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert infer_failure_kind(None, "failed") == "unknown"
-
-    def test_failure_category_retryable(self) -> None:
-        from medre.core.observability.classification import failure_category
-
-        assert failure_category("adapter_transient") == "retryable"
-
-    def test_failure_category_permanent(self) -> None:
-        from medre.core.observability.classification import failure_category
-
-        assert failure_category("adapter_permanent") == "permanent"
-        assert failure_category("adapter_missing") == "permanent"
-        assert failure_category("renderer_failure") == "permanent"
-
-    def test_failure_category_operational(self) -> None:
-        from medre.core.observability.classification import failure_category
-
-        assert failure_category("capacity_rejection") == "operational"
-        assert failure_category("shutdown_rejection") == "operational"
-        assert failure_category("deadline_exceeded") == "operational"
-
-    def test_failure_category_unknown(self) -> None:
-        from medre.core.observability.classification import failure_category
-
-        assert failure_category("unknown") == "unknown"
-        assert failure_category("something_else") == "unknown"
-
-    def test_classification_helpers_importable_from_recover_commands(self) -> None:
-        """Classification helpers are imported from the canonical observability module."""
-        from medre.cli.recover_commands import _failure_category, _infer_failure_kind
-
-        assert _infer_failure_kind("timeout", "failed") == "adapter_transient"
-        assert _failure_category("adapter_transient") == "retryable"
-
-
-# ---------------------------------------------------------------------------
-# Recovery classification integration tests
-# ---------------------------------------------------------------------------
-
-
 class TestRecoverClassification:
     """Tests for recover command failure classification output."""
 
@@ -936,11 +827,13 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
         r2 = _FakeReceipt(
             status="dead_lettered",
             target_adapter="adapter_b",
             error="ConnectionError: reset",
+            failure_kind="adapter_transient",
         )
         ok = _FakeReceipt(status="sent", target_adapter="adapter_c")
 
@@ -978,11 +871,13 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="bad_adapter",
             error="permission denied",
+            failure_kind="adapter_permanent",
         )
         r2 = _FakeReceipt(
             status="failed",
             target_adapter="missing_adapter",
             error="adapter_missing: not registered",
+            failure_kind="adapter_missing",
         )
 
         mock_storage = AsyncMock()
@@ -1018,6 +913,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="op_adapter",
             error="delivery_capacity_exceeded",
+            failure_kind="capacity_rejection",
         )
 
         mock_storage = AsyncMock()
@@ -1051,6 +947,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()
@@ -1085,6 +982,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="permission denied",
+            failure_kind="adapter_permanent",
         )
 
         mock_storage = AsyncMock()
@@ -1119,6 +1017,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="delivery_capacity_exceeded",
+            failure_kind="capacity_rejection",
         )
 
         mock_storage = AsyncMock()
@@ -1153,6 +1052,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()
@@ -1187,6 +1087,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="permission denied",
+            failure_kind="adapter_permanent",
         )
 
         mock_storage = AsyncMock()
@@ -1220,6 +1121,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()
@@ -1297,6 +1199,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()
@@ -1330,6 +1233,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()
@@ -1361,6 +1265,7 @@ class TestRecoverClassification:
             status="failed",
             target_adapter="adapter_a",
             error="TimeoutError: timed out",
+            failure_kind="adapter_transient",
         )
 
         mock_storage = AsyncMock()

@@ -139,7 +139,6 @@ async def _collect_storage_data_from_backend(
                 # Compact incident summary using shared classification.
                 from medre.core.observability.classification import (
                     failure_category,
-                    infer_failure_kind,
                     recommended_commands,
                 )
                 from medre.runtime.reporting import (
@@ -162,11 +161,7 @@ async def _collect_storage_data_from_backend(
                 worst_category = "success"
                 for r in receipt_dicts:
                     if r.get("status") in ("failed", "dead_lettered"):
-                        # Use persisted failure_kind first, fall back to inference.
-                        fk = r.get("failure_kind") or infer_failure_kind(
-                            r.get("error"),
-                            r.get("status", ""),
-                        )
+                        fk = r.get("failure_kind")
                         if first_failure_kind is None:
                             first_failure_kind = fk
                         cat = failure_category(fk)
@@ -179,10 +174,7 @@ async def _collect_storage_data_from_backend(
                 if worst_category == "success":
                     for r in receipt_dicts:
                         if r.get("status") == "suppressed":
-                            fk = r.get("failure_kind") or infer_failure_kind(
-                                r.get("error"),
-                                r.get("status", ""),
-                            )
+                            fk = r.get("failure_kind")
                             if first_failure_kind is None:
                                 first_failure_kind = fk
                             cat = failure_category(fk)

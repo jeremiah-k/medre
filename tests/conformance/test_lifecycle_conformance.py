@@ -94,6 +94,9 @@ def _receipt(
     d: dict = {
         "receipt_id": receipt_id,
         "status": status,
+        "receipt_kind": (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        ),
         "delivery_plan_id": delivery_plan_id,
         "target_adapter": target_adapter,
         "target_channel": target_channel,
@@ -483,6 +486,7 @@ class TestReadOnlyBehavior:
         rec = {
             "receipt_id": "r-1",
             "status": "sent",
+            "receipt_kind": "attempt",
             "delivery_plan_id": "plan-1",
             "target_adapter": "meshtastic",
             "target_channel": None,

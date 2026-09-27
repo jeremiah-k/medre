@@ -16,6 +16,8 @@ from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinaliz
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event
 
+_ATTEMPT_STATUSES = {"queued", "sent", "failed"}
+
 
 def _receipt(
     receipt_id: str,
@@ -39,6 +41,7 @@ def _receipt(
         "outbox_id": outbox_id,
         "status": status,
         "attempt_number": attempt,
+        "receipt_kind": "attempt" if status in _ATTEMPT_STATUSES else "lifecycle",
     }
 
 

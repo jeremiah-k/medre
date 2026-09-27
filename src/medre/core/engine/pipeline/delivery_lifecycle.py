@@ -1923,9 +1923,10 @@ class DeliveryLifecycleService:
         failure_kind = evidence.failure_kind
         error_summary = evidence.error[:512] if evidence.error else None
 
-        # Derive failure classification from persisted attempt evidence only as
-        # a compatibility fallback. Normal target execution always supplies the
-        # typed value on DeliveryExecutionEvidence.
+        # Derive failure classification from the persisted attempt receipt
+        # when the boundary's evidence carries no typed value (envelope-less
+        # records). Normal target execution supplies the typed value on
+        # DeliveryExecutionEvidence.
         if failure_kind is None and attempt is not None and attempt.failure_kind:
             try:
                 failure_kind = DeliveryFailureKind(attempt.failure_kind)

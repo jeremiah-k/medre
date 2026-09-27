@@ -19,7 +19,6 @@ from medre.core.events.canonical import (
 from medre.core.events.metadata import EventMetadata
 from medre.core.observability.classification import (
     failure_category,
-    infer_failure_kind,
     recommended_commands,
 )
 from medre.runtime.timeline import assemble_event_timeline
@@ -207,7 +206,7 @@ class TestRetryTraceEvidence:
         first_failure_kind = None
         for r in receipts:
             if r.status in ("failed", "dead_lettered"):
-                fk = infer_failure_kind(r.error, r.status)
+                fk = r.failure_kind
                 first_failure_kind = fk
                 break
 
@@ -256,7 +255,7 @@ class TestRetryTraceEvidence:
 
         # Failure kind is transient → retryable
         pending_fail = [r for r in r_a if r.status == "failed"][0]
-        kind_a = infer_failure_kind(pending_fail.error, pending_fail.status)
+        kind_a = pending_fail.failure_kind
         assert kind_a == "adapter_transient"
         cat_a = failure_category(kind_a)
         assert cat_a == "retryable"
@@ -285,7 +284,7 @@ class TestRetryTraceEvidence:
         # production dead letters carry retry_exhausted, and manual replay
         # is the retryable remedy. A kindless dead letter would stay
         # unknown — the status alone never invents retryability.
-        kind_b = dead_lettered[0].failure_kind or infer_failure_kind(
+        kind_b = dead_lettered[0].failure_kind or (
             dead_lettered[0].error,
             dead_lettered[0].status,
         )

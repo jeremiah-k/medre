@@ -250,7 +250,7 @@ Replay trace status reflects durable execution state: `admitted` means the named
 run owns at least one outbox generation but has not produced a receipt yet;
 `active` means receipts exist while at least one admitted generation remains
 non-terminal; `complete` means every represented outbox generation is terminal
-(or the trace is receipt-only legacy evidence); and `partial` means referenced
+(or the trace is receipt-only, with no outbox generations represented); and `partial` means referenced
 canonical events could not all be loaded.
 
 ### Timeline Entry Types

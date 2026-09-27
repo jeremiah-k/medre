@@ -289,6 +289,7 @@ class TestFunctionSignature:
             yield {
                 "receipt_id": "r-1",
                 "status": "sent",
+                "receipt_kind": "attempt",
                 "delivery_plan_id": "p-1",
                 "target_adapter": "a",
                 "target_channel": None,
@@ -323,6 +324,7 @@ class TestFunctionSignature:
             yield {
                 "receipt_id": "r-1",
                 "status": "failed",
+                "receipt_kind": "attempt",
                 "delivery_plan_id": "p-1",
                 "target_adapter": "a",
                 "target_channel": None,

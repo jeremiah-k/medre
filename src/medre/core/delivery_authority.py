@@ -441,14 +441,18 @@ class ResolvedDeliverySnapshot(Generic[_T]):
 
 
 def receipt_kind(record: Any) -> str:
-    """Return explicit receipt kind, inferring legacy mapping inputs by status."""
+    """Return the receipt's explicit kind.
+
+    Receipts persist ``receipt_kind`` (NOT NULL) at write time; a record
+    without a valid kind is receipt-model drift and fails closed rather
+    than being guessed from status.
+    """
     kind = str(_get(record, "receipt_kind") or "")
     if kind in {"attempt", "lifecycle"}:
         return kind
-    return (
-        "attempt"
-        if str(_get(record, "status") or "") in {"queued", "sent", "failed"}
-        else "lifecycle"
+    raise ValueError(
+        f"receipt { _get(record, 'receipt_id')!r} has no valid receipt_kind; "
+        "the persisted kind is the authority and is never inferred"
     )
 
 
