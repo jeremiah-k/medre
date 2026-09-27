@@ -160,7 +160,11 @@ class TestDrainLoopCancelledError:
 
         # Mock capacity controller reporting in-flight work so drain loop enters.
         cc = MagicMock()
-        cc.snapshot.return_value = {"delivery_current": 1, "replay_current": 0}
+        cc.snapshot.return_value = {
+            "delivery_current": 1,
+            "replay_current": 0,
+            "inbound_current": 0,
+        }
         cc.accepting_work = False
         app._capacity_controller = cc
 
@@ -226,7 +230,11 @@ class TestPersistDrainAbandonedCancelledError:
 
         # Mock capacity controller with in-flight work so drain times out.
         cc = MagicMock()
-        cc.snapshot.return_value = {"delivery_current": 1, "replay_current": 0}
+        cc.snapshot.return_value = {
+            "delivery_current": 1,
+            "replay_current": 0,
+            "inbound_current": 0,
+        }
         cc.accepting_work = False
         app._capacity_controller = cc
 

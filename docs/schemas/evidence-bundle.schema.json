@@ -618,9 +618,17 @@
               "type": "integer",
               "minimum": 1
             },
+            "max_inflight_inbound_admissions": {
+              "type": "integer",
+              "minimum": 1
+            },
             "max_inflight_replay_events": {
               "type": "integer",
               "minimum": 1
+            },
+            "inbound_admission_timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
             },
             "shutdown_drain_timeout_seconds": {
               "type": "number",

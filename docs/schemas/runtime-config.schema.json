@@ -45,6 +45,19 @@
               "type": "number",
               "default": 1.0,
               "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached."
+            },
+            "max_inflight_inbound_admissions": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 1,
+              "description": "Maximum concurrently admitted inbound events across all adapters."
+            },
+            "inbound_admission_timeout_seconds": {
+              "type": "number",
+              "default": 5.0,
+              "minimum": 0,
+              "exclusiveMinimum": 0,
+              "description": "Seconds an inbound arrival may wait for an admission slot before rejection."
             }
           }
         }

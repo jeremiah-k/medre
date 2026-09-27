@@ -332,12 +332,21 @@ class RuntimeLimits:
     delivery_acquire_timeout_seconds:
         Timeout (in seconds) for acquiring a delivery slot when the
         in-flight limit is reached.
+    max_inflight_inbound_admissions:
+        Maximum number of inbound events that may cross durable
+        admission concurrently. Callback-scheduled ingress coroutines
+        beyond this bound wait for a slot.
+    inbound_admission_timeout_seconds:
+        Timeout (in seconds) an inbound event may wait for an admission
+        slot before it is rejected with counted evidence.
     """
 
     max_inflight_deliveries: int = 100
     max_inflight_replay_events: int = 100
     shutdown_drain_timeout_seconds: int = 10
     delivery_acquire_timeout_seconds: float = 1.0
+    max_inflight_inbound_admissions: int = 100
+    inbound_admission_timeout_seconds: float = 5.0
 
     def validate(self) -> Self:
         """Validate runtime limits.
@@ -365,6 +374,18 @@ class RuntimeLimits:
                 f"delivery_acquire_timeout_seconds must be > 0, "
                 f"got {self.delivery_acquire_timeout_seconds}"
             )
+        if self.max_inflight_inbound_admissions <= 0:
+            raise ConfigValidationError(
+                f"max_inflight_inbound_admissions must be > 0, "
+                f"got {self.max_inflight_inbound_admissions}"
+            )
+        if not math.isfinite(self.inbound_admission_timeout_seconds) or (
+            self.inbound_admission_timeout_seconds <= 0
+        ):
+            raise ConfigValidationError(
+                f"inbound_admission_timeout_seconds must be a positive finite "
+                f"number, got {self.inbound_admission_timeout_seconds!r}"
+            )
         # Reasonable upper-bound warnings (not hard failures).
         _UPPER_BOUND = 10_000
         if self.max_inflight_deliveries > _UPPER_BOUND:
@@ -372,6 +393,13 @@ class RuntimeLimits:
                 "max_inflight_deliveries=%d exceeds recommended upper bound (%d); "
                 "high concurrency may degrade performance",
                 self.max_inflight_deliveries,
+                _UPPER_BOUND,
+            )
+        if self.max_inflight_inbound_admissions > _UPPER_BOUND:
+            _logger.warning(
+                "max_inflight_inbound_admissions=%d exceeds recommended upper bound "
+                "(%d); high concurrency may degrade performance",
+                self.max_inflight_inbound_admissions,
                 _UPPER_BOUND,
             )
         if self.max_inflight_replay_events > _UPPER_BOUND:

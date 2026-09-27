@@ -104,6 +104,8 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
         "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS",
         "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
         "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
+        "MEDRE_RUNTIME_MAX_INFLIGHT_INBOUND_ADMISSIONS",
+        "MEDRE_RUNTIME_INBOUND_ADMISSION_TIMEOUT_SECONDS",
     }
 )
 
@@ -344,6 +346,8 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS": "max_inflight_replay_events",
     "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "shutdown_drain_timeout_seconds",
     "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS": "delivery_acquire_timeout_seconds",
+    "MEDRE_RUNTIME_MAX_INFLIGHT_INBOUND_ADMISSIONS": "max_inflight_inbound_admissions",
+    "MEDRE_RUNTIME_INBOUND_ADMISSION_TIMEOUT_SECONDS": "inbound_admission_timeout_seconds",
 }
 
 _RETRY_FIELD_MAP: dict[str, str] = {
@@ -785,6 +789,8 @@ class MedreEnvConfig:
     max_inflight_replay_events: str | None = None
     shutdown_drain_timeout_seconds: str | None = None
     delivery_acquire_timeout_seconds: str | None = None
+    max_inflight_inbound_admissions: str | None = None
+    inbound_admission_timeout_seconds: str | None = None
 
     # -- Attachments policy overrides --
     attachments_overrides: dict[str, str] = field(default_factory=dict)
@@ -1638,6 +1644,8 @@ def apply_env_overrides(
             "max_inflight_replay_events",
             "shutdown_drain_timeout_seconds",
             "delivery_acquire_timeout_seconds",
+            "max_inflight_inbound_admissions",
+            "inbound_admission_timeout_seconds",
         )
     )
     if has_limits_override:
@@ -1661,6 +1669,16 @@ def apply_env_overrides(
             limits_kwargs["delivery_acquire_timeout_seconds"] = _coerce_float(
                 env.delivery_acquire_timeout_seconds,
                 "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
+            )
+        if env.max_inflight_inbound_admissions is not None:
+            limits_kwargs["max_inflight_inbound_admissions"] = _coerce_int(
+                env.max_inflight_inbound_admissions,
+                "MEDRE_RUNTIME_MAX_INFLIGHT_INBOUND_ADMISSIONS",
+            )
+        if env.inbound_admission_timeout_seconds is not None:
+            limits_kwargs["inbound_admission_timeout_seconds"] = _coerce_float(
+                env.inbound_admission_timeout_seconds,
+                "MEDRE_RUNTIME_INBOUND_ADMISSION_TIMEOUT_SECONDS",
             )
         new_limits = dataclasses.replace(config.limits, **limits_kwargs).validate()
 
