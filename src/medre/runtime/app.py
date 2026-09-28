@@ -1726,6 +1726,19 @@ class MedreApp:
                 _logger.error("Error marking conversation projection clean: %s", exc)
                 errors.append(("conversation_projection", exc))
 
+        # 2.7. Final pre-admission pressure flush: storage is about to
+        # close, so pending counters must reach it now or be lost.
+        try:
+            await self._drain_inbound_pressure_flush()
+        except asyncio.CancelledError as c_exc:
+            _deferred_cancel_count += _drain_pending_cancellations()
+            if _cancelled is None:
+                _cancelled = c_exc
+            _logger.debug("Cancelled during final pressure flush (deferred)")
+        except Exception as exc:
+            _logger.error("Error during final pressure flush: %s", exc)
+            errors.append(("pressure_flush", exc))
+
         # 3. Close storage.
         if self.storage is not None:
             try:
@@ -2488,6 +2501,111 @@ class MedreApp:
 
         return _publish
 
+    def _record_inbound_pressure_loss(
+        self,
+        source_id: str | None,
+        acquired: Any,
+        *,
+        cursor_aware: bool,
+    ) -> None:
+        """Aggregate one refused admission for durable pressure evidence.
+
+        Outcome mapping: a cursor-aware refusal is ``deferred`` (the native
+        event stays retryable); a wait timeout is ``timed_out``; every other
+        refusal is ``rejected``.  Counters only — no payload, sender, or
+        transport-native content is ever persisted.
+
+        The refusal path never awaits storage: the event is aggregated into
+        an in-memory counter and a single-flight background flush task
+        (at most one in flight) batches the pending counters into one
+        count-carrying upsert per key.  A storage failure is logged and the
+        pending counts are dropped — best-effort evidence must not block or
+        mask the gate's own refusal outcome.
+        """
+        record = getattr(self.storage, "record_inbound_pressure", None)
+        if record is None:
+            return
+        if cursor_aware:
+            outcome = "deferred"
+        elif getattr(acquired, "reason", None) == "timeout":
+            outcome = "timed_out"
+        else:
+            outcome = "rejected"
+        source = (
+            source_id.strip()
+            if isinstance(source_id, str) and source_id.strip()
+            else "<anonymous>"
+        )
+        pending = getattr(self, "_pressure_pending", None)
+        if pending is None:
+            pending = self._pressure_pending = {}
+        # Capture the aligned window at refusal time: a flush delayed
+        # across a minute boundary must not merge refusals from different
+        # windows into the later aggregate.
+        from medre.core.storage.sqlite._pressure import pressure_window_start
+
+        key = (source, outcome, pressure_window_start(int(_time.time())))
+        pending[key] = pending.get(key, 0) + 1
+        flush_task = getattr(self, "_pressure_flush_task", None)
+        if flush_task is None or flush_task.done():
+            self._pressure_flush_task = asyncio.create_task(
+                self._flush_inbound_pressure(record)
+            )
+
+    async def _flush_inbound_pressure(self, record: Any) -> None:
+        """Write pending pressure counters to storage (single flight).
+
+        Drains batches until no counts remain pending — refusals that
+        arrive while a batch's writes are awaited land in a fresh batch
+        that this same task drains, so no count is stranded without a
+        follow-up refusal.  Never raises: a failure logs the
+        ``INBOUND_PRESSURE_RECORD_FAILED`` marker and drops that batch —
+        the next refusal schedules a fresh flush.
+        """
+        while True:
+            pending = getattr(self, "_pressure_pending", None) or {}
+            if not pending:
+                return
+            self._pressure_pending = {}
+            for (source, outcome, window_start), count in pending.items():
+                try:
+                    await record(
+                        source,
+                        outcome,
+                        count=count,
+                        unix_seconds=window_start,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "INBOUND_PRESSURE_RECORD_FAILED: source=%r outcome=%s "
+                        "count=%d",
+                        source,
+                        outcome,
+                        count,
+                    )
+
+    async def _drain_inbound_pressure_flush(self) -> None:
+        """Final pressure flush before storage closes during shutdown.
+
+        Awaits any in-flight flush task, then performs one last drain so
+        counts recorded after the task's last batch still reach storage.
+        Failures are logged inside the flusher and never propagate into
+        the shutdown sequence.
+        """
+        record = getattr(self.storage, "record_inbound_pressure", None)
+        if record is None:
+            return
+        task = getattr(self, "_pressure_flush_task", None)
+        if task is not None and not task.done():
+            try:
+                await task
+            except Exception:
+                _logger.exception("pressure flush task failed during shutdown")
+        try:
+            await self._flush_inbound_pressure(record)
+        except Exception:
+            _logger.exception("final pressure flush failed during shutdown")
+
     async def _gate_inbound_admission(
         self,
         crossing: Any,
@@ -2518,6 +2636,12 @@ class MedreApp:
 
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_capacity_rejection()
+            # Durable pre-admission pressure evidence: one aggregate row per
+            # (window, source, outcome), best-effort — a recording failure
+            # must not change the gate's refusal outcome.
+            self._record_inbound_pressure_loss(
+                source_id, acquired, cursor_aware=deferred_event_id is not None
+            )
             if deferred_event_id is not None:
                 from medre.core.ingress.types import DurableIngressDeferredError
 

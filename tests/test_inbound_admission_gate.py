@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -33,19 +32,10 @@ from medre.core.supervision.capacity import (
     CapacityController,
     InboundAdmissionRejected,
 )
-from medre.runtime.app import MedreApp as _MedreApp
 from tests.helpers.async_utils import wait_until
-
-
-@dataclass
-class _Limits:
-    """Minimal limits provider matching the controller's protocol."""
-
-    max_inflight_deliveries: int = 4
-    max_inflight_replay_events: int = 4
-    delivery_acquire_timeout_seconds: float = 0.05
-    max_inflight_inbound_admissions: int = 2
-    inbound_admission_timeout_seconds: float = 0.05
+from tests.helpers.inbound_gate import FakeAdmitRunner as _FakeRunner
+from tests.helpers.inbound_gate import GateAppDouble as _GateApp
+from tests.helpers.inbound_gate import LimitsDouble as _Limits
 
 
 class TestInboundAdmissionController:
@@ -53,10 +43,8 @@ class TestInboundAdmissionController:
 
     async def test_admissions_within_limit_run_concurrently(self) -> None:
         controller = CapacityController(_Limits())
-        assert [await controller.acquire_inbound() for _ in range(2)] == [
-            True,
-            True,
-        ]
+        results = [await controller.acquire_inbound() for _ in range(2)]
+        assert [bool(r) for r in results] == [True, True]
         assert controller.inbound_current == 2
         await controller.release_inbound()
         await controller.release_inbound()
@@ -339,42 +327,6 @@ class TestInboundAdmissionController:
             "inbound_timeouts",
         ):
             assert key in snapshot
-
-
-class _FakeRunner:
-    """Pipeline runner double recording admit_ingress calls."""
-
-    def __init__(self, delay: float = 0.0) -> None:
-        self.delay = delay
-        self.admitted: list[Any] = []
-
-    async def admit_ingress(
-        self,
-        event: Any,
-        provenance: Any,
-        attachment: Any = None,
-        attachment_limits: Any = None,
-    ) -> Any:
-        if self.delay:
-            await asyncio.sleep(self.delay)
-        self.admitted.append(event)
-        return {"admitted": len(self.admitted)}
-
-
-class _GateApp:
-    """Minimal MedreApp double reusing the production seam methods."""
-
-    pipeline_runner: Any
-    storage: Any = object()
-    _capacity_controller: CapacityController | None
-    _runtime_accounting: RuntimeAccounting | None = None
-    _attachment_limits: Any = None
-
-    # Reuse the production methods so the double cannot drift from the
-    # real wiring shape.
-    _gate_inbound_admission = _MedreApp._gate_inbound_admission
-    _make_admit_inbound = _MedreApp._make_admit_inbound
-    _make_publish_inbound = _MedreApp._make_publish_inbound
 
 
 def _make_seam(runner: _FakeRunner, capacity: CapacityController | None) -> Any:

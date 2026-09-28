@@ -1195,7 +1195,40 @@ durable ingress worker routes the admitted events because the corresponding
 `durable_ingress_work` rows survive restart. Transport-specific continuity evidence,
 such as Matrix abandoned-room causes, belongs in `metadata`.
 
-### 4.15 Index Policy
+### 4.15 inbound_pressure_observations
+
+```sql
+CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
+    window_start INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred')),
+    count INTEGER NOT NULL CHECK (count > 0),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(window_start, source, outcome)
+);
+```
+
+Durable pre-admission pressure aggregates — the only durable trace of
+arrivals the inbound admission gate turned away before canonical
+admission. One row per `(window_start, source, outcome)`; `window_start`
+is a fixed 60-second aligned epoch window, `source` is the adapter id (or
+the `<anonymous>` sentinel), and `outcome` distinguishes typed counted
+loss (`rejected`), admission-timeout loss (`timed_out`), and cursor-safe
+deferral (`deferred`). Rows are upserted from the runtime gate's batched
+pressure counters (one count-carrying upsert per key per flush). Writes are append-only upserts per §5 — no row is ever deleted —
+and growth is inherently rate-bounded: at most one row per
+(window, source, outcome) per minute, and only while pressure is actually
+occurring. Readers bound their views (windowed queries; the evidence
+section caps its listing). The table stores counters and timestamps only —
+never payloads, sender identity, or transport-native content — and it is
+operational evidence: rows never become canonical events, receipts, or
+outbox state, and pressure history deliberately spans runtime restarts.
+This is an additive table (see §4.12's additive-DDL note); it is absent
+from the required-columns shape guard and registered as additive in the
+DDL-parity test.
+
+### 4.16 Index Policy
 
 All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.
 

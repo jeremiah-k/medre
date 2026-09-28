@@ -184,6 +184,37 @@ async def _inspect_native_ref(
         sys.exit(_exit_code)
 
 
+async def _inspect_pressure(
+    *,
+    storage_path: str,
+    source: str | None,
+    limit: int | None = None,
+) -> None:
+    """List durable pre-admission pressure aggregates (counters only).
+
+    Read-only listing of ``inbound_pressure_observations`` rows — the only
+    durable trace of arrivals the inbound admission gate rejected, timed
+    out, or deferred before canonical admission.  Rows carry window,
+    source, outcome, and counters; never payloads.
+    """
+    storage = await _open_readonly_storage(storage_path)
+    try:
+        rows = await storage.list_inbound_pressure_observations(
+            source=source, limit=limit
+        )
+        print(
+            to_json(
+                {
+                    "observations": rows,
+                    "count": len(rows),
+                    "source_filter": source,
+                }
+            )
+        )
+    finally:
+        await storage.close()
+
+
 async def _inspect_replay(
     run_id: str,
     *,

@@ -71,6 +71,22 @@ teardown late callbacks still cross durable admission per the shutdown handoff
 below — while delivery and replay acceptance closes earlier, before the
 capacity drain.
 
+Every gate refusal also persists one durable pre-admission pressure
+aggregate row (60-second windows keyed by adapter source and outcome —
+`rejected`, `timed_out`, or `deferred`; counters only, append-only upserts
+with rate-bounded growth; see
+[storage.md §4.15](storage.md#415-inbound_pressure_observations)).
+Without this row a refused arrival leaves no durable trace at all: no
+canonical event exists, so restart would otherwise erase the evidence that
+loss occurred. The observation never becomes a canonical event, receipt, or
+outbox entry. Recording never blocks the refusal path: refusals aggregate
+into in-memory counters that a single-flight background task flushes as
+batched upserts; a storage failure is logged without changing the gate's
+refusal outcome, and at most one flush is in flight at any time.
+Operators read the aggregates via `medre inspect pressure` and the evidence
+bundle's storage section; this is runtime pressure evidence, not transport
+health.
+
 ## Inbound attachment bytes
 
 Binary attachment data travels separately from the persisted canonical

@@ -306,6 +306,23 @@ CREATE TABLE IF NOT EXISTS event_attachment_associations (
     created_at TEXT NOT NULL
 );
 
+-- Pre-admission inbound pressure aggregates.  One row per (window,
+-- source, outcome); counters only — a rejected or deferred arrival never
+-- persists payload, sender, or transport-native content here.  Written
+-- before durable admission, so it is the only durable trace of arrivals
+-- the admission gate turned away.  NOTE: additive table; intentionally
+-- absent from ``_REQUIRED_COLUMNS`` and registered as additive in the
+-- DDL-parity test, like the attachment tables above.
+CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
+    window_start INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred')),
+    count INTEGER NOT NULL CHECK (count > 0),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(window_start, source, outcome)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
