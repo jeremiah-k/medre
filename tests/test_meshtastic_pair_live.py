@@ -299,11 +299,39 @@ class TestMeshtasticPairEgress:
             # Long payload is delivered truncated (not dropped, not split).
             long_rx = by_nonce.get("N4-long")
             assert long_rx, "long payload not observed at peer"
-            # The renderer prepends the configured relay prefix
-            # (``{sender_short}: `` — the fake sender has no short/long
-            # name, so the id stands in) and truncates AFTER the prefix at
-            # ``max_text_bytes`` on UTF-8 boundaries.
-            relay_prefix = "!peer0001: "
+            # The renderer prepends the configured relay prefix and
+            # truncates AFTER the prefix at ``max_text_bytes`` on UTF-8
+            # boundaries. Derive the expected prefix through the same
+            # production path (config template + attribution projection of
+            # the fake packet's native sender) instead of hardcoding it.
+            from medre.adapters.meshtastic.attribution import (
+                project_meshtastic_attribution,
+            )
+            from medre.config.adapters.meshtastic import MeshtasticConfig
+            from medre.core.rendering.attribution import (
+                RelayAttribution,
+                format_relay_prefix,
+            )
+
+            # The codec persists native identity under the versioned
+            # Meshtastic namespace; mirror that persisted shape here.
+            attribution = project_meshtastic_attribution(
+                {
+                    "meshtastic": {
+                        "schema_version": 1,
+                        "from_id": "!peer0001",
+                    }
+                }
+            )
+            template = MeshtasticConfig(
+                adapter_id="mt_radio", connection_type="serial"
+            ).radio_relay_prefix
+            relay_prefix = format_relay_prefix(
+                template,
+                RelayAttribution(
+                    source_sender_short_label=attribution["source_sender_short_label"]
+                ),
+            ).rendered_prefix
             expected_long = (
                 (relay_prefix + long_msg)
                 .encode("utf-8")[:_MAX_TEXT_BYTES]
