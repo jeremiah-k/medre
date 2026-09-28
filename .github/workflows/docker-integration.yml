@@ -27,6 +27,9 @@ jobs:
       MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.161.0@sha256:6b95dd129e35e97e8032cb759e5db4a516a5f7ef6c98d34d716fea1ae239b62a
       MEDRE_MESHTASTICD_IMAGE: meshtastic/meshtasticd:2.7.26@sha256:23e92b1331a3a471eaef0c63cbca4365ca40b3111a9781cfdbe5a5114e5773d4
       MEDRE_CI_ARTIFACT_DIR: ${{ github.workspace }}/.ci-artifacts/docker-integration
+      # Step-level `if` cannot reference the secrets context (actionlint);
+      # surface credential presence through job env instead.
+      MEDRE_DOCKERHUB_CREDS_CONFIGURED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       MEDRE_DOCKER_READY_TIMEOUT: "120"
 
     steps:
@@ -71,8 +74,11 @@ jobs:
           docker load -i "${{ steps.synapse-cache.outputs.cache_path }}"
 
       # Docker Hub login for higher rate limits (200 vs 100 pulls/6h).
-      # Secrets are optional — pulls still work without them.
+      # Optional: runs only when credentials are configured, so unset
+      # secrets skip the step instead of erroring on every run. Pulls
+      # still work anonymously without them.
       - name: Log in to Docker Hub
+        if: env.MEDRE_DOCKERHUB_CREDS_CONFIGURED == 'true'
         continue-on-error: true
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
