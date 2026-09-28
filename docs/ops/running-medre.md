@@ -743,7 +743,7 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 ### Capacity Bounding
 
-The `CapacityController` manages three independent semaphores:
+The `CapacityController` manages three independent bounded capacity gates:
 
 | Stream   | Config field                      | Default bound | What it limits                                            |
 | -------- | --------------------------------- | ------------- | --------------------------------------------------------- |
@@ -753,12 +753,26 @@ The `CapacityController` manages three independent semaphores:
 
 Inbound is admission-gated before durability: the radio transports schedule one
 ingress coroutine per SDK callback with no transport-level bound, so every
-inbound publish and protocol-provenance admission crosses the gate first. The
-wait queue is bounded at the admission limit itself; overflow, waiting past
+inbound publish and protocol-provenance admission crosses the gate first.
+Execution slots are global and work-conserving, but pending overload is split
+into equal fair shares across the adapters that built successfully and is
+granted round-robin by adapter ID. A single adapter can therefore use the full
+execution limit while uncontended, but cannot consume every pending slot during
+a multi-adapter burst.
+
+The total wait queue remains bounded at the admission limit itself. Filling an
+adapter's fair share or the global queue, waiting past
 `inbound_admission_timeout_seconds` (default 5.0s), or arriving after inbound
-acceptance closed raises `InboundAdmissionRejected` — adapters count and log it
-as ingress loss, and the capacity snapshot exposes wait depth, the oldest
-pending wait age, and rejection and timeout counters without event payloads.
+acceptance closed is counted as a capacity rejection. Ordinary
+`publish_inbound` callbacks receive `InboundAdmissionRejected` and may lose the
+native event when their transport offers no redelivery contract. Cursor-aware
+`admit_inbound` callbacks instead receive `DurableIngressDeferredError` so the
+transport can leave its cursor unadvanced; Matrix uses that path and keeps the
+native event pending. The capacity snapshot exposes aggregate pressure plus an
+`inbound_sources` map with per-adapter `current`, `waiting`, `wait_limit`,
+`rejections`, `timeouts`, and `oldest_wait_seconds` values. No event payloads or
+transport secrets enter those counters.
+
 During shutdown, inbound acceptance stays open while adapters stop so late
 callbacks persist rows for the next runtime generation; it closes after the
 last adapter, and outstanding admissions drain before storage closes.
@@ -777,7 +791,7 @@ per target.
 | ---------- | ----------------------------------------- | ------------- | ------------------------------------------------------------------------ |
 | Meshtastic | Unbounded deque with explicit enqueue cap | 1024 items    | Explicit rejection when full, `queue_total_rejected` counter incremented |
 
-Other adapters (Matrix, LXMF, MeshCore) rely on the `CapacityController` semaphore and their transport's own flow control.
+Other adapters (Matrix, LXMF, MeshCore) rely on the runtime `CapacityController` gate and their transport's own flow control.
 
 ### Monitoring Queue Pressure
 
@@ -786,6 +800,10 @@ Capacity counters are available in the `capacity` section of the runtime snapsho
 | Counter               | What it tells you                          |
 | --------------------- | ------------------------------------------ |
 | `delivery_current`    | In-flight deliveries right now             |
+| `inbound_current`     | In-flight durable admissions right now     |
+| `inbound_rejections`  | Admission arrivals rejected before commit  |
+| `inbound_timeouts`    | Admission arrivals that timed out waiting  |
+| `inbound_sources`     | Per-adapter admission pressure attribution |
 | `inbound_accepted`    | Inbound events accepted                    |
 | `outbound_delivered`  | Outbound successes                         |
 | `outbound_failed`     | Outbound failures                          |
@@ -793,7 +811,7 @@ Capacity counters are available in the `capacity` section of the runtime snapsho
 | `capacity_rejections` | Operations rejected by capacity controller |
 | `replay_current`      | In-flight replay events                    |
 
-Sustained growth in `capacity_rejections` indicates the runtime is under more pressure than its configured limits can handle. Consider increasing `max_inflight_deliveries` or reducing the number of active routes.
+Sustained growth in `capacity_rejections` indicates the runtime is under more pressure than its configured limits can handle. Inspect the per-stream counters first: tune `max_inflight_inbound_admissions` for admission pressure, `max_inflight_deliveries` for delivery pressure, or reduce the number/rate of active routes and sources.
 
 ## Bridged Message Appearance
 

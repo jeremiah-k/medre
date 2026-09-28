@@ -289,6 +289,7 @@ _EXPECTED_CAPACITY_KEYS: frozenset[str] = frozenset(
         "inbound_current",
         "inbound_limit",
         "inbound_rejections",
+        "inbound_sources",
         "inbound_timeouts",
         "replay_current",
         "replay_limit",
@@ -519,7 +520,7 @@ class TestAccountingSchemaConsistency:
 
 
 class TestCapacitySnapshotSchemaConsistency:
-    """CapacityController.snapshot() has exactly the expected 16 keys."""
+    """CapacityController.snapshot() has exactly the expected keys."""
 
     def test_snapshot_has_expected_keys(self) -> None:
         limits = RuntimeLimits()
@@ -536,10 +537,12 @@ class TestCapacitySnapshotSchemaConsistency:
             "accepting_work",
             "inbound_accepting",
             "inbound_admission_oldest_wait_seconds",
+            "inbound_sources",
         }
         for key in _EXPECTED_CAPACITY_KEYS - non_int_keys:
             assert isinstance(snap[key], int), f"{key} should be int"
         assert snap["inbound_admission_oldest_wait_seconds"] is None
+        assert snap["inbound_sources"] == {}
 
 
 class TestRuntimeSnapshotSchemaConsistency:

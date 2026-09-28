@@ -37,22 +37,39 @@ transport-level bound of their own, so the gate is what bounds concurrent
 admissions. An arrival holds a slot for the full admission call — relation
 resolution before the transaction, the admission transaction itself, and
 projection repair after it; routing and delivery happen afterwards in the
-durable ingress worker under the delivery capacity bounds. The wait queue is
-bounded at the admission limit itself: at most `max_inflight_inbound_admissions`
-crossings execute concurrently and at most as many further arrivals may queue;
-overflow is rejected immediately rather than scheduled as another waiting
-coroutine. An arrival that waits longer than
-`inbound_admission_timeout_seconds` for a slot, overflows the wait queue, or
-arrives after inbound acceptance closed raises `InboundAdmissionRejected`:
-adapters count and log the rejection as ingress loss, never a silent drop, and
-the capacity snapshot carries wait depth, the oldest pending wait age, and
-rejection and timeout counters without event payloads. Inbound acceptance
-closes only after every adapter has stopped — during adapter teardown late
-callbacks still cross durable admission per the shutdown handoff below — while
-delivery and replay acceptance closes earlier, before the capacity drain.
-Matrix needs no transport-specific exception: its sync callbacks are awaited
-sequentially by the sync loop, so unconsumed events remain server-side and the
-gate is redundant safety there.
+durable ingress worker under the delivery capacity bounds.
+
+Active admission capacity is global and work-conserving: when uncontended, one
+adapter MAY use all `max_inflight_inbound_admissions` execution slots. Pending
+overload is source-aware. The runtime registers the built adapter IDs before
+startup, partitions the bounded wait queue into equal per-adapter fair shares,
+and grants queued work round-robin by adapter source. The total pending queue
+remains bounded at `max_inflight_inbound_admissions`; when there are more
+registered sources than pending slots, the global bound remains authoritative.
+This prevents a burst from one callback-heavy adapter from consuming every
+pending slot while preserving full throughput when other adapters are idle.
+
+An arrival that waits longer than `inbound_admission_timeout_seconds`, fills its
+source fair share, fills the global wait queue, or arrives after inbound
+acceptance closed is rejected at the gate. The runtime records the rejection in
+the process-wide capacity accounting and attributes current/waiting/rejection/
+timeout pressure by adapter ID in the capacity snapshot, without event payloads.
+The transport-facing outcome depends on the ingress seam:
+
+- `publish_inbound` has no external cursor ownership. Rejection raises
+  `InboundAdmissionRejected`; callback-driven adapters log/count that boundary
+  as ingress loss and MUST NOT report the event as durably admitted.
+- `admit_inbound` is the cursor-aware seam. Gate rejection is converted to
+  `DurableIngressDeferredError(reason="inbound_admission_capacity")` before it
+  reaches the adapter, so a transport that can retain/redispatch its native
+  event MUST leave the cursor unadvanced rather than turn temporary runtime
+  pressure into loss. Matrix translates this signal to nio's callback-not-
+  accepted result and therefore keeps the native timeline event retryable.
+
+Inbound acceptance closes only after every adapter has stopped — during adapter
+teardown late callbacks still cross durable admission per the shutdown handoff
+below — while delivery and replay acceptance closes earlier, before the
+capacity drain.
 
 ## Inbound attachment bytes
 

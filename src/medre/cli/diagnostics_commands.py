@@ -20,6 +20,18 @@ def _metrics_projection(snapshot: dict, runtime_diagnostics: dict) -> dict:
     """Return the bounded, identifier-free subset exported as metrics."""
     accounting = snapshot.get("accounting") or {}
     capacity = snapshot.get("capacity") or {}
+    capacity_state = dict(capacity.get("state") or {})
+    # Per-source admission pressure is keyed by adapter id; metric names
+    # must stay identifier-free, so the detail stays in JSON/evidence only.
+    capacity_state.pop("inbound_sources", None)
+    runtime_diag = dict(runtime_diagnostics or {})
+    runtime_capacity = runtime_diag.get("capacity")
+    if isinstance(runtime_capacity, dict):
+        runtime_diag["capacity"] = {
+            key: value
+            for key, value in runtime_capacity.items()
+            if key != "inbound_sources"
+        }
     health = snapshot.get("health") or {}
     live_health = health.get("live_health") or {}
     outbox = snapshot.get("outbox") or {}
@@ -32,7 +44,7 @@ def _metrics_projection(snapshot: dict, runtime_diagnostics: dict) -> dict:
     return {
         "schema_version": snapshot.get("schema_version"),
         "accounting": {"counters": accounting.get("counters")},
-        "capacity": {"state": capacity.get("state")},
+        "capacity": {"state": capacity_state},
         "health": {"adapter_summary": live_health.get("adapter_summary")},
         "lifecycle": {"uptime_seconds": lifecycle.get("uptime_seconds")},
         "limits": snapshot.get("limits"),
@@ -43,7 +55,7 @@ def _metrics_projection(snapshot: dict, runtime_diagnostics: dict) -> dict:
         },
         "retry": retry,
         "routes": {"live_refresh": route_stats.get("live_refresh")},
-        "runtime_diagnostics": runtime_diagnostics,
+        "runtime_diagnostics": runtime_diag,
     }
 
 

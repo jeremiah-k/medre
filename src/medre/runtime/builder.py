@@ -412,6 +412,12 @@ class RuntimeBuilder:
         #      isolated per adapter after configuration preflight succeeds.
         build_failures = self._build_adapters(adapters)
 
+        # Configure inbound admission fairness from the adapters that were
+        # actually constructed.  Active execution capacity remains global,
+        # but the bounded overload wait queue is partitioned evenly across
+        # these sources and granted round-robin.
+        capacity_controller.configure_inbound_sources(adapters.keys())
+
         if build_failures:
             failed_ids = ", ".join(
                 f"{f.transport}.{f.adapter_id}" for f in build_failures
