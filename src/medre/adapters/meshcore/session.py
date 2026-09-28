@@ -730,6 +730,12 @@ class MeshCoreSession:
         because that would connect (and then disconnect), creating
         exactly the churn we want to avoid.
         Pattern adapted from mmrelay's ``_disconnect_ble_by_address()``.
+
+        After the per-client cleanup, a bounded system-level
+        ``bluetoothctl disconnect`` releases a link the board's firmware
+        still holds from a previous session — a connection this process
+        never owned, which no per-client call can terminate.  Absent
+        binary and failures are best-effort no-ops.
         """
         try:
             from bleak import BleakClient  # type: ignore[import-untyped]
@@ -766,6 +772,56 @@ class MeshCoreSession:
                 )
         except Exception:
             pass  # best-effort — proceed even if cleanup fails
+
+        # System-level release: a board's companion firmware can hold its
+        # single BLE connection slot after a previous session until the
+        # host terminates the link.  The per-client cleanup above cannot
+        # release a connection this process never owned; a BlueZ-level
+        # disconnect can (same remedy as the lab pair harness, pattern
+        # from mmrelay).  Absent binary, nonzero exit, and timeout are
+        # all best-effort no-ops — a missing bluetoothctl must not break
+        # hosts that connect fine without it.
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bluetoothctl",
+                "disconnect",
+                address,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self._logger.debug(
+                "MeshCoreSession %s: bluetoothctl unavailable; skipping "
+                "system-level stale disconnect for %s",
+                self._adapter_id,
+                address,
+            )
+            return
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except asyncio.CancelledError:
+            await self._kill_subprocess(proc)
+            raise
+        except asyncio.TimeoutError:
+            await self._kill_subprocess(proc)
+            self._logger.debug(
+                "MeshCoreSession %s: system-level disconnect for %s timed "
+                "out; killed",
+                self._adapter_id,
+                address,
+            )
+
+    @staticmethod
+    async def _kill_subprocess(proc: Any) -> None:
+        """Kill a subprocess and reap it, tolerating an already-dead pid."""
+        try:
+            proc.kill()
+        except Exception:
+            pass  # already exited — nothing to signal
+        try:
+            await proc.wait()
+        except Exception:
+            pass  # best-effort reap
 
     @staticmethod
     def _consume_cleanup_task_result(task: asyncio.Future[object]) -> None:
