@@ -864,3 +864,89 @@ async def test_stop_hard_bounds_stale_bluez_helper() -> None:
     client.disconnect.assert_awaited_once()
     release.set()
     await asyncio.wait_for(finished.wait(), timeout=1.0)
+
+
+# ===================================================================
+# _disconnect_stale_ble_client: system-level release
+# ===================================================================
+
+
+class _FakeBleakClient:
+    """BleakClient stand-in whose disconnect is a bounded no-op."""
+
+    def __init__(self, address: object, timeout: float = 0.0) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        return None
+
+
+async def test_stale_cleanup_invokes_system_disconnect() -> None:
+    """The stale cleanup asks BlueZ to terminate the address's link.
+
+    A board can hold its single BLE slot from a previous session until
+    the host disconnects it; only the system-level release terminates a
+    link this process never owned.
+    """
+    session = _make_ble_session()
+    ble_module = MagicMock()
+    ble_module.BleakClient = _FakeBleakClient
+
+    proc = AsyncMock()
+    proc.wait = AsyncMock(return_value=0)
+
+    with (
+        patch.dict(sys.modules, {"bleak": ble_module}),
+        patch(
+            "asyncio.create_subprocess_exec",
+            AsyncMock(return_value=proc),
+        ) as mock_exec,
+    ):
+        await session._disconnect_stale_ble_client("AA:BB:CC:DD:EE:FF")
+
+    mock_exec.assert_awaited_once_with(
+        "bluetoothctl",
+        "disconnect",
+        "AA:BB:CC:DD:EE:FF",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+
+async def test_stale_cleanup_survives_missing_bluetoothctl() -> None:
+    """A host without bluetoothctl skips the system release silently."""
+    session = _make_ble_session()
+    ble_module = MagicMock()
+    ble_module.BleakClient = _FakeBleakClient
+
+    with (
+        patch.dict(sys.modules, {"bleak": ble_module}),
+        patch(
+            "asyncio.create_subprocess_exec",
+            AsyncMock(side_effect=FileNotFoundError("bluetoothctl")),
+        ),
+    ):
+        await session._disconnect_stale_ble_client("AA:BB:CC:DD:EE:FF")
+
+
+async def test_stale_cleanup_kills_unresponsive_disconnect() -> None:
+    """A wedged bluetoothctl is killed after the bounded timeout."""
+    session = _make_ble_session()
+    ble_module = MagicMock()
+    ble_module.BleakClient = _FakeBleakClient
+
+    proc = AsyncMock()
+    proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError(), 0])
+    proc.kill = MagicMock()
+
+    with (
+        patch.dict(sys.modules, {"bleak": ble_module}),
+        patch(
+            "asyncio.create_subprocess_exec",
+            AsyncMock(return_value=proc),
+        ),
+    ):
+        await session._disconnect_stale_ble_client("AA:BB:CC:DD:EE:FF")
+
+    proc.kill.assert_called_once()
+    assert proc.wait.await_count == 2

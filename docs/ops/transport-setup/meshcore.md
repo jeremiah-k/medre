@@ -131,7 +131,12 @@ The session layer performs several steps automatically before calling
    connection entry for the device address. Subsequent connection attempts can
    fail with `le-connection-abort-by-local` because BlueZ tries to reuse the
    stale entry. MEDRE checks for a lingering `BleakClient` for the target
-   address and disconnects it before proceeding.
+   address and disconnects it, then issues a bounded system-level
+   `bluetoothctl disconnect` for the address. The system-level release matters
+   when the board's companion firmware still holds its single BLE connection
+   slot from a previous session: that link was never owned by this process,
+   so no per-client call can terminate it. Hosts without `bluetoothctl` skip
+   the release silently.
 2. **Pre-scan for BLEDevice.** On some BlueZ stacks, passing a raw MAC address
    to `BleakClient` triggers the abort-by-local error, while passing a
    `BLEDevice` object from a live scan succeeds. MEDRE runs a short scan
