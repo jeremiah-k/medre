@@ -80,6 +80,12 @@ _TX_PACING_SECONDS: float = 2.5
 
 # Bounded waits (seconds).
 _RECEIPT_TIMEOUT: float = 45.0
+# A full-length (~max_text_bytes) frame needs a far longer receipt window on
+# a shared mesh: channel utilization and mesh retransmissions can delay it
+# well past the short-frame timeout, especially on a freshly rebooted mesh.
+_BOUNDARY_RECEIPT_TIMEOUT: float = float(
+    os.environ.get("MESHTASTIC_PAIR_BOUNDARY_TIMEOUT", "120")
+)
 _MAX_TEXT_BYTES: int = 227
 
 
@@ -260,7 +266,7 @@ class TestMeshtasticPairEgress:
             assert len(cases) <= _TX_BUDGET
             events: dict[str, str] = {}
             pid = 900_000
-            window = len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
+            window = len(cases) * (_TX_PACING_SECONDS + 0.6) + _BOUNDARY_RECEIPT_TIMEOUT
             with _PeerListener(window) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)
@@ -278,7 +284,7 @@ class TestMeshtasticPairEgress:
                         any(key in (packet.get("text") or "") for packet in packets)
                         for key in expected_keys
                     ),
-                    _RECEIPT_TIMEOUT,
+                    _BOUNDARY_RECEIPT_TIMEOUT,
                 )
             by_nonce = {}
             for p in received:
@@ -293,8 +299,15 @@ class TestMeshtasticPairEgress:
             # Long payload is delivered truncated (not dropped, not split).
             long_rx = by_nonce.get("N4-long")
             assert long_rx, "long payload not observed at peer"
-            expected_long = long_msg.encode("utf-8")[:_MAX_TEXT_BYTES].decode(
-                "utf-8", errors="ignore"
+            # The renderer prepends the configured relay prefix
+            # (``{sender_short}: `` — the fake sender has no short/long
+            # name, so the id stands in) and truncates AFTER the prefix at
+            # ``max_text_bytes`` on UTF-8 boundaries.
+            relay_prefix = "!peer0001: "
+            expected_long = (
+                (relay_prefix + long_msg)
+                .encode("utf-8")[:_MAX_TEXT_BYTES]
+                .decode("utf-8", errors="ignore")
             )
             assert (
                 long_rx == expected_long

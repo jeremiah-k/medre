@@ -279,9 +279,16 @@ def _make_context():
     """Build an AdapterContext suitable for live smoke tests."""
     from medre.core.contracts.adapter import AdapterContext
 
+    async def _record_feedback(record) -> None:  # noqa: ANN001
+        # Deferred Meshtastic delivery requires an installed feedback sink;
+        # the smoke harness has no runner to correlate records into, so a
+        # no-op sink stands in for the pipeline's _record_delivery_feedback.
+        return None
+
     return AdapterContext(
         adapter_id="meshtastic-live-smoke",
         publish_inbound=AsyncMock(),
+        report_delivery_feedback=_record_feedback,
         logger=logging.getLogger("test.meshtastic-live"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
@@ -565,7 +572,12 @@ class TestMeshtasticLiveSmoke:
         received_packets: list[dict] = []
 
         def _on_receive(packet, interface=None):
-            received_packets.append(packet)
+            # A freshly booted node emits telemetry/position broadcasts; the
+            # text-path assertion below only holds for text packets, so the
+            # callback keeps those and ignores unrelated portnums.
+            decoded = packet.get("decoded") or {}
+            if decoded.get("portnum") in ("TEXT_MESSAGE_APP", "text_message"):
+                received_packets.append(packet)
 
         try:
             await asyncio.get_event_loop().run_in_executor(
@@ -655,14 +667,26 @@ def _make_rendering_result(
     event_id: str = "evt-test-001",
     channel_index: int = 0,
 ):
-    """Build a minimal ``RenderingResult`` for deliver() tests."""
+    """Build a minimal ``RenderingResult`` for deliver() tests.
+
+    The Meshtastic hand-off contract requires immutable attempt provenance
+    on every deferred delivery; direct ``deliver()`` calls must carry it
+    exactly as the pipeline does.
+    """
     from medre.core.rendering.renderer import RenderingResult
+    from tests.helpers.delivery_callbacks import make_attempt_provenance
 
     return RenderingResult(
         event_id=event_id,
         target_adapter="meshtastic-live-smoke",
         target_channel=None,
         payload={"text": text, "channel_index": channel_index},
+        attempt_provenance=make_attempt_provenance(
+            event_id=event_id,
+            target_adapter="meshtastic-live-smoke",
+            outbox_id=f"outbox-{event_id}",
+            attempt_number=1,
+        ),
     )
 
 

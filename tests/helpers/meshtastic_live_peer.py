@@ -25,8 +25,19 @@ mode, port = sys.argv[2], sys.argv[3]
 from meshtastic.serial_interface import SerialInterface
 from pubsub import pub
 iface = SerialInterface(devPath=port, noProto=False)
+# A freshly power-cycled board may not have completed the config handshake
+# at construction; myInfo/myNodeNum land with it. waitForConfig is bounded
+# by its own timeout; on timeout keep going with whatever identity is known.
+try:
+    iface.waitForConfig()
+except Exception:
+    pass
 my_info = getattr(iface, "myInfo", None)
+# The pinned SDK exposes the protobuf field name (my_node_num); the
+# camelCase spelling is absent on this firmware/SDK pair.
 my_num = getattr(my_info, "myNodeNum", None)
+if my_num is None:
+    my_num = getattr(my_info, "my_node_num", None)
 own_id = f"!{int(my_num):08x}" if isinstance(my_num, int) and my_num >= 0 else None
 got = []
 scratch_path = sys.argv[5] if mode == "listen" else None
