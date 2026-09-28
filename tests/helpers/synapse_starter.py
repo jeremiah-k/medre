@@ -1,0 +1,243 @@
+"""Standalone Synapse-in-Docker starter for live test harnesses.
+
+Encapsulates the config generation, registration, and readiness waiting
+that ``tests/integration/conftest.py`` does, without pytest fixture
+machinery, so opt-in live harnesses (radio matrix) can add a Matrix
+homeserver to a multi-transport runtime.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import time
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+
+_SYNAPSE_IMAGE = (
+    "matrixdotorg/synapse:v1.161.0"
+    "@sha256:6b95dd129e35e97e8032cb759e5db4a516a5f7ef6c98d34d716fea1ae239b62a"
+)
+_CONTAINER = "medre-matrix-synapse"
+_PORT = 18008
+
+
+@dataclass(frozen=True)
+class SynapseInstance:
+    """Connection details for a running Synapse."""
+
+    base_url: str
+    bot_user_id: str
+    bot_access_token: str
+    bot_device_id: str
+    test_user_id: str
+    test_user_password: str
+    room_id: str
+    container: str
+
+
+def _docker(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["docker", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def start_synapse(data_dir: Path) -> SynapseInstance:
+    """Start a Synapse homeserver with bot and test users; return details.
+
+    Idempotent: removes any previous container with the same name.  The
+    caller owns stopping the container (``stop_synapse``).
+    """
+    _docker(["rm", "-f", _CONTAINER], timeout=30)
+
+    if data_dir.exists():
+        try:
+            shutil.rmtree(data_dir)
+        except PermissionError:
+            _docker(
+                [
+                    "run",
+                    "--rm",
+                    "--user",
+                    "root",
+                    "--entrypoint",
+                    "",
+                    "-v",
+                    f"{data_dir}:/data",
+                    _SYNAPSE_IMAGE,
+                    "find",
+                    "/data",
+                    "-mindepth",
+                    "1",
+                    "-delete",
+                ],
+                timeout=30,
+            )
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    _docker(
+        [
+            "run",
+            "--rm",
+            "-e",
+            "SYNAPSE_SERVER_NAME=matrix.localhost",
+            "-e",
+            "SYNAPSE_REPORT_STATS=no",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+            "generate",
+        ],
+        timeout=60,
+    )
+    _docker(
+        [
+            "run",
+            "--rm",
+            "--user",
+            "root",
+            "--entrypoint",
+            "",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+            "chmod",
+            "-R",
+            "a+rw",
+            "/data",
+        ],
+        timeout=30,
+    )
+    homeserver = data_dir / "homeserver.yaml"
+    if homeserver.exists():
+        with open(homeserver, "a") as fh:
+            fh.write("\n# Live harness overrides\n")
+            fh.write("enable_registration: true\n")
+            fh.write("registration_shared_secret: medre-live-secret\n")
+            fh.write("rc_message:\n  per_second: 25\n  burst_count: 100\n")
+
+    _docker(
+        [
+            "run",
+            "-d",
+            "--name",
+            _CONTAINER,
+            "-e",
+            "SYNAPSE_SERVER_NAME=matrix.localhost",
+            "-e",
+            "SYNAPSE_REPORT_STATS=no",
+            "-p",
+            f"127.0.0.1:{_PORT}:8008",
+            "-v",
+            f"{data_dir}:/data",
+            _SYNAPSE_IMAGE,
+        ],
+        timeout=60,
+    )
+
+    base_url = f"http://localhost:{_PORT}"
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(
+                f"{base_url}/_matrix/client/versions", timeout=3
+            ):  # nosec B310 - local Synapse test harness on a fixed loopback port
+                pass
+            break
+        except Exception:
+            time.sleep(2)
+    else:
+        stop_synapse()
+        raise RuntimeError("Synapse did not become ready within 60s")
+
+    for localpart, password, admin in (
+        ("medre-bot", "medre-bot-live-pass", True),
+        ("medre-peer", "medre-peer-live-pass", False),
+    ):
+        args = [
+            "exec",
+            _CONTAINER,
+            "register_new_matrix_user",
+            "-u",
+            localpart,
+            "-p",
+            password,
+            "-c",
+            "/data/homeserver.yaml",
+        ]
+        if admin:
+            args.append("-a")
+        _docker(args, timeout=30)
+
+    def _login(user: str, password: str) -> dict:
+        req = urllib.request.Request(
+            f"{base_url}/_matrix/client/v3/login",
+            data=json.dumps(
+                {"type": "m.login.password", "user": user, "password": password}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(
+            req, timeout=10
+        ) as resp:  # nosec B310 - local Synapse test harness on a fixed loopback port
+            return json.loads(resp.read())
+
+    bot = _login("medre-bot", "medre-bot-live-pass")
+    peer = _login("medre-peer", "medre-peer-live-pass")
+
+    room_req = urllib.request.Request(
+        f"{base_url}/_matrix/client/v3/createRoom",
+        data=json.dumps(
+            {"name": "MEDRE matrix harness", "preset": "public_chat"}
+        ).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {bot['access_token']}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(room_req, timeout=10) as resp:
+        room_id = json.loads(resp.read())["room_id"]
+
+    # Invite and join the peer user so both sides can observe the room.
+    invite_req = urllib.request.Request(
+        f"{base_url}/_matrix/client/v3/rooms/{room_id}/invite",
+        data=json.dumps({"user_id": peer["user_id"]}).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {bot['access_token']}",
+        },
+        method="POST",
+    )
+    urllib.request.urlopen(invite_req, timeout=10)
+    join_req = urllib.request.Request(
+        f"{base_url}/_matrix/client/v3/rooms/{room_id}/join",
+        data=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {peer['access_token']}",
+        },
+        method="POST",
+    )
+    urllib.request.urlopen(join_req, timeout=10)
+
+    return SynapseInstance(
+        base_url=base_url,
+        bot_user_id=bot["user_id"],
+        bot_access_token=bot["access_token"],
+        bot_device_id=bot.get("device_id", ""),
+        test_user_id=peer["user_id"],
+        test_user_password="medre-peer-live-pass",
+        room_id=room_id,
+        container=_CONTAINER,
+    )
+
+
+def stop_synapse() -> None:
+    _docker(["rm", "-f", _CONTAINER], timeout=30)
