@@ -35,7 +35,8 @@ INSERT INTO inbound_pressure_observations (
 ) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(window_start, source, outcome) DO UPDATE SET
     count = count + excluded.count,
-    last_seen_at = excluded.last_seen_at
+    first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
+    last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
 """
 
 
@@ -62,6 +63,7 @@ class _PressureMixin:
         *,
         count: int = 1,
         unix_seconds: int | None = None,
+        last_unix_seconds: int | None = None,
         iso_timestamp: str | None = None,
     ) -> None:
         """Aggregate pressure events into durable storage.
@@ -69,7 +71,9 @@ class _PressureMixin:
         ``source`` is the adapter id (or the anonymous-source sentinel);
         ``outcome`` is one of ``rejected``, ``timed_out``, ``deferred``;
         ``count`` batches multiple events of one key into a single upsert
-        (the runtime flushes aggregated in-memory counters this way).  The
+        (the runtime flushes aggregated in-memory counters this way).
+        ``unix_seconds`` and ``last_unix_seconds`` bound that batch's actual
+        observation times and must remain inside one fixed window.  The
         write is an append-only upsert onto the current window's aggregate
         row: no row is ever deleted (storage append-only invariant), and
         growth is rate-bounded to one row per key per window while
@@ -86,16 +90,38 @@ class _PressureMixin:
 
         if unix_seconds is None:
             unix_seconds = int(datetime.now(timezone.utc).timestamp())
+        if last_unix_seconds is None:
+            last_unix_seconds = unix_seconds
+        first_seconds = int(unix_seconds)
+        last_seconds = int(last_unix_seconds)
+        if last_seconds < first_seconds:
+            raise ValueError("last pressure timestamp must not precede first")
+        window_start = pressure_window_start(first_seconds)
+        if pressure_window_start(last_seconds) != window_start:
+            raise ValueError(
+                "batched pressure timestamps must belong to the same window"
+            )
         if iso_timestamp is None:
             # Derive the observation timestamp from the same instant as
-            # the window so one row never describes two different times.
+            # the event so one row never describes two different times.
             iso_timestamp = datetime.fromtimestamp(
-                int(unix_seconds), tz=timezone.utc
+                first_seconds, tz=timezone.utc
             ).isoformat()
-        window_start = pressure_window_start(int(unix_seconds))
+        last_iso_timestamp = (
+            iso_timestamp
+            if last_seconds == first_seconds
+            else datetime.fromtimestamp(last_seconds, tz=timezone.utc).isoformat()
+        )
         await self._write(
             _UPSERT_OBSERVATION,
-            (window_start, source, outcome, count, iso_timestamp, iso_timestamp),
+            (
+                window_start,
+                source,
+                outcome,
+                count,
+                iso_timestamp,
+                last_iso_timestamp,
+            ),
         )
 
     async def list_inbound_pressure_observations(

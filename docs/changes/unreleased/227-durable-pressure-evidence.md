@@ -14,13 +14,18 @@
   unaffected.
 - The refusal path never awaits storage: refusals aggregate into in-memory
   counters flushed by a single-flight background task as count-carrying
-  upserts (at most one flush in flight; failures log and drop the batch
-  without changing the refusal outcome).
+  upserts (at most one flush in flight). Transient write failures log and
+  retain the unwritten batch for the next refusal or final shutdown drain
+  without changing the refusal outcome.
 - The refusal window is captured at refusal time (the pending counter key
   carries the aligned window), so a delayed flush never merges refusals
   from different windows; the single-flight flush task drains until no
-  counts are pending, and shutdown performs a final flush before storage
-  closes so pending counters are not lost.
+  counts are pending, and both normal shutdown and failed-startup cleanup
+  perform a final flush before storage closes so pending counters are not
+  lost. Cancellation during that drain is deferred and retried before close.
+- Batched counters preserve the actual first/last refusal timestamps inside
+  each window; aggregate upserts keep the chronological minimum/maximum so
+  delayed or retried writes cannot move those observation bounds backward.
 - A read-only database that predates the additive table reports an empty
   pressure history instead of failing; a pressure read failure marks the
   evidence storage section partial rather than passed.

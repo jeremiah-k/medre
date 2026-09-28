@@ -77,6 +77,42 @@ class TestPressureStorageContract:
         finally:
             await storage.close()
 
+    async def test_out_of_order_upserts_preserve_observation_bounds(
+        self, tmp_path: Path
+    ) -> None:
+        storage = await _open_storage(tmp_path)
+        try:
+            base = 1_800_000_000
+            await storage.record_inbound_pressure(
+                "radio",
+                "rejected",
+                unix_seconds=base + 30,
+            )
+            await storage.record_inbound_pressure(
+                "radio",
+                "rejected",
+                unix_seconds=base + 5,
+            )
+            await storage.record_inbound_pressure(
+                "radio",
+                "rejected",
+                unix_seconds=base + 45,
+            )
+            rows = await storage.list_inbound_pressure_observations()
+            row = rows[0]
+            from datetime import datetime, timezone
+
+            assert (
+                row["first_seen_at"]
+                == datetime.fromtimestamp(base + 5, tz=timezone.utc).isoformat()
+            )
+            assert (
+                row["last_seen_at"]
+                == datetime.fromtimestamp(base + 45, tz=timezone.utc).isoformat()
+            )
+        finally:
+            await storage.close()
+
     async def test_separate_windows_are_separate_rows(self, tmp_path: Path) -> None:
         storage = await _open_storage(tmp_path)
         try:
@@ -372,13 +408,20 @@ class TestReviewHardening:
             await storage.close()
 
     async def test_refusal_window_captured_at_refusal_time(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         storage = await _open_storage(tmp_path)
-        captured: list[int] = []
+        captured: list[tuple[int, int]] = []
+        observed_at = 1_800_000_013
+        monkeypatch.setattr("medre.runtime.app._time.time", lambda: observed_at)
 
         async def _record(source, outcome, *, count=1, **kwargs):
-            captured.append(kwargs.get("unix_seconds", -1))
+            captured.append(
+                (
+                    kwargs.get("unix_seconds", -1),
+                    kwargs.get("last_unix_seconds", -1),
+                )
+            )
 
         app = _GateApp()
         app.pipeline_runner = _FakeRunner(delay=0.2)
@@ -404,9 +447,40 @@ class TestReviewHardening:
             await first
             await _await_pressure_flush(app)
             assert len(captured) == 1
-            assert captured[0] == pressure_window_start(captured[0])
+            assert captured[0] == (observed_at, observed_at)
         finally:
             app.storage = original
+            await storage.close()
+
+    async def test_batched_runtime_counts_preserve_first_and_last_seen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        storage = await _open_storage(tmp_path)
+        app = _GateApp()
+        app.storage = storage
+        observed = iter((1_800_000_005, 1_800_000_042))
+        monkeypatch.setattr("medre.runtime.app._time.time", lambda: next(observed))
+        refused = SimpleNamespace(reason="queue_full")
+        try:
+            app._record_inbound_pressure_loss("radio", refused, cursor_aware=False)
+            app._record_inbound_pressure_loss("radio", refused, cursor_aware=False)
+            await _await_pressure_flush(app)
+
+            rows = await storage.list_inbound_pressure_observations(source="radio")
+            assert len(rows) == 1
+            row = rows[0]
+            from datetime import datetime, timezone
+
+            assert row["count"] == 2
+            assert (
+                row["first_seen_at"]
+                == datetime.fromtimestamp(1_800_000_005, tz=timezone.utc).isoformat()
+            )
+            assert (
+                row["last_seen_at"]
+                == datetime.fromtimestamp(1_800_000_042, tz=timezone.utc).isoformat()
+            )
+        finally:
             await storage.close()
 
     async def test_flush_drains_counts_arriving_mid_flight(
@@ -420,19 +494,81 @@ class TestReviewHardening:
             if len(calls) == 1:
                 # A refusal lands while this write is awaited: it must be
                 # drained by the SAME single-flight task, not stranded.
-                app._pressure_pending[("radio", "rejected", 42)] = (
-                    app._pressure_pending.get(("radio", "rejected", 42), 0) + 1
-                )
+                app._pressure_pending[("radio", "rejected", 42)] = (1, 42, 42)
 
         app = _GateApp()
         app.storage = SimpleNamespace(record_inbound_pressure=_record)
-        app._pressure_pending = {("radio", "rejected", 41): 1}
+        app._pressure_pending = {("radio", "rejected", 41): (1, 41, 41)}
         await app._flush_inbound_pressure(_record)
         assert sorted(calls) == [
             ("radio", "rejected", 1),
             ("radio", "rejected", 1),
         ]
         await storage.close()
+
+    async def test_failed_flush_retains_batch_for_later_retry(
+        self, tmp_path: Path
+    ) -> None:
+        storage = await _open_storage(tmp_path)
+        calls = 0
+
+        async def _record(source, outcome, *, count=1, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary storage failure")
+            await storage.record_inbound_pressure(
+                source, outcome, count=count, **kwargs
+            )
+
+        app = _GateApp()
+        app.storage = SimpleNamespace(record_inbound_pressure=_record)
+        app._pressure_pending = {
+            ("radio", "rejected", pressure_window_start(1_800_000_005)): (
+                2,
+                1_800_000_005,
+                1_800_000_042,
+            )
+        }
+        try:
+            await app._flush_inbound_pressure(_record)
+            assert app._pressure_pending
+
+            await app._drain_inbound_pressure_flush()
+            assert app._pressure_pending == {}
+            rows = await storage.list_inbound_pressure_observations(source="radio")
+            assert rows[0]["count"] == 2
+        finally:
+            await storage.close()
+
+    async def test_cancelled_flush_requeues_unwritten_batch(
+        self, tmp_path: Path
+    ) -> None:
+        storage = await _open_storage(tmp_path)
+        started = asyncio.Event()
+
+        async def _blocked_record(source, outcome, *, count=1, **kwargs):
+            started.set()
+            await asyncio.Future()
+
+        app = _GateApp()
+        app.storage = SimpleNamespace(record_inbound_pressure=_blocked_record)
+        key = ("radio", "rejected", pressure_window_start(1_800_000_005))
+        aggregate = (2, 1_800_000_005, 1_800_000_042)
+        app._pressure_pending = {key: aggregate}
+        task = asyncio.create_task(app._flush_inbound_pressure(_blocked_record))
+        try:
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert app._pressure_pending == {key: aggregate}
+        finally:
+            if not task.done():
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            await storage.close()
 
     async def test_readonly_db_without_table_returns_empty_history(
         self, tmp_path: Path

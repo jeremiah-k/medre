@@ -1219,7 +1219,10 @@ deferral (`deferred`). Rows are upserted from the runtime gate's batched
 pressure counters (one count-carrying upsert per key per flush). Writes are append-only upserts per §5 — no row is ever deleted —
 and growth is inherently rate-bounded: at most one row per
 (window, source, outcome) per minute, and only while pressure is actually
-occurring. Readers bound their views (windowed queries; the evidence
+occurring. `first_seen_at` and `last_seen_at` retain the chronological
+observation bounds for the aggregate: batched writes carry both times and
+conflict upserts keep the minimum first-seen and maximum last-seen value.
+Readers bound their views (windowed queries; the evidence
 section caps its listing). The table stores counters and timestamps only —
 never payloads, sender identity, or transport-native content — and it is
 operational evidence: rows never become canonical events, receipts, or

@@ -87,6 +87,15 @@ Operators read the aggregates via `medre inspect pressure` and the evidence
 bundle's storage section; this is runtime pressure evidence, not transport
 health.
 
+The coalescing writer **MUST** preserve the first and last refusal times for
+each aggregate window. A transient pressure-write failure **MUST NOT** discard
+the unwritten in-memory batch: it remains eligible for a later refusal-triggered
+flush or the final shutdown drain. Normal shutdown and failed-startup cleanup
+**MUST** attempt that drain before storage closes, including retry after a
+deferred cancellation. Persistent storage failure can still prevent operational
+evidence from becoming durable, but that failure never changes the gate's
+refusal/defer outcome.
+
 ## Inbound attachment bytes
 
 Binary attachment data travels separately from the persisted canonical
