@@ -235,3 +235,30 @@ class TestCleanupCoreResourcesCancelledError:
 
         assert pipeline_called[0], "pipeline_runner.stop() was skipped"
         assert app.state == RuntimeState.FAILED
+
+    @pytest.mark.asyncio
+    async def test_startup_cleanup_drains_pressure_before_storage_close(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        """Failed startup cannot close storage ahead of pressure evidence."""
+        config = _config_with_one_fake_adapter()
+        app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
+        order: list[str] = []
+
+        async def _pipeline_stop() -> None:
+            order.append("pipeline")
+
+        async def _pressure_drain() -> None:
+            order.append("pressure")
+
+        async def _storage_close() -> None:
+            order.append("storage")
+
+        app.pipeline_runner.stop = _pipeline_stop  # type: ignore[assignment]
+        app._drain_inbound_pressure_flush = _pressure_drain  # type: ignore[method-assign]
+        app.storage.close = _storage_close  # type: ignore[assignment]
+
+        await app._cleanup_core_resources()
+
+        assert order == ["pipeline", "pressure", "storage"]

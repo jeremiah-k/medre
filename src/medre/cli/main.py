@@ -316,6 +316,30 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     inspect_nref.add_argument("--message", required=True, help="Native message ID")
 
+    # inspect pressure [--source SRC]
+    inspect_pressure = inspect_sub.add_parser(
+        "pressure",
+        help="List pre-admission pressure aggregates (counters only, read-only)",
+    )
+    inspect_pressure.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
+    inspect_pressure.add_argument(
+        "--source",
+        default=None,
+        help="Filter by adapter source id",
+    )
+    inspect_pressure.add_argument(
+        "--limit",
+        type=_recovery_page_limit,
+        default=None,
+        metavar="N",
+        help="Return only the newest N aggregate rows (1..MAX)",
+    )
+
     # inspect replay <run_id>
     inspect_rpl = inspect_sub.add_parser(
         "replay", help="Inspect a replay run timeline (read-only)"
@@ -610,6 +634,7 @@ def main(argv: list[str] | None = None) -> None:
         from .inspect_commands import (
             _inspect_event,
             _inspect_native_ref,
+            _inspect_pressure,
             _inspect_receipts,
             _inspect_replay,
         )
@@ -639,6 +664,14 @@ def main(argv: list[str] | None = None) -> None:
                     channel=args.channel,
                     message=args.message,
                     storage_path=args.storage_path,
+                )
+            )
+        elif args.inspect_command == "pressure":
+            asyncio.run(
+                _inspect_pressure(
+                    storage_path=args.storage_path,
+                    source=args.source,
+                    limit=args.limit,
                 )
             )
         elif args.inspect_command == "replay":

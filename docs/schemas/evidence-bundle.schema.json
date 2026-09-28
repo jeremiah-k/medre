@@ -812,6 +812,19 @@
             }
           ]
         },
+        "inbound_pressure": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
         "native_refs_for_event": {
           "oneOf": [
             {
@@ -930,6 +943,7 @@
         "event",
         "event_count",
         "incident_summary",
+        "inbound_pressure",
         "native_refs_for_event",
         "receipt_count",
         "delivery_observation_count",

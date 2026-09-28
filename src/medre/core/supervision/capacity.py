@@ -31,7 +31,11 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
-__all__ = ["CapacityController", "InboundAdmissionRejected"]
+__all__ = [
+    "CapacityController",
+    "InboundAdmissionRejected",
+    "InboundAdmissionResult",
+]
 
 _logger = logging.getLogger(__name__)
 
@@ -44,8 +48,25 @@ class _InboundWaiter:
 
     source_id: str
     started: float
-    future: asyncio.Future[bool]
+    future: asyncio.Future["InboundAdmissionResult"]
     granted: bool = False
+
+
+@dataclass(frozen=True)
+class InboundAdmissionResult:
+    """Outcome of one inbound admission attempt.
+
+    Truthy when the slot was granted.  ``reason`` names the refusal cause
+    for durable pressure evidence: ``closed`` (acceptance shut during
+    shutdown), ``queue_full`` (global or per-source wait bound), or
+    ``timeout`` (waited past the admission timeout).
+    """
+
+    granted: bool
+    reason: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.granted
 
 
 class InboundAdmissionRejected(RuntimeError):
@@ -301,7 +322,9 @@ class CapacityController:
         for source_id in normalized:
             self._ensure_inbound_source(source_id)
 
-    async def acquire_inbound(self, source_id: str | None = None) -> bool:
+    async def acquire_inbound(
+        self, source_id: str | None = None
+    ) -> InboundAdmissionResult:
         """Acquire an inbound admission slot, returning ``True`` on success.
 
         Active slots are runtime-global and work-conserving.  Under saturation,
@@ -311,9 +334,10 @@ class CapacityController:
         round-robin by source, preventing one callback-heavy adapter from
         monopolising the overload cushion.
 
-        Returns ``False`` when inbound acceptance has closed, the global or
-        source-local wait queue is full, or the arrival waits past the inbound
-        admission timeout.
+        Returns a falsy :class:`InboundAdmissionResult` when inbound
+        acceptance has closed, the global or source-local wait queue is
+        full, or the arrival waits past the inbound admission timeout; the
+        result's ``reason`` names which.
         """
         source = self._normalize_inbound_source(source_id)
         started = self._loop_time()
@@ -328,7 +352,7 @@ class CapacityController:
             self._ensure_inbound_source(source)
             if not self._inbound_accepting:
                 self._record_inbound_rejection_locked(source)
-                return False
+                return InboundAdmissionResult(False, "closed")
 
             # Work-conserving fast path.  Do not bypass an existing queue:
             # once contention exists, queued source ordering is authoritative.
@@ -337,7 +361,7 @@ class CapacityController:
                 and self._inbound_waiting_total == 0
             ):
                 self._record_inbound_grant_locked(source)
-                return True
+                return InboundAdmissionResult(True)
 
             source_queue = self._inbound_waiters.get(source)
             source_waiting = len(source_queue) if source_queue is not None else 0
@@ -345,7 +369,7 @@ class CapacityController:
                 source_waiting >= self._inbound_source_wait_limit(source)
             ):
                 self._record_inbound_rejection_locked(source)
-                return False
+                return InboundAdmissionResult(False, "queue_full")
 
             if source_queue is None:
                 source_queue = deque()
@@ -357,7 +381,7 @@ class CapacityController:
                 self._inbound_rr_sources.append(source)
             self._grant_inbound_waiters_locked()
             if waiter.granted:
-                return True
+                return InboundAdmissionResult(True)
 
         try:
             return await asyncio.wait_for(
@@ -370,11 +394,16 @@ class CapacityController:
                 # for the lock.  In that case the caller owns the slot and
                 # must observe success so it can release it normally.
                 if waiter.granted:
-                    return True
+                    return InboundAdmissionResult(True)
                 if self._remove_inbound_waiter_locked(waiter):
                     self._inbound_timeouts += 1
                     self._inbound_timeouts_by_source[source] += 1
-            return False
+                    return InboundAdmissionResult(False, "timeout")
+                # The grant loop resolved this waiter while the timeout
+                # raced the lock; its recorded outcome stands.
+                if waiter.future.done():
+                    return waiter.future.result()
+            return InboundAdmissionResult(False, "timeout")
         except asyncio.CancelledError:
             async with self._lock:
                 if waiter.granted:
@@ -473,13 +502,13 @@ class CapacityController:
             if not self._inbound_accepting:
                 self._record_inbound_rejection_locked(source)
                 if not waiter.future.done():
-                    waiter.future.set_result(False)
+                    waiter.future.set_result(InboundAdmissionResult(False, "closed"))
                 continue
 
             waiter.granted = True
             self._record_inbound_grant_locked(source)
             if not waiter.future.done():
-                waiter.future.set_result(True)
+                waiter.future.set_result(InboundAdmissionResult(True))
 
     @staticmethod
     def _loop_time() -> float:

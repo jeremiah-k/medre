@@ -507,7 +507,7 @@ class TestNestedCommandCoverage:
         [
             ("config", {"check", "sample"}),
             ("routes", {"validate", "topology", "list", "plan"}),
-            ("inspect", {"event", "receipts", "native-ref", "replay"}),
+            ("inspect", {"event", "receipts", "native-ref", "pressure", "replay"}),
             ("trace", {"event", "replay"}),
             ("storage", {"status", "reset"}),
             ("support", {"bundle"}),

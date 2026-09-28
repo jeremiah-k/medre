@@ -1170,6 +1170,11 @@ medre inspect receipts --storage-path PATH
 medre inspect native-ref --storage-path PATH
     Read-only native transport reference inspection.
 
+medre inspect pressure --storage-path PATH
+    Read-only pre-admission pressure aggregates: per-window counters of
+    gate rejections, timeouts, and cursor-safe deferrals by adapter source.
+    Optional --source and --limit filters.
+
 medre inspect replay --storage-path PATH
     Read-only replay run inspection. Shows durable outbox admissions and receipt summaries, including named runs that have not produced a receipt yet.
 

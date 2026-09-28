@@ -132,7 +132,7 @@ medre inspect native-ref --adapter <name> --message <native_id> --storage-path /
 medre inspect receipts --replay-run <run_id> --storage-path /tmp/medre-smoke.db
 ```
 
-All `inspect` subcommands (`event`, `receipts`, `native-ref`, `replay`, and `receipts --replay-run`) require `--storage-path` for direct read-only access to a SQLite database. No config file is needed — `inspect` opens the database directly from the provided path.
+All `inspect` subcommands (`event`, `receipts`, `native-ref`, `pressure`, `replay`, and `receipts --replay-run`) require `--storage-path` for direct read-only access to a SQLite database. No config file is needed — `inspect` opens the database directly from the provided path.
 
 The `replay` command requires `--config`; `recover` requires `--storage-path` (read-only). Use `inspect` as your first investigation step.
 
@@ -150,6 +150,7 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
 | `medre inspect receipts --event <id> --storage-path <db>`                      | Opens SQLite (RO) | No                 | Receipt array JSON               | 0=found, 2=no SQLite                    |
 | `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO) | No                 | Receipt array JSON               | 0=found, 2=no SQLite                    |
 | `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No                 | Ref JSON                         | 0=found, 2=no SQLite                    |
+| `medre inspect pressure [--source <id>] [--limit <n>] --storage-path <db>`     | Opens SQLite (RO) | No                 | Pressure aggregate JSON          | 0=success, 2=no SQLite                  |
 | `medre diagnostics --config <path>`                                            | None              | No                 | Build-time snapshot JSON         | 0=success, 2=config, 3=build            |
 | `medre diagnostics --config <path> --format prometheus`                        | None              | No                 | Numeric/boolean gauges           | 0=success, 2=config, 3=build            |
 | `medre diagnostics --refresh-health --config <path>`                           | None              | Yes (real or fake) | Live health snapshot JSON        | 0=success, 2=config, 3=build, 4=startup |

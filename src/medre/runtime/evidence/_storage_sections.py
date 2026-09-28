@@ -44,6 +44,7 @@ def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
         "event": None,
         "event_count": None,
         "incident_summary": None,
+        "inbound_pressure": None,
         "native_refs_for_event": None,
         "receipt_count": None,
         "delivery_observation_count": None,
@@ -86,12 +87,24 @@ async def _collect_storage_data_from_backend(
 
     data: dict[str, Any] = _empty_storage_data(db_path, db_exists=True)
     _truncation_warning: str | None = None
+    _pressure_error: str | None = None
 
     try:
         # Counts.
         data["event_count"] = await storage.count_events()
         data["receipt_count"] = await storage.count_receipts()
         data["delivery_observation_count"] = await storage.count_delivery_observations()
+
+        # Pre-admission pressure aggregates: counters only, bounded by the
+        # recorder's retention, newest windows last.  Guarded so backends
+        # without the pressure mixin still produce the section shape.
+        _list_pressure = getattr(storage, "list_inbound_pressure_observations", None)
+        if _list_pressure is not None:
+            try:
+                data["inbound_pressure"] = await _list_pressure(limit=500)
+            except Exception as exc:  # noqa: BLE001 -- evidence must not fail
+                data["inbound_pressure"] = {"error": f"pressure read failed: {exc}"}
+                _pressure_error = f"pressure read failed: {exc}"
 
         # Optional event lookup.
         if event_id is not None:
@@ -558,6 +571,11 @@ async def _collect_storage_data_from_backend(
         # Global convergence hit the query limit — section is partial.
         if _truncation_warning is not None:
             return _section_partial(data, _truncation_warning)
+
+        # The pressure aggregates could not be read — the section claims
+        # passed while missing observations unless it reports partial.
+        if _pressure_error is not None:
+            return _section_partial(data, _pressure_error)
 
         return _section_ok(data)
     except Exception as exc:

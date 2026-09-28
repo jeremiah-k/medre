@@ -130,6 +130,23 @@ def _monotonic_ms() -> float:
     return _time.monotonic() * 1000
 
 
+def _merge_pressure_pending(
+    pending: dict[tuple[str, str, int], tuple[int, int, int]],
+    key: tuple[str, str, int],
+    aggregate: tuple[int, int, int],
+) -> None:
+    """Merge one ``(count, first_seen, last_seen)`` pressure aggregate."""
+    existing = pending.get(key)
+    if existing is None:
+        pending[key] = aggregate
+        return
+    pending[key] = (
+        existing[0] + aggregate[0],
+        min(existing[1], aggregate[1]),
+        max(existing[2], aggregate[2]),
+    )
+
+
 def _drain_pending_cancellations() -> int:
     r"""Drain all pending cancellation requests from the current task.
 
@@ -1726,6 +1743,25 @@ class MedreApp:
                 _logger.error("Error marking conversation projection clean: %s", exc)
                 errors.append(("conversation_projection", exc))
 
+        # 2.7. Final pre-admission pressure flush: storage is about to
+        # close, so pending counters must reach it now or be lost.  A
+        # cancellation can cancel the single-flight writer while it is
+        # awaited; the writer requeues its unwritten batch, so drain the
+        # cancellation and retry before allowing storage to close.
+        while True:
+            try:
+                await self._drain_inbound_pressure_flush()
+                break
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug("Cancelled during final pressure flush (deferred)")
+            except Exception as exc:
+                _logger.error("Error during final pressure flush: %s", exc)
+                errors.append(("pressure_flush", exc))
+                break
+
         # 3. Close storage.
         if self.storage is not None:
             try:
@@ -2335,6 +2371,30 @@ class MedreApp:
                 "Error stopping pipeline runner during startup cleanup: %s", exc
             )
 
+        # Adapters may emit ingress while STARTING, so failed startup can
+        # already have pre-admission pressure buffered.  Drain that evidence
+        # before closing storage just as normal stop() does.  Cancellation is
+        # deferred and retried because the cancelled writer requeues its
+        # unwritten batch.
+        while True:
+            try:
+                await self._drain_inbound_pressure_flush()
+                break
+            except asyncio.CancelledError as c_exc:
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _cleared_cancels += _drain_pending_cancellations()
+                _logger.debug(
+                    "Cancelled during pressure flush during startup cleanup "
+                    "(deferred)"
+                )
+            except Exception as exc:
+                _logger.error(
+                    "Error draining pressure evidence during startup cleanup: %s",
+                    exc,
+                )
+                break
+
         try:
             await self._cleanup_storage_safely()
         except asyncio.CancelledError as c_exc:
@@ -2488,6 +2548,134 @@ class MedreApp:
 
         return _publish
 
+    def _record_inbound_pressure_loss(
+        self,
+        source_id: str | None,
+        acquired: Any,
+        *,
+        cursor_aware: bool,
+    ) -> None:
+        """Aggregate one refused admission for durable pressure evidence.
+
+        Outcome mapping: a cursor-aware refusal is ``deferred`` (the native
+        event stays retryable); a wait timeout is ``timed_out``; every other
+        refusal is ``rejected``.  Counters only — no payload, sender, or
+        transport-native content is ever persisted.
+
+        The refusal path never awaits storage: the event is aggregated into
+        an in-memory counter and a single-flight background flush task
+        (at most one in flight) batches the pending counters into one
+        count-carrying upsert per key.  A storage failure is logged and the
+        unwritten aggregate is retained for a later retry — evidence must not
+        block or mask the gate's own refusal outcome.
+        """
+        record = getattr(self.storage, "record_inbound_pressure", None)
+        if record is None:
+            return
+        if cursor_aware:
+            outcome = "deferred"
+        elif getattr(acquired, "reason", None) == "timeout":
+            outcome = "timed_out"
+        else:
+            outcome = "rejected"
+        source = (
+            source_id.strip()
+            if isinstance(source_id, str) and source_id.strip()
+            else "<anonymous>"
+        )
+        pending = getattr(self, "_pressure_pending", None)
+        if pending is None:
+            pending = self._pressure_pending = {}
+        # Capture the aligned window at refusal time: a flush delayed
+        # across a minute boundary must not merge refusals from different
+        # windows into the later aggregate.
+        from medre.core.storage.sqlite._pressure import pressure_window_start
+
+        observed_at = int(_time.time())
+        key = (source, outcome, pressure_window_start(observed_at))
+        _merge_pressure_pending(pending, key, (1, observed_at, observed_at))
+        flush_task = getattr(self, "_pressure_flush_task", None)
+        if flush_task is None or flush_task.done():
+            self._pressure_flush_task = asyncio.create_task(
+                self._flush_inbound_pressure(record)
+            )
+
+    async def _flush_inbound_pressure(self, record: Any) -> None:
+        """Write pending pressure counters to storage (single flight).
+
+        Drains batches until no counts remain pending — refusals that
+        arrive while a batch's writes are awaited land in a fresh batch
+        that this same task drains, so no count is stranded without a
+        follow-up refusal.  Never raises: a failure logs the
+        ``INBOUND_PRESSURE_RECORD_FAILED`` marker and retains the unwritten
+        aggregate for the next refusal or final shutdown drain.  This keeps a
+        transient storage failure from silently erasing already-counted
+        pressure without making refusal completion wait on SQLite.
+        """
+        while True:
+            pending = getattr(self, "_pressure_pending", None) or {}
+            if not pending:
+                return
+            self._pressure_pending = {}
+            items = list(pending.items())
+            for index, (
+                (source, outcome, _window_start),
+                (count, first_seen, last_seen),
+            ) in enumerate(items):
+                try:
+                    await record(
+                        source,
+                        outcome,
+                        count=count,
+                        unix_seconds=first_seen,
+                        last_unix_seconds=last_seen,
+                    )
+                except asyncio.CancelledError:
+                    for retry_key, retry_aggregate in items[index:]:
+                        _merge_pressure_pending(
+                            self._pressure_pending,
+                            retry_key,
+                            retry_aggregate,
+                        )
+                    raise
+                except Exception:
+                    for retry_key, retry_aggregate in items[index:]:
+                        _merge_pressure_pending(
+                            self._pressure_pending,
+                            retry_key,
+                            retry_aggregate,
+                        )
+                    _logger.exception(
+                        "INBOUND_PRESSURE_RECORD_FAILED: source=%r outcome=%s "
+                        "count=%d",
+                        source,
+                        outcome,
+                        count,
+                    )
+                    return
+
+    async def _drain_inbound_pressure_flush(self) -> None:
+        """Final pressure flush before storage closes during shutdown.
+
+        Awaits any in-flight flush task, then performs one last drain so
+        counts recorded after the task's last batch still reach storage.
+        Failures are logged inside the flusher and never propagate into
+        the shutdown sequence.
+        """
+        record = getattr(self.storage, "record_inbound_pressure", None)
+        if record is None:
+            return
+        task = getattr(self, "_pressure_flush_task", None)
+        if task is not None and not task.done():
+            try:
+                await task
+            except Exception:
+                _logger.exception("pressure flush task failed during shutdown")
+        try:
+            await self._flush_inbound_pressure(record)
+        except Exception:
+            _logger.exception("final pressure flush failed during shutdown")
+
     async def _gate_inbound_admission(
         self,
         crossing: Any,
@@ -2518,6 +2706,12 @@ class MedreApp:
 
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_capacity_rejection()
+            # Durable pre-admission pressure evidence: one aggregate row per
+            # (window, source, outcome), best-effort — a recording failure
+            # must not change the gate's refusal outcome.
+            self._record_inbound_pressure_loss(
+                source_id, acquired, cursor_aware=deferred_event_id is not None
+            )
             if deferred_event_id is not None:
                 from medre.core.ingress.types import DurableIngressDeferredError
 
