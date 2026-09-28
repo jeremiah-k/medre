@@ -2088,9 +2088,25 @@ class MedreApp:
         """
         _total_drained: int = 0
         timeout = self.config.runtime.shutdown_timeout_seconds
+        _terminal = {AdapterState.STOPPED, AdapterState.FAILED}
         for adapter_id in reversed(self.started_adapter_ids):
             adapter = self.adapters.get(adapter_id)
             if adapter is None:
+                continue
+            if self._adapter_states.get(adapter_id) in _terminal:
+                # A cancelled/failed start may already have driven this
+                # adapter to a terminal state before the cleanup loop
+                # reached it. Terminal states have no outgoing transitions,
+                # so forcing STOPPING would raise InvalidStateTransition,
+                # abort the loop, and mask the original startup failure.
+                # Whoever recorded the terminal state already ran the stop
+                # (same assumption the never-started loop below relies on).
+                _logger.debug(
+                    "Adapter %s already %s during failed-startup cleanup; "
+                    "skipping (stop already completed)",
+                    adapter_id,
+                    self._adapter_states[adapter_id].value,
+                )
                 continue
             transport = getattr(adapter, "platform", "unknown")
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)

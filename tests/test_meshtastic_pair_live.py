@@ -80,6 +80,12 @@ _TX_PACING_SECONDS: float = 2.5
 
 # Bounded waits (seconds).
 _RECEIPT_TIMEOUT: float = 45.0
+# A full-length (~max_text_bytes) frame needs a far longer receipt window on
+# a shared mesh: channel utilization and mesh retransmissions can delay it
+# well past the short-frame timeout, especially on a freshly rebooted mesh.
+_BOUNDARY_RECEIPT_TIMEOUT: float = float(
+    os.environ.get("MESHTASTIC_PAIR_BOUNDARY_TIMEOUT", "120")
+)
 _MAX_TEXT_BYTES: int = 227
 
 
@@ -260,7 +266,7 @@ class TestMeshtasticPairEgress:
             assert len(cases) <= _TX_BUDGET
             events: dict[str, str] = {}
             pid = 900_000
-            window = len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
+            window = len(cases) * (_TX_PACING_SECONDS + 0.6) + _BOUNDARY_RECEIPT_TIMEOUT
             with _PeerListener(window) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)
@@ -278,7 +284,7 @@ class TestMeshtasticPairEgress:
                         any(key in (packet.get("text") or "") for packet in packets)
                         for key in expected_keys
                     ),
-                    _RECEIPT_TIMEOUT,
+                    _BOUNDARY_RECEIPT_TIMEOUT,
                 )
             by_nonce = {}
             for p in received:
@@ -293,8 +299,43 @@ class TestMeshtasticPairEgress:
             # Long payload is delivered truncated (not dropped, not split).
             long_rx = by_nonce.get("N4-long")
             assert long_rx, "long payload not observed at peer"
-            expected_long = long_msg.encode("utf-8")[:_MAX_TEXT_BYTES].decode(
-                "utf-8", errors="ignore"
+            # The renderer prepends the configured relay prefix and
+            # truncates AFTER the prefix at ``max_text_bytes`` on UTF-8
+            # boundaries. Derive the expected prefix through the same
+            # production path (config template + attribution projection of
+            # the fake packet's native sender) instead of hardcoding it.
+            from medre.adapters.meshtastic.attribution import (
+                project_meshtastic_attribution,
+            )
+            from medre.config.adapters.meshtastic import MeshtasticConfig
+            from medre.core.rendering.attribution import (
+                RelayAttribution,
+                format_relay_prefix,
+            )
+
+            # The codec persists native identity under the versioned
+            # Meshtastic namespace; mirror that persisted shape here.
+            attribution = project_meshtastic_attribution(
+                {
+                    "meshtastic": {
+                        "schema_version": 1,
+                        "from_id": "!peer0001",
+                    }
+                }
+            )
+            template = MeshtasticConfig(
+                adapter_id="mt_radio", connection_type="serial"
+            ).radio_relay_prefix
+            relay_prefix = format_relay_prefix(
+                template,
+                RelayAttribution(
+                    source_sender_short_label=attribution["source_sender_short_label"]
+                ),
+            ).rendered_prefix
+            expected_long = (
+                (relay_prefix + long_msg)
+                .encode("utf-8")[:_MAX_TEXT_BYTES]
+                .decode("utf-8", errors="ignore")
             )
             assert (
                 long_rx == expected_long

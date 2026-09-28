@@ -831,6 +831,59 @@ class TestPartialAdapterStartCleanup:
         assert started == []
         # No cleanup needed — nothing started
 
+    @pytest.mark.asyncio
+    async def test_failed_start_cleanup_skips_terminal_adapters(self) -> None:
+        """A started-listed adapter already in a terminal state must not
+        abort failed-startup cleanup.
+
+        Regression: a cancelled adapter start can leave the adapter
+        ``STOPPED`` while it is still listed in ``started_adapter_ids``.
+        The cleanup loop previously forced ``STOPPING`` — terminal states
+        have no outgoing transitions, so ``InvalidStateTransition``
+        aborted the loop and masked the original startup failure.
+        """
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from medre.runtime.app import MedreApp, RuntimeState
+
+        ghost = _FakeAdapter(adapter_id="ghost")
+        live = _FakeAdapter(adapter_id="live")
+        app = MedreApp(
+            config=SimpleNamespace(
+                runtime=SimpleNamespace(name="hygiene", shutdown_timeout_seconds=2.0),
+                limits=RuntimeLimits(),
+            ),
+            paths=MagicMock(),
+            storage=MagicMock(),
+            rendering_pipeline=MagicMock(),
+            router=MagicMock(),
+            fallback_resolver=MagicMock(),
+            relation_resolver=MagicMock(),
+            pipeline_runner=MagicMock(),
+            diagnostician=MagicMock(),
+            adapters={"ghost": ghost, "live": live},
+            shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
+        )
+        app._state = RuntimeState.RUNNING
+        app._event_buffer = SimpleNamespace(emit=lambda *a, **k: None)
+        app._adapter_states = {
+            "ghost": AdapterState.STOPPED,
+            "live": AdapterState.READY,
+        }
+        app.started_adapter_ids = ["ghost", "live"]
+
+        # Must not raise despite "ghost" being started-listed and terminal.
+        await app._cleanup_started_adapters()
+
+        assert live.stopped is True
+        assert app._adapter_states["live"] is AdapterState.STOPPED
+        # ghost was skipped entirely: its stop already completed wherever
+        # the terminal state was recorded.
+        assert ghost.stopped is False
+        assert app._adapter_states["ghost"] is AdapterState.STOPPED
+
 
 # =====================================================================
 # 5. Supervision health determinism across cycles
