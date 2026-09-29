@@ -1199,6 +1199,35 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
 
 @_REQUIRE
 @_REQUIRE_LX
+def _lx_ingest_evidence(app: Any) -> str:
+    """Stage attribution for an LXMF ingest failure, from adapter evidence.
+
+    The chain is silent by design: the router proves an inbound packet to
+    the sender before the app-side delivery callback runs, and every later
+    drop (normalisation, classifier gate, dedup, publish) leaves no wire
+    trace.  Adapter diagnostics count each stage; this renders them so a
+    failed run names the stage that lost the message instead of only
+    reporting the missing event.
+    """
+    try:
+        diag = app.adapters["lx_radio"].diagnostics()
+    except Exception as exc:
+        return f"lxmf adapter diagnostics unavailable: {exc!r}"
+    session = diag.get("session") or {}
+    return (
+        "lxmf ingest evidence: sdk_deliveries="
+        f"{session.get('deliveries_received')} "
+        f"last_delivery={session.get('last_message_time')} "
+        f"classifier(seen={diag.get('classifier_messages_seen')}, "
+        f"relayed={diag.get('classifier_messages_relayed')}, "
+        f"ignored={diag.get('classifier_messages_ignored')}) "
+        f"dedup_suppressed={diag.get('inbound_duplicates_suppressed')} "
+        f"published={diag.get('inbound_published')} "
+        f"connected={session.get('connected')} "
+        f"last_error={session.get('last_error')!r}"
+    )
+
+
 @pytest.mark.skipif(
     not _HAS_LXMF,
     reason="lxmf matrix leg requires the pinned lxmf/rns SDKs "
@@ -1295,8 +1324,12 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
                 ], f"{mc_nonce}: receipt targets {targets}"
 
             # --- LXMF → both radio meshes.  The RNode sender waits for
-            # DIRECT delivery terminal state, so MEDRE has ingested before
-            # the radio listeners need to observe.
+            # DIRECT delivery terminal state; that state proves only the
+            # RNS-level receipt — the receiving router proves each packet
+            # to the sender before the app-side callback runs, and every
+            # downstream drop is silent.  Fan-out and admission failures
+            # below carry the adapter's ingest evidence so the stage
+            # that lost the message is legible.
             rx_nonce = _nonce("L-RX")
             # Worst-case envelope: the DIRECT-delivery send time once
             # for the initial send and once per resend, each behind a
@@ -1326,8 +1359,15 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
                         _LX_SEND_TIMEOUT,
                     )
 
-                mt_text = await _observe_or_resend(mt_listener, _lx_resend, rx_nonce)
-                mc_text = await _observe_or_resend(mc_listener, _lx_resend, rx_nonce)
+                try:
+                    mt_text = await _observe_or_resend(
+                        mt_listener, _lx_resend, rx_nonce
+                    )
+                    mc_text = await _observe_or_resend(
+                        mc_listener, _lx_resend, rx_nonce
+                    )
+                except AssertionError as exc:
+                    raise AssertionError(f"{exc}; {_lx_ingest_evidence(app)}") from exc
 
             # MC wire: board prefix wraps the rendered text; the relay
             # prefix carries the LXMF peer's display name.  MT wire:
@@ -1348,7 +1388,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # Ledger: every lxmf-originated event relays to exactly one
             # sent receipt on each radio target.
             events = await _await_events_with_nonce(app, rx_nonce)
-            assert events, "LXMF message never admitted"
+            assert events, f"LXMF message never admitted; {_lx_ingest_evidence(app)}"
             for ev in events:
                 sent = await _await_sent_receipt_targets(
                     app, ev.event_id, ("mc_radio", "mt_radio")

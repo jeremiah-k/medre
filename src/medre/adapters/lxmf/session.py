@@ -337,6 +337,12 @@ class _SessionDiagnostics:
     announces_sent: int = 0
     announce_failures: int = 0
     last_announce_error: str | None = None
+    # Count of LXMRouter delivery-callback invocations regardless of the
+    # callback's outcome.  The router proves an inbound packet to the
+    # sender BEFORE invoking this callback, so a sender-side DELIVERED
+    # state does not imply the callback ran; this counter separates
+    # "the SDK handed the message over" from every later stage.
+    deliveries_received: int = 0
 
 
 @dataclass(frozen=True)
@@ -362,6 +368,7 @@ class LxmfSessionDiagnostics:
     announces_sent: int
     announce_failures: int
     last_announce_error: str | None
+    deliveries_received: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -905,6 +912,7 @@ class LxmfSession:
             announces_sent=self._diag.announces_sent,
             announce_failures=self._diag.announce_failures,
             last_announce_error=self._diag.last_announce_error,
+            deliveries_received=self._diag.deliveries_received,
         )
 
     def delivery_state_counts(self) -> dict[str, int]:
@@ -1198,6 +1206,12 @@ class LxmfSession:
         # Guard: drop late callbacks that arrive after stop().
         if self._stop_requested or not self._started:
             return
+
+        # Count every SDK delivery-callback invocation before any
+        # processing can drop the message, so diagnostics distinguish
+        # "the router never handed the message over" from later-stage
+        # losses.
+        self._diag.deliveries_received += 1
 
         try:
             normalised = self._normalise_inbound_message(message)

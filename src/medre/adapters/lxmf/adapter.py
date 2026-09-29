@@ -518,6 +518,7 @@ class LxmfAdapter(AdapterContract):
                 "announces_sent": session_diag.announces_sent,
                 "announce_failures": session_diag.announce_failures,
                 "last_announce_error": session_diag.last_announce_error,
+                "deliveries_received": session_diag.deliveries_received,
             }
         return base
 
