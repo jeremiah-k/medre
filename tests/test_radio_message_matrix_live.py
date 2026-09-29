@@ -93,6 +93,12 @@ except Exception:  # pragma: no cover - optional extra absent
 pytestmark = [
     pytest.mark.live,
     pytest.mark.hardware,
+    # The module's own windows bound every wait (observation budgets,
+    # resend envelopes, drain periods); the slowest legitimate path —
+    # the LXMF leg's fan-out with full resend envelopes — runs well past
+    # the suite-wide 360 s default, so the cap must never fire before the
+    # harness's own budgets do.
+    pytest.mark.timeout(2400),
     pytest.mark.filterwarnings(
         "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning"
     ),
