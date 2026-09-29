@@ -9,6 +9,7 @@ homeserver to a multi-transport runtime.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import time
@@ -22,6 +23,8 @@ _SYNAPSE_IMAGE = (
 )
 _CONTAINER = "medre-matrix-synapse"
 _PORT = 18008
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -164,7 +167,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         except Exception:
             time.sleep(2)
     else:
-        stop_synapse()
+        stop_synapse(suppress_errors=True)
         raise RuntimeError("Synapse did not become ready within 60s")
 
     # Registration requires the admin flag to be stated explicitly on
@@ -270,7 +273,9 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
     except Exception:
         # Provisioning failed after the container started; do not leave
         # the named container running with no instance handle to stop.
-        stop_synapse()
+        # Cleanup failures are suppressed so the provisioning error is
+        # the one that surfaces.
+        stop_synapse(suppress_errors=True)
         raise
 
     return SynapseInstance(
@@ -286,5 +291,16 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
     )
 
 
-def stop_synapse() -> None:
-    _docker(["rm", "-f", _CONTAINER], timeout=30)
+def stop_synapse(*, suppress_errors: bool = False) -> None:
+    """Remove the named Synapse container.
+
+    On cleanup paths (*suppress_errors*) a docker failure — nonzero
+    result, timeout, or launch error — is logged instead of raised, so
+    it cannot replace the failure that triggered the cleanup.
+    """
+    try:
+        _docker(["rm", "-f", _CONTAINER], timeout=30)
+    except Exception:
+        if not suppress_errors:
+            raise
+        _LOGGER.exception("Failed to remove Synapse container %s", _CONTAINER)
