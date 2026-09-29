@@ -63,6 +63,10 @@ ALLOW_FIXED_SLEEP: tuple[tuple[str, float], ...] = (
     # _slow_cancel pause before raising CancelledError so the test has a
     # window to call task.cancel() before the stop returns.
     ("tests/helpers/startup_cleanup.py", 0.1),
+    # Synapse Docker readiness probe interval — spaces retries in a bounded
+    # synchronous loop that exits on the first successful /versions probe;
+    # the sync starter cannot use the async wait_until helper.
+    ("tests/helpers/synapse_starter.py", 2.0),
 )
 
 
