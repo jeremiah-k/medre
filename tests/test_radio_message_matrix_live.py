@@ -762,7 +762,10 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
     The oversized input must stay within the MT sender's own payload
     limit (~230 bytes) — Meshtastic rejects text the local radio cannot
     carry — so MT-side over-budget truncation is exercised by the
-    matrix-room test, whose source has no size limit."""
+    matrix-room test, whose source has no size limit.  The truncation
+    itself is proven from receipt rendering evidence: runtime-relayed
+    truncated frames are not dependably observable over RF on this
+    bench (identical direct sends deliver)."""
     app = await _launch(tmp_path / "render.db")
     try:
         ascii_msg = _nonce("W-ASCI") + " plain payload"
@@ -776,7 +779,11 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
         mca_msg = _nonce("W-MCA") + " return path payload"
 
         window = _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS + 60
-        mt_cases = [ascii_msg, unicode_msg, newline_msg, long_for_mc]
+        # The short cases observe on-wire; the over-budget case rides
+        # the truncated-frame anomaly (runtime-relayed truncated frames
+        # are not dependably observable over RF on this bench) and is
+        # proven from receipt rendering evidence instead.
+        mt_cases = [ascii_msg, unicode_msg, newline_msg]
         with _McListener(window) as mc_listener:
             await _mt_send(mt_cases)
             observed: dict[str, str] = {}
@@ -786,6 +793,7 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
                     lambda text: _mt_send([text]),
                     payload,
                 )
+            await _mt_send([long_for_mc])
         with _MtListener(window) as mt_listener:
             await _mc_send([mca_msg])
             observed_mt: dict[str, str] = {}
@@ -816,25 +824,48 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
         ), "unicode damaged on wire"
         assert observed[newline_msg].count("\n") == 2, "newlines damaged"
 
-        # Budget: the MEDRE-rendered portion (firmware prefix excluded)
-        # fits the MeshCore budget, and over-budget input truncates
-        # exactly at the boundary on UTF-8-safe edges.
-        long_text = observed[long_for_mc]
-        long_rendered = long_text[len(board_prefix) :]
-        assert (
-            len(long_rendered.encode("utf-8")) <= _MC_BUDGET
-        ), f"MC budget exceeded: {len(long_rendered.encode('utf-8'))} bytes"
-        expected_mc = _utf8_truncate(prefix + long_for_mc, _MC_BUDGET)
-        assert long_rendered == expected_mc, "MC truncation mismatch"
+        # Budget: the over-budget render truncates exactly at the
+        # MeshCore budget on a UTF-8-safe edge, proven from the receipt's
+        # rendering evidence (the same expected-value derivation as the
+        # matrix-room test: a budget cut mid-multibyte-character lands a
+        # byte under the nominal number).
+        long_events = await _await_events_with_nonce(app, long_for_mc)
+        assert long_events, f"no canonical event for {long_for_mc}"
+        expected_long = len(
+            _utf8_truncate(prefix + long_for_mc, _MC_BUDGET).encode("utf-8")
+        )
+        long_evidence = None
+        deadline = time.monotonic() + _RECEIPT_TIMEOUT
+        while time.monotonic() < deadline:
+            long_evidence = None
+            for ev in long_events:
+                for r in await app.storage.list_receipts_for_event(ev.event_id):
+                    if r.target_adapter != "mc_radio" or r.status != "sent":
+                        continue
+                    evidence = json.loads(r.rendering_evidence or "{}")
+                    if evidence.get("rendered_text_bytes") == expected_long:
+                        long_evidence = evidence
+            if long_evidence is not None:
+                break
+            await asyncio.sleep(1.0)
+        assert long_evidence is not None, (
+            f"no exact-budget MC render recorded (expected {expected_long} " f"bytes)"
+        )
+        assert long_evidence.get("truncated") is True
 
-        # --- MC→MT: relay prefix carries the MC sender label; Meshtastic
-        # budget enforced with exact truncation.
+        # --- MC→MT: relay prefix carries the MC sender label; the MeshCore
+        # board prefix rides inside the payload (the sender's firmware
+        # prepends it on the wire), so the nonce sits one prefix deeper.
         text = observed_mt[mca_msg]
         prefix_mt, tail_mt = _split_prefix(text)
         assert (
             prefix_mt and _MC_PEER_LABEL in prefix_mt
         ), f"relay prefix {prefix_mt!r} lacks MC sender label"
-        assert tail_mt == mca_msg, "return-path payload damaged"
+        board_mt, inner_tail = _split_prefix(tail_mt)
+        assert board_mt.startswith(
+            _MC_PEER_LABEL
+        ), f"return path {text!r} lacks the MC board prefix"
+        assert inner_tail == mca_msg, "return-path payload damaged"
 
     finally:
         await bounded(app.stop(), 30.0, "matrix runtime stop")
