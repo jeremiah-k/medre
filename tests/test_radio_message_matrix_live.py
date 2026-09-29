@@ -1268,15 +1268,13 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
                 return text
         return None
 
-    # The LXMF peer listener spans the whole test: it is the far-side
-    # observer for radio→lxmf and the identity anchor for lxmf→radios.
-    # The budget covers both radio→LXMF observation legs plus the
-    # worst-case LXMF→radio envelope (initial send and resends,
-    # each behind full observation budgets).
-    lx_window = 1800.0
-    with _LxListener(lx_window) as lx_listener:
-        app = await _launch(tmp_path / "lx.db", lxmf=True)
-        try:
+    app = await _launch(tmp_path / "lx.db", lxmf=True)
+    try:
+        # Radio→LXMF legs: the peer listener is the far-side observer
+        # for the relays' arrival at the native peer.  Its window ends
+        # before the fan-out leg (see below).
+        lx_window = 1800.0
+        with _LxListener(lx_window) as lx_listener:
             # --- MT → LXMF: observed at the peer, attribution contractual.
             mt_nonce = _nonce("L-MT")
             await _mt_send([mt_nonce])
@@ -1340,73 +1338,86 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # downstream drop is silent.  Fan-out and admission failures
             # below carry the adapter's ingest evidence so the stage
             # that lost the message is legible.
-            rx_nonce = _nonce("L-RX")
-            # Worst-case envelope: the DIRECT-delivery send time once
-            # for the initial send and once per resend, each behind a
-            # full observation budget.
-            _LX_SEND_TIMEOUT = 180.0
-            window = (
-                _LX_SEND_TIMEOUT
-                + 2 * _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS
-                + 2 * (_OBSERVE_ATTEMPTS - 1) * _LX_SEND_TIMEOUT
-                + 60
+        # --- LXMF → both radio meshes.  The peer listener window is
+        # closed above: that process owns the peer RNode's serial port
+        # for its whole life, and this leg's one-shot send processes
+        # need the same port — two processes cannot drive one RNode.
+        # The send processes announce the same peer identity, so the
+        # attribution anchor MEDRE resolved from the listener's
+        # announces survives the handoff.  Every send asserts DELIVERED
+        # so a transmission failure fails loudly instead of masquerading
+        # as mesh loss.
+        rx_nonce = _nonce("L-RX")
+        # Worst-case envelope: the DIRECT-delivery send time once
+        # for the initial send and once per resend, each behind a
+        # full observation budget.
+        _LX_SEND_TIMEOUT = 180.0
+        window = (
+            _LX_SEND_TIMEOUT
+            + 2 * _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS
+            + 2 * (_OBSERVE_ATTEMPTS - 1) * _LX_SEND_TIMEOUT
+            + 60
+        )
+        with (
+            _MtListener(window) as mt_listener,
+            _McListener(window) as mc_listener,
+        ):
+            sent_lx = await asyncio.to_thread(
+                _lx_peer,
+                ["send", medre_lx_dest, json.dumps([rx_nonce])],
+                _LX_SEND_TIMEOUT,
             )
-            with (
-                _MtListener(window) as mt_listener,
-                _McListener(window) as mc_listener,
-            ):
-                sent_lx = await asyncio.to_thread(
+            assert sent_lx.get("sent"), f"LXMF peer send failed: {sent_lx}"
+            first_hop = sent_lx["sent"][0]
+            assert (
+                first_hop.get("delivered") is True
+            ), f"initial LXMF send did not reach DELIVERED: {first_hop}"
+
+            async def _lx_resend(text: str) -> None:
+                resent = await asyncio.to_thread(
                     _lx_peer,
-                    ["send", medre_lx_dest, json.dumps([rx_nonce])],
+                    ["send", medre_lx_dest, json.dumps([text])],
                     _LX_SEND_TIMEOUT,
                 )
-                assert sent_lx.get("sent"), f"LXMF peer send failed: {sent_lx}"
+                hops = resent.get("sent") or []
+                assert (
+                    hops and hops[0].get("delivered") is True
+                ), f"LXMF resend did not reach DELIVERED: {resent}"
 
-                async def _lx_resend(text: str) -> None:
-                    await asyncio.to_thread(
-                        _lx_peer,
-                        ["send", medre_lx_dest, json.dumps([text])],
-                        _LX_SEND_TIMEOUT,
-                    )
+            try:
+                mt_text = await _observe_or_resend(mt_listener, _lx_resend, rx_nonce)
+                mc_text = await _observe_or_resend(mc_listener, _lx_resend, rx_nonce)
+            except AssertionError as exc:
+                raise AssertionError(f"{exc}; {_lx_ingest_evidence(app)}") from exc
 
-                try:
-                    mt_text = await _observe_or_resend(
-                        mt_listener, _lx_resend, rx_nonce
-                    )
-                    mc_text = await _observe_or_resend(
-                        mc_listener, _lx_resend, rx_nonce
-                    )
-                except AssertionError as exc:
-                    raise AssertionError(f"{exc}; {_lx_ingest_evidence(app)}") from exc
+        # MC wire: board prefix wraps the rendered text; the relay
+        # prefix carries the LXMF peer's display name.  MT wire:
+        # prefix + exact payload.
+        mc_board, mc_rendered = _split_prefix(mc_text)
+        assert mc_board.startswith(
+            _MC_MEDRE_NAME
+        ), f"MC fan-out {mc_text!r} lacks the MEDRE board prefix"
+        mc_prefix, mc_tail = _split_prefix(mc_rendered)
+        assert (
+            "lx-b-peer" in mc_prefix
+        ), f"MC fan-out {mc_text!r} lacks LXMF sender attribution"
+        assert mc_tail == rx_nonce, "MC fan-out payload damaged"
+        mt_prefix, mt_tail = _split_prefix(mt_text)
+        assert mt_prefix, f"MT fan-out {mt_text!r} lacks LXMF sender attribution"
+        assert mt_tail == rx_nonce, "MT fan-out payload damaged"
 
-            # MC wire: board prefix wraps the rendered text; the relay
-            # prefix carries the LXMF peer's display name.  MT wire:
-            # prefix + exact payload.
-            mc_board, mc_rendered = _split_prefix(mc_text)
-            assert mc_board.startswith(
-                _MC_MEDRE_NAME
-            ), f"MC fan-out {mc_text!r} lacks the MEDRE board prefix"
-            mc_prefix, mc_tail = _split_prefix(mc_rendered)
-            assert (
-                "lx-b-peer" in mc_prefix
-            ), f"MC fan-out {mc_text!r} lacks LXMF sender attribution"
-            assert mc_tail == rx_nonce, "MC fan-out payload damaged"
-            mt_prefix, mt_tail = _split_prefix(mt_text)
-            assert mt_prefix, f"MT fan-out {mt_text!r} lacks LXMF sender attribution"
-            assert mt_tail == rx_nonce, "MT fan-out payload damaged"
-
-            # Ledger: every lxmf-originated event relays to exactly one
-            # sent receipt on each radio target.
-            events = await _await_events_with_nonce(app, rx_nonce)
-            assert events, f"LXMF message never admitted; {_lx_ingest_evidence(app)}"
-            for ev in events:
-                sent = await _await_sent_receipt_targets(
-                    app, ev.event_id, ("mc_radio", "mt_radio")
-                )
-                targets = sorted(r.target_adapter for r in sent)
-                assert targets == [
-                    "mc_radio",
-                    "mt_radio",
-                ], f"{rx_nonce}: receipt targets {targets}"
-        finally:
-            await bounded(app.stop(), 30.0, "matrix runtime stop")
+        # Ledger: every lxmf-originated event relays to exactly one
+        # sent receipt on each radio target.
+        events = await _await_events_with_nonce(app, rx_nonce)
+        assert events, f"LXMF message never admitted; {_lx_ingest_evidence(app)}"
+        for ev in events:
+            sent = await _await_sent_receipt_targets(
+                app, ev.event_id, ("mc_radio", "mt_radio")
+            )
+            targets = sorted(r.target_adapter for r in sent)
+            assert targets == [
+                "mc_radio",
+                "mt_radio",
+            ], f"{rx_nonce}: receipt targets {targets}"
+    finally:
+        await bounded(app.stop(), 30.0, "matrix runtime stop")

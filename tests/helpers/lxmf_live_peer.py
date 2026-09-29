@@ -132,7 +132,12 @@ elif MODE == "send":
         )
         router.handle_outbound(lxm)
         state = wait_terminal(lxm)
-        out.append({"text": text, "hash": lxm.hash.hex(), "state": int(state)})
+        out.append({
+            "text": text,
+            "hash": lxm.hash.hex(),
+            "state": int(state),
+            "delivered": state == LXMF.LXMessage.DELIVERED,
+        })
         time.sleep(2.5)
     print(json.dumps({"sent": out}))
 elif MODE == "sendenv":
@@ -153,7 +158,8 @@ elif MODE == "sendenv":
     router.handle_outbound(lxm)
     state = wait_terminal(lxm)
     print(json.dumps({"sent": [{"text": text, "hash": lxm.hash.hex(),
-                                "state": int(state)}]}))
+                                "state": int(state),
+                                "delivered": state == LXMF.LXMessage.DELIVERED}]}))
 else:
     print(json.dumps({"error": "unknown mode"}))
     sys.exit(2)
