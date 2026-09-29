@@ -93,6 +93,12 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning"
     ),
+    # The pinned RNS release calls the deprecated threading.setDaemon in
+    # its runtime; with the project's filterwarnings = ["error"] that
+    # would kill the LXMF adapter at session start.
+    pytest.mark.filterwarnings(
+        r"ignore:setDaemon\(\) is deprecated:DeprecationWarning"
+    ),
 ]
 
 _MATRIX = os.environ.get("MEDRE_RADIO_MATRIX", "") == "1"
