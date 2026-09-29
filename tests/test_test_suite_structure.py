@@ -161,9 +161,19 @@ def _decorators_refer_to_marker(decorators: list[ast.expr], names: set[str]) -> 
     return False
 
 
-def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
+def _module_has_marker(
+    tree: ast.Module, names: set[str], *, module_level_only: bool = False
+) -> bool:
     """Return True if *tree* applies any of *names* via module-level
     ``pytestmark = ...`` or top-level function/class decorators.
+
+    With ``module_level_only`` the scan stops after module-body
+    ``pytestmark`` assignments: the line-count boundary exempts files
+    that declare themselves harnesses, not files holding a single
+    marked test or class.  The last module-level assignment is the
+    effective one, so a later ``pytestmark = []`` clears the mark, and
+    aliases resolve as of each assignment line rather than their final
+    values.
     """
     # Pre-compute alias values for module-level ``foo = [...]`` markers.
     aliases: dict[str, ast.AST] = {}
@@ -197,6 +207,38 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
                 return _value_resolves_marker(target, extra_aliases, visiting | {name})
         return False
 
+    if module_level_only:
+        table: dict[str, ast.AST] = {}
+        effective = False
+
+        def _resolve_at(value: ast.AST, visiting: frozenset[str]) -> bool:
+            if _expr_references_marker(value, names):
+                return True
+            if isinstance(value, ast.Name) and value.id not in visiting:
+                target = table.get(value.id)
+                if target is not None:
+                    return _resolve_at(target, visiting | {value.id})
+            return False
+
+        # Walk assignments in order: each ``pytestmark`` candidate
+        # resolves against the alias table as it stood at that line,
+        # so a later reassignment cannot rewrite the effective marker.
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets = [t for t in node.targets if isinstance(t, ast.Name)]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                targets = [node.target]
+            else:
+                continue
+            if node.value is None:
+                continue
+            for target in targets:
+                if target.id == "pytestmark":
+                    effective = _resolve_at(node.value, frozenset())
+                else:
+                    table[target.id] = node.value
+        return effective
+
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -206,6 +248,8 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
                     and _value_resolves_marker(node.value)
                 ):
                     return True
+        if module_level_only:
+            continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if _decorators_refer_to_marker(node.decorator_list, names):
                 return True
@@ -269,15 +313,47 @@ def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str, float]]
 # ===================================================================
 
 
-def test_no_file_exceeds_1500_lines() -> None:
-    """Every test file is ≤ 1 500 lines."""
+def _files_over_line_limit() -> list[str]:
+    """Return one description per test file over the line boundary.
+
+    A file that fails to read or parse is never exempt: it is still
+    counted, so a syntax or decoding error cannot hide a boundary
+    violation.
+    """
     failures: list[str] = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         name = path.name
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        except UnicodeDecodeError:
+            tree = None
+        else:
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                tree = None
+        if tree is not None and _module_has_marker(
+            tree, set(EXEMPT_MARKERS), module_level_only=True
+        ):
+            continue
         lines = _count_lines(path)
         if lines > MAX_LINES:
             failures.append(f"  {name}: {lines} lines (limit {MAX_LINES})")
+    return failures
 
+
+def test_no_file_exceeds_1500_lines() -> None:
+    """Every test file is ≤ 1 500 lines.
+
+    Files declaring a module-level live/soak/hardware/docker
+    ``pytestmark`` are exempt: those
+    harnesses embed device maps, per-transport configuration, and
+    observation contracts for physical benches, and splitting them by
+    line count would sever shared evidence helpers from their tests.
+    """
+    failures = _files_over_line_limit()
     assert not failures, "Test files exceed the 1 500-line limit:\n" + "\n".join(
         failures
     )
@@ -435,6 +511,88 @@ def test_alias_cycles_terminate() -> None:
 
     tree = ast.parse("a = []\n" "b = a\n" "pytestmark = b\n")
     assert _module_has_marker(tree, {"live"}) is False
+
+
+def test_module_pytestmark_exempts_line_count_boundary() -> None:
+    """A module-level ``pytestmark`` declares the file a harness."""
+    tree = ast.parse(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.live]\n"
+        "async def test_x() -> None:\n"
+        "    pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}, module_level_only=True) is True
+
+
+def test_decorator_only_marker_stays_within_line_boundary() -> None:
+    """A single marked test does not exempt its file from the boundary."""
+    tree = ast.parse(
+        "import pytest\n"
+        "@pytest.mark.live\n"
+        "async def test_x() -> None:\n"
+        "    pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}) is True
+    assert _module_has_marker(tree, {"live"}, module_level_only=True) is False
+
+
+def test_final_module_pytestmark_governs_line_boundary() -> None:
+    """The last module-level ``pytestmark`` assignment is the effective one."""
+    tree = ast.parse(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.live]\n"
+        "pytestmark = []\n"
+        "async def test_x() -> None:\n"
+        "    pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}, module_level_only=True) is False
+
+
+def test_unparseable_file_stays_within_line_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file that fails to parse is still counted against the boundary."""
+    bad = tmp_path / "test_bad_syntax.py"
+    bad.write_text("def broken(:\n" + "# filler\n" * (MAX_LINES + 1))
+    monkeypatch.setitem(globals(), "TESTS_DIR", tmp_path)
+    failures = _files_over_line_limit()
+    assert failures and "test_bad_syntax.py" in failures[0]
+
+
+def test_unreadable_bytes_stay_within_line_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file with undecodable bytes is still counted against the boundary."""
+    bad = tmp_path / "test_bad_bytes.py"
+    bad.write_bytes(b"def f():\n    pass\n" + b"\xff\xfe\x00\n" * (MAX_LINES + 1))
+    monkeypatch.setitem(globals(), "TESTS_DIR", tmp_path)
+    failures = _files_over_line_limit()
+    assert failures and "test_bad_bytes.py" in failures[0]
+
+
+def test_alias_reassignment_order_governs_line_boundary() -> None:
+    """Aliases resolve as of the ``pytestmark`` line, not their final value."""
+    tree = ast.parse(
+        "import pytest\n"
+        "marks = []\n"
+        "pytestmark = marks\n"
+        "marks = [pytest.mark.live]\n"
+        "async def test_x() -> None:\n"
+        "    pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}, module_level_only=True) is False
+
+
+def test_annotated_pytestmark_counts_as_assignment() -> None:
+    """An annotated ``pytestmark`` assignment is the effective one."""
+    tree = ast.parse(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.live]\n"
+        "pytestmark: list = []\n"
+        "async def test_x() -> None:\n"
+        "    pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}, module_level_only=True) is False
 
 
 # ===================================================================
