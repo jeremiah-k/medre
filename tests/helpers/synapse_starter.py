@@ -34,6 +34,7 @@ class SynapseInstance:
     bot_device_id: str
     test_user_id: str
     test_user_password: str
+    test_access_token: str
     room_id: str
     container: str
 
@@ -200,11 +201,30 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         ) as resp:  # nosec B310 - local Synapse test harness on a fixed loopback port
             return json.loads(resp.read())
 
+    def _set_display_name(session: dict, name: str) -> None:
+        # Display names are what cross-transport attribution renders for
+        # Matrix-originated messages; harnesses assert against them.
+        req = urllib.request.Request(
+            f"{base_url}/_matrix/client/v3/profile/"
+            f"{session['user_id']}/displayname",
+            data=json.dumps({"displayname": name}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {session['access_token']}",
+            },
+            method="PUT",
+        )
+        urllib.request.urlopen(
+            req, timeout=10
+        )  # nosec B310 - local Synapse test harness on a fixed loopback port
+
     try:
         _register("medre-bot", "medre-bot-live-pass", admin=True)
         _register("medre-peer", "medre-peer-live-pass", admin=False)
         bot = _login("medre-bot", "medre-bot-live-pass")
         peer = _login("medre-peer", "medre-peer-live-pass")
+        _set_display_name(bot, "MEDRE-MX-BRIDGE")
+        _set_display_name(peer, "MEDRE-MX-PEER")
 
         room_req = urllib.request.Request(
             f"{base_url}/_matrix/client/v3/createRoom",
@@ -260,6 +280,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         bot_device_id=bot.get("device_id", ""),
         test_user_id=peer["user_id"],
         test_user_password="medre-peer-live-pass",
+        test_access_token=peer["access_token"],
         room_id=room_id,
         container=_CONTAINER,
     )
