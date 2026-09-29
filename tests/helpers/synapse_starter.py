@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import shutil
 import subprocess
 import time
@@ -59,14 +60,33 @@ def _docker(
     return proc
 
 
+def _fresh_credentials() -> tuple[str, str, str]:
+    """Return per-run registration secret and account passwords.
+
+    The values exist only for the lifetime of one container and are
+    never written to the repository; the port is loopback-bound and
+    the container is torn down after each run, but other processes
+    on the bench host can reach the loopback, so fixed committed
+    credentials would hand them an admin account on the harness
+    homeserver.
+    """
+    return (
+        secrets.token_urlsafe(24),
+        secrets.token_urlsafe(16),
+        secrets.token_urlsafe(16),
+    )
+
+
 def start_synapse(data_dir: Path) -> SynapseInstance:
     """Start a Synapse homeserver with bot and test users; return details.
 
     Idempotent: removes any previous container with the same name.  The
-    caller owns stopping the container (``stop_synapse``).
+    caller owns stopping the container (``stop_synapse``).  The
+    registration secret and account passwords are generated per run.
     """
     # Removing a non-existent container exits nonzero; that is expected.
     _docker(["rm", "-f", _CONTAINER], timeout=30, check=False)
+    registration_secret, bot_password, peer_password = _fresh_credentials()
 
     if data_dir.exists():
         try:
@@ -133,7 +153,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         # below is what authorizes register_new_matrix_user.
         with open(homeserver, "a") as fh:
             fh.write("\n# Live harness overrides\n")
-            fh.write("registration_shared_secret: medre-live-secret\n")
+            fh.write(f"registration_shared_secret: {registration_secret}\n")
             fh.write("rc_message:\n  per_second: 25\n  burst_count: 100\n")
 
     _docker(
@@ -222,10 +242,10 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         )  # nosec B310 - local Synapse test harness on a fixed loopback port
 
     try:
-        _register("medre-bot", "medre-bot-live-pass", admin=True)
-        _register("medre-peer", "medre-peer-live-pass", admin=False)
-        bot = _login("medre-bot", "medre-bot-live-pass")
-        peer = _login("medre-peer", "medre-peer-live-pass")
+        _register("medre-bot", bot_password, admin=True)
+        _register("medre-peer", peer_password, admin=False)
+        bot = _login("medre-bot", bot_password)
+        peer = _login("medre-peer", peer_password)
         _set_display_name(bot, "MEDRE-MX-BRIDGE")
         _set_display_name(peer, "MEDRE-MX-PEER")
 
@@ -284,7 +304,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         bot_access_token=bot["access_token"],
         bot_device_id=bot.get("device_id", ""),
         test_user_id=peer["user_id"],
-        test_user_password="medre-peer-live-pass",
+        test_user_password=peer_password,
         test_access_token=peer["access_token"],
         room_id=room_id,
         container=_CONTAINER,

@@ -63,7 +63,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import time
 import urllib.request
 import uuid
@@ -72,6 +71,10 @@ from typing import Any, Callable
 
 import pytest
 
+from tests.helpers.docker_probe import HAS_DOCKER as _HAS_DOCKER
+from tests.helpers.docker_probe import (
+    docker_daemon_reachable as _docker_daemon_reachable,
+)
 from tests.helpers.live_harness import bounded
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
@@ -157,7 +160,6 @@ _MX_PREFIX_TEMPLATE = "{sender}: "
 #: LXMF relay prefix template — the RNode leg's on-wire attribution.
 _LX_PREFIX_TEMPLATE = "{sender}: "
 
-_HAS_DOCKER = shutil.which("docker") is not None
 
 # LXMF fourth transport: real RNode pair driven by the lab RNS configs
 # and identities (the same endpoints the lxmf bridge suites use).
@@ -1027,6 +1029,8 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
     bounded resend-until-observed on the RF legs; every relayed event
     has exactly one sent receipt per target adapter.
     """
+    if not _docker_daemon_reachable():
+        pytest.skip("docker daemon unreachable; matrix transport skipped")
     synapse = await asyncio.to_thread(_start_synapse, tmp_path / "synapse")
     # A failed launch (unhealthy links, start timeout) must not strand the
     # named container holding its port: stop it before re-raising.
