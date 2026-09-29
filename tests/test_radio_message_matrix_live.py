@@ -173,10 +173,9 @@ try:
 except Exception:  # pragma: no cover - optional extra absent
     _HAS_LXMF = False
 
-_MC_SCRATCH = Path("/tmp/meshcore_pair_peer.json")
-_MT_SCRATCH = Path("/tmp/meshtastic_pair_peer.json")
 
-
+# Observation scratch files are the listeners' own paths — duplicating
+# them by hand once produced a path nobody writes and a vacuous read.
 def _nonce(tag: str) -> str:
     return f"MX-{tag}-{uuid.uuid4().hex[:8]}"
 
@@ -195,16 +194,6 @@ def _split_prefix(observed: str) -> tuple[str, str]:
     if idx <= 0:
         return "", observed
     return observed[: idx + 2], observed[idx + 2 :]
-
-
-def _scratch_texts(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    return [
-        json.loads(line).get("text", "")
-        for line in path.read_text().splitlines()
-        if line.strip()
-    ]
 
 
 async def _launch(
@@ -688,16 +677,39 @@ async def test_route_matrix_delivery_isolation(tmp_path: Path) -> None:
         mc_nonces = [_nonce("R-MC") for _ in range(3)]
 
         window = _MC_OBSERVE_TIMEOUT * 2 + 90
+        # One device link per transport means the sending peer and the
+        # same-transport listener can never run together: each direction
+        # phases its own listener, and the snapshot is taken inside the
+        # listener context (each listener unlinks its scratch on open, so
+        # evidence must not outlive the window it was captured in).
         # Direction mt→mc: the MT peer sends, the MC peer observes.  Both
         # directions use a floor — the meshes are best-effort and MEDRE's
         # exact guarantee is the receipt ledger, not RF certainty.
         with _McListener(window) as mc_listener:
             await _mt_send(mt_nonces)
             await asyncio.sleep(min(window - 30, 90))
-        # Direction mc→mt: the MC peer sends, the MT peer observes.
+            mc_texts = [
+                (p.get("text") or "")
+                for p in mc_listener.packets_until(lambda _: False, 0.0)
+            ]
+        # Direction mc→mt: the MC peer sends, the MT peer observes.  A
+        # fresh MT connection also receives the peer's buffered texts, so
+        # this window sees phase-one traffic that echoed onto the wrong
+        # mesh as well.
         with _MtListener(window) as mt_listener:
             await _mc_send(mc_nonces)
             await asyncio.sleep(min(window - 30, 90))
+            mt_texts = [
+                (p.get("text") or "")
+                for p in mt_listener.packets_until(lambda _: False, 0.0)
+            ]
+        # The mirrored MC-side leak drain is structurally unavailable:
+        # the MC listener drains and discards the firmware's buffered
+        # replay at connect (so one run's windows stay self-contained),
+        # which would swallow exactly the evidence a post-hoc drain
+        # exists to collect.  MC-side leak coverage is therefore limited
+        # to its own window; the ledger-side receipt targets remain the
+        # exact isolation proof on both sides.
 
         # MEDRE ledger: every nonce has a sent receipt on the correct
         # target adapter — routing is exact even though RF is not.
@@ -718,11 +730,9 @@ async def test_route_matrix_delivery_isolation(tmp_path: Path) -> None:
                 latest.target_adapter == "mt_radio"
             ), f"{n} routed to {latest.target_adapter!r}, expected mt_radio"
 
-        # Observation ledger from the persistent scratch files: each
-        # direction observes at least the floor (best-effort meshes), and
-        # nothing ever appears on the wrong transport (isolation is exact).
-        mc_texts = _scratch_texts(_MC_SCRATCH)
-        mt_texts = _scratch_texts(_MT_SCRATCH)
+        # Observation ledger: each direction observes at least the floor
+        # (best-effort meshes), and nothing ever appears on the wrong
+        # transport (isolation is exact).
         mc_hit = sum(1 for n in mt_nonces if any(n in t for t in mc_texts))
         mt_hit = sum(1 for n in mc_nonces if any(n in t for t in mt_texts))
         assert mc_hit >= 2, f"MC observation {mc_hit}/3 (need >=2)"
@@ -978,7 +988,13 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
     has exactly one sent receipt per target adapter.
     """
     synapse = await asyncio.to_thread(_start_synapse, tmp_path / "synapse")
-    app = await _launch(tmp_path / "mx.db", synapse=synapse)
+    # A failed launch (unhealthy links, start timeout) must not strand the
+    # named container holding its port: stop it before re-raising.
+    try:
+        app = await _launch(tmp_path / "mx.db", synapse=synapse)
+    except BaseException:
+        await asyncio.to_thread(_stop_synapse, suppress_errors=True)
+        raise
     try:
         await _await_adapter_healthy(app, "mx_radio")
 
@@ -991,7 +1007,9 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
             prefix and _MT_PEER_LABEL in prefix
         ), f"room relay {body!r} lacks MT sender attribution"
         assert tail == mt_nonce, "room payload damaged"
-        for ev in await _await_events_with_nonce(app, mt_nonce):
+        events = await _await_events_with_nonce(app, mt_nonce)
+        assert events, f"no canonical event for {mt_nonce}"
+        for ev in events:
             sent = await _await_sent_receipt_targets(
                 app, ev.event_id, ("mc_radio", "mx_radio")
             )
@@ -1016,7 +1034,9 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
             _MC_PEER_LABEL
         ), f"room relay {body!r} lacks the MC board prefix"
         assert inner_tail == mc_nonce, "room payload damaged"
-        for ev in await _await_events_with_nonce(app, mc_nonce):
+        events = await _await_events_with_nonce(app, mc_nonce)
+        assert events, f"no canonical event for {mc_nonce}"
+        for ev in events:
             # The MC-originated event relays to the other radio and the
             # room — never back to its own transport.
             sent = await _await_sent_receipt_targets(
@@ -1078,26 +1098,31 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
 
         # Long-message truncation: exact at both budgets, per the
         # receipts' rendering evidence (renderer, byte counts, and the
-        # truncated flag are durable ledger facts).
+        # truncated flag are durable ledger facts).  The expected byte
+        # count is computed with the same UTF-8-safe truncation the
+        # renderers apply: a budget that cuts mid-multibyte-character
+        # lands one byte under the nominal number (159, not 160), so
+        # comparing against the nominal budget would never match.
         long_events = await _await_events_with_nonce(app, long_rx, timeout=90)
         assert long_events, "long room message never admitted"
+        expected_long_bytes = {
+            "mt_radio": len(_utf8_truncate(mt_prefix + long_rx, _MT_BUDGET).encode()),
+            "mc_radio": len(_utf8_truncate(mc_prefix + long_rx, _MC_BUDGET).encode()),
+        }
         long_evidence: dict[str, dict] = {}
         for ev in long_events:
             receipts = await app.storage.list_receipts_for_event(ev.event_id)
             for r in receipts:
                 if r.status != "sent":
                     continue
+                expected = expected_long_bytes.get(r.target_adapter)
+                if expected is None:
+                    continue
                 evidence = json.loads(r.rendering_evidence or "{}")
-                budget = {
-                    "mt_radio": _MT_BUDGET,
-                    "mc_radio": _MC_BUDGET,
-                }.get(r.target_adapter)
-                if budget and evidence.get("rendered_text_bytes") == budget:
+                if evidence.get("rendered_text_bytes") == expected:
                     long_evidence[r.target_adapter] = evidence
-        assert set(long_evidence) == {"mt_radio", "mc_radio"}, (
-            f"exact-budget renders missing for "
-            f"{ {'mt_radio', 'mc_radio'} - set(long_evidence) }"
-        )
+        missing = {"mt_radio", "mc_radio"} - set(long_evidence)
+        assert not missing, f"exact-budget renders missing for {missing}"
         for target, evidence in long_evidence.items():
             assert evidence.get("truncated") is True, target
 
@@ -1115,8 +1140,10 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
                 "mt_radio",
             ], f"{rx_nonce}: receipt targets {targets}"
     finally:
-        await bounded(app.stop(), 30.0, "matrix runtime stop")
-        await asyncio.to_thread(_stop_synapse)
+        try:
+            await bounded(app.stop(), 30.0, "matrix runtime stop")
+        finally:
+            await asyncio.to_thread(_stop_synapse, suppress_errors=True)
 
 
 @_REQUIRE
@@ -1175,7 +1202,9 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
                 prefix and _MT_PEER_LABEL in prefix
             ), f"LXMF relay {lx_text!r} lacks MT sender attribution"
             assert tail == mt_nonce, "LXMF payload damaged"
-            for ev in await _await_events_with_nonce(app, mt_nonce):
+            events = await _await_events_with_nonce(app, mt_nonce)
+            assert events, f"no canonical event for {mt_nonce}"
+            for ev in events:
                 sent = await _await_sent_receipt_targets(
                     app, ev.event_id, ("mc_radio", "lx_radio")
                 )
@@ -1202,7 +1231,9 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             assert (
                 tail == f"{_MC_PEER_LABEL}: {mc_nonce}"
             ), "LXMF payload damaged (MC board prefix)"
-            for ev in await _await_events_with_nonce(app, mc_nonce):
+            events = await _await_events_with_nonce(app, mc_nonce)
+            assert events, f"no canonical event for {mc_nonce}"
+            for ev in events:
                 sent = await _await_sent_receipt_targets(
                     app, ev.event_id, ("mt_radio", "lx_radio")
                 )
