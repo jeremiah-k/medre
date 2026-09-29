@@ -293,17 +293,55 @@ async def _observe_or_resend(
 
 
 async def _events_with_nonce(app: Any, nonce: str) -> list[Any]:
+    """All canonical events whose payload contains *nonce*.
+
+    Pages through the whole event ledger — long campaigns raise
+    ``MEDRE_MATRIX_TRAFFIC`` and can exceed a single page.
+    """
     from medre.core.events.canonical import CanonicalEvent
 
-    ids = await app.storage.list_event_ids_page(after_event_id=None, limit=1000)
     matches: list[Any] = []
-    for page_id in ids:
-        event = await app.storage.get(page_id)
-        if isinstance(event, CanonicalEvent) and nonce in json.dumps(
-            event.payload, default=str
-        ):
-            matches.append(event)
-    return matches
+    after: str | None = None
+    while True:
+        ids = await app.storage.list_event_ids_page(after_event_id=after, limit=500)
+        if not ids:
+            return matches
+        for page_id in ids:
+            event = await app.storage.get(page_id)
+            if isinstance(event, CanonicalEvent) and nonce in json.dumps(
+                event.payload, default=str
+            ):
+                matches.append(event)
+        after = ids[-1]
+
+
+async def _await_events_with_nonce(
+    app: Any, nonce: str, *, timeout: float = _RECEIPT_TIMEOUT
+) -> list[Any]:
+    """Poll the event ledger until *nonce* is admitted (bounded)."""
+    deadline = time.monotonic() + timeout
+    events: list[Any] = []
+    while time.monotonic() < deadline:
+        events = await _events_with_nonce(app, nonce)
+        if events:
+            return events
+        await asyncio.sleep(1.0)
+    return events
+
+
+async def _sent_receipts(
+    app: Any, event_id: str, *, timeout: float = _RECEIPT_TIMEOUT
+) -> list:
+    """Poll until *event_id* has a sent receipt; return its sent receipts."""
+    deadline = time.monotonic() + timeout
+    sent: list = []
+    while time.monotonic() < deadline:
+        receipts = await app.storage.list_receipts_for_event(event_id)
+        sent = [r for r in receipts if r.status == "sent"]
+        if sent:
+            return sent
+        await asyncio.sleep(1.0)
+    return sent
 
 
 async def _receipts_for_nonce(app: Any, nonce: str) -> list:
@@ -477,11 +515,18 @@ async def test_provenance_chain_end_to_end(tmp_path: Path) -> None:
         with _McListener(window) as mc_listener:
             mt_sent = await _mt_send([mt_nonce])
             assert mt_sent and mt_sent[-1].get("sent_id"), "MT peer send failed"
-            mt_packet_id = mt_sent[-1]["sent_id"]
+            mt_packet_ids = [str(mt_sent[-1]["sent_id"])]
+
+            # Observation resends create fresh native packet ids; keep
+            # every id so the native-ref lookup can resolve whichever
+            # packet the mesh actually delivered.
+            async def _mt_resend(text: str) -> None:
+                again = await _mt_send([text])
+                if again and again[-1].get("sent_id"):
+                    mt_packet_ids.append(str(again[-1]["sent_id"]))
+
             mt_observed = await _observe_or_resend(
-                mc_listener.packets,
-                lambda text: _mt_send([text]),
-                mt_nonce,
+                mc_listener.packets, _mt_resend, mt_nonce
             )
         with _MtListener(window) as mt_listener:
             mc_sent = await _mc_send([mc_nonce])
@@ -497,23 +542,25 @@ async def test_provenance_chain_end_to_end(tmp_path: Path) -> None:
         deadline = time.monotonic() + _RECEIPT_TIMEOUT
         event_id = None
         while time.monotonic() < deadline and event_id is None:
-            ref = await app.storage.resolve_native_ref(
-                "mt_radio", "0", str(mt_packet_id)
-            )
-            if ref:
-                event_id = ref
-            else:
+            for packet_id in mt_packet_ids:
+                ref = await app.storage.resolve_native_ref("mt_radio", "0", packet_id)
+                if ref:
+                    event_id = ref
+                    break
+            if event_id is None:
                 await asyncio.sleep(1.0)
         assert event_id, "native ref for peer packet did not resolve"
         event = await app.storage.get(event_id)
         assert event is not None and mt_nonce in json.dumps(event.payload, default=str)
 
-        # Chain link 2: receipt — sent, correlated to the same event.
-        receipts = await _receipts_for_nonce(app, mt_nonce)
-        assert receipts, "no receipt for mt-originated message"
-        latest = _latest(receipts)
-        assert latest.status == "sent"
-        assert latest.event_id == event_id
+        # Chain link 2: receipt — exactly one sent receipt correlated to
+        # that same event, on the routed target adapter.  Asserting per
+        # event keeps resend-created siblings out of the chain.
+        sent = await _sent_receipts(app, event_id)
+        assert (
+            len(sent) == 1
+        ), f"{len(sent)} sent receipts for the provenance event, expected 1"
+        assert sent[0].target_adapter == "mc_radio"
 
         # Chain link 3: attribution survives each hop — the observed wire
         # text carries the ORIGINATING sender's label, not the relay's.
@@ -542,25 +589,33 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
         mc_corpus += [dup_text, dup_text]
 
         window = _MC_OBSERVE_TIMEOUT + 30 + 4 * (_TRAFFIC + 2)
+        # Each listener stays open through a drain period after its sends:
+        # floods keep landing after the sender's last acceptance, and the
+        # snapshot must be taken before the listener process exits.
         with _McListener(window) as mc_listener:
             await _mt_send(mt_corpus)
+            await asyncio.sleep(_MC_OBSERVE_TIMEOUT)
+            mc_texts = [(p.get("text") or "") for p in mc_listener.packets()]
         with _MtListener(window + 60) as mt_listener:
             await _mc_send(mc_corpus)
+            # MC flood ingest lag plus paced MT relays of the whole corpus.
+            await asyncio.sleep(_MC_OBSERVE_TIMEOUT + _TX_PACING * len(mc_corpus))
+            mt_texts = [(p.get("text") or "") for p in mt_listener.packets()]
 
-        # Let trailing floods land inside the (still-open) windows.
-        await asyncio.sleep(20)
-        mc_texts = [(p.get("text") or "") for p in mc_listener.packets()]
-        mt_texts = [(p.get("text") or "") for p in mt_listener.packets()]
-
-        # Ledger 1 — receipts: every nonce has a sent receipt.
-        for nonce in (*mt_corpus, *set(mc_corpus)):
-            receipts = await _receipts_for_nonce(app, nonce)
-            assert receipts, f"no receipt for {nonce}"
-            latest = _latest(receipts)
-            assert latest.status == "sent", f"{nonce}: {latest.status!r}"
+        # Ledger 1 — receipts: every admitted event has exactly one sent
+        # receipt (the docstring contract, asserted per event).
+        for nonce in (*mt_corpus, *sorted(set(mc_corpus))):
+            events = await _await_events_with_nonce(app, nonce)
+            assert events, f"no canonical event for {nonce}"
+            for ev in events:
+                sent = await _sent_receipts(app, ev.event_id)
+                assert len(sent) == 1, (
+                    f"{nonce}: {len(sent)} sent receipts for event "
+                    f"{ev.event_id}, expected exactly 1"
+                )
 
         # Ledger 2 — canonical events: duplicates stay two distinct events.
-        dup_events = await _events_with_nonce(app, dup_text)
+        dup_events = await _await_events_with_nonce(app, dup_text)
         assert (
             len(dup_events) == 2
         ), f"spaced duplicate produced {len(dup_events)} events, expected 2"
