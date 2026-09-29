@@ -494,8 +494,11 @@ async def _events_with_nonce(app: Any, nonce: str) -> list[Any]:
             return matches
         for page_id in ids:
             event = await app.storage.get(page_id)
+            # ensure_ascii=False: an ASCII-escaped haystack can never
+            # match a needle with non-ASCII characters (the long-message
+            # nonce texts carry multibyte Greek).
             if isinstance(event, CanonicalEvent) and nonce in json.dumps(
-                event.payload, default=str
+                event.payload, default=str, ensure_ascii=False
             ):
                 matches.append(event)
         after = ids[-1]
@@ -1109,20 +1112,31 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
             "mt_radio": len(_utf8_truncate(mt_prefix + long_rx, _MT_BUDGET).encode()),
             "mc_radio": len(_utf8_truncate(mc_prefix + long_rx, _MC_BUDGET).encode()),
         }
+        # Receipts append as each paced radio send completes; poll
+        # until both legs' exact renders land (bounded).
+        deadline = time.monotonic() + _RECEIPT_TIMEOUT
         long_evidence: dict[str, dict] = {}
-        for ev in long_events:
-            receipts = await app.storage.list_receipts_for_event(ev.event_id)
-            for r in receipts:
-                if r.status != "sent":
-                    continue
-                expected = expected_long_bytes.get(r.target_adapter)
-                if expected is None:
-                    continue
-                evidence = json.loads(r.rendering_evidence or "{}")
-                if evidence.get("rendered_text_bytes") == expected:
-                    long_evidence[r.target_adapter] = evidence
+        while time.monotonic() < deadline:
+            long_evidence = {}
+            for ev in long_events:
+                receipts = await app.storage.list_receipts_for_event(ev.event_id)
+                for r in receipts:
+                    if r.status != "sent":
+                        continue
+                    expected = expected_long_bytes.get(r.target_adapter)
+                    if expected is None:
+                        continue
+                    evidence = json.loads(r.rendering_evidence or "{}")
+                    if evidence.get("rendered_text_bytes") == expected:
+                        long_evidence[r.target_adapter] = evidence
+            if len(long_evidence) == len(expected_long_bytes):
+                break
+            await asyncio.sleep(1.0)
         missing = {"mt_radio", "mc_radio"} - set(long_evidence)
-        assert not missing, f"exact-budget renders missing for {missing}"
+        assert not missing, (
+            f"exact-budget renders missing for {missing} "
+            f"(expected bytes {expected_long_bytes})"
+        )
         for target, evidence in long_evidence.items():
             assert evidence.get("truncated") is True, target
 
