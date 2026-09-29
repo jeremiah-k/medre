@@ -19,9 +19,10 @@ rendering_contract_on_wire   Relay prefixes (explicitly configured),
                              Meshtastic 227) including over-budget
                              truncation, in both directions.
 provenance_chain_end_to_end  Peer native packet id → canonical event
-                             (native-ref resolution) → receipt (native id,
-                             sent) → observed wire text; originating
-                             sender attribution survives each hop.
+                             (native-ref resolution) → receipt (event-
+                             correlated, sent) → observed wire text;
+                             originating sender attribution survives each
+                             hop.
 sustained_traffic_           Every admitted event has exactly one sent
 convergence                  receipt; canonical event set matches sends
                              exactly (spaced duplicates stay two distinct
@@ -29,13 +30,18 @@ convergence                  receipt; canonical event set matches sends
                              against a best-effort floor.
 ===========================  =============================================
 
-Observation contract: both radio meshes are best-effort (Meshtastic LoRa
-broadcast has no delivery ACK; MeshCore flood distribution can drop or
-delay messages under load).  MEDRE-side ledgers (receipts, canonical
-events) are asserted exactly.  RF observation uses resend-until-observed
-with a bounded attempt count for per-message cases and a reported floor
-for volume runs — a dropped flood is mesh physics, not a pipeline defect;
-a missing receipt is.
+Observation contract: every leg this harness exercises is
+platform-unacknowledged traffic.  Meshtastic relays are channel
+broadcasts — the firmware strips ``want_ack`` from broadcasts sent over
+the air, so recipient ACKs exist only for Meshtastic DMs — and MeshCore
+relays are channel floods, which the protocol never ACKs (explicit ACK
+packets exist only for MeshCore DMs).  MEDRE receipts accordingly mean
+"accepted by the local radio" (confirmation levels ``local_queue`` /
+``local_transport``), never recipient confirmation.  MEDRE-side ledgers
+(receipts, canonical events) are asserted exactly.  RF observation uses
+resend-until-observed with a bounded attempt count for per-message cases
+and a reported floor for volume runs — a dropped broadcast or flood is
+mesh physics, not a pipeline defect; a missing receipt is.
 """
 
 from __future__ import annotations
