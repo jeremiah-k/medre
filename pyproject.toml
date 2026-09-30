@@ -18,7 +18,7 @@ classifiers = [
   "Topic :: Communications",
   "Typing :: Typed",
 ]
-dependencies = ["msgspec==0.21.1", "pyyaml==6.0.3"]
+dependencies = ["msgspec==0.22.0", "pyyaml==6.0.3"]
 
 [project.optional-dependencies]
 dev = [
