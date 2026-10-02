@@ -2,6 +2,29 @@
 
 Live smoke test procedures for the LXMF adapter against a real Reticulum network.
 
+## Slow-Medium Peer Budgets
+
+The physical-pair, cross-transport bridge, and radio-matrix harnesses share a
+per-message native-peer delivery ceiling. It defaults to 90 seconds. Set a
+larger finite value for a radio configuration whose path discovery, link
+establishment, and delivery retries need more time:
+
+```bash
+export LXMF_PEER_DELIVERY_TIMEOUT_SECONDS=300
+```
+
+The harness derives subprocess deadlines, LXMF observation windows, and pytest
+caps from that ceiling. Subprocess budgets also cover SDK startup, identity
+recall, pacing, and process exit; raising only the subprocess timeout would
+leave the child's delivery wait too short. A ceiling is a test budget, not an
+SDK retry setting or a guarantee that any link can deliver within that time.
+
+Peer JSON distinguishes a terminal provider state from a bounded observation
+that ended with a pending message: `delivered` reports provider confirmation,
+and `timed_out` reports that the message was nonterminal at the ceiling. A
+timed-out observation does not manufacture an LXMF `FAILED` state. Rejected and
+cancelled messages return promptly along with delivered and failed messages.
+
 ## Quick Validation
 
 ```bash

@@ -76,6 +76,10 @@ from tests.helpers.docker_probe import (
     docker_daemon_reachable as _docker_daemon_reachable,
 )
 from tests.helpers.live_harness import bounded
+from tests.helpers.lxmf_peer_timing import (
+    delivery_timeout_seconds,
+    send_timeout_seconds,
+)
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
 from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
@@ -1243,6 +1247,13 @@ def _lx_ingest_evidence(app: Any) -> str:
     reason="lxmf matrix leg requires the pinned lxmf/rns SDKs "
     "(pip install 'medre[lxmf]')",
 )
+@pytest.mark.timeout(
+    max(
+        2400.0,
+        1000 + 2 * max(120.0, delivery_timeout_seconds())
+        + (2 * _OBSERVE_ATTEMPTS - 1) * send_timeout_seconds(),
+    )
+)
 async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
     """Fourth transport: LXMF over the RNode pair joins the matrix.
 
@@ -1257,7 +1268,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
     medre_lx_dest = delivery_dest_hash(_LX_MEDRE_ID)
     # RNode LXMF legs need link establishment and announce discovery, so
     # observation waits are longer than the RF-mesh legs.
-    _LX_OBSERVE_TIMEOUT = 120.0
+    _LX_OBSERVE_TIMEOUT = max(120.0, delivery_timeout_seconds())
 
     def _lx_texts(packets: list[dict]) -> list[str]:
         return [(p.get("content") or "") for p in packets]
@@ -1273,7 +1284,13 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
         # Radio→LXMF legs: the peer listener is the far-side observer
         # for the relays' arrival at the native peer.  Its window ends
         # before the fan-out leg (see below).
-        lx_window = 1800.0
+        lx_window = max(
+            1800.0,
+            2 * _LX_OBSERVE_TIMEOUT
+            # One MT send (30 + 3), one MC send (95 + 8), event and
+            # receipt checks for each leg, and a scheduling margin.
+            + (30.0 + 3.0) + (95.0 + 8.0) + 4 * _RECEIPT_TIMEOUT + 30.0,
+        )
         with _LxListener(lx_window) as lx_listener:
             # --- MT → LXMF: observed at the peer, attribution contractual.
             mt_nonce = _nonce("L-MT")
@@ -1351,7 +1368,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
         # Worst-case envelope: the DIRECT-delivery send time once
         # for the initial send and once per resend, each behind a
         # full observation budget.
-        _LX_SEND_TIMEOUT = 180.0
+        _LX_SEND_TIMEOUT = send_timeout_seconds()
         window = (
             _LX_SEND_TIMEOUT
             + 2 * _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS

@@ -14,12 +14,13 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
+from tests.helpers.lxmf_peer_timing import PEER_STARTUP_SECONDS, delivery_timeout_seconds
 
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
 
 _PEER_RNS = os.environ.get("LXMF_PEER_RNS_CONFIG", "")
 _PEER_IDENTITY = os.environ.get("LXMF_PEER_IDENTITY", "")
-_PEER_READY_TIMEOUT = 40.0
+_PEER_READY_TIMEOUT = PEER_STARTUP_SECONDS
 _SCRATCH_JSONL = Path("/tmp/medre_lxmf_pair_peer.json")
 _READY_PATH = Path("/tmp/medre_lxmf_pair_peer.ready")
 
@@ -35,6 +36,9 @@ def delivery_dest_hash(identity_path: str) -> str:
 
 _PEER_SCRIPT = r'''
 import json, sys, time
+from tests.helpers.lxmf_peer_timing import (
+    PEER_PACING_SECONDS, PEER_RECALL_SECONDS, wait_terminal,
+)
 
 MODE = sys.argv[1]
 RNS_DIR = sys.argv[2]
@@ -42,6 +46,7 @@ IDENTITY = sys.argv[3]
 STORAGE = sys.argv[4]
 READY = sys.argv[5]
 JSONL = sys.argv[6]
+DELIVERY_TIMEOUT = float(sys.argv[7])
 
 import RNS, LXMF
 
@@ -60,22 +65,15 @@ def announce_loop():
             pass
         time.sleep(8.0)
 
-def wait_terminal(lxm, timeout=90.0):
-    """Wait for the router to reach a terminal LXMF state before this
-    process exits — exiting early would kill the delivery jobs."""
-    end = time.time() + timeout
-    last = None
-    while time.time() < end:
-        last = lxm.state
-        if last in (LXMF.LXMessage.DELIVERED, LXMF.LXMessage.FAILED):
-            return last
-        time.sleep(1.0)
-    return last
+TERMINAL_STATES = (
+    LXMF.LXMessage.DELIVERED, LXMF.LXMessage.FAILED,
+    LXMF.LXMessage.REJECTED, LXMF.LXMessage.CANCELLED,
+)
 
-def recall_or_fail(dest_hex, timeout=45.0):
-    end = time.time() + timeout
+def recall_or_fail(dest_hex, timeout=PEER_RECALL_SECONDS):
+    end = time.monotonic() + timeout
     dest_identity = None
-    while time.time() < end and dest_identity is None:
+    while time.monotonic() < end and dest_identity is None:
         dest_identity = RNS.Identity.recall(bytes.fromhex(dest_hex))
         if dest_identity is None:
             time.sleep(1.0)
@@ -113,11 +111,11 @@ if MODE == "listen":
     threading.Thread(target=announce_loop, daemon=True).start()
     with open(READY, "w") as fh:
         fh.write("1")
-    time.sleep(float(sys.argv[7]))
+    time.sleep(float(sys.argv[8]))
     print(json.dumps({}))
 elif MODE == "send":
-    dest_hex = sys.argv[7]
-    texts = json.loads(sys.argv[8])
+    dest_hex = sys.argv[8]
+    texts = json.loads(sys.argv[9])
     dest_identity = recall_or_fail(dest_hex)
     threading.Thread(target=announce_loop, daemon=True).start()
     out = []
@@ -131,19 +129,20 @@ elif MODE == "send":
             desired_method=LXMF.LXMessage.DIRECT,
         )
         router.handle_outbound(lxm)
-        state = wait_terminal(lxm)
+        state = wait_terminal(lxm, TERMINAL_STATES, DELIVERY_TIMEOUT)
         out.append({
             "text": text,
             "hash": lxm.hash.hex(),
             "state": int(state),
             "delivered": state == LXMF.LXMessage.DELIVERED,
+            "timed_out": state not in TERMINAL_STATES,
         })
-        time.sleep(2.5)
+        time.sleep(PEER_PACING_SECONDS)
     print(json.dumps({"sent": out}))
 elif MODE == "sendenv":
-    dest_hex = sys.argv[7]
-    text = sys.argv[8]
-    envelope = json.loads(sys.argv[9])
+    dest_hex = sys.argv[8]
+    text = sys.argv[9]
+    envelope = json.loads(sys.argv[10])
     dest_identity = recall_or_fail(dest_hex)
     threading.Thread(target=announce_loop, daemon=True).start()
     dest = RNS.Destination(
@@ -156,10 +155,11 @@ elif MODE == "sendenv":
         desired_method=LXMF.LXMessage.DIRECT,
     )
     router.handle_outbound(lxm)
-    state = wait_terminal(lxm)
+    state = wait_terminal(lxm, TERMINAL_STATES, DELIVERY_TIMEOUT)
     print(json.dumps({"sent": [{"text": text, "hash": lxm.hash.hex(),
                                 "state": int(state),
-                                "delivered": state == LXMF.LXMessage.DELIVERED}]}))
+                                "delivered": state == LXMF.LXMessage.DELIVERED,
+                                "timed_out": state not in TERMINAL_STATES}]}))
 else:
     print(json.dumps({"error": "unknown mode"}))
     sys.exit(2)
@@ -185,6 +185,7 @@ def run_lxmf_peer(args: list[str], timeout: float) -> dict:
                 storage,
                 "unused",
                 "unused",
+                str(delivery_timeout_seconds()),
                 *args[1:],
             ],
             capture_output=True,
@@ -236,6 +237,7 @@ class LxmfPeerListener:
                     self._storage,
                     str(_READY_PATH),
                     str(_SCRATCH_JSONL),
+                    str(delivery_timeout_seconds()),
                     str(self._seconds),
                 ]
             )

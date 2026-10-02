@@ -42,6 +42,10 @@ import pytest
 
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded
+from tests.helpers.lxmf_peer_timing import (
+    delivery_timeout_seconds,
+    send_timeout_seconds,
+)
 from tests.helpers.lxmf_live_peer import LxmfPeerListener as _PeerListener
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _peer
@@ -81,11 +85,19 @@ _HAS_HUB_CONTROL = bool(_PEER_HUB and _PEER_HUB_PORT)
 # tens of seconds at SF8/BW125 bench range.
 _PACING_SECONDS = 2.5  # peer send pacing between RF messages
 _RECEIPT_TIMEOUT = 45.0
-_DELIVERY_TIMEOUT = 90.0
+_RECALL_TIMEOUT = 60.0
+_LISTENER_MARGIN = 30.0
+_DELIVERY_TIMEOUT = delivery_timeout_seconds()
 _ANNOUNCE_INTERVAL = 8.0  # MEDRE-side announce loop for discovery
 
 
 pytestmark = [
+    pytest.mark.timeout(
+        max(
+            1800.0,
+            1000 + 2 * _DELIVERY_TIMEOUT + send_timeout_seconds(2) + send_timeout_seconds(3),
+        )
+    ),
     pytest.mark.filterwarnings(
         # Regex: literal parens must be escaped or the pattern silently
         # never matches the actual message text.
@@ -277,7 +289,7 @@ async def _event_count(app) -> int:  # noqa: ANN001
     return len(list(ids))
 
 
-async def _await_peer_recall(app, dest_hex: str, timeout: float = 60.0) -> bool:
+async def _await_peer_recall(app, dest_hex: str, timeout: float = _RECALL_TIMEOUT) -> bool:
     """Wait until the runtime process can recall the peer's LXMF identity.
 
     This is the true egress precondition: LXMRouter DIRECT delivery
@@ -335,10 +347,9 @@ class TestLxmfPairIngress:
                     base + " nl a\nb",
                 ]
             sent = await asyncio.to_thread(
-                # recall (<=45s) + 3 deliveries (<=92.5s each worst case)
                 _peer,
                 ["send", _MEDRE_DEST(), json.dumps(texts)],
-                380,
+                send_timeout_seconds(len(texts)),
             )
             sent_by_text = {item["text"]: item["hash"] for item in sent["sent"]}
             assert len(sent_by_text) == len(texts), "peer send not accepted"
@@ -390,7 +401,9 @@ class TestLxmfPairEgress:
             # absent announce.
             nonce = _nonce("N3")
             packet_id = uuid.uuid4().hex
-            with _PeerListener(_DELIVERY_TIMEOUT) as peer:
+            with _PeerListener(
+                _RECALL_TIMEOUT + _RECEIPT_TIMEOUT + _DELIVERY_TIMEOUT + _LISTENER_MARGIN
+            ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
                 ), "MEDRE runtime cannot recall the peer identity (no RF announce received)"
@@ -448,7 +461,10 @@ class TestLxmfPairEgress:
             normal_msg = _nonce("N4-ok")
             cases = [unicode_msg, newline_msg, big_msg, normal_msg]
             window = _DELIVERY_TIMEOUT + len(cases) * (_PACING_SECONDS + 8.0)
-            with _PeerListener(window) as peer:
+            with _PeerListener(
+                _RECALL_TIMEOUT + len(cases) * (_PACING_SECONDS + 1.0)
+                + window + _LISTENER_MARGIN
+            ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
                 ), "MEDRE runtime cannot recall the peer identity (no RF announce received)"
@@ -510,7 +526,7 @@ class TestLxmfPairRelationsAndIsolation:
             sent = await asyncio.to_thread(
                 _peer,
                 ["send", _MEDRE_DEST(), json.dumps([ident_text, ident_text])],
-                280,
+                send_timeout_seconds(2),
             )
             hashes = [item["hash"] for item in sent["sent"]]
             assert len(set(hashes)) == 2, "LXMF reused one message hash twice"
@@ -577,7 +593,7 @@ class TestLxmfPairRelationsAndIsolation:
                     relation_text,
                     json.dumps({"medre": envelope}),
                 ],
-                190,
+                send_timeout_seconds(),
             )
             assert sent_env["sent"], "relation envelope send not accepted"
             assert (
@@ -703,7 +719,7 @@ class TestLxmfPairRelationsAndIsolation:
             # pre-off nonce.  Then a fresh nonce proves the adapter stays
             # usable after the outage.
             restored = _nonce("N6-positive")
-            with _PeerListener(420.0) as peer:
+            with _PeerListener(_RECALL_TIMEOUT + 300.0 + 120.0 + _LISTENER_MARGIN) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
                 ), "MEDRE runtime cannot recall the peer identity after restore"
