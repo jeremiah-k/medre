@@ -4,13 +4,13 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has roughly 13.7k test-function definitions. Parametrization
-expands those definitions to 16,742 collected pytest cases on the current tree;
-16,563 are selected by default and 179 are deselected by the
-live/docker/hardware/SDK/integration marker policy. Every transport has a
-fake adapter that exercises the full pipeline. The standard `pytest -q` run
-requires a generous timeout—the full suite can exceed 600 s on typical
-hardware. See the [README](../../README.md) for project context and the
+Every transport has a fake adapter that exercises the full pipeline. The
+default marker policy excludes live, Docker, hardware, optional SDK, local
+integration, and soak tiers. The full default suite can exceed ten minutes;
+use affected files during development and CI for broad verification. Collection
+reports the selected and deselected counts for the checkout being tested.
+Set up the [development environment](environment.md) before using the commands
+below. See the [README](../../README.md) for project context and the
 [Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
 commands.
 
@@ -44,11 +44,11 @@ by `DELETED_MONOLITHS` in `tests/test_test_suite_structure.py`.
 2. Create new `test_<module>_<subdomain>.py` files.
 3. Move the relevant test functions, fixtures, and imports. Keep shared
    helpers in `tests/helpers/` if needed by multiple files.
-4. Run `PYTHONPATH=src pytest tests/test_<module>_<subdomain>.py -q` to
+4. Run `uv run --no-sync pytest tests/test_<module>_<subdomain>.py -q` to
    confirm the split tests pass.
 5. Delete the moved code from the original file.
 6. Run the full suite to confirm nothing is broken:
-   `PYTHONPATH=src pytest -q`.
+   `uv run --no-sync pytest -q`.
 
 ## Test Style
 
@@ -374,7 +374,7 @@ coroutines, unclosed resources) that will cause problems in production.
 Every test must pass under strict `ResourceWarning` promotion:
 
 ```bash
-PYTHONPATH=src pytest -W error::ResourceWarning -q
+uv run --no-sync pytest -W error::ResourceWarning -q
 ```
 
 This is not enforced by default (some third-party libraries produce noisy
@@ -571,16 +571,16 @@ The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-pip install -e ".[matrix,meshtastic,dev]"
+uv sync --locked --extra matrix --extra meshtastic --extra dev
 
 # All Docker integration tests
-PYTHONPATH=src pytest tests/integration/ -m docker -v
+uv run --no-sync pytest tests/integration/ -m docker -v
 
 # Matrix (Synapse) only
-PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_synapse_connectivity.py -m docker -v
 
 # Meshtastic (meshtasticd) only
-PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
 ```
 
 ## Type Safety
@@ -608,77 +608,80 @@ edit makes unnecessary.
 ### Standard suite (no network, no hardware)
 
 ```bash
-PYTHONPATH=src pytest -q
-# Current snapshot: 16,563/16,742 collected, 179 deselected by default markers.
-# The full suite takes 600–900 s on typical hardware; use prefix slices
+uv run --no-sync pytest -q
+# Collection reports the counts for this checkout.
+# The full suite can exceed ten minutes; use prefix slices
 # during development (see slow-suite partition strategy below).
 ```
 
-This is the primary development command. It runs all unit and fake-pipeline
-tests. No network, no hardware, no optional SDK dependencies required.
+This runs all default-selected tests. During development, run affected files
+first. Optional SDKs, external services, credentials, and hardware are not
+required; some unit tests use local loopback sockets and subprocesses.
 
 ### Docker integration tests
 
 ```bash
-PYTHONPATH=src pytest -m docker -v
+uv run --no-sync pytest -m docker -v
 # Requires: Docker daemon running, SDK extras installed
 ```
 
 ### Live network tests
 
 ```bash
-PYTHONPATH=src pytest -m live -v --tb=short
+uv run --no-sync pytest -m live -v --tb=short
 # Requires: hardware, credentials, environment variables
 ```
 
 ### Compile check
 
 ```bash
-python -m compileall -q src tests
+uv run --no-sync python -m compileall -q src tests
 # Expected: no output (all files compile cleanly)
 ```
 
 ### Full verification
 
-Run all three test tiers plus the compile check before merging. Because the
-default suite exceeds 600 s, use the partition strategy from
-[Slow-suite partition strategy](#slow-suite-partition-strategy) to cover the
-full suite in slices:
+CI runs the default suite on every supported Python version, SDK contracts,
+local integration, Docker boundaries, and the installed-wheel proof. During
+development, run the affected tiers and report which gated tiers were not run.
+Live hardware and credentialed tests need their own prerequisites; extended
+soak jobs are opt-in. To reproduce broad verification locally, use the commands
+below or [partition the default suite](#slow-suite-partition-strategy):
 
 ```bash
 # 1. Compile check (fast, catches syntax/import errors)
-python -m compileall -q src tests
+uv run --no-sync python -m compileall -q src tests
 
 # 2. Collection check (fast, catches fixture/conftest errors)
-python -m pytest --collect-only -q
+uv run --no-sync python -m pytest --collect-only -q
 
 # 3. Default suite in prefix slices (see partition commands above)
-PYTHONPATH=src pytest -q tests/test_trace*.py
-PYTHONPATH=src pytest -q tests/test_startup*.py
+uv run --no-sync pytest -q tests/test_trace*.py
+uv run --no-sync pytest -q tests/test_startup*.py
 # ... continue through all prefix groups ...
 
 # 4. Docker integration tests (requires Docker)
-PYTHONPATH=src pytest -m docker -v
+uv run --no-sync pytest -m docker -v
 
 # 5. Live network tests (requires hardware/credentials)
-PYTHONPATH=src pytest -m live -v --tb=short
+uv run --no-sync pytest -m live -v --tb=short
 ```
 
 ### Targeted runs during development
 
 ```bash
 # Single test file
-PYTHONPATH=src pytest tests/test_pipeline_delivery.py -v
+uv run --no-sync pytest tests/test_pipeline_delivery.py -v
 
 # Files matching a prefix
-PYTHONPATH=src pytest tests/test_matrix_session*.py -v
+uv run --no-sync pytest tests/test_matrix_session*.py -v
 
 # Keyword match
-PYTHONPATH=src pytest -k "test_delivery" -v
+uv run --no-sync pytest -k "test_delivery" -v
 
 # Operator smoke command (Docker-free bridge validation)
-PYTHONPATH=src medre smoke
-PYTHONPATH=src medre smoke --json
+uv run --no-sync medre smoke
+uv run --no-sync medre smoke --json
 ```
 
 ### Identifying hanging tests
@@ -689,11 +692,11 @@ file is blocking:
 ```bash
 # Run from the repository root
 set -o pipefail
-find tests -type f -name 'test_*.py' | sort | while read -r f; do
+rg --files tests -g 'test_*.py' | sort | while read -r f; do
   echo -n "$(basename "$f"): "
-  out="$(PYTHONPATH=src timeout 90 python -m pytest -q "$f" 2>&1)"
+  out="$(uv run --no-sync timeout 90 python -m pytest -q "$f" 2>&1)"
   status=$?
-  printf '%s\n' "$out" | head -3
+  printf '%s\n' "$out"
   if [ "$status" -eq 124 ]; then
     echo "TIMEOUT (124)"
   fi
@@ -763,7 +766,7 @@ always re-run suspect files in isolation to confirm.
 1. **Compile check** — catches syntax errors and import-time failures:
 
    ```bash
-   python -m compileall -q src tests
+   uv run --no-sync python -m compileall -q src tests
    ```
 
    Expected: no output. Any output is a blocker.
@@ -772,11 +775,11 @@ always re-run suspect files in isolation to confirm.
    imports, conftest issues) without running any tests:
 
    ```bash
-   python -m pytest --collect-only -q
+   uv run --no-sync python -m pytest --collect-only -q
    ```
 
-   Expected snapshot: 16,563/16,742 collected, 179 deselected. Collection
-   timing varies by host.
+   Expected: no collection errors; the summary reports the checkout's selected
+   and deselected counts. Collection timing varies by host.
 
 3. **Targeted files for changed modules** — run only the test files that
    exercise the code you changed. Use file paths, not `-k` keyword filters,
@@ -784,7 +787,7 @@ always re-run suspect files in isolation to confirm.
 
    ```bash
    # Example: changed src/medre/core/routing/
-   PYTHONPATH=src pytest tests/test_route*.py tests/test_routing.py tests/test_routes.py -q
+   uv run --no-sync pytest tests/test_route*.py tests/test_routing.py tests/test_routes.py -q
    ```
 
 4. **Do not run the full suite during scoped validation.** See rule 3 in the
@@ -792,56 +795,37 @@ always re-run suspect files in isolation to confirm.
 
 ### Slow-suite partition strategy
 
-The default-selected suite at roughly 16,563 collected cases cannot run within
-typical agent timeouts (300–600 s). Use directory/prefix slicing to partition
-the work. The groups
-below are ordered roughly from slowest to fastest per test; time your slices
-and stop after one hang.
+The full default suite can exceed short command windows. Use directory/prefix
+slicing when broad local verification is required. Time slices on the host
+being used; do not treat historical timings as test deadlines. Stop and
+investigate a hanging slice before continuing.
 
 #### Test volume by prefix group
 
-Counts below come from one collection snapshot of this tree: an unrestricted
-`pytest --collect-only -q -o addopts=''` run for total cases and files, plus
-the default `pytest --collect-only -q` selection for deselection counts.
-Parameterized tests therefore count once per collected case, not once per Python
-test function. Timing values are coarse prior execution measurements and are not
-derived from that collection snapshot or additive.
+Use collection rather than a copied count table. Parametrization expands test
+functions into cases, and optional SDK installation can affect collection:
 
-| Prefix group                                                  | Files   | Collected  | Deselected | Prior timing        |
-| ------------------------------------------------------------- | ------- | ---------- | ---------- | ------------------- |
-| `test_meshtastic*.py`                                         | 51      | 1,243      | 31         | ~44 s               |
-| `test_runtime*.py`                                            | 29      | 987        | 0          | ~34 s               |
-| `test_matrix*.py`                                             | 50      | 1,111      | 31         | ~29 s               |
-| `test_docs*.py`                                               | 13      | 801        | 0          | unmeasured          |
-| `test_meshcore*.py`                                           | 30      | 861        | 36         | ~30 s               |
-| `test_lxmf*.py`                                               | 36      | 874        | 45         | ~21 s               |
-| `test_cli*.py`                                                | 28      | 575        | 0          | ~60 s               |
-| `test_adapter*.py`                                            | 18      | 599        | 0          | unmeasured          |
-| `test_replay*.py`                                             | 22      | 410        | 0          | ~53 s               |
-| `test_capability*.py`                                         | 6       | 387        | 0          | unmeasured          |
-| `test_evidence*.py`                                           | 12      | 374        | 0          | unmeasured          |
-| `test_storage*.py`                                            | 17      | 377        | 0          | ~40 s               |
-| `test_delivery*.py`                                           | 13      | 456        | 0          | unmeasured          |
-| `test_config*.py`                                             | 15      | 513        | 0          | unmeasured          |
-| `test_architecture*.py`                                       | 11      | 285        | 0          | unmeasured          |
-| `test_cross*.py`                                              | 3       | 254        | 1          | unmeasured          |
-| `test_retry*.py`                                              | 19      | 276        | 0          | ~27 s               |
-| `test_pipeline*.py`                                           | 19      | 245        | 0          | ~30 s               |
-| `test_route*.py`                                              | 16      | 510        | 0          | unmeasured          |
-| `test_soak*`, `test_longrun*`, `test_extended*`               | 10      | 155        | 6          | **~60 s**           |
-| `conformance/`                                                | 8       | 156        | 0          | unmeasured          |
-| `lifecycle/`                                                  | 10      | 137        | 0          | unmeasured          |
-| `operational/`                                                | 4       | 62         | 0          | unmeasured          |
-| Other (boundary, canonical, rendering, drill, snapshot, etc.) | 202     | 5,094      | 29         | unmeasured          |
-| **Total**                                                     | **642** | **16,742** | **179**    | **~600–900 s est.** |
+```bash
+# Selected/deselected counts under the default marker policy
+uv run --no-sync pytest --collect-only -q
+
+# Every tier, collected without running services or touching hardware
+uv run --no-sync pytest --collect-only -q -o addopts=''
+
+# A candidate slice before running it
+uv run --no-sync pytest --collect-only -q tests/test_runtime*.py
+```
+
+The command summary belongs with the commit and environment being validated.
+Do not carry a count from an earlier checkout into a validation report.
 
 #### Soak/longrun group — slowest per test
 
 The `test_soak*.py`, `test_longrun*.py`, and `test_extended_longrun*.py` files
-contain 155 collected cases; 149 are selected by default and averaged ~0.4 s/test
-in the prior timing snapshot (about 60 s total). This is 10× slower than the
-runtime or matrix groups (~0.03 s/test). Run this group separately
-and only when soak/longrun stability is explicitly in scope.
+exercise repeated lifecycle and timing behavior and can take longer per case
+than ordinary unit tests. Some are default-selected deterministic tests; the
+`soak` marker gates extended transport endurance jobs. Collect the slice to
+check its selection, and run it when the affected stability behavior is in scope.
 
 #### Partition commands
 
@@ -849,33 +833,33 @@ Run prefix groups one at a time. Use `timeout` only for diagnostics, not for
 routine validation (see rule 1 in the discipline section above).
 
 ```bash
-# Fast groups (under 30 s each)
-PYTHONPATH=src pytest -q tests/test_trace*.py
-PYTHONPATH=src pytest -q tests/test_startup*.py
-PYTHONPATH=src pytest -q tests/test_shutdown*.py
-PYTHONPATH=src pytest -q tests/test_retry*.py
+# Lifecycle and evidence groups
+uv run --no-sync pytest -q tests/test_trace*.py
+uv run --no-sync pytest -q tests/test_startup*.py
+uv run --no-sync pytest -q tests/test_shutdown*.py
+uv run --no-sync pytest -q tests/test_retry*.py
 
-# Medium groups (30–60 s each)
-PYTHONPATH=src pytest -q tests/test_pipeline*.py
-PYTHONPATH=src pytest -q tests/test_storage*.py
-PYTHONPATH=src pytest -q tests/test_matrix*.py
-PYTHONPATH=src pytest -q tests/test_meshcore*.py
-PYTHONPATH=src pytest -q tests/test_lxmf*.py
-PYTHONPATH=src pytest -q tests/test_runtime*.py
-PYTHONPATH=src pytest -q tests/test_meshtastic*.py
-PYTHONPATH=src pytest -q tests/test_replay*.py
-PYTHONPATH=src pytest -q tests/test_cli*.py
+# Pipeline, persistence, transport, and CLI groups
+uv run --no-sync pytest -q tests/test_pipeline*.py
+uv run --no-sync pytest -q tests/test_storage*.py
+uv run --no-sync pytest -q tests/test_matrix*.py
+uv run --no-sync pytest -q tests/test_meshcore*.py
+uv run --no-sync pytest -q tests/test_lxmf*.py
+uv run --no-sync pytest -q tests/test_runtime*.py
+uv run --no-sync pytest -q tests/test_meshtastic*.py
+uv run --no-sync pytest -q tests/test_replay*.py
+uv run --no-sync pytest -q tests/test_cli*.py
 
-# Slow group (60 s)
-PYTHONPATH=src pytest -q tests/test_soak*.py tests/test_longrun*.py tests/test_extended_longrun*.py
+# Repeated lifecycle and stability behavior
+uv run --no-sync pytest -q tests/test_soak*.py tests/test_longrun*.py tests/test_extended_longrun*.py
 
 # Subdirectories
-PYTHONPATH=src pytest -q tests/conformance/
-PYTHONPATH=src pytest -q tests/lifecycle/
-PYTHONPATH=src pytest -q tests/operational/
+uv run --no-sync pytest -q tests/conformance/
+uv run --no-sync pytest -q tests/lifecycle/
+uv run --no-sync pytest -q tests/operational/
 
 # Remaining "other" files (boundary, architecture, docs, etc.)
-PYTHONPATH=src pytest -q tests/test_architecture*.py tests/test_boundary*.py \
+uv run --no-sync pytest -q tests/test_architecture*.py tests/test_boundary*.py \
   tests/test_docs*.py tests/test_capability*.py tests/test_evidence*.py \
   tests/test_delivery*.py tests/test_config*.py tests/test_canonical*.py \
   tests/test_rendering*.py tests/test_drill*.py tests/test_snapshot*.py \
@@ -889,21 +873,21 @@ above isolates individual hanging files. For broader diagnostics, use
 collection-based slicing and `pytest-timeout` per-test timeouts:
 
 ```bash
-# Step 1: Confirm collection works (no test runs, ~11 s)
-python -m pytest --collect-only -q
+# Step 1: Confirm collection works without executing tests
+uv run --no-sync python -m pytest --collect-only -q
 
 # Step 2: Run prefix groups with a per-test timeout to surface slow individual
 # tests without hanging the entire suite. Requires pytest-timeout (in dev deps).
-PYTHONPATH=src pytest -q --timeout=30 tests/test_soak*.py tests/test_longrun*.py
+uv run --no-sync pytest -q --timeout=30 tests/test_soak*.py tests/test_longrun*.py
 
 # The repository intentionally leaves pytest-timeout's method unset. On POSIX
 # the plugin uses SIGALRM, avoiding a timer thread per test; on platforms where
 # SIGALRM is unavailable it falls back to its thread method. For a targeted
 # hang investigation, a one-off early traceback can still be requested with:
-PYTHONPATH=src pytest -q -o faulthandler_timeout=20 --timeout=30 tests/test_suspect.py
+uv run --no-sync pytest -q -o faulthandler_timeout=20 --timeout=30 tests/test_suspect.py
 
 # Step 3: If a prefix group hangs, bisect it. Run half the files:
-PYTHONPATH=src pytest -q tests/test_longrun_soak.py tests/test_longrun_stability_v3.py
+uv run --no-sync pytest -q tests/test_longrun_soak.py tests/test_longrun_stability_v3.py
 # If that passes, the hang is in the other half.
 ```
 
@@ -927,8 +911,8 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 | Symptom                                             | Likely cause                          | Action                                                                        |
 | --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `pip install -e ".[meshtastic]"`                                              |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `pip install -e ".[matrix]"`                                                  |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                              |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                                  |
 | Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                            |
 | Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
 | `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
