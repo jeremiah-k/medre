@@ -1,7 +1,7 @@
 """Process-isolated local integration tests for real LXMF/RNS lifecycle.
 
 Evidence scope: these tests exercise the pinned LXMF/RNS SDKs on this
-machine over a loopback-only Reticulum UDPInterface pair.  They are
+machine over a loopback-only Reticulum UDPInterface pair or TCP endpoint. They are
 local-SDK evidence — not simulated unit evidence, and not external/
 live-network or hardware evidence.
 
@@ -86,6 +86,49 @@ def test_real_router_repeated_lifecycle_persistence_and_failure_cleanup(
         "cycles": 3,
         "stable_destination": True,
         "startup_failure": "LxmfConnectionError",
+    }
+
+
+def test_rns_recovers_connections_without_replacing_the_medre_router(
+    tmp_path: Path,
+) -> None:
+    """Real RNS TCP reconnect, detach/attach, and reload preserve LXMF ownership."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.helpers.rns_connection_probe",
+            str(tmp_path / "connections"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert completed.returncode == 0, (
+        f"RNS loopback probe failed ({completed.returncode}):\n"
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+    prefix = "MEDRE_RNS_CONNECTION_RESULT="
+    result = next(
+        (line for line in completed.stdout.splitlines() if line.startswith(prefix)),
+        None,
+    )
+    assert result is not None, (
+        "RNS loopback probe did not emit a result line:\n"
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+    assert json.loads(result[len(prefix) :]) == {
+        "automatic_reconnect": True,
+        "detach_attach": True,
+        "live_reload": True,
+        "announce_after_each_recovery": True,
+        "stable_router_and_destination": True,
+        "session_stop_preserves_transport": True,
     }
 
 

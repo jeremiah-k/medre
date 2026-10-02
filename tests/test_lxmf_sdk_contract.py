@@ -238,3 +238,102 @@ async def test_rendered_title_and_envelope_count_toward_opportunistic_fallback(
     )
     payload = msgpack.unpackb(embedded.packed[header_length:])
     assert payload[1:] == [embedded.title, embedded.content, embedded.fields]
+
+
+@pytest.mark.parametrize(
+    ("candidate", "qualified"),
+    [
+        ({}, False),
+        ({"impl_name": "RNS", "version": None}, False),
+        ({"impl_name": "other", "version": "9.0.0"}, False),
+        ({"impl_name": "RNS", "version": "1.5.1"}, False),
+        ({"impl_name": "RNS", "version": "1.5.2"}, True),
+    ],
+)
+def test_rns_discovery_requires_recognized_version_metadata(
+    monkeypatch, candidate: dict, qualified: bool,
+) -> None:
+    """Document the default qualification boundary independently of live peers."""
+    _, rns = _load_sdks()
+    discovery_type = import_module("RNS.Discovery").InterfaceDiscovery
+    discovery = object.__new__(discovery_type)
+    monkeypatch.setattr(
+        rns.Reticulum, "should_autoconnect_unverified_implementations", lambda: False
+    )
+    assert discovery.autoconnect_qualified(candidate) is qualified
+
+
+@pytest.fixture
+def rnode_ble_interface():
+    """Construct pinned RNode/BLE owners with device I/O at the boundary."""
+    from unittest.mock import Mock
+
+    module = import_module("RNS.Interfaces.RNodeInterface")
+    interface = object.__new__(module.RNodeInterface)
+    interface.name = "medre-rnode-contract"
+    interface.port = "ble://contract"
+    interface.use_ble = True
+    interface.use_tcp = False
+    interface.online = False
+    interface.detached = False
+    interface.reconnecting = False
+    interface.serial = Mock()
+    interface.serial.is_open = False
+    interface.disable_external_framebuffer = Mock()
+    interface.setRadioState = Mock()
+    interface.leave = Mock()
+    interface.open_port = Mock()
+
+    # Use the actual BLE close/cleanup methods, without constructing a scanner
+    # or requiring bleak/hardware. The idle job must be told to terminate.
+    ble = object.__new__(module.BLEConnection)
+    ble.connected = False
+    ble.last_client = None
+    ble.should_run = True
+    interface.ble = ble
+    return module, interface, ble
+
+
+def test_rnode_ble_detach_releases_jobs_and_blocks_post_detach_reconnect(
+    monkeypatch, rnode_ble_interface,
+) -> None:
+    """A reconnect started after detach must neither wait nor open the port."""
+    module, interface, ble = rnode_ble_interface
+    interface.detach()
+    assert interface.detached is True
+    assert interface.ble is None and ble.should_run is False
+    assert interface.serial.close.called
+
+    def unexpected_wait(_seconds):
+        pytest.fail("a detached RNode attempted to wait for reconnect")
+
+    monkeypatch.setattr(module.time, "sleep", unexpected_wait)
+    interface.reconnect_port()
+    interface.open_port.assert_not_called()
+    assert interface.reconnecting is False
+
+
+def test_rnode_reconnect_in_flight_can_attempt_open_after_ble_detach(
+    monkeypatch, rnode_ble_interface,
+) -> None:
+    """Pin the SDK race separately from the post-detach reconnect guarantee.
+
+    The loop checks detached before its retry wait, then calls open_port without
+    checking again. Detachment during that wait can therefore leave one pending
+    open attempt. This is an SDK limitation, not MEDRE-owned retry behavior.
+    After an RNS upgrade, inspect failures here for a corrected retry loop. If
+    the SDK rechecks detached after waiting, assert that open_port is not called
+    and update the documented limitation.
+    """
+    module, interface, ble = rnode_ble_interface
+
+    def detach_during_retry_wait(_seconds):
+        assert interface.reconnecting is True
+        interface.detach()
+        assert interface.detached is True
+        assert interface.ble is None and ble.should_run is False
+
+    monkeypatch.setattr(module.time, "sleep", detach_during_retry_wait)
+    interface.reconnect_port()
+    interface.open_port.assert_called_once()
+    assert interface.reconnecting is False
