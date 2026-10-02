@@ -274,6 +274,22 @@ implementation authority. Flat LXMF event metadata is not an alternate shape.
 3. Returns `(native_message_id, initial_state)` where `initial_state` is typically `OUTBOUND` or `GENERATING`.
 4. The `AdapterHandoffResult.note` is `"accepted by LXMRouter — async delivery pending"`.
 
+**Requested delivery method and SDK fallback:** The session passes the requested
+method to `LXMessage`; the SDK selects the actual packed representation. For
+encrypted single-destination OPPORTUNISTIC messages, the pinned SDK uses a
+287-byte packet content budget and falls back to DIRECT when the packed payload
+exceeds it. The packed title, content, and fields all count, including the MEDRE
+envelope. This byte budget is separate from the renderer's character limit.
+Fallback preserves the payload and metadata; choosing OPPORTUNISTIC does not
+guarantee a single-packet transmission.
+
+OPPORTUNISTIC delivery supports packet receipts when available and SDK retry
+scheduling. LXMF owns asynchronous delivery attempts and path requests, with
+waits derived from Reticulum's medium and destination timing. MEDRE's local
+handoff retry neither replaces this scheduling nor imposes an end-to-end
+deadline. An expired observation window with a nonterminal SDK state provides
+pending evidence, not a fabricated terminal failure.
+
 **Delivery state model (tracked per outbound message):**
 
 `AdapterHandoffResult.disposition` is `"transport_handoff"` for successful LXMF hand-offs,

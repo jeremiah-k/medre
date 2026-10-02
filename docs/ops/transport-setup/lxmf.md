@@ -72,8 +72,8 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 
 | Method        | Code   | Behavior                                                        | Reliability                                                    | Latency                |
 | ------------- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------- |
-| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to 5. Proof receipts confirm delivery.        | Seconds to minutes     |
-| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data.             | Best-effort. No ACK, no retry. Max 1 attempt.                  | Seconds if peer online |
+| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | Bounded SDK retries; asynchronous delivery receipts.          | Seconds to minutes     |
+| OPPORTUNISTIC | `0x01` | Single RNS packet without a link when the packed payload fits. | SDK retry scheduling and packet delivery receipts when available. | Depends on path and medium |
 | PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours       |
 | PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                  | N/A                    |
 
@@ -98,9 +98,28 @@ MEDRE will refuse a propagated handoff until one is configured.
 - Link establishment takes time. First delivery to a new peer may take seconds to minutes.
 - No "instant delivered" guarantee. `deliver()` returning means the message was handed off, not received.
 
-**OPPORTUNISTIC** is fire-and-forget. Use only for quick status messages where loss is acceptable.
+**OPPORTUNISTIC** requests single-packet delivery. The pinned SDK supports packet
+delivery receipts and bounded retry scheduling; it is not a guarantee of arrival.
+For MEDRE's encrypted single-destination messages, a packed payload above the
+SDK's 287-byte content budget automatically falls back to DIRECT delivery. The
+title and packed fields count toward that budget, including the MEDRE metadata
+envelope. A short body can therefore require a link. The budget is measured in
+packed bytes, not text characters, and does not replace MEDRE's renderer limits.
+
+The configured delivery method expresses the requested SDK method. It does not
+force an oversized encrypted message into one packet or suppress the SDK's
+fallback. DIRECT fallback preserves the body, title, and metadata.
 
 **PROPAGATED** is store-and-forward. The recipient must explicitly sync from the propagation node. Latency depends entirely on when the recipient checks in.
+
+### Retry and Observation Windows
+
+LXMF derives path-request waits and delivery retry spacing from Reticulum's
+medium and destination timing. Slow interfaces can extend those waits and alter
+the attempt limit. A fixed short observation window can expire while the SDK is
+still working; pending at the window's end does not establish delivery failure.
+Use asynchronous delivery observations for outcomes and the
+[LXMF live-validation guide](../live-validation/lxmf.md) for finite test budgets.
 
 ## Async Delivery Caveats
 
