@@ -14,17 +14,22 @@ Docs are split into `docs/spec`, `docs/ops`, `docs/dev`, `docs/schemas`, and
 
 ## Build, Test, and Development Commands
 
-- `pip install -e ".[dev]"`: install the package with pytest and dev
+- `uv sync --locked --extra dev`: install the editable package with pytest and dev
   dependencies.
-- `PYTHONPATH=src pytest -q`: run the default suite; live, Docker, and hardware
-  tests are deselected by default.
-- `PYTHONPATH=src pytest tests/test_pipeline_delivery.py -v`: run a targeted
+- `uv run --no-sync pytest -q`: run the default suite; service, hardware, optional
+  SDK, local integration, and soak tiers are deselected by default.
+- `uv run --no-sync pytest tests/test_pipeline_delivery.py -v`: run a targeted
   file while developing.
-- `python -m compileall -q src tests`: verify all Python files compile.
-- `PYTHONPATH=src medre smoke --json`: run the Docker-free smoke path through
+- `uv run --no-sync python -m compileall -q src tests`: verify Python files compile.
+- `uv run --no-sync medre smoke --json`: run the Docker-free smoke path through
   the CLI.
-- `PYTHONPATH=src pytest -m docker -v` or `-m live -v --tb=short`: run gated
+- `uv run --no-sync pytest -m docker -v` or `-m live -v --tb=short`: run gated
   tiers when prerequisites exist.
+
+When changing dependencies, extras, or packaging, read
+`docs/dev/environment.md`. Select all required extras on each sync; keep
+`pyproject.toml` and `uv.lock` changes in the same commit. After pulling dependency
+changes, sync before using `--no-sync`.
 
 ## Coding Style & Naming Conventions
 
@@ -32,8 +37,8 @@ Use 4-space indentation, type annotations for public surfaces, and nearby
 dataclass/msgspec-style models where they already exist. Modules, functions,
 fixtures, and variables use `snake_case`; classes use `PascalCase`; constants
 use `UPPER_SNAKE_CASE`. Keep docs in ATX Markdown, wrap prose near 88 columns
-where practical, and reserve RFC 2119 terms for `docs/spec`. No formatter or
-linter config is committed; match surrounding style.
+where practical, and reserve RFC 2119 terms for `docs/spec`. Ruff lint rules are
+configured in `pyproject.toml`; match surrounding formatting style.
 
 ## Testing Guidelines
 

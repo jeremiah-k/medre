@@ -9,14 +9,15 @@ the relevant spec/ops/dev page.
 
 | Document                        | Purpose                                                  |
 | ------------------------------- | -------------------------------------------------------- |
-| `testing.md`                    | Test suite structure, patterns, tiers, live-test harness |
-| `adapter-authoring.md`          | How to write a new transport adapter                     |
-| `adapter-sdk-parity.md`         | Installed-SDK contract tiers and open SDK parity gaps    |
-| `resource-lifecycle.md`         | Runtime resource ownership, creation, teardown           |
-| `reference-repos.md`            | External reference implementations and copy boundaries   |
-| `mmrelay-behavior-reference.md` | Live mmrelay interop behavior reference                  |
-| `documentation-style.md`        | Conventions for writing MEDRE documentation              |
-| `change-process.md`             | How to propose and track documentation changes           |
+| [environment.md](environment.md) | Checkout setup, uv/pip workflows, extras, dependency updates, builds |
+| [testing.md](testing.md)                    | Test suite structure, patterns, tiers, live-test harness |
+| [adapter-authoring.md](adapter-authoring.md)          | How to write a new transport adapter                     |
+| [adapter-sdk-parity.md](adapter-sdk-parity.md)         | Installed-SDK contract tiers and open SDK parity gaps    |
+| [resource-lifecycle.md](resource-lifecycle.md)         | Runtime resource ownership, creation, teardown           |
+| [reference-repos.md](reference-repos.md)            | External reference implementations and copy boundaries   |
+| [mmrelay-behavior-reference.md](mmrelay-behavior-reference.md) | Live mmrelay interop behavior reference                  |
+| [documentation-style.md](documentation-style.md)        | Conventions for writing MEDRE documentation              |
+| [change-process.md](change-process.md)             | How to propose and track documentation changes           |
 
 ## How to Add Documentation
 
@@ -33,5 +34,6 @@ the relevant spec/ops/dev page.
 
 ## Pre-Release Note
 
-MEDRE is pre-first-release. The documentation structure is being consolidated.
-If you find conflicting information, `docs/spec/` is the authority.
+MEDRE is pre-first-release. Begin with the development environment guide above
+and use the testing guide for evidence tiers and scoped verification. If usage
+documentation conflicts with runtime contracts, `docs/spec/` is the authority.

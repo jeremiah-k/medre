@@ -42,8 +42,8 @@ meshtastic = ["mtjk==2.7.11.post7", "PyPubSub==4.0.7"]
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
 meshcore = ["meshcore==2.3.14"]
 # LXMF/Reticulum SDKs; exact pins below are authoritative.
-# Reticulum is pinned explicitly so pip-based SDK contract CI cannot drift
-# away from the lockfile-compatible RNS surface.
+# Reticulum is pinned explicitly so pip installs and locked uv environments
+# use the same RNS surface for SDK contract tests.
 lxmf = ["lxmf==1.2.0", "rns==1.5.5"]
 
 [project.scripts]
@@ -58,6 +58,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 medre = ["py.typed"]
+
+[tool.uv]
+required-version = ">=0.9.9"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -87,22 +87,23 @@ jobs:
 
       # --- Python setup ---
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version-file: .tool-versions
           python-version: "3.14"
-          cache: pip
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Install MEDRE with integration extras
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[matrix,meshtastic,dev]"
+          uv sync --locked --extra dev --extra matrix --extra meshtastic
 
       # --- Run tests ---
 
       - name: Run Docker integration tests
         run: |
-          timeout --foreground 13m bash scripts/ci/run-docker-integration.sh
+          uv run --no-sync timeout --foreground 13m bash scripts/ci/run-docker-integration.sh
 
       # --- Post-run: save image caches ---
 
