@@ -5,7 +5,8 @@ Live smoke test procedures for the Meshtastic adapter against a real radio node.
 ## Quick Validation
 
 ```bash
-pip install -e ".[meshtastic]"
+uv sync --locked --extra dev --extra meshtastic
+source .venv/bin/activate
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
 export MESHTASTIC_HOST="meshtastic.local"
@@ -17,7 +18,7 @@ pytest tests/test_meshtastic_live.py -m live -v
 ## Docker SDK-Boundary Tests
 
 ```bash
-PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
 ```
 
 Validates MeshtasticAdapter creates real `TCPInterface`, subscribes to pubsub, sends via real `sendText`, reports healthy, stops cleanly. Uses containerized meshtasticd with `-s` (simulation mode).
@@ -127,7 +128,7 @@ Physical-radio lifecycle endurance is opt-in and never runs in the default
 suite. Configure the same connection variables as the live smoke tests, then:
 
 ```bash
-pip install -e ".[meshtastic,dev]"
+uv sync --locked --extra meshtastic --extra dev
 export MESHTASTIC_SOAK_CYCLES=10
 pytest tests/test_meshtastic_hardware_soak.py \
   -m "hardware and live and soak and meshtastic_sdk" -v

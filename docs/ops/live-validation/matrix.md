@@ -5,7 +5,8 @@ Live smoke test procedures for the Matrix adapter against a real homeserver.
 ## Quick Validation
 
 ```bash
-pip install -e ".[matrix]"
+uv sync --locked --extra dev --extra matrix
+source .venv/bin/activate
 
 export MATRIX_HOMESERVER=http://localhost:8008
 export MATRIX_USER_ID=@bot:localhost
@@ -22,16 +23,16 @@ Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 No external homeserver needed. Uses a local Docker Synapse container.
 
 ```bash
-pip install -e ".[matrix,dev]"
+uv sync --locked --extra dev --extra matrix --extra meshtastic
 
 # All Docker integration tests
-PYTHONPATH=src pytest tests/integration/ -m docker -v
+uv run --no-sync pytest tests/integration/ -m docker -v
 
 # Matrix (Synapse) only
-PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_synapse_connectivity.py -m docker -v
 
 # Synapse bridge smoke (full pipeline: real Matrix SDK -> PipelineRunner -> FakeMatrixAdapter)
-PYTHONPATH=src pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
+uv run --no-sync pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 ```
 
 Gate: `MATRIX_LOCAL_SYNAPSE=1`. Docker tests are excluded from default runs.
@@ -41,7 +42,7 @@ Expected: 15 passed, 1 xfailed (third-party inbound requires second user during 
 ## E2EE Live Validation
 
 ```bash
-pip install -e ".[matrix-e2e]"
+uv sync --locked --extra dev --extra matrix-e2e
 
 # Docker E2EE harness
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v

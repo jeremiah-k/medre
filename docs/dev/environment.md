@@ -32,6 +32,12 @@ environment with `source .venv/bin/activate` and invoke `medre`, `python`, or
 `pytest` directly. An editable install and pytest's configured source path make
 manual `PYTHONPATH=src` unnecessary.
 
+If sync fails or is interrupted, rerun it with the same required extras and wait
+for a successful exit before using `--no-sync` or the activated environment.
+Finish synchronization before running commands in that environment; do not sync
+and execute against the same `.venv` concurrently. Separate worktrees or projects
+should use separate environments.
+
 ## Select Transport Extras
 
 Request every extra needed by the environment on each sync:

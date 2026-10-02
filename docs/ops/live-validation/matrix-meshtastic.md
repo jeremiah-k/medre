@@ -13,8 +13,11 @@ and explains what success means at each step.
 | Matrix bot account | Dedicated user, not your personal account                                   |
 | Meshtastic radio   | Connected via USB-serial (`/dev/ttyACM0` typical)                           |
 | Python             | 3.11 or later                                                               |
-| Package install    | `pip install ".[matrix,meshtastic]"`                                        |
+| Package install    | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                        |
 | Serial port access | User must have read/write on the tty device (e.g. `dialout` group on Linux) |
+
+After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI
+steps below. For built-package installations, see [installation](../install.md).
 
 ## Auth
 

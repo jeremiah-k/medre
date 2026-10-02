@@ -5,7 +5,8 @@
 | Requirement | Details                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------ |
 | Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified |
-| pip         | `>= 21.3` for extras support                                                                           |
+| uv          | Recommended for source checkouts; see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
+| pip         | Supported for wheel/sdist installs and existing virtual environments                                   |
 | git         | For source checkout only                                                                               |
 | Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd               |
 
@@ -22,20 +23,46 @@
 ```bash
 git clone <repo-url> && cd medre
 
-python3 -m venv .venv
+uv sync --locked --extra dev
 source .venv/bin/activate
-
-pip install -e .
-pip install -e ".[dev]"
 ```
 
-`pip install -e .` gives you the `medre` command with fake adapters only (no test tooling). `pip install -e ".[dev]"` adds `pytest` and dev dependencies. Core runtime dependencies are `msgspec` and `PyYAML` (per `pyproject.toml` `dependencies`). Example configs are in `examples/configs/`.
+`uv sync --locked` gives you an editable MEDRE install and the core dependencies
+(`msgspec` and `PyYAML`). Adding `--extra dev` installs pytest and build tools;
+transport SDKs require their own extras. Commands in this guide assume an
+activated environment. Without activation, use `uv run --no-sync medre ...`
+after syncing. Example configs are in `examples/configs/`.
+
+Each sync selects the complete extra set, so include every transport and tool
+extra needed by the environment. The `dev` extra is not a uv dependency group.
+See [the development environment guide](../dev/environment.md) for dependency
+updates, environment reuse, and CI behavior.
+
+### Existing pip Source Workflow
+
+pip installation remains supported without uv. In a separate or existing
+virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .           # core runtime only
+# For developer tools:
+python -m pip install -e ".[dev]"
+# Include transport extras as needed:
+python -m pip install -e ".[dev,matrix,meshtastic]"
+```
+
+pip respects the declared requirements but does not read `uv.lock`; transitive
+versions can differ from the locked checkout and CI environment.
 
 ### Installed Package (Operators)
 
 From a wheel or sdist:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install medre-0.1.0-py3-none-any.whl
 # or
 pip install medre-0.1.0.tar.gz
@@ -53,16 +80,17 @@ its core dependencies, and runs the installed-package proof. It fails
 loudly on any mismatch — no skips, no fallbacks:
 
 ```bash
-python scripts/check_installed_package.py
+uv run --no-sync python scripts/check_installed_package.py
 
 # To re-verify a wheel you already built instead of building a new one:
-python scripts/check_installed_package.py --wheel dist/medre-0.1.0-py3-none-any.whl
+uv run --no-sync python scripts/check_installed_package.py --wheel dist/medre-0.1.0-py3-none-any.whl
 ```
 
 The script lives in the source repository — it is not part of the installed
 wheel — and is wired into the existing CI test job, so every push checks the
-installed-package path, not just the source tree. The proof environment
-installs the core dependencies (msgspec, PyYAML) from PyPI, so it needs
+installed-package path, not just the source tree. It deliberately installs the
+wheel with pip to verify consumer compatibility independently of uv. The proof
+environment installs the core dependencies (msgspec, PyYAML) from PyPI, so it needs
 network access.
 
 ## Transport Extras
@@ -71,20 +99,22 @@ Optional transport SDKs add real connectivity. Without them, only fake adapters 
 
 | Extra        | Install command                  | Notes                                                                |
 | ------------ | -------------------------------- | -------------------------------------------------------------------- |
-| `matrix`     | `pip install -e ".[matrix]"`     | Matrix plaintext via `mindroom-nio`                                  |
-| `matrix-e2e` | `pip install -e ".[matrix-e2e]"` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM)   |
-| `meshtastic` | `pip install -e ".[meshtastic]"` | Meshtastic LoRa via `mtjk`; serial requires `dialout` group on Linux |
-| `meshcore`   | `pip install -e ".[meshcore]"`   | MeshCore radio; serial requires `dialout` group                      |
-| `lxmf`       | `pip install -e ".[lxmf]"`       | LXMF / Reticulum; Reticulum uses a non-OSI license                   |
+| `matrix`     | `uv sync --locked --extra matrix`     | Matrix plaintext via `mindroom-nio`                                  |
+| `matrix-e2e` | `uv sync --locked --extra matrix-e2e` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM)   |
+| `meshtastic` | `uv sync --locked --extra meshtastic` | Meshtastic LoRa via `mtjk`; serial requires `dialout` group on Linux |
+| `meshcore`   | `uv sync --locked --extra meshcore`   | MeshCore radio; serial requires `dialout` group                      |
+| `lxmf`       | `uv sync --locked --extra lxmf`       | LXMF / Reticulum; Reticulum uses a non-OSI license                   |
 
-Combine as needed: `pip install -e ".[matrix,meshtastic,dev]"`.
+Combine as needed: `uv sync --locked --extra dev --extra matrix --extra meshtastic`.
+For an installed wheel, select extras with pip, for example
+`python -m pip install "./medre-0.1.0-py3-none-any.whl[matrix,meshtastic]"`.
 
 ### Transport-Specific Setup
 
 #### Matrix (Plaintext)
 
 ```bash
-pip install -e ".[matrix]"
+uv sync --locked --extra matrix
 ```
 
 Binary wheels available for Linux (x86_64, aarch64), macOS, Windows. No compilation required on standard platforms.
@@ -92,7 +122,7 @@ Binary wheels available for Linux (x86_64, aarch64), macOS, Windows. No compilat
 #### Matrix (E2EE)
 
 ```bash
-pip install -e ".[matrix-e2e]"
+uv sync --locked --extra matrix-e2e
 ```
 
 - `vodozemac` requires a Rust toolchain if binary wheels are unavailable.
@@ -106,7 +136,7 @@ pip install -e ".[matrix-e2e]"
 #### Meshtastic
 
 ```bash
-pip install -e ".[meshtastic]"
+uv sync --locked --extra meshtastic
 ```
 
 - Distribution name is `mtjk`, import name is `meshtastic` (fork maintains import compatibility).
@@ -121,7 +151,7 @@ pip install -e ".[meshtastic]"
 #### MeshCore
 
 ```bash
-pip install -e ".[meshcore]"
+uv sync --locked --extra meshcore
 ```
 
 - Async-native SDK — clean fit for MEDRE's async architecture.
@@ -137,7 +167,7 @@ pip install -e ".[meshcore]"
 #### LXMF / Reticulum
 
 ```bash
-pip install -e ".[lxmf]"
+uv sync --locked --extra lxmf
 ```
 
 - Reticulum config at `~/.reticulum/config` may need adjustment for transport interfaces.
@@ -288,47 +318,46 @@ Docker is not required for the basic install or fake-only smoke path.
 ## Run the Test Suite (Source Checkout Only)
 
 ```bash
-PYTHONPATH=src pytest -q
-# Expected: all non-live tests pass; live tests deselected by default.
+uv sync --locked --extra dev
+uv run --no-sync pytest -q
+# Expected: default-selected tests pass; gated tiers are deselected.
 
-python -m compileall -q src tests
+uv run --no-sync python -m compileall -q src tests
 # Expected: no output (clean compilation)
 ```
 
-Live tests are excluded by default via `pyproject.toml`:
-
-```toml
-[tool.pytest.ini_options]
-addopts = "-m 'not live'"
-```
+Default selection excludes live, Docker, hardware, optional SDK, local
+integration, and soak tiers. The marker policy is defined in `pyproject.toml`.
+Select a gated tier explicitly after installing its extras and preparing its
+service or hardware prerequisites; see [testing](../dev/testing.md).
 
 To run live tests (requires real credentials and hardware):
 
 ```bash
-PYTHONPATH=src pytest -m live -v
+uv run --no-sync pytest -m live -v
 ```
 
 ## Common Issues
 
 | Issue                                               | Cause                                     | Resolution                                                                                                             |
 | --------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `pip install -e ".[matrix]"`                                                                                           |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `pip install -e ".[meshtastic]"`                                                                                       |
-| `ListenerMismatchError`                             | Missing `pubsub` package                  | `pip install -e ".[meshtastic]"` (includes PyPubSub)                                                                   |
+| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `uv sync --locked --extra matrix`                                                                                           |
+| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `uv sync --locked --extra meshtastic`                                                                                       |
+| `ListenerMismatchError`                             | Missing `pubsub` package                  | `uv sync --locked --extra meshtastic` (includes PyPubSub)                                                                   |
 | `Permission denied: /dev/ttyACM0`                   | Serial permissions                        | `sudo usermod -aG dialout $USER`, re-login                                                                             |
 | `OlmUnverifiedDeviceError`                          | Matrix peer-device trust check            | E2EE sends intentionally use `ignore_unverified_devices=True`; update to current MEDRE if this surfaces                |
 | Cross-signing diagnostics require reset             | Local/server own-device identity mismatch | Back up Matrix state; restore matching state or run authenticated `auth login --adapter-id <id> --reset-cross-signing` |
 | `vodozemac` build failure                           | No Rust toolchain                         | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`                                        |
 | `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted      | Check path, verify file is 64 bytes, check permissions                                                                 |
-| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `pip install -e ".[matrix-e2e]"`                                                                                       |
+| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `uv sync --locked --extra matrix-e2e`                                                                                       |
 | `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease      | Back up and remove the database: `medre storage reset`, then rerun                                                     |
 
 ## Quick Reference
 
 ```bash
-# Install
-pip install -e ".[dev]"                    # source checkout
-pip install medre-0.1.0-py3-none-any.whl   # wheel
+# Prepare a source checkout (wheel installation is covered above)
+uv sync --locked --extra dev
+source .venv/bin/activate
 
 # Verify
 medre version && medre paths && medre adapters
@@ -349,6 +378,6 @@ medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
 medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
 
 # Test suite (source checkout)
-PYTHONPATH=src pytest -q
-python -m compileall -q src tests
+uv run --no-sync pytest -q
+uv run --no-sync python -m compileall -q src tests
 ```

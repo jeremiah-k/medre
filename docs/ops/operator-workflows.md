@@ -1,5 +1,9 @@
 # Operator Workflows
 
+Commands assume an activated MEDRE environment; see [installation](install.md).
+For checkout tests, select `--extra dev` along with every required transport
+extra. See [environment setup](../dev/environment.md) for sync behavior.
+
 Day-to-day workflows for operating MEDRE: smoke testing, inspect-first investigation, evidence collection, event tracing, failure handling, and replay.
 
 ## Data Ownership and Immutability
@@ -628,7 +632,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
-- The `matrix` extra installed: `pip install -e ".[matrix]"`.
+- The `matrix` extra installed: `uv sync --locked --extra matrix`.
 
 ### Procedure — Matrix
 
@@ -676,7 +680,7 @@ If you have a Meshtastic radio node accessible via TCP or serial, you can valida
 ### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
-- The `meshtastic` extra installed: `pip install -e ".[meshtastic]"`.
+- The `meshtastic` extra installed: `uv sync --locked --extra meshtastic`.
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
 ### Procedure — Meshtastic

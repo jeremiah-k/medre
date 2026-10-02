@@ -1,5 +1,9 @@
 # Matrix Transport Setup
 
+For source checkouts, run the package commands below and then activate `.venv`
+with `source .venv/bin/activate` before invoking CLI tools. For pip and built-package
+installation, see [installation](../install.md).
+
 Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
 
 ## Prerequisites
@@ -9,7 +13,7 @@ Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-r
 | Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                       |
 | Bot account       | A dedicated Matrix user, not your personal account                                                                            |
 | Python            | 3.11 or later                                                                                                                 |
-| Package install   | `pip install -e ".[matrix]"` (plaintext). `pip install -e ".[matrix-e2e]"` (adds Olm/Megolm crypto libs for encrypted rooms). |
+| Package install   | `uv sync --locked --extra matrix` (plaintext). `uv sync --locked --extra matrix-e2e` (adds Olm/Megolm crypto libs for encrypted rooms). |
 | Access token      | Obtained via login API or Element UI                                                                                          |
 | A test room       | Unencrypted, bot has joined it                                                                                                |
 | Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                          |
@@ -20,8 +24,13 @@ You do not need Docker, a domain name, or federation. A local homeserver on loca
 
 ### Synapse via pip (recommended)
 
+Use a dedicated Synapse environment, separate from MEDRE's `.venv`. This service
+installation is independent of the MEDRE checkout lockfile.
+
 ```bash
-pip install matrix-synapse
+python3 -m venv /tmp/medre-synapse-venv
+source /tmp/medre-synapse-venv/bin/activate
+python -m pip install matrix-synapse
 
 python -m synapse.app.homeserver \
   --server-name localhost \
@@ -33,6 +42,8 @@ python -m synapse.app.homeserver --config-path homeserver.yaml
 ```
 
 Synapse starts on port 8008 by default.
+
+Run MEDRE from a separate shell with its own environment activated.
 
 ### Conduit (lightweight alternative)
 
@@ -400,7 +411,7 @@ adapter treats the room as unencrypted (fail-closed).
 | `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
 | `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                                                                                         | `pip install -e ".[matrix-e2e]"`                                                                                                                                                                                                                                                                 |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                                                                                         | `uv sync --locked --extra matrix-e2e`                                                                                                                                                                                                                                                                 |
 
 ## Classic Sync durability and recovery
 
