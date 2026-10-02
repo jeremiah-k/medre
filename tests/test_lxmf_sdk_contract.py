@@ -159,3 +159,82 @@ def test_router_and_reticulum_lifecycle_surfaces_exist() -> None:
     assert callable(getattr(reticulum, "sigterm_handler", None))
     # MEDRE deliberately does not call global Reticulum shutdown per session.
     assert not hasattr(reticulum, "stop")
+
+
+@pytest.mark.parametrize(
+    ("size", "method"),
+    [(286, "OPPORTUNISTIC"), (287, "OPPORTUNISTIC"), (288, "DIRECT"), (295, "DIRECT")],
+)
+def test_opportunistic_pack_respects_the_encrypted_packet_boundary(
+    size: int, method: str,
+) -> None:
+    """Content above the encrypted packet budget falls back to link delivery."""
+    lxmf, rns = _load_sdks()
+    destination = _destination_stub(rns, 0x11)
+    destination.type = rns.Destination.SINGLE
+    source = _destination_stub(rns, 0x22)
+    source.sign = rns.Identity().sign
+    message = lxmf.LXMessage(
+        destination,
+        source,
+        "x" * size,
+        desired_method=lxmf.LXMessage.OPPORTUNISTIC,
+    )
+    message.pack()
+    assert message.method == getattr(lxmf.LXMessage, method)
+    assert message.content == b"x" * size
+
+
+async def test_rendered_title_and_envelope_count_toward_opportunistic_fallback(
+    sample_event,
+) -> None:
+    """MEDRE's metadata overhead changes delivery method without losing payload."""
+    from msgspec.structs import replace
+
+    from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
+    from medre.adapters.lxmf.renderer import LxmfRenderer
+    from medre.core.rendering import RenderingContext
+
+    lxmf, rns = _load_sdks()
+    event = replace(sample_event, payload={"body": "x" * 200, "title": "reply title"})
+    rendered = await LxmfRenderer(metadata_embedding=True).render(
+        event,
+        RenderingContext(
+            target_adapter="lxmf-contract",
+            target_platform="lxmf",
+            delivery_strategy="direct",
+            max_text_chars=16384,
+        ),
+    )
+    destination = _destination_stub(rns, 0x11)
+    destination.type = rns.Destination.SINGLE
+    source = _destination_stub(rns, 0x22)
+    source.sign = rns.Identity().sign
+
+    def pack(fields):
+        message = lxmf.LXMessage(
+            destination,
+            source,
+            rendered.payload["content"],
+            title=rendered.payload["title"],
+            fields=fields,
+            desired_method=lxmf.LXMessage.OPPORTUNISTIC,
+        )
+        message.pack()
+        return message
+
+    plain = pack({})
+    embedded = pack(rendered.payload["fields"])
+    assert plain.method == lxmf.LXMessage.OPPORTUNISTIC
+    assert embedded.method == lxmf.LXMessage.DIRECT
+    assert embedded.content == plain.content == b"x" * 200
+    assert embedded.title == plain.title == b"reply title"
+    envelope = embedded.fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
+    assert envelope["event_id"] == event.event_id
+    # Inspect the actual wire payload, not only the pre-pack fields dict.
+    msgpack = import_module("RNS.vendor.umsgpack")
+    header_length = (
+        lxmf.LXMessage.DESTINATION_LENGTH * 2 + lxmf.LXMessage.SIGNATURE_LENGTH
+    )
+    payload = msgpack.unpackb(embedded.packed[header_length:])
+    assert payload[1:] == [embedded.title, embedded.content, embedded.fields]
