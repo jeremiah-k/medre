@@ -126,6 +126,13 @@ callback. This quiesces
 delivery callbacks, links, queue persistence, and router jobs without tearing
 down shared RNS transport.
 
+The pinned RNode reconnect loop also has a detach race: it checks the detached
+flag before sleeping, then calls `open_port()` without another check. A retry
+already in flight can attempt to open the port after BLE detachment releases its
+connection jobs. SDK contract tests distinguish that limitation from the
+post-detach reconnect refusal. MEDRE does not own or patch this physical-interface
+retry loop; it is not part of the adapter-session shutdown guarantee.
+
 The upstream router job loop has no join/stop primitive and remains a dormant
 daemon after `exit_handler_running` is set. MEDRE cannot join that thread using
 a public LXMF API; repeated router recreation can therefore leave dormant

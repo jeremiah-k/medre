@@ -136,9 +136,17 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
   singleton. LXMF has no public join/stop primitive for the router daemon job
   loop, so a stopped router can leave a dormant daemon thread until process
   exit.
-- Reticulum exposes no transport-down event, so there is no proactive
-  reconnect: a lost transport is first noticed when an outbound send fails,
-  and recovery relies on that send's bounded local retry.
+- MEDRE has no production transport-down subscription or automatic session
+  reconnect trigger. Reticulum owns physical-interface reconnect; the same
+  MEDRE router can remain active while an interface is offline and recovering.
+  A successful local handoff can still queue undeliverable work. The session's
+  bounded local retry handles handoff exceptions, while asynchronous SDK
+  observations report delivery outcomes.
+- RNode detachment blocks reconnect calls started after detachment, but a
+  reconnect already waiting can attempt to open the port once more. The pinned
+  SDK checks its detached flag before the retry wait, not before the subsequent
+  open. MEDRE does not own this physical-interface retry loop or guarantee that
+  detachment has quiesced every in-flight operation.
 - Adapter health is local-scope only: `health_check()` reflects the
   MEDRE-owned session/router lifecycle (`healthy` only while the local
   router is connected and running, `failed` when it is missing or torn

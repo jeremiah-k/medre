@@ -343,7 +343,11 @@ claims.
    - Fake mode: sets `connected=True`, `router_running=True`.
    - Real mode: `_connect_real()` — initialises `RNS.Reticulum` (reuses singleton if available), loads or auto-generates `RNS.Identity`, creates `LXMF.LXMRouter(identity=..., storagepath=...)`, registers delivery callback.
 3. **Connected** — Router operational; inbound messages flow via `_on_lxmf_delivery` → normalise → `call_soon_threadsafe` → `_invoke_inbound_callback` → adapter `_on_packet`.
-4. **Reconnecting** — On unexpected disconnect, bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts).
+4. **Transport recovery** — Reticulum owns physical-interface reconnection.
+   Its interface can recover while the MEDRE session retains the same router,
+   delivery destination, and Reticulum singleton. The session's private
+   bounded reconnect helper has no production disconnect trigger; automatic
+   MEDRE session recreation is not part of this lifecycle.
 5. **Stopped** — `stop(timeout=5.0)`:
    - Sets `_stop_requested` (prevents reconnect loops).
    - Cancels announce and reconnect tasks.
@@ -384,11 +388,14 @@ health, so `diagnostics()` carries an explicit, always-`"unknown"`
 router reports `failed`; the absence of a public peer-liveness API is
 reported as `unknown`, not manufactured into a failure or a success.
 
-Reticulum exposes no transport-down event (see
+MEDRE subscribes to no Reticulum transport-down event (see
 [`transport-limitations.md`](../appendices/transport-limitations.md)),
-so a silently lost transport is first noticed when an outbound send
-fails; recovery relies on that send's bounded local retry. This is a
-documented observability boundary, not an invented health state.
+so physical-interface loss does not change these local lifecycle flags or
+trigger MEDRE's private reconnect helper. A router can accept an outbound
+handoff while its interface is offline; only subsequent SDK observations
+provide delivery-state evidence. Reticulum handles interface recovery,
+and the session's bounded local retry handles transient handoff exceptions.
+Neither local acceptance nor absent failure callbacks establishes reachability.
 
 ---
 
@@ -539,7 +546,7 @@ proof.
 - Codec tests cover text decode, title extraction, metadata construction, MEDRE envelope extraction from fields.
 - Renderer tests cover text/title rendering, metadata embedding toggle, envelope structure.
 - Fields helper tests cover embed/extract round-trip, corrupt/missing envelope handling, attachment detection, envelope relations check.
-- Session tests cover lifecycle (start/stop idempotency), fake mode, real mode (mocked SDK), reconnect backoff, outbound send with retry, delivery state tracking, thread bridging, and `resolve_display_name` announce-cache lookup.
+- Session tests cover lifecycle (start/stop idempotency), fake mode, real mode (mocked SDK), the private reconnect helper's backoff, outbound send with retry, delivery state tracking, thread bridging, and `resolve_display_name` announce-cache lookup. Helper tests do not establish a production disconnect trigger.
 - Health lifecycle tests cover the local-scope contract: `healthy` only while the owned session reports its router running and connected, `failed` when the session is torn down under a started adapter, `unknown` when not started, and `peer_reachability`/`health_scope` diagnostics at every phase.
 - The two-instance relation roundtrip
   (`tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`)
