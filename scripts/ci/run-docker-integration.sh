@@ -11,7 +11,8 @@ set -euo pipefail
 # also be used for local runs.
 #
 # Usage:
-#   ./scripts/ci/run-docker-integration.sh
+#   uv sync --locked --extra dev --extra matrix --extra meshtastic
+#   uv run --no-sync bash scripts/ci/run-docker-integration.sh
 #
 # Environment variables:
 #   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.162.0)
@@ -46,12 +47,16 @@ if ! command -v "${PYTHON}" >/dev/null 2>&1; then
 	exit 1
 fi
 
-# Ensure integration extras are installed.
-echo "Checking MEDRE installation..."
-INSTALLED=$("${PYTHON}" -c "import medre; print('ok')" 2>/dev/null || true)
-if [[ ${INSTALLED} != "ok" ]]; then
-	echo "Installing MEDRE with matrix + meshtastic extras..."
-	"${PYTHON}" -m pip install -e ".[matrix,meshtastic]" --quiet
+# Check the selected environment without mutating it. A uv-created venv need
+# not contain pip, and importing core MEDRE does not prove SDK availability.
+echo "Checking MEDRE and integration dependencies..."
+if ! "${PYTHON}" -c "import medre, pytest, nio, meshtastic, pubsub"; then
+	echo "ERROR: the selected Python environment lacks integration dependencies." >&2
+	echo "Prepare the environment, then run this script through uv:" >&2
+	echo '  uv sync --locked --extra dev --extra matrix --extra meshtastic' >&2
+	echo '  uv run --no-sync bash scripts/ci/run-docker-integration.sh' >&2
+	echo 'For an existing pip environment: python -m pip install -e ".[matrix,meshtastic,dev]"' >&2
+	exit 1
 fi
 
 echo ""

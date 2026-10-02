@@ -91,7 +91,8 @@ check_import() {
 		echo "ERROR: ${label} is not installed." >&2
 		echo "" >&2
 		echo "Install the required extras:" >&2
-		echo '  pip install -e ".[matrix,meshtastic,dev]"' >&2
+		echo '  uv sync --locked --extra dev --extra matrix --extra meshtastic' >&2
+		echo '  uv run --no-sync bash scripts/ci/run-docker-bridge-artifacts.sh' >&2
 		echo "" >&2
 		echo "Then re-run this script." >&2
 		exit 1
