@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
-import inspect
 import json
 import logging
 import os
@@ -33,6 +32,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
+from medre.adapters.matrix.client_lifecycle import close_matrix_client
 from medre.adapters.matrix.errors import (
     MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
     MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
@@ -839,7 +839,7 @@ class MatrixSession:
         if not getattr(self._client, "logged_in", False):
             # Partial startup cleanup: close client on login failure.
             try:
-                await self._client.close()
+                await close_matrix_client(self._client, self._logger)
             except Exception:
                 pass
             self._client = None
@@ -878,7 +878,7 @@ class MatrixSession:
         if not self._crypto_enabled and self._config.encryption_mode == "e2ee_required":
             if self._client:
                 try:
-                    await self._client.close()
+                    await close_matrix_client(self._client, self._logger)
                 except Exception:
                     pass
                 self._client = None
@@ -953,7 +953,7 @@ class MatrixSession:
                 # Clean up any partial client from failed crypto start
                 if self._client is not None:
                     try:
-                        await self._client.close()
+                        await close_matrix_client(self._client, self._logger)
                     except Exception:
                         pass
                     self._client = None
@@ -1627,7 +1627,7 @@ class MatrixSession:
         if not getattr(self._client, "logged_in", False):
             # Partial startup cleanup: close client on login failure.
             try:
-                await self._client.close()
+                await close_matrix_client(self._client, self._logger)
             except Exception:
                 pass
             self._client = None
@@ -1700,7 +1700,7 @@ class MatrixSession:
         except Exception as exc:
             sync_coro.close()
             try:
-                await self._client.close()
+                await close_matrix_client(self._client, self._logger)
             except Exception:
                 pass
             self._client = None
@@ -2630,42 +2630,29 @@ class MatrixSession:
 
         if self._client is not None:
             client = self._client
-            close = getattr(client, "close", None)
-            if callable(close):
+            close_task = asyncio.create_task(close_matrix_client(client, self._logger))
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                done, _pending = await asyncio.wait({close_task}, timeout=remaining)
+            except asyncio.CancelledError:
+                close_task.cancel()
+                close_task.add_done_callback(self._consume_task_result)
+                raise
+
+            if done:
                 try:
-                    close_result = close()
+                    close_task.result()
+                except asyncio.CancelledError:
+                    pass
                 except Exception as exc:
                     self._logger.warning("Error closing client: %s", exc)
-                    close_result = None
-                else:
-                    if not inspect.isawaitable(close_result):
-                        close_result = None
-                if inspect.isawaitable(close_result):
-                    close_task = asyncio.ensure_future(close_result)
-                    remaining = max(0.0, deadline - time.monotonic())
-                    try:
-                        done, _pending = await asyncio.wait(
-                            {close_task}, timeout=remaining
-                        )
-                    except asyncio.CancelledError:
-                        close_task.cancel()
-                        close_task.add_done_callback(self._consume_task_result)
-                        raise
-
-                    if done:
-                        try:
-                            close_task.result()
-                        except asyncio.CancelledError:
-                            pass
-                        except Exception as exc:
-                            self._logger.warning("Error closing client: %s", exc)
-                    else:
-                        close_task.cancel()
-                        close_task.add_done_callback(self._consume_task_result)
-                        self._logger.warning(
-                            "Matrix client close did not finish within the shared "
-                            "shutdown deadline"
-                        )
+            else:
+                close_task.cancel()
+                close_task.add_done_callback(self._consume_task_result)
+                self._logger.warning(
+                    "Matrix client close did not finish within the shared "
+                    "shutdown deadline"
+                )
 
             # Yield to the event loop so a normally completed aiohttp close
             # can finish connector callbacks before the session drops its
