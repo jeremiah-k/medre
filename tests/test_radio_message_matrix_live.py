@@ -1211,8 +1211,6 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
             await asyncio.to_thread(_stop_synapse, suppress_errors=True)
 
 
-@_REQUIRE
-@_REQUIRE_LX
 def _lx_ingest_evidence(app: Any) -> str:
     """Stage attribution for an LXMF ingest failure, from adapter evidence.
 
@@ -1242,6 +1240,8 @@ def _lx_ingest_evidence(app: Any) -> str:
     )
 
 
+@_REQUIRE
+@_REQUIRE_LX
 @pytest.mark.skipif(
     not _HAS_LXMF,
     reason="lxmf matrix leg requires the pinned lxmf/rns SDKs "
