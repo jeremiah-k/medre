@@ -505,18 +505,14 @@ class TestLxmfPairEgress:
 @pytest.mark.hardware
 @_REQUIRE_PAIR
 class TestLxmfPairRelationsAndIsolation:
-    """N5 identity distinction + N7 relation envelope + RF-off negative."""
+    """N5 native identity distinction and N7 relation envelope over RF."""
 
-    async def test_relation_envelope_and_rf_off_control(self, tmp_path: Path) -> None:
-        """N5 (identical text, distinct native hashes), N7 relation envelope
-        decoded by the real inbound path, then the RF-off negative with a
-        physically quiesced peer radio (hub per-port VBUS cut) and a
-        restored positive."""
+    async def test_relation_envelope_and_native_identity(self, tmp_path: Path) -> None:
+        """N5 native identity distinction and N7 relation envelope over RF."""
         if _QUICK:
             pytest.skip("quick mode: relations/absence are full-mode proof")
         app = await _launch(tmp_path / "lab.db", with_route=True)
         try:
-            fake = app.adapters["lab_src"]
             # -- N5: identical text twice = two RF messages, two durable
             # events with genuinely different native message hashes (LXMF
             # assigns a fresh content hash per message).  A same-hash replay
@@ -613,69 +609,100 @@ class TestLxmfPairRelationsAndIsolation:
             ), "referenced native identity not preserved across RF"
             assert rel.fallback_text == fallback
 
-            # -- N6/N7 RF-off negative: cut VBUS to the PEER radio via the
-            # mapped hub port (physical power loss — labelled accurately).
-            # The listener is verifiably dead (its radio is unpowered, so no
-            # layer-C observation is possible), the hub status is the power
-            # authority, and MEDRE may never claim delivery while the RF
-            # path is physically quiesced.
-            if not _HAS_HUB_CONTROL:
-                pytest.skip("RF-off control needs LXMF_PEER_HUB and LXMF_PEER_HUB_PORT")
-            probe = _nonce("N6-ghost")
+        finally:
+            await _stop_app(app)
 
-            await asyncio.to_thread(
+
+async def _set_peer_hub_power(action: str) -> None:
+    """Settle the bounded power command before propagating cancellation.
+
+    Cancelling to_thread does not stop its worker. Wait for power-off to
+    finish before restoration can start, so a late worker cannot undo it.
+    """
+    task = asyncio.create_task(asyncio.to_thread(
+        subprocess.run,
+        ["/usr/sbin/uhubctl", "-l", _PEER_HUB, "-p", _PEER_HUB_PORT, "-a", action],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    ))
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
+@pytest.mark.live
+@pytest.mark.hardware
+@_REQUIRE_PAIR
+@pytest.mark.skipif(
+    not _HAS_HUB_CONTROL,
+    reason="RF-off control needs LXMF_PEER_HUB and LXMF_PEER_HUB_PORT",
+)
+@pytest.mark.skipif(_QUICK, reason="quick mode: RF-off absence is full-mode proof")
+async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
+    """Bound remote delivery claims during peer power loss, then recover."""
+    app = await _launch(tmp_path / "lab.db", with_route=True)
+    try:
+        fake = app.adapters["lab_src"]
+        # Establish the peer identity before the interruption; this test
+        # must also work alone with an empty path cache.
+        with _PeerListener(_RECALL_TIMEOUT + _LISTENER_MARGIN):
+            assert await _await_peer_recall(app, _PEER_DEST())
+        # -- N6/N7 RF-off negative: cut VBUS to the PEER radio via the
+        # mapped hub port (physical power loss — labelled accurately).
+        # The listener is verifiably dead (its radio is unpowered, so no
+        # layer-C observation is possible), the hub status is the power
+        # authority, and MEDRE may never claim delivery while the RF
+        # path is physically quiesced.
+        probe = _nonce("N6-ghost")
+
+        try:
+            await _set_peer_hub_power("off")
+            probe_result = await asyncio.to_thread(
                 subprocess.run,
-                [
-                    "/usr/sbin/uhubctl",
-                    "-l",
-                    _PEER_HUB,
-                    "-p",
-                    _PEER_HUB_PORT,
-                    "-a",
-                    "off",
-                ],
-                check=True,
+                ["/usr/sbin/uhubctl", "-l", _PEER_HUB, "-p", _PEER_HUB_PORT],
                 capture_output=True,
                 text=True,
+                check=True,
                 timeout=20,
             )
-            try:
-                probe_result = await asyncio.to_thread(
-                    subprocess.run,
-                    ["/usr/sbin/uhubctl", "-l", _PEER_HUB, "-p", _PEER_HUB_PORT],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    timeout=20,
+            out = probe_result.stdout
+            assert "0000" in out, f"hub port not off: {out!r}"
+            await fake.simulate_inbound(
+                make_meshtastic_text_packet(
+                    text=probe,
+                    sender="!peer0001",
+                    channel=0,
+                    packet_id=950_001,
                 )
-                out = probe_result.stdout
-                assert "0000" in out, f"hub port not off: {out!r}"
-                await fake.simulate_inbound(
-                    make_meshtastic_text_packet(
-                        text=probe,
-                        sender="!peer0001",
-                        channel=0,
-                        packet_id=950_001,
-                    )
-                )
-                # Bounded absence: the correlated message cannot arrive via a
-                # hidden host-local path while the RF path is physically dead.
-                # MEDRE-side admission is expected (layer A); the honest
-                # acceptance semantics must not fabricate a peer delivery.
-                absence_deadline = time.monotonic() + 35.0
-                delivered_claim = False
-                while time.monotonic() < absence_deadline:
-                    counts = app.adapters["lx_radio"].session.delivery_state_counts()
-                    if counts.get("delivered"):
-                        delivered_claim = True
-                        break
-                    await asyncio.sleep(2.0)
-                assert not delivered_claim, "delivery claimed with the RF path dead"
-                assert await _events_with_body(
-                    app, probe
-                ), "probe event missing MEDRE-side (layer A regression)"
-            finally:
-                await asyncio.to_thread(
+            )
+            # Bounded absence: the correlated message cannot arrive via a
+            # hidden host-local path while the RF path is physically dead.
+            # MEDRE-side admission is expected (layer A); the honest
+            # acceptance semantics must not fabricate a peer delivery.
+            delivered_claim = await wait_until(
+                lambda: bool(
+                    app.adapters["lx_radio"].session.delivery_state_counts().get("delivered")
+                ),
+                timeout=35.0,
+                interval=2.0,
+            )
+            assert not delivered_claim, "delivery claimed with the RF path dead"
+            assert await _events_with_body(
+                app, probe
+            ), "probe event missing MEDRE-side (layer A regression)"
+        finally:
+            await _set_peer_hub_power("on")
+
+            async def _hub_power_restored() -> bool:
+                result = await asyncio.to_thread(
                     subprocess.run,
                     [
                         "/usr/sbin/uhubctl",
@@ -683,82 +710,64 @@ class TestLxmfPairRelationsAndIsolation:
                         _PEER_HUB,
                         "-p",
                         _PEER_HUB_PORT,
-                        "-a",
-                        "on",
                     ],
-                    check=True,
                     capture_output=True,
                     text=True,
+                    check=True,
                     timeout=20,
                 )
+                return "0000" not in result.stdout
 
-                async def _hub_power_restored() -> bool:
-                    result = await asyncio.to_thread(
-                        subprocess.run,
-                        [
-                            "/usr/sbin/uhubctl",
-                            "-l",
-                            _PEER_HUB,
-                            "-p",
-                            _PEER_HUB_PORT,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                        timeout=20,
-                    )
-                    return "0000" not in result.stdout
+            assert await wait_until(
+                _hub_power_restored, timeout=20.0, interval=0.5
+            ), "hub port did not report power restored"
 
-                assert await wait_until(
-                    _hub_power_restored, timeout=20.0, interval=0.5
-                ), "hub port did not report power restored"
-
-            # -- Restored positive: after VBUS restore, LXMF first completes
-            # the still-pending ghost delivery (retry ladder) — its arrival
-            # at the freshly armed listener IS the restored-RF proof for the
-            # pre-off nonce.  Then a fresh nonce proves the adapter stays
-            # usable after the outage.
-            restored = _nonce("N6-positive")
-            with _PeerListener(_RECALL_TIMEOUT + 300.0 + 120.0 + _LISTENER_MARGIN) as peer:
-                assert await _await_peer_recall(
-                    app, _PEER_DEST()
-                ), "MEDRE runtime cannot recall the peer identity after restore"
-                await fake.simulate_inbound(
-                    make_meshtastic_text_packet(
-                        text=restored,
-                        sender="!peer0001",
-                        channel=0,
-                        packet_id=950_002,
-                    )
+        # -- Restored positive: after VBUS restore, LXMF first completes
+        # the still-pending ghost delivery (retry ladder) — its arrival
+        # at the freshly armed listener IS the restored-RF proof for the
+        # pre-off nonce.  Then a fresh nonce proves the adapter stays
+        # usable after the outage.
+        restored = _nonce("N6-positive")
+        with _PeerListener(_RECALL_TIMEOUT + 300.0 + 120.0 + _LISTENER_MARGIN) as peer:
+            assert await _await_peer_recall(
+                app, _PEER_DEST()
+            ), "MEDRE runtime cannot recall the peer identity after restore"
+            await fake.simulate_inbound(
+                make_meshtastic_text_packet(
+                    text=restored,
+                    sender="!peer0001",
+                    channel=0,
+                    packet_id=950_002,
                 )
-                rx = peer.packets_until(
+            )
+            rx = peer.packets_until(
+                lambda ps: any(
+                    probe in (p.get("content") or "")
+                    or restored in (p.get("content") or "")
+                    for p in ps
+                ),
+                300.0,
+            )
+            got_restored = [p for p in rx if restored in (p.get("content") or "")]
+            got_ghost = [p for p in rx if probe in (p.get("content") or "")]
+            assert got_ghost or got_restored, (
+                "neither the pending ghost nor the fresh nonce arrived "
+                f"after restore; raw={rx!r}"
+            )
+            if not got_restored:
+                # Require a fresh delivery independently of the queued
+                # pre-outage message to prove the adapter remains usable.
+                rx2 = peer.packets_until(
                     lambda ps: any(
-                        probe in (p.get("content") or "")
-                        or restored in (p.get("content") or "")
-                        for p in ps
+                        restored in (p.get("content") or "") for p in ps
                     ),
-                    300.0,
+                    120.0,
                 )
-                got_restored = [p for p in rx if restored in (p.get("content") or "")]
-                got_ghost = [p for p in rx if probe in (p.get("content") or "")]
-                assert got_ghost or got_restored, (
-                    "neither the pending ghost nor the fresh nonce arrived "
-                    f"after restore; raw={rx!r}"
+                got_restored = [
+                    p for p in rx2 if restored in (p.get("content") or "")
+                ]
+                assert got_restored, (
+                    "fresh nonce not delivered after restore; " f"raw2={rx2!r}"
                 )
-                if not got_ghost:
-                    # Ghost correlation proves the restored path; still give
-                    # the fresh nonce its own bounded chance to land.
-                    rx2 = peer.packets_until(
-                        lambda ps: any(
-                            restored in (p.get("content") or "") for p in ps
-                        ),
-                        120.0,
-                    )
-                    got_restored = [
-                        p for p in rx2 if restored in (p.get("content") or "")
-                    ]
-                    assert got_restored, (
-                        "fresh nonce not delivered after restore; " f"raw2={rx2!r}"
-                    )
-        finally:
-            await _stop_app(app)
+    finally:
+        await _stop_app(app)

@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _SYNAPSE_IMAGE = (
-    "matrixdotorg/synapse:v1.161.0"
-    "@sha256:6b95dd129e35e97e8032cb759e5db4a516a5f7ef6c98d34d716fea1ae239b62a"
+    "matrixdotorg/synapse:v1.162.0"
+    "@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311"
 )
 _CONTAINER = "medre-matrix-synapse"
 _PORT = 18008
