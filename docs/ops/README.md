@@ -19,6 +19,7 @@ extras instead of activating `.venv`.
 | [diagnostics-and-evidence.md](diagnostics-and-evidence.md) | Collecting evidence bundles, interpreting diagnostic output      |
 | [recovery-and-replay.md](recovery-and-replay.md)      | Crash recovery, event replay, and failure drill procedures       |
 | [transport-setup/](transport-setup/)            | Per-transport setup guides (Matrix, Meshtastic, MeshCore, LXMF)  |
+| [live-validation/short-iterations.md](live-validation/short-iterations.md) | Bounded hardware campaign from native pairs through cross-transport bridges |
 | [live-validation/](live-validation/)            | Per-transport live smoke test procedures                         |
 | [troubleshooting.md](troubleshooting.md)          | Common issues and resolution steps                               |
 
