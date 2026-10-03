@@ -24,6 +24,7 @@ silently diverging across CI / compose / local runs.
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,7 @@ _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docker-integration.yml"
 _CONFTEST = _REPO_ROOT / "tests" / "integration" / "conftest.py"
 _ARTIFACTS = _REPO_ROOT / "src" / "medre" / "runtime" / "docker_bridge_artifacts.py"
 _RUN_SCRIPT = _REPO_ROOT / "scripts" / "ci" / "run-docker-integration.sh"
+_LIVE_STARTER = _REPO_ROOT / "tests" / "helpers" / "synapse_starter.py"
 
 # Central tag pattern: any run of characters that cannot continue an image
 # reference — it stops at the ``@`` digest separator, whitespace, a closing
@@ -70,6 +72,40 @@ def test_compose_pins_both_images_with_digest() -> None:
     for _label, repo, _env in _IMAGES:
         _tag, digest = _compose_ref(repo)
         assert digest is not None, f"{repo} must be digest-pinned in compose"
+
+
+def test_live_synapse_starter_matches_compose() -> None:
+    """Physical-radio Matrix tests use the same pinned server as CI."""
+    tag, digest = _compose_ref("matrixdotorg/synapse")
+    source = _read(_LIVE_STARTER)
+    image = re.search(r'"matrixdotorg/synapse:([^"\s]+)"\s*"@([^"\s]+)"', source)
+    assert image is not None, "live starter must pin the Synapse tag and digest"
+    assert image.groups() == (tag, digest)
+
+
+def test_renovate_tracks_live_synapse_tag_and_digest() -> None:
+    """Dependency updates cover the live starter's split string literal."""
+    config = json.loads(_read(_REPO_ROOT / "renovate.json"))
+    manager = next(
+        item for item in config["customManagers"]
+        if item.get("depNameTemplate") == "matrixdotorg/synapse"
+    )
+    assert any(
+        re.search(pattern.strip("/"), "tests/helpers/synapse_starter.py")
+        for pattern in manager["managerFilePatterns"]
+    ), "Renovate does not scan the physical-radio Matrix server"
+    tag, digest = _compose_ref("matrixdotorg/synapse")
+    matches = [
+        match for pattern in manager["matchStrings"]
+        for match in re.finditer(
+            pattern.replace("(?<", "(?P<"), _read(_LIVE_STARTER)
+        )
+    ]
+    assert any(
+        match.groupdict().get("currentValue") == tag
+        and match.groupdict().get("currentDigest") == digest
+        for match in matches
+    ), "Renovate must capture the live server's tag and digest together"
 
 
 @pytest.mark.parametrize(("label", "repo", "env"), _IMAGES)

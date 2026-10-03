@@ -25,16 +25,17 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Synapse integration image across compose, CI workflow, conftest, runtime env-fallbacks, and runner script",
+      "description": "Synapse integration image across compose, CI workflow, conftest, live starter, runtime env-fallbacks, and runner script",
       "managerFilePatterns": [
         "/(^|/)docker-compose\\.integration\\.yaml$/",
         "/(^|/)\\.github[/]workflows[/]docker-integration\\.yml$/",
         "/(^|/)tests[/]integration[/]conftest\\.py$/",
+        "/(^|/)tests[/]helpers[/]synapse_starter\\.py$/",
         "/(^|/)src[/]medre[/]runtime[/]docker_bridge_artifacts\\.py$/",
         "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/"
       ],
       "matchStrings": [
-        "matrixdotorg/synapse:(?<currentValue>[^@\\\"\\)\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
+        "matrixdotorg/synapse:(?<currentValue>[^@\\\"\\)\\s]+)(?:[\"']\\s*[\"'])?(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "matrixdotorg/synapse",
