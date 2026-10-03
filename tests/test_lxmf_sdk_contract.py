@@ -243,11 +243,11 @@ async def test_rendered_title_and_envelope_count_toward_opportunistic_fallback(
 @pytest.mark.parametrize(
     ("candidate", "qualified"),
     [
-        ({}, False),
-        ({"impl_name": "RNS", "version": None}, False),
-        ({"impl_name": "other", "version": "9.0.0"}, False),
-        ({"impl_name": "RNS", "version": "1.5.1"}, False),
-        ({"impl_name": "RNS", "version": "1.5.2"}, True),
+        ({"transport": True}, False),
+        ({"transport": True, "impl_name": "RNS", "version": None}, False),
+        ({"transport": True, "impl_name": "other", "version": "9.0.0"}, False),
+        ({"transport": True, "impl_name": "RNS", "version": "1.5.1"}, False),
+        ({"transport": True, "impl_name": "RNS", "version": "1.5.2"}, True),
     ],
 )
 def test_rns_discovery_requires_recognized_version_metadata(
@@ -261,6 +261,48 @@ def test_rns_discovery_requires_recognized_version_metadata(
         rns.Reticulum, "should_autoconnect_unverified_implementations", lambda: False
     )
     assert discovery.autoconnect_qualified(candidate) is qualified
+
+
+@pytest.mark.parametrize("unverified", [False, True])
+@pytest.mark.parametrize(
+    "transport_metadata", [{}, {"transport": False}, {"transport": None}, {"transport": True}],
+)
+def test_rns_discovery_requires_advertised_transport_even_with_override(
+    monkeypatch, transport_metadata: dict, unverified: bool,
+) -> None:
+    """The implementation override cannot bypass the transport-advertisement gate."""
+    _, rns = _load_sdks()
+    discovery_type = import_module("RNS.Discovery").InterfaceDiscovery
+    discovery = object.__new__(discovery_type)
+    monkeypatch.setattr(
+        rns.Reticulum, "should_autoconnect_unverified_implementations", lambda: unverified
+    )
+    candidate = {"impl_name": "RNS", "version": "1.5.2", **transport_metadata}
+    assert discovery.autoconnect_qualified(candidate) is (
+        transport_metadata.get("transport") is True
+    )
+
+
+@pytest.mark.parametrize("unverified", [False, True])
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        {"transport": True},
+        {"transport": True, "impl_name": "other", "version": "9.0.0"},
+        {"transport": True, "impl_name": "RNS", "version": "1.5.1"},
+    ],
+)
+def test_rns_discovery_override_bypasses_only_implementation_and_version(
+    monkeypatch, candidate: dict, unverified: bool,
+) -> None:
+    """Explicit override admits unverified implementations only on transport nodes."""
+    _, rns = _load_sdks()
+    discovery_type = import_module("RNS.Discovery").InterfaceDiscovery
+    discovery = object.__new__(discovery_type)
+    monkeypatch.setattr(
+        rns.Reticulum, "should_autoconnect_unverified_implementations", lambda: unverified
+    )
+    assert discovery.autoconnect_qualified(candidate) is unverified
 
 
 @pytest.fixture
