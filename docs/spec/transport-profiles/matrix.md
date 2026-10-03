@@ -28,7 +28,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                         |
 | `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
 | `require_encrypted_rooms`                  | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
-| `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
+| `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`          | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite |
 | `origin_label`                             | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
 | `relay_prefix`                             | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
 
@@ -625,7 +625,10 @@ so a hostile or broken value cannot park delivery indefinitely.
 
 - Config validation enforces: non-empty `homeserver` (http/https), `user_id` starting
   with `@`, non-empty `access_token`, valid `encryption_mode`, valid `auto_join_rooms`
-  entries (canonical `!localpart:server` form).
+  entries (`!` followed by a non-empty opaque identifier). Room IDs MUST remain
+  unchanged and case-sensitive; a domain suffix MUST NOT be required. Legacy
+  `!localpart:server` IDs and room version 12 domainless `!opaque_id` IDs are
+  supported. See the [Matrix room ID specification](https://spec.matrix.org/v1.19/appendices/#room-ids).
 - Sidecar credential fallback from `~/.config/medre/credentials/matrix.json` when config
   fields are empty.
 - Adapter unit tests cover messages, replies, reactions, edits, threads,

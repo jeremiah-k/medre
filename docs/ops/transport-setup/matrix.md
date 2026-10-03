@@ -170,7 +170,9 @@ Manual alternative (plaintext or hand-managed rooms):
 2. Create a new room. Give it any name.
 3. Invite the bot user to the room.
 4. Accept the invite from the bot account (log in as the bot in a second client session or via the join API).
-5. Copy the room ID. It looks like `!opaquestring:localhost`. Room aliases (the `#name:server` form) will not work in the allowlist.
+5. Copy the room ID exactly. Legacy rooms use `!opaquestring:localhost`;
+   room version 12 uses a domainless `!opaque_id`. Both forms work. Room aliases
+   (the `#name:server` form) will not work in the allowlist.
 6. Confirm the room is unencrypted for plaintext testing. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
 
 ## Allowlist Configuration
