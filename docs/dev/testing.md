@@ -14,6 +14,10 @@ below. See the [README](../../README.md) for project context and the
 [Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
 commands.
 
+For real devices, follow the [short hardware iteration sequence](../ops/live-validation/short-iterations.md).
+It records independent RF observations separately from durable admission and
+SDK acceptance, with focused repeats before endurance runs.
+
 ## File Size Limits
 
 > **Agent responsibility**: Before adding tests to any file, check its current
