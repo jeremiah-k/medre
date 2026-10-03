@@ -72,8 +72,8 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 
 | Method        | Code   | Behavior                                                        | Reliability                                                    | Latency                |
 | ------------- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------- |
-| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | High. Retries up to 5. Proof receipts confirm delivery.        | Seconds to minutes     |
-| OPPORTUNISTIC | `0x01` | Single RNS packet, no link. Embedded in route data.             | Best-effort. No ACK, no retry. Max 1 attempt.                  | Seconds if peer online |
+| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | Bounded SDK retries; asynchronous delivery receipts.          | Seconds to minutes     |
+| OPPORTUNISTIC | `0x01` | Single RNS packet without a link when the packed payload fits. | SDK retry scheduling and packet delivery receipts when available. | Depends on path and medium |
 | PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours       |
 | PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                  | N/A                    |
 
@@ -98,9 +98,28 @@ MEDRE will refuse a propagated handoff until one is configured.
 - Link establishment takes time. First delivery to a new peer may take seconds to minutes.
 - No "instant delivered" guarantee. `deliver()` returning means the message was handed off, not received.
 
-**OPPORTUNISTIC** is fire-and-forget. Use only for quick status messages where loss is acceptable.
+**OPPORTUNISTIC** requests single-packet delivery. The pinned SDK supports packet
+delivery receipts and bounded retry scheduling; it is not a guarantee of arrival.
+For MEDRE's encrypted single-destination messages, a packed payload above the
+SDK's 287-byte content budget automatically falls back to DIRECT delivery. The
+title and packed fields count toward that budget, including the MEDRE metadata
+envelope. A short body can therefore require a link. The budget is measured in
+packed bytes, not text characters, and does not replace MEDRE's renderer limits.
+
+The configured delivery method expresses the requested SDK method. It does not
+force an oversized encrypted message into one packet or suppress the SDK's
+fallback. DIRECT fallback preserves the body, title, and metadata.
 
 **PROPAGATED** is store-and-forward. The recipient must explicitly sync from the propagation node. Latency depends entirely on when the recipient checks in.
+
+### Retry and Observation Windows
+
+LXMF derives path-request waits and delivery retry spacing from Reticulum's
+medium and destination timing. Slow interfaces can extend those waits and alter
+the attempt limit. A fixed short observation window can expire while the SDK is
+still working; pending at the window's end does not establish delivery failure.
+Use asynchronous delivery observations for outcomes and the
+[LXMF live-validation guide](../live-validation/lxmf.md) for finite test budgets.
 
 ## Async Delivery Caveats
 
@@ -153,6 +172,22 @@ A Reticulum network is one or more Reticulum instances that can reach each other
 
 On first run, Reticulum creates a default config at `~/.reticulum/config` with `AutoInterface` (IPv6 link-local multicast over UDP). This discovers other Reticulum nodes on the same LAN segment automatically. No IP infrastructure required.
 
+### Discovered Network Interfaces
+
+Reticulum's optional network-interface discovery and autoconnection are separate
+from AutoInterface LAN neighbor discovery and LXMF delivery-destination announces.
+With discovered-interface autoconnection enabled, the pinned SDK's default policy
+requires a recognized `RNS` implementation and advertised version at least
+`1.5.2`. Missing, unrecognized, or older version metadata prevents automatic
+attachment. Other eligibility checks still apply; passing the version check
+alone does not establish a connection.
+
+Upgrade the advertising node or configure a compatible static interface when a
+discovered endpoint does not qualify. This filter does not affect an explicitly
+configured RNodeInterface or static TCP interface. Reticulum's
+`autoconnect_unverified_implementations` option overrides the implementation and
+version filter; MEDRE does not enable it.
+
 ### Two-Node Minimum for Delivery Validation
 
 | Setup                       | How                                                           | Complexity |
@@ -188,24 +223,65 @@ Do not run rnsd during MEDRE live harness execution — the harness needs to own
 MEDRE owns each `LXMRouter` it creates. Because the router constructor replaces
 SIGINT/SIGTERM handlers, MEDRE snapshots the handlers that existed immediately
 before construction and restores them as soon as construction returns. On
-stop/reconnect it runs the router's idempotent `exit_handler()` to detach
+session teardown it runs the router's idempotent `exit_handler()` to detach
 delivery callbacks/links and persist router state, then unregisters that
 router's `atexit` callback. MEDRE deliberately does **not** call the
 process-global `RNS.Reticulum.exit_handler()`.
 
-LXMF 1.1.x does not expose a join/stop primitive for the router's daemon job
+The pinned LXMF SDK does not expose a join/stop primitive for the router's daemon job
 loop. The loop is quiesced by `exit_handler_running` but remains dormant until
 process exit; repeated router recreation may therefore leave dormant daemon
 threads.
 
-## Reconnect Behavior
+## Connection Recovery
 
-The `LxmfSession` implements bounded exponential backoff reconnection:
+Reticulum owns reconnecting its physical interfaces, including supported RNode
+serial/BLE and TCP connections. Recovery timing and availability depend on the
+configured interface. An interface can go offline and recover while MEDRE keeps
+the same LXMF router and delivery destination alive. MEDRE does not shut down the
+process-global Reticulum singleton when its LXMF session stops.
 
-- Base delays: 1 s, 2 s, 4 s, 8 s, ... capped at 30 s.
-- ±25% jitter to avoid thundering-herd synchronization.
-- Maximum 10 consecutive attempts.
-- `start()` and `stop()` are idempotent.
+`LxmfSession` contains a private bounded reconnect helper, but no production
+disconnect signal invokes it. MEDRE therefore does not automatically rebuild the
+session when a physical connection drops. Its local health flags describe the
+session/router lifecycle; they do not track interface connectivity or peer
+reachability. Observe RNS interface status and asynchronous delivery evidence
+when checking recovery.
+
+The three-attempt local retry in `send_text()` handles transient router-handoff
+exceptions. It does not reconnect an interface or wait for remote delivery.
+LXMF separately schedules delivery and path requests using medium-aware timing;
+slow links can remain pending beyond a short bench observation window.
+
+### Interface Management on a Shared Instance
+
+The pinned RNS SDK supports attaching, detaching, and reloading a configured
+interface by name. For a shared instance, use its configuration directory and
+the exact interface name:
+
+```bash
+rnstatus --config /path/to/shared-reticulum --detach "Radio uplink"
+rnstatus --config /path/to/shared-reticulum --attach "Radio uplink"
+rnstatus --config /path/to/shared-reticulum --reload "Radio uplink"
+```
+
+Detaching removes the interface and marks it detached; reconnect calls started
+afterward do not enter the retry loop. RNode BLE detachment also closes its
+connection and stops its BLE jobs. The pinned RNS reconnect loop checks the
+detached flag before a retry wait, but does not check it again before opening the
+port. A reconnect already in that wait can therefore make one further open
+attempt after detachment. This is an SDK lifecycle limitation, so detachment is
+not a guarantee that every in-flight physical-interface operation has stopped.
+
+Attaching creates the interface from configuration; reloading replaces it using
+the current configuration while retaining the Reticulum instance. Interface
+management must be enabled on that instance.
+
+Local `rnstatus` management commands require a shared Reticulum instance. They
+cannot control the MEDRE live harness's isolated `share_instance = No` process.
+MEDRE exposes no interface-management CLI of its own; restart that isolated
+runtime to apply interface configuration changes. `start()` and `stop()` remain
+idempotent session operations.
 
 ## Env-First Adapter Creation
 
