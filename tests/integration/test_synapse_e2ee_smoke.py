@@ -304,10 +304,7 @@ class TestSynapseE2EESmoke:
             f"Expected encrypted room ID starting with '!', "
             f"got {env.encrypted_room_id!r}"
         )
-        assert ":" in env.encrypted_room_id, (
-            f"Expected canonical room ID format '!localpart:server', "
-            f"got {env.encrypted_room_id!r}"
-        )
+        assert len(env.encrypted_room_id) > 1, "Room ID has no opaque identifier"
 
         # Device IDs captured from login.
         assert (

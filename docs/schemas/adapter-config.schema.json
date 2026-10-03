@@ -89,7 +89,7 @@
           "type": "array",
           "items": { "type": "string" },
           "default": [],
-          "description": "Canonical Matrix room IDs ('!localpart:server') to auto-join on startup."
+          "description": "Opaque Matrix room IDs starting with '!'; legacy IDs include ':server', while room version 12 IDs omit it. Auto-joined on startup."
         },
         "origin_label": {
           "type": "string",
