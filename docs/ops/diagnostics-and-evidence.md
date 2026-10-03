@@ -1,5 +1,9 @@
 # Diagnostics and Evidence
 
+Commands assume an activated MEDRE environment; see [installation](install.md).
+For checkout tests, select `--extra dev` along with every required transport
+extra. See [environment setup](../dev/environment.md) for sync behavior.
+
 How to collect, interpret, and reason about MEDRE pipeline evidence before and after a run.
 
 ## Evidence is Derived, Not Authoritative State
@@ -58,7 +62,7 @@ Run these commands in order. Each writes JSON to stdout. Redirect to files for t
 ### Ephemeral Smoke (no files left behind)
 
 ```bash
-PYTHONPATH=src medre smoke --json > bundle-smoke.json
+medre smoke --json > bundle-smoke.json
 # Exit code: 0 = passed, 1 = failed
 ```
 
@@ -67,7 +71,7 @@ PYTHONPATH=src medre smoke --json > bundle-smoke.json
 Use a config with `storage.backend = "sqlite"` and `storage.path`:
 
 ```bash
-PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.yaml --json > bundle-smoke-persist.json
+medre smoke --config /tmp/medre-sqlite.yaml --json > bundle-smoke-persist.json
 ```
 
 ### Failure Drills (all available drills)
@@ -76,7 +80,7 @@ PYTHONPATH=src medre smoke --config /tmp/medre-sqlite.yaml --json > bundle-smoke
 for drill in renderer_failure adapter_permanent_failure \
   adapter_transient_failure capacity_rejection shutdown_rejection \
   replay_duplicate_risk degraded_live_health; do
-  PYTHONPATH=src medre smoke --drill "$drill" \
+  medre smoke --drill "$drill" \
     --config /tmp/medre-sqlite.yaml --json \
     >> bundle-drills.jsonl
 done
@@ -87,7 +91,7 @@ done
 ```bash
 for drill in bad_route_config all_adapters_build_fail \
   partial_degraded_startup all_adapters_start_fail; do
-  PYTHONPATH=src medre smoke --drill "$drill" \
+  medre smoke --drill "$drill" \
     --config /tmp/medre-sqlite.yaml --json \
     >> bundle-preruntime.jsonl
 done
@@ -97,10 +101,10 @@ done
 
 ```bash
 # Basic bundle: config summary + route validation + diagnostics snapshot + storage
-PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --json > bundle-full.json
+medre evidence --storage-path /path/to/medre.db --json > bundle-full.json
 
 # Targeted: bundle for a specific event
-PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --event <event_id> --json > bundle-event.json
+medre evidence --storage-path /path/to/medre.db --event <event_id> --json > bundle-event.json
 ```
 
 The CLI exposes only the storage-path read-only mode. Config-path bundle
@@ -334,11 +338,11 @@ the JSON snapshot schema.
 
 ```bash
 # Full fake bridge test suite (no network, no hardware)
-PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py -v
+uv run --no-sync pytest tests/test_fake_bridge_smoke.py -v
 # Expected: 30+ passed in under 30 seconds
 
 # Specific test class
-PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
+uv run --no-sync pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
 ```
 
 ### Test Coverage Matrix
@@ -359,21 +363,21 @@ PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestMatrixToMeshtastic -v
 
 ```bash
 # Default: uses shipped fake-bridge-smoke.yaml
-PYTHONPATH=src medre smoke
+medre smoke
 
 # JSON report (machine-readable)
-PYTHONPATH=src medre smoke --json
+medre smoke --json
 
 # Explicit config
-PYTHONPATH=src medre smoke --config examples/configs/fake-bridge-smoke.yaml
+medre smoke --config examples/configs/fake-bridge-smoke.yaml
 
 # Custom message text
-PYTHONPATH=src medre smoke --message "operator check $(date -Iseconds)"
+medre smoke --message "operator check $(date -Iseconds)"
 
 # Run a specific scenario (choices: happy_path, renderer_failure,
 # adapter_permanent_failure, adapter_transient_failure, capacity_rejection,
 # degraded_live_health)
-PYTHONPATH=src medre smoke --scenario <name> --json
+medre smoke --scenario <name> --json
 ```
 
 ### Smoke Persistence Caveat
@@ -399,39 +403,41 @@ medre inspect event <event_id> --storage-path /tmp/medre-smoke.db
 To persist smoke evidence to SQLite without editing the config, use `--storage-path`:
 
 ```bash
-PYTHONPATH=src medre smoke --storage-path /tmp/medre-smoke.db --json
+medre smoke --storage-path /tmp/medre-smoke.db --json
 ```
 
 ## Docker SDK-Boundary Tests
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-pip install -e ".[matrix,meshtastic,dev]"
+uv sync --locked --extra matrix --extra meshtastic --extra dev
 
 # All Docker integration tests
-PYTHONPATH=src pytest tests/integration/ -m docker -v
+uv run --no-sync pytest tests/integration/ -m docker -v
 
 # Matrix (Synapse) only
-PYTHONPATH=src pytest tests/integration/test_synapse_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_synapse_connectivity.py -m docker -v
 
 # Meshtastic (meshtasticd) only
-PYTHONPATH=src pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
+uv run --no-sync pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
 
 # Synapse bridge smoke (full pipeline: real Matrix SDK -> PipelineRunner -> FakeMatrixAdapter)
-PYTHONPATH=src pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
+uv run --no-sync pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 ```
 
-Docker tests are excluded from default runs via `addopts = "-m 'not live and not docker'"` in `pyproject.toml`. They are collected and skipped unless explicitly enabled.
+Docker tests are deselected by the default marker policy in `pyproject.toml`.
+Select `-m docker` explicitly after installing the SDK and developer extras and
+starting Docker. See [testing](../dev/testing.md) for the complete tier policy.
 
 ```bash
 # Default: Docker tests collected but not run
-PYTHONPATH=src pytest -q
+uv run --no-sync pytest -q
 
 # Explicitly skip Docker
-MEDRE_SKIP_DOCKER=1 pytest tests/integration/ -v
+MEDRE_SKIP_DOCKER=1 uv run --no-sync pytest tests/integration/ -v
 
 # Run everything including Docker + live
-pytest -m "" -v
+uv run --no-sync pytest -m "" -v
 ```
 
 ### Failure Interpretation
@@ -439,8 +445,8 @@ pytest -m "" -v
 | Symptom                                             | Likely cause                    | Action                                             |
 | --------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `pip install -e ".[meshtastic]"`                   |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `pip install -e ".[matrix]"`                       |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                   |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                       |
 | Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`               |
 | Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
 
@@ -448,10 +454,10 @@ pytest -m "" -v
 
 ```bash
 # Build-time snapshot (no adapter start, no I/O)
-PYTHONPATH=src medre diagnostics --config examples/configs/fake-bridge-smoke.yaml
+medre diagnostics --config examples/configs/fake-bridge-smoke.yaml
 
 # Live health refresh (starts adapters, polls health, stops)
-PYTHONPATH=src medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.yaml
+medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.yaml
 ```
 
 ### Storage Path in Diagnostics
@@ -536,7 +542,7 @@ In addition to unidirectional criteria for each direction:
 Run pre-runtime drills with:
 
 ```bash
-PYTHONPATH=src medre smoke --drill <drill_name> --config /tmp/medre-sqlite.yaml --json
+medre smoke --drill <drill_name> --config /tmp/medre-sqlite.yaml --json
 ```
 
 Each drill **exits 0** when the expected failure is correctly observed. The drill report documents what exit code and error the runtime would produce if run independently.

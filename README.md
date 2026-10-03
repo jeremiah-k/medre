@@ -9,14 +9,13 @@ config-file-first runtime.
 
 ## First Steps
 
-One path from a clean machine to a verified core install. It needs no
-credentials, no optional SDKs, and no Docker; pip fetches the two core
-dependencies (msgspec, PyYAML) from PyPI:
+From a source checkout, use [uv](https://docs.astral.sh/uv/getting-started/installation/)
+to install the committed dependency graph. This core smoke path needs no
+credentials, optional SDKs, or Docker:
 
 ```bash
-python3 -m venv .venv
+uv sync --locked          # core dependencies and an editable MEDRE install
 source .venv/bin/activate
-pip install -e .          # prerelease: install from a source checkout
 
 medre version             # version, Python, platform
 medre paths               # resolved config/state/data/log directories
@@ -37,16 +36,15 @@ To verify a built artifact end to end — wheel build, clean core-only
 install, installed-package proof — run, from a source checkout:
 
 ```bash
-pip install -e ".[dev]"  # provides the pinned build frontend/backend
-python scripts/check_installed_package.py
+uv sync --locked --extra dev
+uv run --no-sync python scripts/check_installed_package.py
 ```
 
 The script lives in the source repository and is not part of the installed
 wheel.
 
 Support level: MEDRE is developed and tested on Linux. CI runs the test
-suite on CPython 3.11–3.14 on Ubuntu runners; local validation in this
-buildout happened on a Linux workstation. Other hosts (Windows, macOS, ARM)
+suite on CPython 3.11–3.14 on Ubuntu runners. Other hosts (Windows, macOS, ARM)
 are unverified — not excluded. CI checks the pipeline against pinned SDK
 contracts; it is not radio interoperability testing.
 
@@ -58,12 +56,22 @@ Optional extras add real connectivity. Exact SDK pins live in
 drift from the versions MEDRE is tested against. The transports differ in
 prerequisites and guarantees; there is no feature parity between them.
 
+The commands below apply to source checkouts. Each sync selects the complete
+extra set for `.venv`; repeat every transport needed by a bridge, and add
+`--extra dev` for tests. Built-package and existing pip environments remain
+supported; see [installation](docs/ops/install.md) and the
+[development environment guide](docs/dev/environment.md).
+
 | Transport  | Install (source checkout)                            | You need                                    | Setup guide                                                                      |
 | ---------- | ---------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| Matrix     | `pip install -e ".[matrix]"` (E2EE: `.[matrix-e2e]`) | Homeserver, bot account, access token       | [docs/ops/transport-setup/matrix.md](docs/ops/transport-setup/matrix.md)         |
-| Meshtastic | `pip install -e ".[meshtastic]"`                     | Radio node over serial or TCP               | [docs/ops/transport-setup/meshtastic.md](docs/ops/transport-setup/meshtastic.md) |
-| MeshCore   | `pip install -e ".[meshcore]"`                       | Companion node over TCP, serial, or BLE     | [docs/ops/transport-setup/meshcore.md](docs/ops/transport-setup/meshcore.md)     |
-| LXMF       | `pip install -e ".[lxmf]"`                           | Reticulum instance and a node identity file | [docs/ops/transport-setup/lxmf.md](docs/ops/transport-setup/lxmf.md)             |
+| Matrix     | `uv sync --locked --extra matrix` (E2EE: `--extra matrix-e2e`) | Homeserver, bot account, access token       | [docs/ops/transport-setup/matrix.md](docs/ops/transport-setup/matrix.md)         |
+| Meshtastic | `uv sync --locked --extra meshtastic`                     | Radio node over serial or TCP               | [docs/ops/transport-setup/meshtastic.md](docs/ops/transport-setup/meshtastic.md) |
+| MeshCore   | `uv sync --locked --extra meshcore`                       | Companion node over TCP, serial, or BLE     | [docs/ops/transport-setup/meshcore.md](docs/ops/transport-setup/meshcore.md)     |
+| LXMF       | `uv sync --locked --extra lxmf`                           | Reticulum instance and a node identity file | [docs/ops/transport-setup/lxmf.md](docs/ops/transport-setup/lxmf.md)             |
+
+For example, a Matrix/Meshtastic bridge uses
+`uv sync --locked --extra matrix --extra meshtastic`. Activate `.venv` as above
+or prefix commands with `uv run --no-sync` after syncing.
 
 What a `sent` receipt means per transport is in
 [docs/ops/running-medre.md](docs/ops/running-medre.md); per-transport

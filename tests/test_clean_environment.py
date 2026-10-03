@@ -73,8 +73,7 @@ def _dep_name(dependency: str) -> str:
 
 
 class TestEditableInstallDocumentation:
-    """Developer-environment.md must document correct install commands that
-    match the actual ``pyproject.toml`` extras."""
+    """Installation commands must match the declared package extras."""
 
     @pytest.fixture(autouse=True)
     def _load(self) -> None:
@@ -89,22 +88,25 @@ class TestEditableInstallDocumentation:
         assert (
             'pip install -e "."' in self._doc_text
             or "pip install -e ." in self._doc_text
-        ), "developer-environment.md missing base editable install command"
+        ), "install.md missing base editable install command"
 
     def test_doc_mentions_editable_dev_install(self) -> None:
         """Doc must include ``pip install -e ".[dev]"``."""
         assert (
             'pip install -e ".[dev]"' in self._doc_text
             or 'pip install -e ".[dev]"' in self._doc_text
-        ), "developer-environment.md missing dev editable install command"
+        ), "install.md missing dev editable install command"
 
     def test_doc_documents_each_transport_extra(self) -> None:
         """Each transport extra in pyproject.toml must appear in the doc."""
-        transport_extras = {"matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"}
+        transport_extras = set(self._opt) - {"dev"}
         for extra in transport_extras:
             assert (
-                f"[{extra}]" in self._doc_text
-            ), f"developer-environment.md does not document [{extra}] extra"
+                re.search(
+                    rf"uv sync --locked --extra {re.escape(extra)}(?:\s|`|$)",
+                    self._doc_text,
+                )
+            ), f"install.md does not document locked installation of {extra} extra"
 
     def test_doc_install_commands_use_project_name(self) -> None:
         """Install commands must reference the correct project name."""
@@ -112,7 +114,7 @@ class TestEditableInstallDocumentation:
         # The doc should use the project name in install examples
         assert (
             name in self._doc_text
-        ), f"developer-environment.md does not mention project name {name!r}"
+        ), f"install.md does not mention project name {name!r}"
 
     def test_doc_mentions_python_version_requirement(self) -> None:
         """Doc must state the minimum Python version matching pyproject.toml."""
@@ -120,7 +122,7 @@ class TestEditableInstallDocumentation:
         # e.g. ">=3.11" → doc should mention "3.11"
         min_ver = rp.lstrip(">=")
         assert min_ver in self._doc_text, (
-            f"developer-environment.md does not mention Python {min_ver} "
+            f"install.md does not mention Python {min_ver} "
             f"(from requires-python={rp!r})"
         )
 

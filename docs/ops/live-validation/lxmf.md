@@ -28,7 +28,8 @@ cancelled messages return promptly along with delivered and failed messages.
 ## Quick Validation
 
 ```bash
-pip install -e ".[lxmf]"
+uv sync --locked --extra dev --extra lxmf
+source .venv/bin/activate
 
 # Configure a Reticulum transport (AutoInterface for LAN is default)
 # Set the adapter connection type to reticulum
@@ -243,7 +244,7 @@ Run the real pinned RNS/LXMF stack in a process-isolated local probe before
 external Reticulum testing:
 
 ```bash
-pip install -e ".[lxmf,dev]"
+uv sync --locked --extra lxmf --extra dev
 pytest tests/integration/test_lxmf_local_integration.py \
   -m "local_integration and lxmf_sdk and not soak" -v
 ```

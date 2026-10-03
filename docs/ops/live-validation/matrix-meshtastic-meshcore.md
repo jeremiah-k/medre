@@ -14,9 +14,12 @@ directions, and records evidence at each step.
 | Meshtastic radio     | TLora or similar, connected via USB-serial                              |
 | MeshCore device(s)   | One or two MeshCore nodes connected via USB-serial                      |
 | Python               | 3.11 or later                                                           |
-| Package install      | `pip install -e ".[matrix,meshtastic]"` plus `pip install meshcore`     |
+| Package install      | `uv sync --locked --extra dev --extra matrix --extra meshtastic --extra meshcore` |
 | Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices |
 | Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated        |
+
+After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI
+steps below. Keep all three transport extras selected when syncing this bridge.
 
 BLE is available as a fallback connection method for MeshCore. See
 [Bluetooth fallback](#bluetooth-fallback) below.

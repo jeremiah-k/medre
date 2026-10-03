@@ -317,7 +317,7 @@ def _verify_build_requirements(requires: list[str]) -> None:
             _fail(
                 "prerequisite",
                 f"build requirement {name!r} is not installed; install this "
-                "checkout's build tooling first, e.g. pip install -e '.[dev]'",
+                "checkout's build tooling first: uv sync --locked --extra dev",
             )
         if installed != expected:
             _fail(
@@ -356,7 +356,7 @@ def _resolve_wheel(
                 "prerequisite",
                 f"module(s) {missing} are required to build the wheel with "
                 "the declared backend; install this checkout's build "
-                "tooling first, e.g. pip install -e '.[dev]'",
+                "tooling first: uv sync --locked --extra dev",
             )
         _verify_build_requirements(build_requires)
         _clear_source_build_artifacts()

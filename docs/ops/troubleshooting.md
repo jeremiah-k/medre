@@ -1,5 +1,9 @@
 # Troubleshooting
 
+Commands assume an activated MEDRE environment; see [installation](install.md).
+For checkout tests, select `--extra dev` along with every required transport
+extra. See [environment setup](../dev/environment.md) for sync behavior.
+
 Failure categories, drill procedures, routing diagnostics, and common fixes.
 
 MEDRE does not provide automated remediation, per-adapter restart, or self-healing. All diagnosis and action is operator-initiated.
@@ -36,7 +40,7 @@ cat > /tmp/bad-syntax.yaml <<'EOF'
 runtime:
   name: "test
 EOF
-PYTHONPATH=src medre config check --config /tmp/bad-syntax.yaml
+medre config check --config /tmp/bad-syntax.yaml
 ```
 
 Expected: exit code **2**, human-readable YAML parse error on stderr. Fix the syntax and re-run.
@@ -66,7 +70,7 @@ routes:
     directionality: source_to_dest
     enabled: true
 EOF
-PYTHONPATH=src medre routes validate --config /tmp/bad-route.yaml
+medre routes validate --config /tmp/bad-route.yaml
 ```
 
 Expected: exit code **2**, `RouteValidationError` naming the unknown adapter.
@@ -76,7 +80,7 @@ Fix: verify `dest_adapters` references match adapter IDs in the `adapters.*` sec
 Or run the drill:
 
 ```bash
-PYTHONPATH=src medre smoke --drill bad_route_config --json
+medre smoke --drill bad_route_config --json
 ```
 
 The drill exits 0 (it caught the expected error correctly).
@@ -86,7 +90,7 @@ The drill exits 0 (it caught the expected error correctly).
 ### Duplicate Route ID
 
 ```bash
-PYTHONPATH=src medre routes validate --config /tmp/dup-route.yaml
+medre routes validate --config /tmp/dup-route.yaml
 ```
 
 Expected: exit code **2**, duplicate route ID error. Rename one of the routes.
@@ -96,7 +100,7 @@ Expected: exit code **2**, duplicate route ID error. Rename one of the routes.
 Build failures occur during adapter construction — after config parsing but before adapter startup.
 
 ```bash
-PYTHONPATH=src medre smoke --drill all_adapters_build_fail --json
+medre smoke --drill all_adapters_build_fail --json
 ```
 
 Expected: drill exits 0 (catches the error correctly), report includes `simulation_method` and `simulated: true`.
@@ -124,12 +128,12 @@ adapters:
         - "!room:example.com"
       encryption_mode: plaintext
 EOF
-PYTHONPATH=src medre diagnostics --config /tmp/missing-sdk.yaml
+medre diagnostics --config /tmp/missing-sdk.yaml
 ```
 
 Expected: if **all** adapters fail to build: exit code **3**. If **some** succeed: exit code **0** with `startup_health == "degraded"`.
 
-Fix: install the missing SDK (`pip install -e ".[matrix]"`), then re-run `medre diagnostics`.
+Fix: install the missing SDK (`uv sync --locked --extra matrix`), then re-run `medre diagnostics`.
 
 **Caveat:** A single adapter failing to build with others succeeding results in degraded health (exit 0), not a build failure exit code.
 
@@ -144,7 +148,7 @@ storage:
   backend: sqlite
   path: /nonexistent/readonly/path/medre.sqlite
 EOF
-PYTHONPATH=src medre run --config /tmp/bad-storage.yaml
+medre run --config /tmp/bad-storage.yaml
 ```
 
 Expected: exit code **3**, error about directory creation or file open failure.
@@ -156,8 +160,8 @@ Fix: verify the storage path is on a writable filesystem. Check disk space and d
 Startup failures occur after build succeeds but before adapters enter running state.
 
 ```bash
-PYTHONPATH=src medre smoke --drill all_adapters_start_fail --json
-PYTHONPATH=src medre smoke --drill partial_degraded_startup --json
+medre smoke --drill all_adapters_start_fail --json
+medre smoke --drill partial_degraded_startup --json
 ```
 
 ### Total Startup Failure (Exit 4)
@@ -187,7 +191,7 @@ Delivery failures occur while the runtime is running. The runtime stays up; indi
 An event with an `event_kind` that no renderer handles produces a permanent rendering failure.
 
 ```bash
-PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestRenderingContract -v
+uv run --no-sync pytest tests/test_fake_bridge_smoke.py::TestRenderingContract -v
 ```
 
 Expected: runtime stays running. `DeliveryReceipt`: `status == "failed"`, `failure_kind == "RENDERER_FAILURE"`. No retry.
@@ -377,7 +381,7 @@ When it fires: every delivery attempt. Runtime guard, not config-time check.
 Test:
 
 ```bash
-PYTHONPATH=src pytest tests/test_fake_bridge_smoke.py::TestLoopPrevention -v
+uv run --no-sync pytest tests/test_fake_bridge_smoke.py::TestLoopPrevention -v
 ```
 
 Expected: `DeliveryOutcome`: `status == "skipped"`, `error` contains `"loop_prevented"`. Target adapter has zero delivered payloads. `DeliveryReceipt` with `status="suppressed"` is persisted. `accounting.loop_prevented >= 1`.
