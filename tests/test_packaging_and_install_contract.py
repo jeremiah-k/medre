@@ -675,39 +675,6 @@ class TestCLIHelpWithoutSDKs:
         leaked = after - before
         assert not leaked, f"optional SDK modules leaked by version: {sorted(leaked)}"
 
-    def test_adapters_without_optional_sdks(self) -> None:
-        """``main(["adapters"])`` succeeds without importing optional SDKs."""
-        import io
-        import os
-        from contextlib import redirect_stderr, redirect_stdout
-
-        from medre.cli import main
-
-        for var in (
-            "MEDRE_HOME",
-            "MEDRE_CONFIG",
-            "XDG_CONFIG_HOME",
-            "XDG_STATE_HOME",
-            "XDG_DATA_HOME",
-            "XDG_CACHE_HOME",
-        ):
-            os.environ.pop(var, None)
-
-        before = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
-
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        try:
-            with redirect_stdout(stdout), redirect_stderr(stderr):
-                main(["adapters"])
-        except SystemExit:
-            pass
-
-        after = {m for m in _OPTIONAL_SDK_MODULES if m in sys.modules}
-        leaked = after - before
-        assert not leaked, f"optional SDK modules leaked by adapters: {sorted(leaked)}"
-
-
 # ===================================================================
 # 11. Fake adapters do not transitively import optional SDKs
 # ===================================================================

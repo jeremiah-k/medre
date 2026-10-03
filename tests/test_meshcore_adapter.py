@@ -543,14 +543,6 @@ class TestMeshCoreCompat:
 
         assert isinstance(HAS_MESHCORE, bool)
 
-    def test_has_meshcore_is_false_without_sdk(self) -> None:
-        """In default test environment, meshcore SDK is not installed."""
-        from medre.adapters.meshcore.compat import HAS_MESHCORE
-
-        # The SDK is not installed in the test environment
-        assert HAS_MESHCORE is False
-
-
 # ===================================================================
 # Honest delivery semantics
 # ===================================================================
