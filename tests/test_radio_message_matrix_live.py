@@ -972,20 +972,37 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
         # floods keep landing after the sender's last acceptance, and the
         # snapshot must be taken before the listener process exits.
         with _McListener(window) as mc_listener:
-            await _mt_send(mt_corpus)
+            mt_accepted = await _mt_send(mt_corpus)
             await asyncio.sleep(_MC_OBSERVE_TIMEOUT)
             mc_texts = [
                 (p.get("text") or "")
                 for p in mc_listener.packets_until(lambda _: False, 0.0)
             ]
         with _MtListener(window + 60) as mt_listener:
-            await _mc_send(mc_corpus)
+            mc_accepted = await _mc_send(mc_corpus)
             # MC flood ingest lag plus paced MT relays of the whole corpus.
             await asyncio.sleep(_MC_OBSERVE_TIMEOUT + _TX_PACING * len(mc_corpus))
             mt_texts = [
                 (p.get("text") or "")
                 for p in mt_listener.packets_until(lambda _: False, 0.0)
             ]
+
+        # Retain independent peer evidence before any assertion can fail.
+        # Local SDK acceptance and far-side RF observation remain separate.
+        (tmp_path / "peer-observations.json").write_text(
+            json.dumps(
+                {
+                    "traffic": _TRAFFIC,
+                    "meshtastic_source": {"expected": mt_corpus, "accepted": mt_accepted},
+                    "meshcore_source": {"expected": mc_corpus, "accepted": mc_accepted},
+                    "meshtastic_peer_texts": mt_texts,
+                    "meshcore_peer_texts": mc_texts,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         # Ledger 1 — receipts: every admitted event has exactly one sent
         # receipt (the docstring contract, asserted per event).
