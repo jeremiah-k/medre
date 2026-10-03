@@ -107,11 +107,12 @@ jobs:
 
       - name: Install Matrix SDK contract dependencies
         run: |
-          uv sync --locked --extra dev --extra matrix
+          uv sync --locked --extra dev --extra matrix-e2e
 
       - name: Verify pinned mindroom-nio contract
         run: |
-          uv run --no-sync python -m pytest tests/test_matrix_sync_recovery_sdk_contract.py -v \
+          uv run --no-sync python -m pytest tests/test_matrix_sync_recovery_sdk_contract.py \
+            tests/test_matrix_store_lifecycle_sdk.py -v \
             -m matrix_sdk
 
   adapter-sdk-contract:

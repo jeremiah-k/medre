@@ -301,7 +301,13 @@ authority for retryable server/network failures.
    tasks, and closes the client under one shared absolute timeout budget. Tasks that
    ignore cancellation past that budget are detached with terminal-result ownership
    so shutdown remains bounded without producing unobserved-task warnings. The
-   session is then nulled. Idempotent.
+   session is then nulled. Idempotent. MEDRE MUST close the nio crypto-store
+   database after provider close settles, including partial-start cleanup and
+   optional-encryption fallback. Cancellation-resistant provider close retains
+   the store until its drain settles; cleanup remains attached to the bounded
+   close task. A cancelled shutdown caller MUST relinquish the client to that
+   close task so a subsequent stop cannot cancel or restart its provider drain.
+   Closing the store MUST NOT delete persisted crypto state.
 
 ### Classic Sync ownership and recovery
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import medre.adapters.matrix.compat as _compat_mod
+from medre.adapters.matrix.client_lifecycle import close_matrix_client
 from medre.adapters.matrix.auth import MatrixLoginResult
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.identity import (
@@ -129,30 +130,8 @@ async def bootstrap_login_cross_signing(
         raise
     finally:
         try:
-            await client.close()
+            await close_matrix_client(client, logger)
         except Exception:
             (logger or logging.getLogger(__name__)).debug(
                 "Matrix E2EE bootstrap client close failed", exc_info=True
             )
-        finally:
-            _close_store_database(client, logger)
-
-
-def _close_store_database(client: object, logger: logging.Logger | None = None) -> None:
-    """Close the database opened by nio's MatrixStore."""
-    database = getattr(getattr(client, "store", None), "database", None)
-    if database is None:
-        return
-    try:
-        stop = getattr(database, "stop", None)
-        is_stopped = getattr(database, "is_stopped", None)
-        if callable(stop) and callable(is_stopped) and not is_stopped():
-            stop()
-        close = getattr(database, "close", None)
-        is_closed = getattr(database, "is_closed", None)
-        if callable(close) and (not callable(is_closed) or not is_closed()):
-            close()
-    except Exception:
-        (logger or logging.getLogger(__name__)).debug(
-            "Matrix E2EE store close failed", exc_info=True
-        )
