@@ -181,16 +181,25 @@ On first run, Reticulum creates a default config at `~/.reticulum/config` with `
 Reticulum's optional network-interface discovery and autoconnection are separate
 from AutoInterface LAN neighbor discovery and LXMF delivery-destination announces.
 With discovered-interface autoconnection enabled, the pinned SDK's default policy
-requires a recognized `RNS` implementation and advertised version at least
-`1.5.2`. Missing, unrecognized, or older version metadata prevents automatic
-attachment. Other eligibility checks still apply; passing the version check
-alone does not establish a connection.
+requires advertised `transport=True`, a recognized `RNS` implementation, and an
+advertised version at least `1.5.2`. Missing or false transport metadata prevents
+automatic attachment, as does missing, unrecognized, or older version metadata.
+Other eligibility checks still apply; passing these checks does not establish a
+connection.
 
 Upgrade the advertising node or configure a compatible static interface when a
 discovered endpoint does not qualify. This filter does not affect an explicitly
 configured RNodeInterface or static TCP interface. Reticulum's
 `autoconnect_unverified_implementations` option overrides the implementation and
-version filter; MEDRE does not enable it.
+version filter, but does not bypass the advertised transport requirement; MEDRE
+does not enable it.
+
+When a non-transport Reticulum instance configures an interface with
+`discoverable = Yes`, the SDK automatically enables a static transport identity.
+This makes the advertising identity persist across process restarts without
+enabling transport routing. Reticulum owns this identity; it is separate from
+MEDRE's LXMF delivery identity. A discoverable non-transport instance still does
+not qualify for automatic attachment by other nodes under the transport filter.
 
 ### Two-Node Minimum for Delivery Validation
 

@@ -132,6 +132,60 @@ def test_rns_recovers_connections_without_replacing_the_medre_router(
     }
 
 
+@pytest.mark.parametrize("discoverable", [False, True])
+def test_discoverability_selects_static_identity_without_enabling_transport(
+    tmp_path: Path, discoverable: bool,
+) -> None:
+    """Real RNS configuration preserves discovery identity without enabling routing."""
+    config_dir = tmp_path / "reticulum"
+    config_dir.mkdir()
+    (config_dir / "config").write_text(
+        "[reticulum]\n"
+        "enable_transport = No\n"
+        "static_transport_identity = No\n"
+        "share_instance = No\n"
+        "[logging]\n"
+        "loglevel = 0\n"
+        "[interfaces]\n"
+        "  [[loopback-discovery]]\n"
+        "    type = TCPServerInterface\n"
+        "    enabled = Yes\n"
+        "    listen_ip = 127.0.0.1\n"
+        "    listen_port = 0\n"
+        f"    discoverable = {'Yes' if discoverable else 'No'}\n",
+        encoding="utf-8",
+    )
+    script = (
+        "import json, sys, RNS\n"
+        "reticulum = RNS.Reticulum(configdir=sys.argv[1], loglevel=0)\n"
+        "print(json.dumps({"
+        "'static': RNS.Reticulum.static_transport_identity(), "
+        "'routing': RNS.Reticulum.transport_enabled(), "
+        "'online': any(i.name == 'loopback-discovery' and i.online "
+        "for i in RNS.Transport.interfaces), "
+        "'identity': RNS.Transport.identity.hash.hex()}))\n"
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home)}
+    identities = []
+    for _ in range(2):
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(config_dir)],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        result = json.loads(completed.stdout)
+        assert result["static"] is discoverable
+        assert result["routing"] is False
+        assert result["online"] is True, "loopback interface was not constructed"
+        identities.append(result["identity"])
+    if discoverable:
+        assert identities[0] == identities[1], "advertising identity changed on restart"
+    else:
+        assert identities[0] != identities[1], "non-discoverable identity was persisted"
+
+
 @pytest.mark.soak
 def test_real_router_local_soak_preserves_identity_across_restarts(
     tmp_path: Path,
