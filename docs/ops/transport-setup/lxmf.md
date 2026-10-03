@@ -194,6 +194,13 @@ configured RNodeInterface or static TCP interface. Reticulum's
 version filter, but does not bypass the advertised transport requirement; MEDRE
 does not enable it.
 
+When a non-transport Reticulum instance configures an interface with
+`discoverable = Yes`, the SDK automatically enables a static transport identity.
+This makes the advertising identity persist across process restarts without
+enabling transport routing. Reticulum owns this identity; it is separate from
+MEDRE's LXMF delivery identity. A discoverable non-transport instance still does
+not qualify for automatic attachment by other nodes under the transport filter.
+
 ### Two-Node Minimum for Delivery Validation
 
 | Setup                       | How                                                           | Complexity |
