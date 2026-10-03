@@ -967,25 +967,49 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
         mc_corpus = [_nonce(f"V-MC-{i}") for i in range(_TRAFFIC // 2)]
         mc_corpus += [dup_text, dup_text]
 
+        evidence: dict[str, Any] = {
+            "traffic": _TRAFFIC,
+            "meshtastic_source": {"expected": mt_corpus, "accepted": None},
+            "meshcore_source": {"expected": mc_corpus, "accepted": None},
+            "meshtastic_peer_texts": [],
+            "meshcore_peer_texts": [],
+            "meshtastic_peer_packets": [],
+            "meshcore_peer_packets": [],
+        }
+
+        def retain_evidence() -> None:
+            (tmp_path / "peer-observations.json").write_text(
+                json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        retain_evidence()
         window = _MC_OBSERVE_TIMEOUT + 30 + 4 * (_TRAFFIC + 2)
         # Each listener stays open through a drain period after its sends:
         # floods keep landing after the sender's last acceptance, and the
-        # snapshot must be taken before the listener process exits.
+        # snapshot must be taken before the listener process exits, even on
+        # source failure or cancellation. Save each direction independently
+        # so a later listener cannot discard the completed direction's proof.
         with _McListener(window) as mc_listener:
-            await _mt_send(mt_corpus)
-            await asyncio.sleep(_MC_OBSERVE_TIMEOUT)
-            mc_texts = [
-                (p.get("text") or "")
-                for p in mc_listener.packets_until(lambda _: False, 0.0)
-            ]
+            try:
+                evidence["meshtastic_source"]["accepted"] = await _mt_send(mt_corpus)
+                await asyncio.sleep(_MC_OBSERVE_TIMEOUT)
+            finally:
+                mc_packets = mc_listener.packets_until(lambda _: False, 0.0)
+                mc_texts = [(p.get("text") or "") for p in mc_packets]
+                evidence["meshcore_peer_packets"] = mc_packets
+                evidence["meshcore_peer_texts"] = mc_texts
+                retain_evidence()
         with _MtListener(window + 60) as mt_listener:
-            await _mc_send(mc_corpus)
-            # MC flood ingest lag plus paced MT relays of the whole corpus.
-            await asyncio.sleep(_MC_OBSERVE_TIMEOUT + _TX_PACING * len(mc_corpus))
-            mt_texts = [
-                (p.get("text") or "")
-                for p in mt_listener.packets_until(lambda _: False, 0.0)
-            ]
+            try:
+                evidence["meshcore_source"]["accepted"] = await _mc_send(mc_corpus)
+                # MC flood ingest lag plus paced MT relays of the whole corpus.
+                await asyncio.sleep(_MC_OBSERVE_TIMEOUT + _TX_PACING * len(mc_corpus))
+            finally:
+                mt_packets = mt_listener.packets_until(lambda _: False, 0.0)
+                mt_texts = [(p.get("text") or "") for p in mt_packets]
+                evidence["meshtastic_peer_packets"] = mt_packets
+                evidence["meshtastic_peer_texts"] = mt_texts
+                retain_evidence()
 
         # Ledger 1 — receipts: every admitted event has exactly one sent
         # receipt (the docstring contract, asserted per event).
