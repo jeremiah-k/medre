@@ -2,6 +2,11 @@
 
 Live smoke test procedures for the LXMF adapter against a real Reticulum network.
 
+For a bounded multi-adapter campaign, use the
+[short iteration sequence](short-iterations.md). The
+[2026-10-03 record](campaign-2026-10-03.md) includes current physical-pair,
+cross-transport, relation, and host-link recovery observations.
+
 ## Slow-Medium Peer Budgets
 
 The physical-pair, cross-transport bridge, and radio-matrix harnesses share a
@@ -142,7 +147,8 @@ config = LxmfConfig(
 | synthetic | Wrapper callback    | —       | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                 |
 | local-int | Pinned loopback     | 2026-09 | Proven: two distinct processes over loopback at the declared pinned SDK versions — real-router lifecycle, cross-process relation linking, local session/router health (all verdicts true) |
 | —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                       |
-| —         | Live network        | —       | Not proven (no external peer reachability claimed)                                                                                                                                        |
+| physical  | Owned RNode pair    | 2026-10-03 | Proven: native hash/source correlation, independent RF reception, relation reconstruction, and cross-transport relays on the owned two-board bench. |
+| —         | External/multi-hop  | —       | Not proven; bench-pair results do not establish external peer reachability. |
 
 ## RNode Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
@@ -186,6 +192,12 @@ Env keys: `LXMF_PAIR`, `LXMF_MEDRE_RNS_CONFIG`, `LXMF_PEER_RNS_CONFIG`,
 `LXMF_PEER_HUB`/`LXMF_PEER_HUB_PORT` for the power control. Private lab
 values (config dirs, identity files, hub map) live in the restricted lab
 tree; no secrets are embedded in the module.
+
+Relation and native-identity assertions run independently of the optional
+power testcase. Configure hub control only after verifying that its mapped
+port actually removes peer radio power; a VBUS status alone does not establish
+that a battery-backed device is off. The 2026-10-03 run skipped physical power
+loss and separately verified host serial-link recovery.
 
 The pinned RNS release on Python 3.14 raises the deprecated `threading.setDaemon`
 warning; the pinned-SDK live modules filter exactly that warning (the
