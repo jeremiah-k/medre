@@ -944,7 +944,7 @@ requires-dist = [
     { name = "coverage", marker = "extra == 'dev'", specifier = "==7.16.2" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
     { name = "lxmf", marker = "extra == 'lxmf'", specifier = "==1.2.0" },
-    { name = "meshcore", marker = "extra == 'meshcore'", specifier = "==2.3.14" },
+    { name = "meshcore", marker = "extra == 'meshcore'", specifier = "==2.3.15" },
     { name = "mindroom-nio", marker = "extra == 'matrix'", specifier = "==0.40.0" },
     { name = "mindroom-nio", extras = ["e2e"], marker = "extra == 'matrix-e2e'", specifier = "==0.40.0" },
     { name = "msgspec", specifier = "==0.22.0" },
@@ -962,7 +962,7 @@ provides-extras = ["dev", "matrix", "matrix-e2e", "meshtastic", "meshcore", "lxm
 
 [[package]]
 name = "meshcore"
-version = "2.3.14"
+version = "2.3.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleak" },
@@ -970,9 +970,9 @@ dependencies = [
     { name = "pycryptodome" },
     { name = "pyserial-asyncio-fast" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/45/c9/7a542153ae37be0c1d94702b5a4ef7a4263cc838f9aa1cbc0a0804c03adc/meshcore-2.3.14.tar.gz", hash = "sha256:7cdfb4fd89c490733ebe688791af1c90e0c1d1154dbc2d14844c7f02e018bb3c", size = 108037, upload-time = "2026-09-19T22:48:58.061Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/ab/777654f26d3c42e9b85e4015890f7439ca7a36043feef99d35bf7e4b6404/meshcore-2.3.15.tar.gz", hash = "sha256:60847c21d7259a13a68b89008296223b437c39d6aec2d7a7dfbd208d8439d050", size = 110083, upload-time = "2026-10-03T22:34:35.153Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/46/ccd0cae4486ee5f93bdc3ed8603f04c6c39b4ed1639f9fc2610b72fe1a85/meshcore-2.3.14-py3-none-any.whl", hash = "sha256:f826110cd2f2efb3deb9c8011b4cc52763423c3f72843990c0167ced18ab6ecf", size = 67040, upload-time = "2026-09-19T22:48:56.647Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/90/7d8052d1c12814ff156d4ecd86cc41e656c0c7db5cb054cb3ee56c901b40/meshcore-2.3.15-py3-none-any.whl", hash = "sha256:48344fdb2ebdeea82955bd01a9f865a2f03b4a9bdf709dacbde7ea8cd30ba37e", size = 67513, upload-time = "2026-10-03T22:34:33.674Z" },
 ]
 
 [[package]]
