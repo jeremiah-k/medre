@@ -195,10 +195,12 @@ class MatrixConfig:
                 raise MatrixConfigError(
                     "auto_join_rooms entries must be non-empty strings"
                 )
-            if not entry.startswith("!") or ":" not in entry:
+            # Room version 12 omits the domain. Treat both ID forms as
+            # opaque strings; the homeserver validates their room version.
+            if not entry.startswith("!") or len(entry) == 1:
                 raise MatrixConfigError(
-                    f"auto_join_rooms entries must be canonical room IDs "
-                    f"in '!localpart:server' form, got {entry!r}",
+                    f"auto_join_rooms entries must be room IDs starting "
+                    f"with '!' followed by an opaque identifier, got {entry!r}",
                 )
 
         # --- Encryption-mode validation ---

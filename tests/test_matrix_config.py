@@ -416,17 +416,32 @@ class TestMatrixConfigAutoJoinRooms:
         assert result.room_allowlist == {"!room1:example.com"}
         assert result.auto_join_rooms == ("!room2:example.com",)
 
-    def test_missing_domain_rejected(self) -> None:
-        """auto_join_rooms entry without ':server' part is rejected."""
+    def test_domainless_room_id_preserved(self) -> None:
+        """Room version 12 IDs remain opaque, case-sensitive join targets."""
+        room_id = "!oxblTbQ931bgE5qAulpBh0L4gct4InkjAR8S1QApEsI"
         config = MatrixConfig(
             adapter_id="matrix-1",
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="s3cret",
-            auto_join_rooms=("!no_domain",),
+            auto_join_rooms=(room_id,),
+            room_allowlist={room_id},
         )
-        with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
-            config.validate()
+        result = config.validate()
+        assert result.auto_join_rooms == (room_id,)
+        assert result.room_allowlist == {room_id}
+
+def test_auto_join_bare_sigil_rejected() -> None:
+    """A room ID must have an opaque identifier after the sigil."""
+    config = MatrixConfig(
+        adapter_id="matrix-1",
+        homeserver="https://matrix.example.com",
+        user_id="@bot:example.com",
+        access_token="s3cret",
+        auto_join_rooms=("!",),
+    )
+    with pytest.raises(MatrixConfigError, match="auto_join_rooms"):
+        config.validate()
 
 
 # ===================================================================

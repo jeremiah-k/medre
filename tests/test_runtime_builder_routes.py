@@ -396,7 +396,8 @@ def _prepare_matrix_config(
 class TestMatrixAutoJoinRoomsDerivation:
     """RuntimeBuilder derives auto_join_rooms from route source_room/dest_room."""
 
-    def test_source_room_derived(self, tmp_paths: MedrePaths) -> None:
+    @pytest.mark.parametrize("room_id", ["!srcroom:test.org", "!OpaqueHash_v12"])
+    def test_source_room_derived(self, tmp_paths: MedrePaths, room_id: str) -> None:
         """Rooms from source_channel (source_room) on Matrix source adapters
         are included in auto_join_rooms."""
         rt_matrix = MatrixRuntimeConfig(
@@ -416,7 +417,7 @@ class TestMatrixAutoJoinRoomsDerivation:
             route_id="r1",
             source_adapters=("fm",),
             dest_adapters=("ft",),
-            source_channel="!srcroom:test.org",
+            source_channel=room_id,
         )
         config = RuntimeConfig(
             storage=StorageConfig(backend="memory"),
@@ -427,9 +428,10 @@ class TestMatrixAutoJoinRoomsDerivation:
             routes=RouteConfigSet(routes=(route,)),
         )
         prepared = _prepare_matrix_config(config, tmp_paths, "fm")
-        assert prepared.auto_join_rooms == ("!srcroom:test.org",)
+        assert prepared.auto_join_rooms == (room_id,)
 
-    def test_dest_room_derived(self, tmp_paths: MedrePaths) -> None:
+    @pytest.mark.parametrize("room_id", ["!dstroom:test.org", "!OpaqueHash_v12"])
+    def test_dest_room_derived(self, tmp_paths: MedrePaths, room_id: str) -> None:
         """Rooms from dest_channel (dest_room) on Matrix dest adapters
         are included in auto_join_rooms."""
         rt_matrix = MatrixRuntimeConfig(
@@ -449,7 +451,7 @@ class TestMatrixAutoJoinRoomsDerivation:
             route_id="r1",
             source_adapters=("ft",),
             dest_adapters=("fm",),
-            dest_channel="!dstroom:test.org",
+            dest_channel=room_id,
         )
         config = RuntimeConfig(
             storage=StorageConfig(backend="memory"),
@@ -460,7 +462,7 @@ class TestMatrixAutoJoinRoomsDerivation:
             routes=RouteConfigSet(routes=(route,)),
         )
         prepared = _prepare_matrix_config(config, tmp_paths, "fm")
-        assert prepared.auto_join_rooms == ("!dstroom:test.org",)
+        assert prepared.auto_join_rooms == (room_id,)
 
     def test_explicit_rooms_preserved_and_unioned(self, tmp_paths: MedrePaths) -> None:
         """Explicit auto_join_rooms from config are unioned with derived rooms."""
