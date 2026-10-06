@@ -44,7 +44,7 @@ meshcore = ["meshcore==2.3.15"]
 # LXMF/Reticulum SDKs; exact pins below are authoritative.
 # Reticulum is pinned explicitly so pip installs and locked uv environments
 # use the same RNS surface for SDK contract tests.
-lxmf = ["lxmf==1.2.0", "rns==1.5.6"]
+lxmf = ["lxmf==1.2.0", "rns==1.5.7"]
 
 [project.scripts]
 medre = "medre.cli:main"
