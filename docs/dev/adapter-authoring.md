@@ -376,8 +376,9 @@ discovery and open third-party distribution.
 
 ### Use the fake adapter pattern
 
-Every adapter has a fake variant in `src/medre/adapters/fakes/` that exercises
-the full pipeline without network or hardware dependencies. See the
+An adapter may declare a fake variant through `AdapterSpec.fake_adapter`,
+implemented in that adapter's distribution. Its fake exercises the full
+pipeline without network or hardware dependencies. See the
 [testing guide](./testing.md) for tier definitions.
 
 The fake adapters (`FakeTransportAdapter`, `FakePresentationAdapter`) are the
@@ -388,6 +389,15 @@ reference implementation. They demonstrate the contract:
 - `deliver()` receives a `RenderingResult`, returns an `AdapterHandoffResult`
 - `simulate_inbound()` publishes events into the pipeline
 - `health_check()` returns an `AdapterInfo` snapshot
+
+**Optional smoke-source contract:** if the fake participates in `medre smoke`,
+it provides a synchronous `make_event(*, text: str, event_kind: EventKind)`
+returning a `CanonicalEvent` with its own `source_adapter`. MEDRE uses this
+solely for deterministic direct-pipeline injection. The core does not ask real
+transport adapters to implement this testing helper. Adapter-owned unit tests
+should check the method's signature and originating adapter ID. A multi-route
+smoke selects only one source per run; use `--source-adapter` to exercise each
+configured source, and inspect `source_candidates` in the JSON evidence report.
 
 ### Test your adapter with these tiers
 

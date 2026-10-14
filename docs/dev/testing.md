@@ -935,3 +935,24 @@ integration live in their owning adapter repositories. MEDRE retains the
 cross-adapter compatibility suite. The adapter-free core job runs separately
 on Linux, macOS, and Windows. The compatibility manifest and resolved CI
 snapshot are documented in [external adapters](external-adapters.md).
+
+## Multi-source fake smoke coverage
+
+`medre smoke` is **one event from one source**, not a proof that every
+configured route works. The JSON report now lists `source_candidates` and
+`coverage_scope: single_source`. When checking a multi-adapter deployment,
+run each listed source separately, with a separate SQLite evidence path:
+
+```bash
+medre smoke --config bridge.yaml --source-adapter matrix --storage-path matrix-smoke.sqlite --json
+medre smoke --config bridge.yaml --source-adapter meshtastic --storage-path meshtastic-smoke.sqlite --json
+```
+
+`--source-adapter` rejects unknown, disabled or unrouted sources instead of
+silently injecting through a different adapter. Smoke now fails when **any**
+selected source's fanout target returns a non-success outcome, even if a different
+target succeeds. This remains fake direct-pipeline evidence, not live transport
+or SDK callback coverage. Use separate hardware/live tests for those contracts.
+
+With sibling source repos, run `python scripts/ci/adapter_matrix.py --check-local`
+before treating local cross-adapter tests as evidence for the pinned CI snapshot.

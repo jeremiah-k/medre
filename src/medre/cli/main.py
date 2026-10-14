@@ -178,6 +178,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--message", default="medre smoke test", help="Text for test message"
     )
     smoke_p.add_argument(
+        "--source-adapter",
+        default=None,
+        metavar="ID",
+        help="Inject from this route source (default: first eligible source; normal smoke only)",
+    )
+    smoke_p.add_argument(
         "--drill",
         default=None,
         metavar="NAME",
@@ -615,6 +621,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 
+        if args.source_adapter is not None and (args.drill or args.run_session):
+            parser.error("--source-adapter is supported only for normal smoke")
+
         if getattr(args, "run_session", False):
             asyncio.run(
                 _run_session(
@@ -633,6 +642,7 @@ def main(argv: list[str] | None = None) -> None:
                     args.json,
                     drill_name=args.drill,
                     storage_path=getattr(args, "storage_path", None),
+                    source_adapter=args.source_adapter,
                 )
             )
     elif args.command == "inspect":

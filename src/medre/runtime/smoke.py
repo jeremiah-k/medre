@@ -83,6 +83,7 @@ _LIMITATIONS: list[str] = [
     "No live codec verification for real packet formats",
     "No reconnection resilience or retry-against-live proof",
     "Fire-and-forget delivery model for radio transports",
+    "Single source injection — unselected route sources not exercised",
 ]
 
 _LIMITATIONS_MEMORY: str = "In-memory storage — no persistence or crash-recovery proof"
@@ -159,14 +160,33 @@ def _make_smoke_event(
 # ---------------------------------------------------------------------------
 
 
-def _pick_source_adapter(app: MedreApp) -> tuple[str, Any]:
-    """Choose a configured route source deterministically, regardless of platform."""
-    for adapter_id in sorted(app.adapters):
+def _eligible_smoke_sources(app: MedreApp) -> list[str]:
+    """List route sources that can be exercised by smoke injection."""
+    return [
+        adapter_id
+        for adapter_id in sorted(app.adapters)
         if any(
             route.enabled and route.source.adapter in (None, adapter_id)
             for route in app._registered_routes
-        ):
-            return adapter_id, app.adapters[adapter_id]
+        )
+    ]
+
+
+def _pick_source_adapter(
+    app: MedreApp, requested_source: str | None = None
+) -> tuple[str, Any]:
+    """Choose a route source, optionally selected explicitly by the operator."""
+    candidates = _eligible_smoke_sources(app)
+    if requested_source is not None:
+        if requested_source not in candidates:
+            raise ValueError(
+                f"Smoke source {requested_source!r} is not an enabled route source; "
+                f"available: {candidates}"
+            )
+        return requested_source, app.adapters[requested_source]
+    if candidates:
+        adapter_id = candidates[0]
+        return adapter_id, app.adapters[adapter_id]
     # A route-less smoke still reports its normal no-delivery evidence.
     adapter_id = sorted(app.adapters)[0]
     return adapter_id, app.adapters[adapter_id]
@@ -285,6 +305,7 @@ async def run_fake_bridge_smoke(
     *,
     message_text: str = "medre smoke test",
     storage_path: str | None = None,
+    source_adapter: str | None = None,
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
@@ -314,6 +335,9 @@ async def run_fake_bridge_smoke(
         the default in-memory backend.  Allows operators to persist smoke
         evidence for post-run inspection.  ``None`` (the default) keeps
         the config's original ``storage.backend`` (typically ``"memory"``).
+    source_adapter:
+        Optional explicit source identifier for route coverage; without it,
+        the first eligible source is used. One smoke cycle tests one source.
     now_fn:
         Callable returning UTC datetime (inject for deterministic tests).
     monotonic_fn:
@@ -404,8 +428,28 @@ async def run_fake_bridge_smoke(
         }
 
     # -- Step 5: Inject event -----------------------------------------------
-    source_aid, source_adapter = _pick_source_adapter(app)
-    event = _make_smoke_event(source_adapter, message_text)
+    candidates = _eligible_smoke_sources(app)
+    try:
+        source_aid, source_instance = _pick_source_adapter(app, source_adapter)
+        event = _make_smoke_event(source_instance, message_text)
+    except (ValueError, AttributeError, IndexError) as exc:
+        try:
+            await app.stop()
+        except Exception:
+            _logger.exception("Smoke shutdown failed after source rejection")
+        return {
+            "status": "failed",
+            "command": "smoke",
+            "fail_reasons": [sanitize_error(f"Smoke source error: {exc}")],
+            "source_candidates": candidates,
+            "coverage_scope": "single_source",
+            "evidence_level": "fake_bridge",
+            "timestamp": _now().isoformat(),
+            "config_source": config_source_value,
+            "preflight": preflight,
+            "limitations": _build_limitations(config.storage.backend),
+            **_empty_runtime_evidence(),
+        }
 
     outcomes: list[Any] = []
     injection_error: str | None = None
@@ -501,12 +545,14 @@ async def run_fake_bridge_smoke(
     # passed criteria
     event_stored = stored_event is not None
     has_success = any(o.status == "success" for o in outcomes)
+    has_failure = any(o.status != "success" for o in outcomes)
     has_sent_receipt = any(r.status == "sent" for r in receipts)
     delivered_count = accounting.get("outbound_delivered", 0) if accounting else 0
 
     passed = (
         event_stored
         and has_success
+        and not has_failure
         and has_sent_receipt
         and delivered_count >= 1
         and injection_error is None
@@ -519,6 +565,8 @@ async def run_fake_bridge_smoke(
         fail_reasons.append("Event not found in storage")
     if not has_success:
         fail_reasons.append("No successful delivery outcome")
+    if has_failure:
+        fail_reasons.append("One or more route delivery outcomes were not successful")
     if not has_sent_receipt:
         fail_reasons.append("No receipt with status 'sent'")
     if delivered_count < 1:
@@ -561,6 +609,8 @@ async def run_fake_bridge_smoke(
         ),
         "preflight": preflight,
         "source_adapter": source_aid,
+        "source_candidates": candidates,
+        "coverage_scope": "single_source",
         "target_adapters": target_adapters,
         "event_id": event.event_id,
         "route_ids": route_ids,
