@@ -1353,3 +1353,5 @@ class TestDrillStorageCrossCheck:
             evidence = json.loads(ev_output)
             assert evidence["sections"]["storage"]["status"] == "passed"
             assert evidence["sections"]["storage"]["data"]["db_exists"] is True
+
+
