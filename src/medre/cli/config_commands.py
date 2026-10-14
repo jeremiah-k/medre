@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 
 from medre.config.paths import resolve
 
 from .exit_codes import EXIT_CONFIG
-from .transports import TRANSPORTS
+from .transports import TRANSPORTS, is_transport_installed
 
 
 def _dir_status(p: object) -> str:
@@ -237,6 +236,7 @@ def _config_check(config_path: str | None) -> None:
 
 def _adapters() -> None:
     """List available adapter types, SDK availability, and configured adapters."""
+    from medre.config.errors import ConfigFileError, ConfigNotFoundError, ConfigValidationError
     from medre.config.loader import load_config
 
     print("Adapter types:")
@@ -246,14 +246,7 @@ def _adapters() -> None:
         if not import_names:
             print(f"  {transport:14s} Python SDK: not required")
             continue
-        installed = False
-        for mod_name in import_names:
-            try:
-                importlib.import_module(mod_name)
-                installed = True
-                break
-            except ImportError:
-                pass
+        installed = is_transport_installed(transport)
         status = "installed" if installed else "not installed"
         label = dist_name or "external"
         print(f"  {transport:14s} SDK ({label}): {status}")
@@ -271,8 +264,10 @@ def _adapters() -> None:
             status = "enabled" if rtc.enabled else "disabled"
             kind = getattr(rtc, "adapter_kind", "real")
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
-    except Exception:
+    except ConfigNotFoundError:
         print("No config found — run 'medre config sample' to generate one.")
+    except (ConfigFileError, ConfigValidationError):
+        print("Config cannot be loaded — run 'medre config check' for details.")
 
 
 def _adapters_check(config_path: str | None) -> None:

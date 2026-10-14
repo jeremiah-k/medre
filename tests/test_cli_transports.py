@@ -67,3 +67,58 @@ def test_registered_transport_not_installed_without_sdk(
     )
     assert is_transport_installed("sample") is False
     assert no_sdk_imports == ["a", "b"]
+
+
+def test_dependency_probe_overrides_partial_sdk_imports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reticulum alone must not make the LXMF adapter appear usable."""
+    probe = SimpleNamespace(load=lambda: False)
+    spec = SimpleNamespace(dependency_probe=probe)
+    monkeypatch.setattr("medre.cli.transports.get_adapter_spec", lambda _t: spec)
+    monkeypatch.setattr(
+        "medre.cli.transports.TRANSPORTS",
+        [("lxmf", "lxmf", ("LXMF", "RNS"))],
+    )
+    attempted: list[str] = []
+
+    def sdk_import(name: str) -> object:
+        attempted.append(name)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "medre.cli.transports.importlib",
+        SimpleNamespace(import_module=sdk_import),
+    )
+    assert is_transport_installed("lxmf") is False
+    assert attempted == []
+
+
+def test_dependency_probe_reports_complete_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe = SimpleNamespace(load=lambda: True)
+    monkeypatch.setattr(
+        "medre.cli.transports.get_adapter_spec",
+        lambda _t: SimpleNamespace(dependency_probe=probe),
+    )
+    monkeypatch.setattr(
+        "medre.cli.transports.TRANSPORTS", [("lxmf", "lxmf", ("LXMF", "RNS"))]
+    )
+    assert is_transport_installed("lxmf") is True
+
+
+def test_dependency_probe_missing_import_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing() -> None:
+        raise ModuleNotFoundError("RNS is not installed", name="RNS")
+
+    monkeypatch.setattr(
+        "medre.cli.transports.get_adapter_spec",
+        lambda _t: SimpleNamespace(dependency_probe=SimpleNamespace(load=missing)),
+    )
+    monkeypatch.setattr(
+        "medre.cli.transports.TRANSPORTS", [("lxmf", "lxmf", ("LXMF", "RNS"))]
+    )
+    assert is_transport_installed("lxmf") is False

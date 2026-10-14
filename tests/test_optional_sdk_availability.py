@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import builtins
-import importlib
 import runpy
 from pathlib import Path
 from types import ModuleType
@@ -43,24 +42,17 @@ def test_adapters_command_reports_optional_sdk_availability(
     from medre.cli import main
     from medre.cli.config_commands import TRANSPORTS
 
-    sdk_imports = {name for _, _, names in TRANSPORTS for name in names}
-    original_import = importlib.import_module
+    import medre.cli.config_commands as config_commands
 
-    def import_sdk(name: str, package: str | None = None) -> ModuleType:
-        if name in sdk_imports:
-            if not installed:
-                raise ModuleNotFoundError(f"{name} unavailable", name=name)
-            return ModuleType(name)
-        return original_import(name, package)
-
-    monkeypatch.setattr(importlib, "import_module", import_sdk)
+    monkeypatch.setattr(
+        config_commands, "is_transport_installed", lambda _name: installed
+    )
     for name in ("MEDRE_HOME", "MEDRE_CONFIG"):
         monkeypatch.delenv(name, raising=False)
     for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
         monkeypatch.setenv(name, str(tmp_path / name.lower()))
 
-    # Listing adapters intentionally probes imports, unlike --help/version.
-    # Simulate both outcomes without loading a real SDK or user configuration.
+    # Simulate dependency-probe outcomes without loading an SDK.
     try:
         main(["adapters"])
     except SystemExit as exc:

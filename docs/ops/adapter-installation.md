@@ -126,8 +126,13 @@ medre run --config bridge.yaml              # no downloads at startup
 The adapter preflight inspects declared transport groups, including disabled
 instances (they still need config model providers). It does **not** validate
 credentials, SDK availability, or the remainder of the YAML configuration.
-Those belong to config checking and adapter startup respectively. A missing
-provider is reported without reading any transport SDK or fetching a package.
+Use `medre adapters` to inspect the available adapter-owned SDK dependency
+probes. An installed provider can still report its SDK as unavailable (for
+example, LXMF needs both the `LXMF` and `RNS` modules). `medre config check`
+validates runtime configuration, and adapter startup verifies the live service.
+A missing provider is reported without loading any transport SDK or fetching a
+package. Invalid config is reported separately from an absent config without
+echoing config values in the adapter inventory.
 
 ## Adapter author contract
 

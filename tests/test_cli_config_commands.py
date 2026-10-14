@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import types
 from pathlib import Path
 
 import pytest
@@ -570,11 +569,43 @@ def test_adapters_reports_sidecar_transport_without_probing(
         raise AssertionError(f"unexpected SDK probe: {name}")
 
     monkeypatch.setattr(config_commands, "TRANSPORTS", [("sidecar", None, ())])
-    monkeypatch.setattr(
-        config_commands, "importlib", types.SimpleNamespace(import_module=_no_probes)
-    )
+    monkeypatch.setattr(config_commands, "is_transport_installed", _no_probes)
 
     config_commands._adapters()
     out = capsys.readouterr().out
     assert "sidecar" in out
     assert "Python SDK: not required" in out
+
+
+def test_adapters_distinguishes_invalid_config_from_missing_config(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Never label a rejected config as absent or echo its secret values."""
+    import medre.cli.config_commands as commands
+    import medre.config.loader as loader
+    from medre.config.errors import ConfigValidationError
+
+    def bad_config(_path: object) -> None:
+        raise ConfigValidationError("unusable config: hidden-secret-value")
+
+    monkeypatch.setattr(loader, "load_config", bad_config)
+    commands._adapters()
+    output = capsys.readouterr().out
+    assert "Config cannot be loaded" in output
+    assert "No config found" not in output
+    assert "hidden-secret-value" not in output
+
+
+def test_adapters_reports_missing_config_separately(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import medre.cli.config_commands as commands
+    import medre.config.loader as loader
+    from medre.config.errors import ConfigNotFoundError
+
+    def missing_config(_path: object) -> None:
+        raise ConfigNotFoundError("no config")
+
+    monkeypatch.setattr(loader, "load_config", missing_config)
+    commands._adapters()
+    assert "No config found" in capsys.readouterr().out
