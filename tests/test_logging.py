@@ -657,7 +657,11 @@ class TestSetupLoggingOverrides:
 
         # Also snapshot dependency loggers that might be touched.
         saved_dep_levels: dict[str, int] = {}
-        for name in list(dependency_logger_defaults()) + ["custom.lib"]:
+        for name in list(dependency_logger_defaults()) + [
+            "custom.lib",
+            "nio",
+            "nio.crypto.log",
+        ]:
             saved_dep_levels[name] = logging.getLogger(name).level
 
         yield
@@ -768,7 +772,7 @@ class TestSetupLoggingOverrides:
         """overrides=None (default) applies only dependency defaults."""
         setup_logging(level="INFO", json_format=False, overrides=None)
         # Dependency defaults should still be applied.
-        assert logging.getLogger("nio").level == logging.WARNING
+        assert logging.getLogger("aiohttp").level == logging.WARNING
         # No crash, no extra overrides.
 
     def test_override_nio_crypto_log_warning_changes_level(self) -> None:
@@ -847,7 +851,12 @@ class TestLoggingTopology:
         saved_root_handlers = list(root_logger.handlers)
         saved_root_level = root_logger.level
         saved_dep_levels: dict[str, int] = {}
-        for name in list(dependency_logger_defaults()) + ["custom.lib", "unknown.dep"]:
+        for name in list(dependency_logger_defaults()) + [
+            "custom.lib",
+            "unknown.dep",
+            "nio",
+            "nio.crypto.log",
+        ]:
             saved_dep_levels[name] = logging.getLogger(name).level
 
         yield
@@ -959,18 +968,18 @@ class TestLoggingTopology:
         output = buf.getvalue()
         assert "medre-info-msg" not in output
 
-    def test_nio_debug_suppressed_by_default(self) -> None:
-        """nio DEBUG logs are suppressed by default (nio default=WARNING)."""
+    def test_dependency_debug_suppressed_by_default(self) -> None:
+        """aiohttp DEBUG logs are suppressed by default (aiohttp default=WARNING)."""
         setup_logging(level="DEBUG", json_format=False)
         handler = self._get_medre_root_handler()
         assert handler is not None
         buf = StringIO()
         handler.stream = buf
 
-        logging.getLogger("nio").debug("nio-debug-msg")
+        logging.getLogger("aiohttp").debug("aiohttp-debug-msg")
 
         output = buf.getvalue()
-        assert "nio-debug-msg" not in output
+        assert "aiohttp-debug-msg" not in output
 
     def test_override_nio_debug_allowed(self) -> None:
         """nio DEBUG logs emitted when override={"nio": "DEBUG"}."""

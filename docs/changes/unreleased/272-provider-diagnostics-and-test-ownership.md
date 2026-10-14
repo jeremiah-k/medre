@@ -36,3 +36,6 @@
 
 - Invoke stop hooks inside their supervised deadline task so call-time errors
   cannot bypass framework cleanup; accept coroutine and Future-backed hooks.
+
+- Separate cold core/native import probes so subprocess-based qualification
+  respects test ownership; verify core logger defaults without installed SDKs.

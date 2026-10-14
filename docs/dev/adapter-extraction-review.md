@@ -196,6 +196,17 @@ also passed. Formatting, lint, workflow checks, and final collection are
 recorded with publication; hardware, live endpoints, Docker services, and soak
 were not run locally during this follow-up.
 
+### CI isolation follow-up
+
+The first published head's core-only job exposed 32 native import probes still
+running in the core tier and two logging assertions expecting an uninstalled
+SDK's defaults. The earlier process-local adapter suppression did not propagate
+to those probes' child interpreters. Core/native import cases are now separated
+with a shared probe helper, and generic logging assertions use a core-managed
+dependency rather than requiring Matrix metadata. A fresh virtual environment
+with no adapter entry points passed 120 focused checks, including its cold
+subprocess imports. Native probe coverage remains in the compatibility tier.
+
 ## Release coordination
 
 The curated CI manifest pins reviewed adapter commits for stability across
