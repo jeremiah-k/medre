@@ -12,7 +12,7 @@ set -euo pipefail
 #
 # Usage:
 #   uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
-#   uv run --no-sync bash scripts/ci/run-docker-integration.sh
+#   uv run --no-sync bash scripts/ci/run-docker-integration.sh [pytest arguments...]
 #
 # Environment variables:
 #   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.162.0)
@@ -73,7 +73,7 @@ timeout --foreground "${TIMEOUT_MINUTES}m" \
 	-v \
 	--tb=short \
 	--timeout=300 \
-	"${PYTEST_EXTRA_ARGS-}"
+	"$@"
 TEST_EXIT=$?
 set -e
 

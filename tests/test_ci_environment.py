@@ -47,7 +47,10 @@ def test_docker_runner_refuses_missing_dependencies_without_installing(
         ["bash", str(_RUNNER)], env=env, capture_output=True, text=True, timeout=10
     )
     assert result.returncode == 1
-    assert "uv sync --locked --extra dev --extra matrix --extra meshtastic" in result.stderr
+    assert "uv sync --locked --extra dev" in result.stderr
+    assert (
+        "uv pip install medre-adapter-matrix medre-adapter-meshtastic" in result.stderr
+    )
     assert "python -m pip install" in result.stderr
     arguments = log.read_text().splitlines()
     assert arguments[0] == "-c"
@@ -67,4 +70,20 @@ def test_docker_runner_uses_the_selected_python_for_prerequisites_and_tests(
     assert arguments[0] == "-c"
     assert arguments[2:4] == ["-m", "pytest"]
     assert "tests/integration/" in arguments
+    assert "" not in arguments  # An empty pytest path collects the entire checkout.
     assert "pip" not in arguments and "install" not in arguments
+
+
+def test_docker_runner_forwards_pytest_arguments_without_shell_expansion(
+    runner_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, log = runner_environment
+    result = subprocess.run(
+        ["bash", str(_RUNNER), "-k", "bridge and not attachment"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert log.read_text().splitlines()[-2:] == ["-k", "bridge and not attachment"]
