@@ -236,7 +236,11 @@ def _config_check(config_path: str | None) -> None:
 
 def _adapters() -> None:
     """List available adapter types, SDK availability, and configured adapters."""
-    from medre.config.errors import ConfigFileError, ConfigNotFoundError, ConfigValidationError
+    from medre.config.errors import (
+        ConfigFileError,
+        ConfigNotFoundError,
+        ConfigValidationError,
+    )
     from medre.config.loader import load_config
 
     print("Adapter types:")

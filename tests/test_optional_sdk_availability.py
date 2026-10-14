@@ -12,7 +12,8 @@ import pytest
 
 @pytest.mark.parametrize("installed", [False, True])
 def test_meshcore_guard_handles_sdk_availability(
-    monkeypatch: pytest.MonkeyPatch, installed: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    installed: bool,
 ) -> None:
     from medre.adapters.meshcore import compat
 
@@ -36,8 +37,10 @@ def test_meshcore_guard_handles_sdk_availability(
 
 @pytest.mark.parametrize("installed", [False, True])
 def test_adapters_command_reports_optional_sdk_availability(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-    tmp_path: Path, installed: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    installed: bool,
 ) -> None:
     from medre.cli import main
     from medre.cli.config_commands import TRANSPORTS
@@ -49,7 +52,12 @@ def test_adapters_command_reports_optional_sdk_availability(
     )
     for name in ("MEDRE_HOME", "MEDRE_CONFIG"):
         monkeypatch.delenv(name, raising=False)
-    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+    for name in (
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
         monkeypatch.setenv(name, str(tmp_path / name.lower()))
 
     # Simulate dependency-probe outcomes without loading an SDK.
@@ -61,6 +69,9 @@ def test_adapters_command_reports_optional_sdk_availability(
     for transport, distribution, names in TRANSPORTS:
         if names:
             status = "installed" if installed else "not installed"
-            assert f"  {transport:14s} SDK ({distribution or 'external'}): {status}" in lines
+            assert (
+                f"  {transport:14s} SDK ({distribution or 'external'}): {status}"
+                in lines
+            )
         else:
             assert f"  {transport:14s} Python SDK: not required" in lines
