@@ -218,8 +218,9 @@ def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
     return tuple(discovered)
 
 
-# Historical name kept for internal call sites during the extraction tranche.
-# This registry is now populated by installed distributions, not built-ins.
+# Historical name retained for internal call sites predating entry-point
+# discovery. This registry is populated by installed distributions, not
+# built-ins.
 BUILTIN_ADAPTER_REGISTRY = AdapterTypeRegistry(_discover_installed_specs())
 
 
