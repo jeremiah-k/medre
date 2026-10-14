@@ -723,6 +723,6 @@ class RuntimeBuilder:
             raise RuntimeConfigError(
                 f"Adapter {adapter_id!r} ({transport}) is enabled but could "
                 f"not be built: the optional SDK dependency is not installed. "
-                f"Install it with: pip install medre[{spec.install_extra}]"
+                f"Install it with: pip install medre-adapter-{spec.transport}"
             )
         return adapter

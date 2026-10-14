@@ -1,17 +1,12 @@
-"""Authoritative registry for MEDRE's built-in adapter types.
+"""Registry for separately distributed MEDRE adapter types.
 
 The registry contains *declarative registration metadata only*. It deliberately
 stores implementation references as strings so importing configuration code
 never imports adapter implementations or optional transport SDKs.
 
-Adding a built-in adapter should normally require one :class:`AdapterSpec`
-entry here plus adapter-owned implementation/configuration modules. Runtime,
-configuration, CLI, support tooling, path, metadata-dispatch, and architecture
-reporting consume this registry instead of maintaining their own transport
-lists.
-
-This is not a third-party plugin loader. The set is fixed at process import
-time and ships with MEDRE.
+Adapter packages register zero-argument factories through Python entry points
+in the ``medre.adapters`` group. Discovery runs once at import time; installing
+new packages requires a process restart. The registry never downloads packages.
 """
 
 from __future__ import annotations
@@ -58,7 +53,7 @@ class SymbolRef:
 
 @dataclass(frozen=True, slots=True)
 class AdapterSpec:
-    """Declarative assembly metadata for one built-in adapter type.
+    """Declarative assembly metadata for one installed adapter type.
 
     ``distribution`` and ``import_names`` describe an optional Python SDK when
     one exists. They may be empty for sidecar-backed adapters that use only a
@@ -101,7 +96,7 @@ class AdapterSpec:
 
 @dataclass(frozen=True, slots=True, init=False)
 class AdapterTypeRegistry:
-    """Immutable ordered registry of built-in adapter type specifications."""
+    """Immutable ordered registry of discovered adapter type specifications."""
 
     _specs: tuple[AdapterSpec, ...]
     _by_transport: Mapping[str, AdapterSpec]
@@ -190,174 +185,66 @@ class AdapterTypeRegistry:
         )
 
 
-BUILTIN_ADAPTER_REGISTRY = AdapterTypeRegistry(
-    (
-        AdapterSpec(
-            transport="matrix",
-            config=SymbolRef("medre.config.adapters.matrix", "MatrixConfig"),
-            runtime_config=SymbolRef("medre.config.model", "MatrixRuntimeConfig"),
-            adapter=SymbolRef("medre.adapters.matrix.adapter", "MatrixAdapter"),
-            fake_adapter=SymbolRef("medre.adapters.fakes.matrix", "FakeMatrixAdapter"),
-            renderer_factory=SymbolRef(
-                "medre.adapters.matrix.renderer", "build_matrix_renderer"
-            ),
-            dependency_probe=SymbolRef("medre.adapters.matrix.compat", "HAS_NIO"),
-            distribution="mindroom-nio",
-            import_names=("mindroom_nio", "nio"),
-            sdk_import_roots=("nio", "aiohttp"),
-            native_namespace_reader=SymbolRef(
-                "medre.adapters.matrix.event_shape", "matrix_namespace"
-            ),
-            versioned_namespace_reader=SymbolRef(
-                "medre.adapters.matrix.event_shape", "matrix_versioned_namespace"
-            ),
-            attribution_projector=SymbolRef(
-                "medre.adapters.matrix.attribution", "project_matrix_attribution"
-            ),
-            runtime_config_preparer=SymbolRef(
-                "medre.adapters.matrix.runtime", "prepare_matrix_runtime_config"
-            ),
-            runtime_directories=SymbolRef(
-                "medre.adapters.matrix.runtime", "matrix_runtime_directories"
-            ),
-            cli_register=SymbolRef(
-                "medre.adapters.matrix.cli_contrib", "register_matrix_cli"
-            ),
-            cli_dispatch=SymbolRef(
-                "medre.adapters.matrix.cli_contrib", "dispatch_matrix_cli"
-            ),
-            support_endpoint_fields=("homeserver", "user_id", "room_allowlist"),
-            support_secret_fields=("access_token",),
-            native_detection_priority=20,
-        ),
-        AdapterSpec(
-            transport="meshtastic",
-            config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
-            runtime_config=SymbolRef("medre.config.model", "MeshtasticRuntimeConfig"),
-            adapter=SymbolRef("medre.adapters.meshtastic.adapter", "MeshtasticAdapter"),
-            fake_adapter=SymbolRef(
-                "medre.adapters.fakes.meshtastic", "FakeMeshtasticAdapter"
-            ),
-            renderer_factory=SymbolRef(
-                "medre.adapters.meshtastic.renderer", "build_meshtastic_renderer"
-            ),
-            dependency_probe=SymbolRef(
-                "medre.adapters.meshtastic.compat", "HAS_MESHTASTIC"
-            ),
-            distribution="mtjk",
-            import_names=("mtjk", "meshtastic"),
-            sdk_import_roots=("meshtastic", "serial", "serial_asyncio"),
-            native_namespace_reader=SymbolRef(
-                "medre.adapters.meshtastic.event_shape", "meshtastic_namespace"
-            ),
-            versioned_namespace_reader=SymbolRef(
-                "medre.adapters.meshtastic.event_shape",
-                "meshtastic_versioned_namespace",
-            ),
-            attribution_projector=SymbolRef(
-                "medre.adapters.meshtastic.attribution",
-                "project_meshtastic_attribution",
-            ),
-            support_endpoint_fields=(
-                "host",
-                "port",
-                "serial_port",
-                "ble_address",
-                "channel_mapping",
-            ),
-            traits=frozenset({"radio"}),
-            native_detection_priority=30,
-        ),
-        AdapterSpec(
-            transport="meshcore",
-            config=SymbolRef("medre.config.adapters.meshcore", "MeshCoreConfig"),
-            runtime_config=SymbolRef("medre.config.model", "MeshCoreRuntimeConfig"),
-            adapter=SymbolRef("medre.adapters.meshcore.adapter", "MeshCoreAdapter"),
-            fake_adapter=SymbolRef(
-                "medre.adapters.fakes.meshcore", "FakeMeshCoreAdapter"
-            ),
-            renderer_factory=SymbolRef(
-                "medre.adapters.meshcore.renderer", "build_meshcore_renderer"
-            ),
-            dependency_probe=SymbolRef(
-                "medre.adapters.meshcore.compat", "HAS_MESHCORE"
-            ),
-            distribution="meshcore",
-            import_names=("meshcore",),
-            sdk_import_roots=("meshcore", "bleak", "serial", "serial_asyncio"),
-            native_namespace_reader=SymbolRef(
-                "medre.adapters.meshcore.event_shape", "meshcore_namespace"
-            ),
-            versioned_namespace_reader=SymbolRef(
-                "medre.adapters.meshcore.event_shape", "meshcore_versioned_namespace"
-            ),
-            attribution_projector=SymbolRef(
-                "medre.adapters.meshcore.attribution", "project_meshcore_attribution"
-            ),
-            support_endpoint_fields=(
-                "host",
-                "port",
-                "serial_port",
-                "ble_address",
-                "serial_baudrate",
-            ),
-            support_secret_fields=("ble_pin",),
-            traits=frozenset({"radio"}),
-            native_detection_priority=10,
-        ),
-        AdapterSpec(
-            transport="lxmf",
-            config=SymbolRef("medre.config.adapters.lxmf", "LxmfConfig"),
-            runtime_config=SymbolRef("medre.config.model", "LxmfRuntimeConfig"),
-            adapter=SymbolRef("medre.adapters.lxmf.adapter", "LxmfAdapter"),
-            fake_adapter=SymbolRef("medre.adapters.fakes.lxmf", "FakeLxmfAdapter"),
-            renderer_factory=SymbolRef(
-                "medre.adapters.lxmf.renderer", "build_lxmf_renderer"
-            ),
-            dependency_probe=SymbolRef("medre.adapters.lxmf.compat", "HAS_LXMF"),
-            distribution="lxmf",
-            import_names=("lxmf", "RNS"),
-            sdk_import_roots=("RNS", "LXMF", "lxmf"),
-            native_namespace_reader=SymbolRef(
-                "medre.adapters.lxmf.event_shape", "lxmf_namespace"
-            ),
-            versioned_namespace_reader=SymbolRef(
-                "medre.adapters.lxmf.event_shape", "lxmf_versioned_namespace"
-            ),
-            attribution_projector=SymbolRef(
-                "medre.adapters.lxmf.attribution", "project_lxmf_attribution"
-            ),
-            support_endpoint_fields=("storage_path", "display_name"),
-            support_secret_fields=("identity_path",),
-            traits=frozenset({"radio"}),
-            native_detection_priority=40,
-        ),
+def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
+    """Discover installed, explicitly packaged transport adapters.
+
+    Entry points must be published under ``medre.adapters`` and resolve to
+    zero-argument factories returning an AdapterSpec. A broken provider is a
+    configuration error, not a silently skipped transport.
+    """
+    from importlib.metadata import entry_points
+
+    discovered = []
+    preferred = {"matrix": 0, "meshtastic": 1, "meshcore": 2, "lxmf": 3}
+    providers = sorted(
+        entry_points(group="medre.adapters"),
+        key=lambda ep: (preferred.get(ep.name, 100), ep.name, ep.value),
     )
-)
+    for ep in providers:
+        try:
+            spec = ep.load()()
+        except Exception as exc:
+            raise RuntimeError(
+                f"cannot load MEDRE adapter {ep.name!r} from {ep.value!r}"
+            ) from exc
+        if not isinstance(spec, AdapterSpec):
+            raise TypeError(f"MEDRE adapter {ep.name!r} returned {type(spec)!r}")
+        if spec.transport != ep.name:
+            raise ValueError(
+                f"MEDRE adapter entry point {ep.name!r} registered "
+                f"transport {spec.transport!r}"
+            )
+        discovered.append(spec)
+    return tuple(discovered)
+
+
+# Historical name kept for internal call sites during the extraction tranche.
+# This registry is now populated by installed distributions, not built-ins.
+BUILTIN_ADAPTER_REGISTRY = AdapterTypeRegistry(_discover_installed_specs())
 
 
 def iter_adapter_specs() -> tuple[AdapterSpec, ...]:
-    """Return built-in adapter specs in deterministic registration order."""
+    """Return installed adapter specs in deterministic registration order."""
     return tuple(BUILTIN_ADAPTER_REGISTRY)
 
 
 def native_detection_specs() -> tuple[AdapterSpec, ...]:
-    """Return built-ins in native-metadata disambiguation precedence order."""
+    """Return installed adapters in native-metadata precedence order."""
     return BUILTIN_ADAPTER_REGISTRY.native_detection_order()
 
 
 def get_adapter_spec(transport: str) -> AdapterSpec | None:
-    """Return the built-in spec for *transport*, or ``None``."""
+    """Return the installed spec for *transport*, or ``None``."""
     return BUILTIN_ADAPTER_REGISTRY.get(transport)
 
 
 def registered_transports() -> tuple[str, ...]:
-    """Return the authoritative built-in transport vocabulary."""
+    """Return the installed transport vocabulary."""
     return BUILTIN_ADAPTER_REGISTRY.transports()
 
 
 def adapter_sdk_packages() -> tuple[str, ...]:
-    """Return the deduplicated SDK import roots declared by built-ins."""
+    """Return deduplicated SDK import roots declared by installed adapters."""
     seen: set[str] = set()
     ordered: list[str] = []
     for spec in BUILTIN_ADAPTER_REGISTRY:

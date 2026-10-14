@@ -575,7 +575,8 @@ class AdapterConfigSet:
         if unknown:
             raise TypeError(
                 f"unknown adapter transport group(s): {sorted(unknown)}; "
-                f"known transports: {sorted(known_set)}"
+                f"known installed transports: {sorted(known_set)}. "
+                "Install the matching medre-adapter-<transport> distribution."
             )
         object.__setattr__(
             self,

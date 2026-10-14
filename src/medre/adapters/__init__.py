@@ -1,7 +1,5 @@
-"""Adapter implementations — transport-specific adapter, codec, session, and renderer modules.
+"""MEDRE adapters, which may be supplied by separate distributions."""
 
-This package does not expose a stable public API.
-Import directly from submodules:
-  from medre.adapters.matrix.codec import MatrixCodec
-  from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-"""
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)
