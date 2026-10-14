@@ -228,3 +228,31 @@ def test_sibling_check_allows_distribution_name_different_from_repository(
     ).strip()
     entry = _entry(repository="someone/medre-adapter-example", ref=sha)
     assert matrix.reconcile_local([entry], repo_parent=tmp_path) == [entry]
+
+
+def test_sibling_distribution_names_use_python_normalization(tmp_path: Path) -> None:
+    _checkout, sha = _create_local_adapter(
+        tmp_path, "medre-adapter-example", "community_sensor"
+    )
+    entry = _entry(
+        repository="someone/medre-adapter-example",
+        ref=sha,
+        distribution="MEDRE_adapter.example",
+    )
+    assert matrix.reconcile_local([entry], repo_parent=tmp_path) == [entry]
+
+
+def test_failed_manifest_write_preserves_original_and_removes_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _manifest(tmp_path, [_entry()])
+    original = path.read_bytes()
+
+    def fail_write(*args: object, **kwargs: object) -> None:
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(matrix.json, "dump", fail_write)
+    with pytest.raises(OSError, match="write failure"):
+        matrix.write_manifest_atomic(path, [_entry(ref="a" * 40)])
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob(f".{path.name}.*")) == []

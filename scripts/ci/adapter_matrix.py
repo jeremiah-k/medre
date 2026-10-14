@@ -126,7 +126,11 @@ def reconcile_local(
         if (
             not isinstance(distribution, str)
             or not distribution.strip()
-            or (expected is not None and distribution != expected)
+            or (
+                expected is not None
+                and re.sub(r"[-_.]+", "-", distribution).lower()
+                != re.sub(r"[-_.]+", "-", expected).lower()
+            )
             or transport not in providers
         ):
             raise ValueError(
@@ -151,21 +155,22 @@ def reconcile_local(
 
 def write_manifest_atomic(path: Path, entries: list[dict[str, Any]]) -> None:
     """Publish a fully validated compatibility snapshot in one file replace."""
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        delete=False,
-    ) as temp:
-        temp_name = temp.name
-        json.dump(entries, temp, indent=2)
-        temp.write("\n")
+    temp_name: str | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as temp:
+            temp_name = temp.name
+            json.dump(entries, temp, indent=2)
+            temp.write("\n")
         os.replace(temp_name, path)
     finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
+        if temp_name is not None:
+            Path(temp_name).unlink(missing_ok=True)
 
 
 def requirements(entries: list[dict[str, Any]]) -> str:
