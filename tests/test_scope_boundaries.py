@@ -35,6 +35,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from medre.runtime.architecture_report import _SDK_PACKAGES
 from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
 from tests.helpers.import_scanner import banned_imports as _banned_imports
@@ -772,7 +773,7 @@ class TestNoDynamicReload:
         """No source file defines reload classes or functions."""
         violations: list[str] = []
         for path in _all_source_py_files(_SRC_ROOT):
-            rel = str(path.relative_to(_SRC_ROOT))
+            rel = path.relative_to(_SRC_ROOT).as_posix()
             if rel in self._FALSE_POSITIVE_FILES:
                 continue
 
@@ -889,7 +890,7 @@ class TestNoCanonicalEventRedesign:
         """CanonicalEvent must be defined only in canonical.py."""
         violations: list[str] = []
         for path in _all_source_py_files(_SRC_ROOT):
-            rel = str(path.relative_to(_SRC_ROOT))
+            rel = path.relative_to(_SRC_ROOT).as_posix()
             if rel == "core/events/canonical.py":
                 continue  # This is the canonical definition site.
             source = _file_source(path)
