@@ -35,17 +35,22 @@ def test_duplicate_entry_points_are_rejected(monkeypatch: pytest.MonkeyPatch) ->
     from importlib import metadata
 
     entries = list(metadata.entry_points(group="medre.adapters"))
-    monkeypatch.setattr(metadata, "entry_points", lambda **kwargs: [entries[0], entries[0]])
+    monkeypatch.setattr(
+        metadata, "entry_points", lambda **kwargs: [entries[0], entries[0]]
+    )
     with pytest.raises(ValueError, match="duplicate adapter transport"):
         AdapterTypeRegistry(_discover_installed_specs())
 
 
-def test_invalid_external_provider_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_invalid_external_provider_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from importlib import metadata
 
     class BrokenProvider:
         name = "broken"
         value = "nonexistent.plugin:load"
+
         def load(self) -> object:
             raise ImportError("unavailable provider")
 

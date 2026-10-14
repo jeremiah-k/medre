@@ -29,4 +29,4 @@ The extraction commits have separate migration identity; the original
 historical author and committer fields were not rewritten.
 
 The LXMF/RNS license conditions require independent legal review; creating
-a separately installable Python package is *not* a legal isolation boundary.
+a separately installable Python package is _not_ a legal isolation boundary.
