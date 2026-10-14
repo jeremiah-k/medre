@@ -538,6 +538,9 @@ class TestCollectDockerBridgeArtifacts:
 
         assert len(calls) == 1
         cmd = calls[0]["cmd"]
+        import sys
+
+        assert cmd[:3] == [sys.executable, "-m", "pytest"]
         cmd_str = " ".join(cmd)
         assert "synapse" in cmd_str or "meshtastic" in cmd_str
 

@@ -421,7 +421,7 @@ def test_no_fixed_sleeps_project_wide() -> None:
 
     for path in sorted(TESTS_DIR.rglob("*.py")):
         rel = path.relative_to(TESTS_DIR)
-        rel_str = str(rel)
+        rel_str = rel.as_posix()
         # Skip pycache and this meta-test (which references the allowlist).
         if "__pycache__" in rel_str or path.name == Path(__file__).name:
             continue

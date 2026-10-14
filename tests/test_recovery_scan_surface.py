@@ -28,6 +28,7 @@ import asyncio
 import hashlib
 import io
 import json
+import shlex
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -991,7 +992,10 @@ def test_human_output_shows_valid_next_actions(tmp_path: Path) -> None:
     assert "meshtastic.radio" in stdout
     assert "live" in stdout
     # Valid inspection step (reconstructable from the page).
-    assert f"medre inspect event evt-1 --recovery --storage-path {db}" in stdout
+    assert (
+        f"medre inspect event evt-1 --recovery --storage-path "
+        f"{shlex.quote(str(db))}"
+    ) in stdout
     # Replay guidance references the real replay surface, never a
     # fabricated "replay --storage-path".
     assert "medre replay --mode dry_run --event <event_id> --config" in stdout

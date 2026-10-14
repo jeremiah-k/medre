@@ -46,6 +46,10 @@ set -euo pipefail
 PYTHON="${PYTHON:-python}"
 SCENARIO="${1:-matrix_to_meshtastic}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-15}"
+if [[ ! ${TIMEOUT_MINUTES} =~ ^[1-9][0-9]*$ ]]; then
+	echo "ERROR: TIMEOUT_MINUTES must be a positive integer." >&2
+	exit 2
+fi
 
 echo "MEDRE Docker Bridge Artifact Collector"
 echo "========================================"
@@ -99,27 +103,11 @@ check_import() {
 	fi
 }
 
-case "${SCENARIO}" in
-matrix_to_meshtastic | bidirectional)
-	check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
-	;;&
-matrix_to_meshtastic)
-	check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
-	check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
-	;;&
-meshtastic_to_matrix | bidirectional)
-	check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
-	check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
-	;;&
-meshtastic_to_matrix)
-	check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
-	;;
-*)
-	echo "Unknown scenario: ${SCENARIO}" >&2
-	echo "Valid scenarios: matrix_to_meshtastic, meshtastic_to_matrix, bidirectional" >&2
-	exit 1
-	;;
-esac
+# Every bridge scenario uses both SDKs; do not use Bash case ;;& fallthrough
+# here (it continues to the catch-all error branch even on valid scenarios).
+check_import "Matrix SDK (mindroom-nio exposes 'nio')" "import nio"
+check_import "Meshtastic SDK (meshtastic)" "import meshtastic"
+check_import "Meshtastic pubsub (pubsub.pub)" "from pubsub import pub"
 
 echo "All prerequisites satisfied."
 
@@ -127,10 +115,19 @@ echo ""
 echo "Running Docker bridge artifact collection..."
 echo ""
 
-# Run via the Python helper, which handles everything.
+# Run via the Python helper, which handles everything. GNU timeout is not
+# bundled with macOS. Prefer gtimeout if coreutils is installed; otherwise
+# rely on the collector's internal deadline and the caller's job deadline.
+runner=( "${PYTHON}" )
+if command -v timeout >/dev/null 2>&1; then
+	runner=( timeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" )
+elif command -v gtimeout >/dev/null 2>&1; then
+	runner=( gtimeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" )
+else
+	echo "WARNING: global timeout utility not found; using collector deadline." >&2
+fi
 set +e
-timeout --foreground "${TIMEOUT_MINUTES}m" \
-	"${PYTHON}" -c "
+"${runner[@]}" -c "
 import sys
 import json
 from medre.runtime.docker_bridge_artifacts import collect_docker_bridge_artifacts

@@ -52,7 +52,7 @@ def test_test_functions_are_not_empty_placeholders() -> None:
     """Every collected-style test function must contain executable behavior."""
     violations: list[str] = []
     for path in sorted(_TESTS_ROOT.rglob("test_*.py")):
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in _iter_collectable_test_functions(tree):
             body = _effective_test_body(node)
             if not body or all(_is_placeholder_statement(stmt) for stmt in body):

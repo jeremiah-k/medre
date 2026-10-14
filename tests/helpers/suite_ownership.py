@@ -93,7 +93,7 @@ def external_imports(path: Path, root: Path, seen: set[Path] | None = None) -> s
 def undeclared_dependencies(root: Path) -> dict[str, list[str]]:
     """Return accidental coupling that requires an explicit ownership decision."""
     return {
-        str(path.relative_to(root)): sorted(dependencies)
+        path.relative_to(root).as_posix(): sorted(dependencies)
         for path in sorted((root / "tests").rglob("test_*.py"))
         if not is_compatibility(path, root)
         and (dependencies := external_imports(path, root))

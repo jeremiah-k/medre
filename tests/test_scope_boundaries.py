@@ -81,7 +81,7 @@ _SRC_ROOT = _TESTS_DIR.parent / "src" / "medre"
 
 def _file_source(path: Path) -> str:
     """Read source from a file path."""
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def _scan_file_for_banned_imports(

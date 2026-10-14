@@ -89,6 +89,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -842,7 +843,7 @@ def collect_docker_bridge_artifacts(
     ]
     all_args = default_args + list(pytest_args) + test_selectors
 
-    cmd = ["python", "-m", "pytest"] + all_args
+    cmd = [sys.executable, "-m", "pytest"] + all_args
 
     env = dict(os.environ)
     if extra_env:

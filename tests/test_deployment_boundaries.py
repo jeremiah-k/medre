@@ -68,7 +68,7 @@ _BANNED_ADAPTER_RUNTIME_IMPORTS = _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES
 
 def _file_source(path: Path) -> str:
     """Read source from a file path."""
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def _scan_file_for_banned_imports(

@@ -30,7 +30,7 @@ class TestCoreDoesNotImportAdapters:
 
         violations: list[str] = []
         for py_file in sorted(core_dir.rglob("*.py")):
-            text = py_file.read_text()
+            text = py_file.read_text(encoding="utf-8")
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
@@ -68,7 +68,7 @@ class TestConfigDoesNotImportAdapters:
 
         violations: list[str] = []
         for py_file in sorted(config_dir.rglob("*.py")):
-            text = py_file.read_text()
+            text = py_file.read_text(encoding="utf-8")
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
@@ -104,7 +104,7 @@ class TestCoreDoesNotImportConfig:
 
         violations: list[str] = []
         for py_file in sorted(core_dir.rglob("*.py")):
-            text = py_file.read_text()
+            text = py_file.read_text(encoding="utf-8")
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
@@ -202,7 +202,7 @@ class TestNoOldAdapterBaseReferences:
         violations: list[str] = []
         old_name = self._OLD_NAME
         for py_file in sorted(src_dir.rglob("*.py")):
-            text = py_file.read_text()
+            text = py_file.read_text(encoding="utf-8")
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
@@ -231,7 +231,7 @@ class TestNoOldAdapterBaseReferences:
                 "test_boundary_api.py",
             ):
                 continue
-            text = py_file.read_text()
+            text = py_file.read_text(encoding="utf-8")
             for i, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#"):
