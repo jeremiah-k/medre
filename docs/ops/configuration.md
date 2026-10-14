@@ -1267,11 +1267,20 @@ services:
 
 ### Recommended Docker Pattern
 
+Prepare a `wheelhouse/` build context containing MEDRE, the selected adapter
+wheels, and their locked Python dependencies for the container's Python version,
+OS, and architecture. Build adapters from reviewed Git revisions or local
+checkouts before assembling the image; this also works before index publication.
+See [adapter installation](adapter-installation.md) for dependency ownership
+and deployment locking. The example installs the plaintext Matrix and Meshtastic
+providers used by the Docker example configs.
+
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
-COPY . .
-RUN pip install ".[matrix,matrix-e2e,meshtastic]"
+COPY wheelhouse/ /wheels/
+RUN python -m pip install --no-index --find-links=/wheels \
+    medre medre-adapter-matrix medre-adapter-meshtastic
 ENV MEDRE_HOME=/opt/medre
 ENTRYPOINT ["medre"]
 CMD ["run"]

@@ -3,9 +3,10 @@
 **Pre-release. No stable public API. Not production-ready.** Everything is
 subject to change without notice.
 
-MEDRE routes events between transport adapters (Matrix, Meshtastic,
-MeshCore, LXMF) through a codec → renderer → session pipeline with a
-config-file-first runtime.
+MEDRE routes events between independently installed platform adapters through
+a codec → renderer → session pipeline with a config-file-first runtime.
+First-party providers cover Matrix, Meshtastic, MeshCore, and LXMF; community
+providers use the same contracts and ordinary Python packaging.
 
 ## First Steps
 
@@ -35,6 +36,13 @@ via discovery); it does not read a config from stdin. The sample config uses
 fake adapters only — it proves the pipeline and storage, not any transport.
 Expected output, the persistent-storage variant, and troubleshooting:
 [docs/ops/install.md](docs/ops/install.md).
+
+A normal smoke tests one source. Use `--source-adapter INSTANCE_ID` to select
+another eligible source, and inspect `source_candidates` in the JSON report.
+Eligible sources must have started and provide the fake event helper. A pass
+requires delivery for every matched configured route target, including targets
+that fail construction or startup. See
+[multi-source smoke coverage](docs/dev/testing.md#multi-source-fake-smoke-coverage).
 
 To verify a built artifact end to end — wheel build, clean core-only
 install, installed-package proof — run, from a source checkout:
@@ -80,11 +88,12 @@ medre config check --config my-bridge.yaml    # validates adapter configuration
 medre run --config my-bridge.yaml
 ```
 
-Temporary core SDK extras remain for older CI/development workflows while
-adapter package ownership is finalized; they **do not** install the external
-adapter distributions. For new deployments use the adapter distributions as
-the dependency authority, and do not combine mismatched SDK pins. See the
-[development environment guide](docs/dev/environment.md).
+Core's only optional extra is `dev`. Adapter distributions own their SDK
+requirements and SDK-free fakes; install the providers your configuration
+references in the same Python environment as MEDRE. Matrix encryption uses
+the adapter's `[e2e]` extra. See the
+[development environment guide](docs/dev/environment.md) and
+[external adapter ownership and CI](docs/dev/external-adapters.md).
 
 What a `sent` receipt means per transport is in
 [docs/ops/running-medre.md](docs/ops/running-medre.md); per-transport

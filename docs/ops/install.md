@@ -49,8 +49,8 @@ source .venv/bin/activate
 python -m pip install -e .           # core runtime only
 # For developer tools:
 python -m pip install -e ".[dev]"
-# Include transport extras as needed:
-python -m pip install -e ".[dev,matrix,meshtastic]"
+# Install sibling adapter distributions and their SDK requirements as needed:
+python -m pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic
 ```
 
 pip respects the declared requirements but does not read `uv.lock`; transitive
@@ -141,7 +141,8 @@ medre adapters
 
 ## Generate and Validate a Config
 
-`medre config sample` generates a complete YAML config using fake adapters. It works out of the box without any optional SDKs or network access.
+`medre config sample` generates a complete YAML config using fake adapters. Install the referenced adapter distributions first; their fakes need no native
+SDKs or network access.
 
 ```bash
 # Print the sample config

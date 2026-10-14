@@ -398,6 +398,10 @@ transport adapters to implement this testing helper. Adapter-owned unit tests
 should check the method's signature and originating adapter ID. A multi-route
 smoke selects only one source per run; use `--source-adapter` to exercise each
 configured source, and inspect `source_candidates` in the JSON evidence report.
+Only started fakes with this helper are eligible sources; a fake without it can
+still be a delivery target. A pass requires delivery for every configured route
+target matched by the event, including targets lost during construction/startup.
+Event-factory errors fail the smoke and trigger runtime cleanup.
 
 ### Test your adapter with these tiers
 

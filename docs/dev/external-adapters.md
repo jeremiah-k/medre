@@ -81,14 +81,16 @@ python scripts/ci/adapter_matrix.py --check-local
 
 This compares each manifest SHA with the clean sibling repository HEAD and
 validates the adapter entry point and optional `distribution` expectation (when
-recorded in the manifest). Repository names need not equal distribution names. It does not fetch
-or install anything. Once **all** adapter changes are committed in their own
+recorded in the manifest). Distribution comparisons normalize case and runs
+of `-`, `_`, and `.` according to Python package naming rules. Repository names
+need not equal distribution names. The check does not fetch or install anything. Once **all** adapter changes are committed in their own
 repositories, use `--sync-local` to update every `ref` atomically, review the
 diff, then publish those adapter commits before the updated MEDRE manifest.
 These commands require sibling repositories in the default `../medre-adapter-*`
 layout; `--repo-parent` overrides the containing directory. The update fails
 if any checkout is dirty or missing, rather than pinning half a coordinated
-change. Existing full-commit refs remain valid for disconnected CI runs.
+change. A failed write preserves the original manifest and removes its
+temporary file. Existing full-commit refs remain valid for disconnected CI runs.
 Updating the manifest is always an explicit compatibility-change review.
 Adapter CI defaults to core `main`. During coordinated development, set the
 adapter repository's `MEDRE_CORE_REF` Actions variable to the proposed core
@@ -102,3 +104,20 @@ changes. Core-only CI remains meaningful throughout that coordination.
 
 See [adapter installation](../ops/adapter-installation.md) for deployments and
 [adapter authoring](adapter-authoring.md) for registration and lifecycle rules.
+
+## Smoke and SDK readiness
+
+Normal `medre smoke` injects one event through one started fake source that
+provides the optional synchronous `make_event` helper. Use `--source-adapter`
+with a configured instance ID to exercise another source; the report discloses
+`source_candidates` and `coverage_scope: single_source`. A fake without the
+helper can still serve as a target. Every configured route and target pair
+matched by the event must have successful delivery evidence for a pass, even
+when runtime degradation removes an unavailable target. Event-factory errors
+produce a failed report and trigger runtime cleanup. Adapter-failure drills use
+the router's actual channel and event-kind matching to select a target.
+
+`medre adapters check` inspects installed provider metadata without loading SDKs.
+`medre adapters` uses each provider's declared dependency probe for SDK readiness;
+a partial SDK installation cannot satisfy a probe requiring multiple modules.
+See [multi-source smoke coverage](testing.md#multi-source-fake-smoke-coverage).

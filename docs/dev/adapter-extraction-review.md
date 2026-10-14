@@ -87,12 +87,12 @@ issue, and affected checks were rerun with normal local permissions.
 | Direct/context-map address ownership and strict preflight slice   | 91 passed               |
 | Five clean wheels; isolated core plus external-wheel bridge proof | Passed                  |
 
-These slices overlap; the counts are not a single-suite total. Full core collection also
-succeeds: 14,047 selected cases, 69 gated cases deselected. The final
+These initial extraction slices overlap; the counts are not a single-suite total.
+The original full core collection succeeded: 14,047 selected cases, 69 gated cases deselected. The final
 registry/dispatch/artifact/CI interface slice passed 86 checks, and all four native SDK
 environments pass dependency consistency checks. Lint, formatting, compilation, workflow
 validation, whitespace checks, and the offline core lock freshness check are recorded
-with the final verification. The entire core regression suite was not executed.
+with the final verification. The entire core regression suite was not executed locally.
 
 Publishing qualification runs in [PR #265](https://github.com/jeremiah-k/medre/pull/265).
 The initial remote regression exposed 17 remaining obsolete assertions: bundled
@@ -107,6 +107,31 @@ All four independent adapter workflows passed. Core independence and installed-w
 checks passed on Linux, macOS, and Windows; SDK qualification and deterministic
 Docker integration run on Linux. Hardware, external live services, and soak remain
 unexecuted. The PR checks record the current full regression result.
+
+## Follow-up review and smoke evidence
+
+The follow-up review covered core commits after the initial extraction and the
+recent fake-event-factory changes in all four adapter repositories. Saved smoke
+artifacts showed the earlier wrong-target drill failures and the later passing
+drill session. The saved live snapshot reported a stopped runtime, three accepted
+events, six outbound handoffs, and zero outbound failures; those process-local
+counters do not establish recipient delivery.
+
+Targeted regressions reproduced and fixed incomplete fanout passing after adapter
+construction/startup failure, drill selection ignoring channel/event-kind filters,
+and an event-factory exception escaping runtime cleanup. Smoke sources now require
+successful startup and the optional factory. Local pin verification accepts
+normalized distribution names and removes temporary files after failed writes.
+Adapter documentation uses the generic smoke contract. The bounded follow-up
+slice passed 78 tests; Ruff, Black, and compilation passed on 24 recent Python
+files. No broad suite or hardware session was rerun locally for those fixes.
+
+The initial published extraction completed full core regression across Python
+3.11–3.14 with 13,992 passing cases per interpreter at that revision, plus core
+independence on Linux/macOS/Windows, adapter SDK/local contracts, and Docker
+integration. [PR #265](https://github.com/jeremiah-k/medre/pull/265) records the
+current revision's CI status; the counts above describe the recorded checks,
+not a claim that later documentation commits were rerun locally.
 
 ## Release coordination
 

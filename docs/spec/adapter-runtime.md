@@ -843,27 +843,35 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 
 ---
 
-## 20. Built-In Adapter Type Registry
+## 20. Installed Adapter Type Registry
 
-MEDRE has one process-static registry of **built-in adapter types** in
-`medre.adapter_registry`. It is declarative assembly metadata. It is not a
-container for running adapter instances, and it is not a third-party plugin
-loader.
+MEDRE discovers installed Python distributions through the `medre.adapters`
+entry-point group and stores their declarative `AdapterSpec` values in the
+process-static `ADAPTER_REGISTRY`. Each entry point **MUST** resolve to a
+zero-argument factory returning an `AdapterSpec`. A broken provider **MUST**
+surface as a configuration error rather than being silently skipped.
+
+Distribution names, import packages, repository hosts, and transport names are
+independent. Providers **MAY** be installed from a package index, Git, a wheel,
+or a local path using ordinary Python tooling. Runtime discovery **MUST NOT**
+install, download, or update packages. Changing installed providers requires
+a process restart.
 
 ### 20.1 Registry Model
 
 Each `AdapterSpec` identifies one transport and the lazy symbols generic
-assembly needs: config type, optional compatibility runtime wrapper, live and
+assembly needs: config type, optional adapter-owned runtime wrapper, live and
 fake adapter classes, renderer factory, dependency probe/package metadata,
 native-metadata readers, attribution projector, optional runtime-config
 preparation/state-directory hooks, optional adapter-owned CLI contribution
-hooks, and support-bundle field classification metadata.
+hooks, support-bundle field classification metadata, and optional native
+addressing kinds with pure `DestinationSpec` validators.
 
 All implementation references **MUST** remain lazy `SymbolRef` values. Importing
 `medre.adapter_registry`, configuration modules, or basic CLI discovery **MUST
 NOT** import an optional transport SDK.
 
-The registry is immutable after import. Built-in transport names **MUST** be
+The registry is immutable after import. Installed transport names **MUST** be
 unique. Runtime code **MUST** reject an enabled adapter whose transport is not
 registered.
 
@@ -872,7 +880,7 @@ registered.
 1. The config loader obtains the allowed `adapters.<transport>` vocabulary from
    `ADAPTER_REGISTRY`.
 2. For each configured instance, the loader resolves the registered config
-   class and constructs an `AdapterRuntimeConfig`-compatible wrapper.
+   class and constructs the adapter-owned wrapper or `GenericAdapterRuntimeConfig`.
 3. `RuntimeBuilder` resolves that transport's `AdapterSpec`.
 4. Before constructing any adapter, the builder runs every registered
    runtime-config preparation hook for enabled instances that have adapter
@@ -891,7 +899,7 @@ registered.
    degradation policy.
 6. The adapter-owned renderer factory is resolved from the same spec and
    registers the transport renderer with the shared rendering pipeline. Renderer
-   factories are MEDRE-owned assembly code and **MUST NOT** import optional
+   factories are adapter-owned assembly code and **MUST NOT** import optional
    transport SDKs at import time. Import or construction failures from a
    registered renderer factory **MUST** fail startup rather than silently falling
    back to the generic text renderer.
@@ -902,7 +910,7 @@ registered.
 
 Generic config, env, path, runtime assembly, CLI transport discovery and
 contribution dispatch, support-bundle field classification, metadata dispatch,
-and architecture-policy code **MUST NOT** maintain parallel built-in transport
+and architecture-policy code **MUST NOT** maintain parallel hardcoded transport
 enumerations.
 
 ### 20.3 Configuration Shape
@@ -930,16 +938,26 @@ adapters:
 Transport-specific fields are validated by that transport's registered config
 class. Unknown transport groups are rejected.
 
-### 20.4 Extending Built-In Adapters
+### 20.4 Adding an Independent Adapter
 
-Adding a built-in transport normally requires adapter-owned implementation and
-config modules plus one `AdapterSpec` entry. It **MUST NOT** require another
-transport branch in generic assembly or dispatch code. The static config
-schemas/documentation and packaging extras remain explicit release artifacts
-and **MUST** be updated for a new built-in transport.
+An adapter distribution owns its implementation, config models, optional runtime
+wrappers, fakes, native addressing, SDK requirements, and protocol tests. Its
+registration factory **MUST** return an `AdapterSpec` through the installed
+entry-point group. Generic core assembly and dispatch **MUST NOT** need a
+transport-specific branch, a package-name convention, or a registry edit.
 
-`medre.plugins` is a separate extension boundary. Arbitrary third-party adapter
-class paths and runtime adapter discovery are not part of the current contract.
+The four first-party distributions extend MEDRE's namespace with
+`pkgutil.extend_path`. Community adapters **MAY** use their own top-level Python
+package. Config schemas accept community transport and addressing names;
+installed-provider checks and adapter-owned validators enforce their fields.
+Native destination kinds **MUST** be supported by their configured target,
+including destinations nested in context-map entries. Generic `channel`
+addressing remains core-owned.
+
+Core's compatibility manifest selects a reviewed CI test set. Runtime discovery
+**MUST NOT** consult it, and community providers need no manifest entry.
+`medre.plugins` remains a separate event-plugin protocol; adapter discovery
+uses installed entry points rather than arbitrary class paths in runtime YAML.
 
 ---
 
