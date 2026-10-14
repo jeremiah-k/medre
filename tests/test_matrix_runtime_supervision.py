@@ -9,13 +9,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from medre.adapters.matrix.session import (
     MatrixSession,
     _StaleSyncError,
     _SyncRecycleFailed,
 )
-from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.matrix_errors import MatrixConfigError
 from medre.config.sample import generate_sample_config
 from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import make_matrix_config

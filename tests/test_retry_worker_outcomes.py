@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from medre.config.paths import MedrePaths, resolve
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events.canonical import DeliveryReceipt
@@ -563,10 +562,10 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
 
     @staticmethod
     def _build_app(paths: MedrePaths) -> MedreApp:
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
-            MatrixRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,

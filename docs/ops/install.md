@@ -2,13 +2,13 @@
 
 ## Prerequisites
 
-| Requirement | Details                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------ |
-| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified |
+| Requirement | Details                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified                     |
 | uv          | Recommended for source checkouts; see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
-| pip         | Supported for wheel/sdist installs and existing virtual environments                                   |
-| git         | For source checkout only                                                                               |
-| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd               |
+| pip         | Supported for wheel/sdist installs and existing virtual environments                                                       |
+| git         | For source checkout only                                                                                                   |
+| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd                                   |
 
 ## Project Metadata
 
@@ -29,12 +29,12 @@ source .venv/bin/activate
 
 `uv sync --locked` gives you an editable MEDRE install and the core dependencies
 (`msgspec` and `PyYAML`). Adding `--extra dev` installs pytest and build tools;
-transport SDKs require their own extras. Commands in this guide assume an
+transport SDKs are declared by the separate adapter distributions. Commands in this guide assume an
 activated environment. Without activation, use `uv run --no-sync medre ...`
 after syncing. Example configs are in `examples/configs/`.
 
-Each sync selects the complete extra set, so include every transport and tool
-extra needed by the environment. The `dev` extra is not a uv dependency group.
+Sync core first, then install the required adapter distributions. A later
+core sync removes those separately installed packages. The `dev` extra is not a uv dependency group.
 See [the development environment guide](../dev/environment.md) for dependency
 updates, environment reuse, and CI behavior.
 
@@ -93,99 +93,32 @@ wheel with pip to verify consumer compatibility independently of uv. The proof
 environment installs the core dependencies (msgspec, PyYAML) from PyPI, so it needs
 network access.
 
-## Transport Extras
+## External transport adapters
 
-Optional transport SDKs add real connectivity. Without them, only fake adapters are available.
+MEDRE core contains no built-in transport implementations or SDK dependencies.
+Install the transport _distributions_ required by a deployment. Adapters use
+Python `medre.adapters` entry points regardless of whether they came from PyPI,
+Git (commit-pinned), or a local checkout. See
+[adapter installation](adapter-installation.md) for a reproducible uv deployment
+manifest that pins all sources and dependencies in one lockfile.
 
-| Extra        | Install command                  | Notes                                                                |
-| ------------ | -------------------------------- | -------------------------------------------------------------------- |
-| `matrix`     | `uv sync --locked --extra matrix`     | Matrix plaintext via `mindroom-nio`                                  |
-| `matrix-e2e` | `uv sync --locked --extra matrix-e2e` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM)   |
-| `meshtastic` | `uv sync --locked --extra meshtastic` | Meshtastic LoRa via `mtjk`; serial requires `dialout` group on Linux |
-| `meshcore`   | `uv sync --locked --extra meshcore`   | MeshCore radio; serial requires `dialout` group                      |
-| `lxmf`       | `uv sync --locked --extra lxmf`       | LXMF / Reticulum; Reticulum uses a non-OSI license                   |
+| Adapter distribution        | SDK provided by its metadata                 |
+| --------------------------- | -------------------------------------------- |
+| `medre-adapter-matrix`      | `mindroom-nio`                               |
+| `medre-adapter-matrix[e2e]` | `mindroom-nio[e2e]` and crypto support       |
+| `medre-adapter-meshtastic`  | `mtjk` and `PyPubSub`                        |
+| `medre-adapter-meshcore`    | `meshcore`                                   |
+| `medre-adapter-lxmf`        | `lxmf` and `rns` (review upstream licensing) |
 
-Combine as needed: `uv sync --locked --extra dev --extra matrix --extra meshtastic`.
-For an installed wheel, select extras with pip, for example
-`python -m pip install "./medre-0.1.0-py3-none-any.whl[matrix,meshtastic]"`.
+For ad-hoc development after synchronizing MEDRE core, use
+`uv pip install -e ../medre-adapter-matrix` or
+`uv pip install 'medre-adapter-matrix[e2e]'`, depending on source.
+These install the adapter and its SDK together; they are **not** MEDRE extras.
+Core-only installation works with no adapters installed. Transport-specific
+fakes are part of their adapter distributions, not part of MEDRE core.
 
-### Transport-Specific Setup
-
-#### Matrix (Plaintext)
-
-```bash
-uv sync --locked --extra matrix
-```
-
-Binary wheels available for Linux (x86_64, aarch64), macOS, Windows. No compilation required on standard platforms.
-
-#### Matrix (E2EE)
-
-```bash
-uv sync --locked --extra matrix-e2e
-```
-
-- `vodozemac` requires a Rust toolchain if binary wheels are unavailable.
-  - Pre-built wheels: Linux x86_64, macOS x86_64/ARM, Windows x86_64.
-  - Alpine: `apk add musl-dev gcc cargo`.
-  - ARM (Raspberry Pi): may require source compilation.
-- Crypto store is SQLite, derived automatically — no operator configuration.
-- Device ID discovered automatically via `whoami()` on startup.
-- First-run key upload takes several seconds.
-
-#### Meshtastic
-
-```bash
-uv sync --locked --extra meshtastic
-```
-
-- Distribution name is `mtjk`, import name is `meshtastic` (fork maintains import compatibility).
-- Serial access requires Linux `dialout` group:
-  ```bash
-  sudo usermod -aG dialout $USER
-  # Log out and back in
-  ```
-- Radio firmware matters — tested with firmware 2.7.19.
-- TCP mode is synchronous in the SDK; MEDRE wraps in `asyncio.to_thread()`.
-
-#### MeshCore
-
-```bash
-uv sync --locked --extra meshcore
-```
-
-- Async-native SDK — clean fit for MEDRE's async architecture.
-- Serial permissions same as Meshtastic (`dialout` group).
-- Default TCP port is 4000.
-- Current evidence: synthetic/conformance tiers plus a deterministic
-  local-integration tier (pinned real SDK against a local companion
-  endpoint, run in CI). A live BLE bridge against real hardware was
-  recorded in June 2026 — preserved as dated history in
-  [live-validation/meshcore.md](live-validation/meshcore.md), not as proof
-  for the current tree.
-
-#### LXMF / Reticulum
-
-```bash
-uv sync --locked --extra lxmf
-```
-
-- Reticulum config at `~/.reticulum/config` may need adjustment for transport interfaces.
-- Identity file is a 64-byte private key — protect with `chmod 600`.
-- `RNS.Identity.from_file()` returns `None` on failure (not an exception) — callers check for `None`.
-- SDK provenance: the `lxmf` extra declares exact LXMF/RNS pins in
-  `pyproject.toml`; `uv.lock` records the resolved artifact graph. Install the
-  SDKs only through the extra; an unpinned `pip install lxmf` or `rnspure`
-  alongside MEDRE is not a supported install path and can drift from the
-  tested SDK surface.
-- Reticulum is designed for long-running daemons; short-lived processes may not establish stable connectivity.
-- Non-standard license (not OSI-approved).
-- Current evidence: synthetic/conformance tiers plus a deterministic
-  local-integration tier — a two-process loopback probe at the pinned
-  SDK versions proving real-router lifecycle, cross-process relations,
-  and local health (see [live-validation/lxmf.md](live-validation/lxmf.md)).
-  Adapter health covers the local session/router; peer reachability is
-  unknown and no external mesh claim is made.
+Use `medre adapters check --config bridge.yaml` to diagnose missing configured
+providers; normal `medre run` never clones or installs packages.
 
 ## Verify the Install
 
@@ -244,6 +177,9 @@ Config file locations:
 `medre smoke` builds a runtime from a config, injects a test message through the full pipeline, and reports results.
 
 **Source checkout (has `examples/` directory):**
+
+Install the Matrix, Meshtastic, and MeshCore adapter distributions before using
+this three-provider example. Fake implementations need no native SDKs.
 
 ```bash
 medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
@@ -319,6 +255,8 @@ Docker is not required for the basic install or fake-only smoke path.
 
 ```bash
 uv sync --locked --extra dev
+uv pip install --no-deps -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic \
+  -e ../medre-adapter-meshcore -e ../medre-adapter-lxmf
 uv run --no-sync pytest -q
 # Expected: default-selected tests pass; gated tiers are deselected.
 
@@ -328,7 +266,7 @@ uv run --no-sync python -m compileall -q src tests
 
 Default selection excludes live, Docker, hardware, optional SDK, local
 integration, and soak tiers. The marker policy is defined in `pyproject.toml`.
-Select a gated tier explicitly after installing its extras and preparing its
+Select a gated tier explicitly after installing its owning adapter and SDKs and preparing its
 service or hardware prerequisites; see [testing](../dev/testing.md).
 
 To run live tests (requires real credentials and hardware):
@@ -341,15 +279,15 @@ uv run --no-sync pytest -m live -v
 
 | Issue                                               | Cause                                     | Resolution                                                                                                             |
 | --------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `uv sync --locked --extra matrix`                                                                                           |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `uv sync --locked --extra meshtastic`                                                                                       |
-| `ListenerMismatchError`                             | Missing `pubsub` package                  | `uv sync --locked --extra meshtastic` (includes PyPubSub)                                                                   |
+| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `uv pip install medre-adapter-matrix`                                                                                  |
+| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `uv pip install medre-adapter-meshtastic`                                                                              |
+| `ListenerMismatchError`                             | Missing `pubsub` package                  | `uv pip install medre-adapter-meshtastic` (includes PyPubSub)                                                          |
 | `Permission denied: /dev/ttyACM0`                   | Serial permissions                        | `sudo usermod -aG dialout $USER`, re-login                                                                             |
 | `OlmUnverifiedDeviceError`                          | Matrix peer-device trust check            | E2EE sends intentionally use `ignore_unverified_devices=True`; update to current MEDRE if this surfaces                |
 | Cross-signing diagnostics require reset             | Local/server own-device identity mismatch | Back up Matrix state; restore matching state or run authenticated `auth login --adapter-id <id> --reset-cross-signing` |
 | `vodozemac` build failure                           | No Rust toolchain                         | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`                                        |
 | `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted      | Check path, verify file is 64 bytes, check permissions                                                                 |
-| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `uv sync --locked --extra matrix-e2e`                                                                                       |
+| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `uv pip install 'medre-adapter-matrix[e2e]'`                                                                           |
 | `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease      | Back up and remove the database: `medre storage reset`, then rerun                                                     |
 
 ## Quick Reference
@@ -362,6 +300,7 @@ source .venv/bin/activate
 # Verify
 medre version && medre paths && medre adapters
 
+# Install the Matrix and Meshtastic adapter distributions before this sample.
 # Generate config
 medre config sample > /tmp/medre-alpha.yaml
 medre config check --config /tmp/medre-alpha.yaml

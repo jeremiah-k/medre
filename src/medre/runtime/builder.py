@@ -309,6 +309,16 @@ class RuntimeBuilder:
         RuntimeConfigError
             If the configuration is invalid or inconsistent.
         """
+        try:
+            self._config.routes.validate_destinations(
+                {
+                    adapter_id: transport
+                    for transport, adapter_id, _ in self._config.adapters.all_configs()
+                }
+            )
+        except ConfigValidationError as exc:
+            raise RuntimeConfigError(str(exc)) from exc
+
         # 1. EventBus
         event_bus = EventBus()
 
@@ -723,6 +733,7 @@ class RuntimeBuilder:
             raise RuntimeConfigError(
                 f"Adapter {adapter_id!r} ({transport}) is enabled but could "
                 f"not be built: the optional SDK dependency is not installed. "
-                f"Install it with: pip install medre-adapter-{spec.transport}"
+                f"Reinstall the distribution providing {spec.transport!r} "
+                "with its declared SDK dependencies."
             )
         return adapter

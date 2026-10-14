@@ -469,6 +469,6 @@ deterministically degraded to inline fallback text.
 
 | Library               | Purpose                                             | Optional                          |
 | --------------------- | --------------------------------------------------- | --------------------------------- |
-| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre[meshtastic]`)         |
+| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre-adapter-meshtastic`)  |
 | `pubsub` (pypubsub)   | Meshtastic SDK callback subscription                | Yes (via `meshtastic` dependency) |
 | `meshtastic.protobuf` | Protobuf `MeshPacket` / `Data` for structured send  | Yes (via `meshtastic` dependency) |

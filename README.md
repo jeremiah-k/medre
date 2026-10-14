@@ -10,11 +10,15 @@ config-file-first runtime.
 ## First Steps
 
 From a source checkout, use [uv](https://docs.astral.sh/uv/getting-started/installation/)
-to install the committed dependency graph. This core smoke path needs no
-credentials, optional SDKs, or Docker:
+to install the committed core graph and the sample bridge providers. This
+fake-adapter smoke path needs no credentials, native SDKs, or Docker:
 
 ```bash
 uv sync --locked          # core dependencies and an editable MEDRE install
+# Pre-release providers for the sample; pin reviewed commit refs for repeatability.
+uv pip install --no-deps \
+  'git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
+  'git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@main'
 source .venv/bin/activate
 
 medre version             # version, Python, platform
@@ -43,10 +47,10 @@ uv run --no-sync python scripts/check_installed_package.py
 The script lives in the source repository and is not part of the installed
 wheel.
 
-Support level: MEDRE is developed and tested on Linux. CI runs the test
-suite on CPython 3.11–3.14 on Ubuntu runners. Other hosts (Windows, macOS, ARM)
-are unverified — not excluded. CI checks the pipeline against pinned SDK
-contracts; it is not radio interoperability testing.
+Support level: Linux is the verified development host. CI is configured for
+adapter-free core checks on Linux, macOS, and Windows, plus cross-adapter and
+SDK contracts on CPython 3.11–3.14 on Ubuntu. Native service, hardware, and ARM
+qualification remain separate from those checks.
 
 ## Choosing and Installing Transports
 

@@ -42,7 +42,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
@@ -150,16 +149,16 @@ def _build_runtime(db_path: Path, lx_storage: Path):
     surfaces as a pytest-unraisable error in a *later* test.
     """
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.matrix import MatrixConfig
+    from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MatrixRuntimeConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,

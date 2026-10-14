@@ -33,7 +33,7 @@ cancelled messages return promptly along with delivered and failed messages.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev --extra lxmf
+uv sync --locked --extra dev && uv pip install medre-adapter-lxmf
 source .venv/bin/activate
 
 # Configure a Reticulum transport (AutoInterface for LAN is default)
@@ -141,14 +141,14 @@ config = LxmfConfig(
 
 ## Evidence Tiers Achieved
 
-| Tier      | Sub-class           | Date    | Result                                                                                                                                                                                    |
-| --------- | ------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| synthetic | Fake callback       | —       | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                               |
-| synthetic | Wrapper callback    | —       | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                 |
-| local-int | Pinned loopback     | 2026-09 | Proven: two distinct processes over loopback at the declared pinned SDK versions — real-router lifecycle, cross-process relation linking, local session/router health (all verdicts true) |
-| —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                       |
-| physical  | Owned RNode pair    | 2026-10-03 | Proven: native hash/source correlation, independent RF reception, relation reconstruction, and cross-transport relays on the owned two-board bench. |
-| —         | External/multi-hop  | —       | Not proven; bench-pair results do not establish external peer reachability. |
+| Tier      | Sub-class           | Date       | Result                                                                                                                                                                                    |
+| --------- | ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| synthetic | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                               |
+| synthetic | Wrapper callback    | —          | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                 |
+| local-int | Pinned loopback     | 2026-09    | Proven: two distinct processes over loopback at the declared pinned SDK versions — real-router lifecycle, cross-process relation linking, local session/router health (all verdicts true) |
+| —         | Docker SDK-boundary | —          | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                       |
+| physical  | Owned RNode pair    | 2026-10-03 | Proven: native hash/source correlation, independent RF reception, relation reconstruction, and cross-transport relays on the owned two-board bench.                                       |
+| —         | External/multi-hop  | —          | Not proven; bench-pair results do not establish external peer reachability.                                                                                                               |
 
 ## RNode Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
@@ -256,7 +256,7 @@ Run the real pinned RNS/LXMF stack in a process-isolated local probe before
 external Reticulum testing:
 
 ```bash
-uv sync --locked --extra lxmf --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-lxmf
 pytest tests/integration/test_lxmf_local_integration.py \
   -m "local_integration and lxmf_sdk and not soak" -v
 ```

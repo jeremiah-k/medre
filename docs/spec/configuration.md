@@ -19,8 +19,9 @@ The configuration system lives under `medre.config`:
 | `model.py`       | Typed frozen-dataclass configuration models                                                          |
 | `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
-Per-transport config dataclasses live in `medre.config.adapters.*`. The
-allowed built-in transport vocabulary and lazy config-class references come
+Per-transport config dataclasses are owned by adapter distributions. First-party
+adapters use `medre.config.adapters.*`; community providers may use any package. The
+installed transport vocabulary and lazy config-class references come
 from `medre.adapter_registry`; the config package does not maintain a second
 transport list.
 
@@ -43,9 +44,9 @@ class RuntimeConfig:
 ```
 
 `AdapterConfigSet` stores transport groups in a registry-keyed mapping rather
-than one field per built-in transport. Existing attribute access such as
+than one field per transport. Existing attribute access such as
 `config.adapters.matrix` remains available, while generic consumers iterate
-`config.adapters.groups()`. This allows a new registered built-in transport to
+`config.adapters.groups()`. This allows a new installed transport to
 flow through loading, env overrides, validation, and runtime assembly without
 changing the root config model.
 
@@ -186,9 +187,9 @@ Each transport has its own sub-table under
 - `adapters.lxmf.<name>` → `LxmfConfig`
 
 Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
-the fallback for registered built-ins that do not declare a specialized wrapper.
-`MatrixRuntimeConfig`, `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and
-`LxmfRuntimeConfig` are compatibility subclasses for the current built-ins. The
+the fallback for installed providers that do not declare a specialized wrapper.
+Specialized wrappers, including the first-party transport wrappers, are owned
+by their adapter distributions and imported directly from those packages. The
 wrapper consumes three wrapper-level fields before constructing the adapter
 dataclass:
 
@@ -441,6 +442,11 @@ files to avoid false editor errors:
   at the component level. Use these only when editing a single adapter
   table or route definition in isolation.
 
+The full-config schema MUST accept structurally valid community transport
+names. Installed-provider availability and native destination rules MUST be
+validated by `medre config check`, using adapter-owned models and validators.
+Static schemas describe structure rather than snapshotting installed packages.
+
 For a full config file, point the YAML language server at
 `runtime-config.schema.json`. A `# yaml-language-server: $schema=`
 comment at the top of the file works for ad-hoc edits:
@@ -572,9 +578,8 @@ by pure path resolution — only during runtime startup.
 
 Every registered adapter type is wrapped in an `AdapterRuntimeConfig`-compatible
 object. `GenericAdapterRuntimeConfig` is the default fallback when the registry
-does not declare a specialized runtime wrapper. `MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and `LxmfRuntimeConfig` are
-compatibility subclasses retained for the current built-ins. Each wrapper:
+does not declare a specialized runtime wrapper. Specialized wrappers live in
+the owning adapter distribution; core provides no transport-named aliases. Each wrapper:
 
 1. Parses the YAML mapping for the instance
 2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields

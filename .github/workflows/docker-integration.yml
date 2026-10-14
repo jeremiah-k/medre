@@ -34,6 +34,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Snapshot adapter compatibility revisions
+        id: adapters
+        run: python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
+
+      - name: Checkout matrix adapter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ fromJSON(steps.adapters.outputs.by_transport).matrix.repository }}
+          ref: ${{ fromJSON(steps.adapters.outputs.by_transport).matrix.ref }}
+          path: .adapters/medre-adapter-matrix
+          persist-credentials: false
+      - name: Checkout meshtastic adapter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ fromJSON(steps.adapters.outputs.by_transport).meshtastic.repository }}
+          ref: ${{ fromJSON(steps.adapters.outputs.by_transport).meshtastic.ref }}
+          path: .adapters/medre-adapter-meshtastic
+          persist-credentials: false
 
       # --- Docker image caching ---
       # Caches the Synapse image tar to avoid re-pulling on every run.
@@ -95,9 +116,10 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - name: Install MEDRE with integration extras
+      - name: Install MEDRE and adapter-owned integration dependencies
         run: |
-          uv sync --locked --extra dev --extra matrix --extra meshtastic
+          uv sync --locked --extra dev
+          uv pip install -e .adapters/medre-adapter-matrix .adapters/medre-adapter-meshtastic
 
       # --- Run tests ---
 

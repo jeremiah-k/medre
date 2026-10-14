@@ -870,7 +870,7 @@ registered.
 ### 20.2 Assembly Flow
 
 1. The config loader obtains the allowed `adapters.<transport>` vocabulary from
-   `BUILTIN_ADAPTER_REGISTRY`.
+   `ADAPTER_REGISTRY`.
 2. For each configured instance, the loader resolves the registered config
    class and constructs an `AdapterRuntimeConfig`-compatible wrapper.
 3. `RuntimeBuilder` resolves that transport's `AdapterSpec`.

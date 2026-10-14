@@ -11,7 +11,7 @@ set -euo pipefail
 # also be used for local runs.
 #
 # Usage:
-#   uv sync --locked --extra dev --extra matrix --extra meshtastic
+#   uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 #   uv run --no-sync bash scripts/ci/run-docker-integration.sh
 #
 # Environment variables:
@@ -53,9 +53,9 @@ echo "Checking MEDRE and integration dependencies..."
 if ! "${PYTHON}" -c "import medre, pytest, nio, meshtastic, pubsub"; then
 	echo "ERROR: the selected Python environment lacks integration dependencies." >&2
 	echo "Prepare the environment, then run this script through uv:" >&2
-	echo '  uv sync --locked --extra dev --extra matrix --extra meshtastic' >&2
+	echo '  uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic' >&2
 	echo '  uv run --no-sync bash scripts/ci/run-docker-integration.sh' >&2
-	echo 'For an existing pip environment: python -m pip install -e ".[matrix,meshtastic,dev]"' >&2
+	echo 'For an existing pip environment: python -m pip install -e ".[dev]" medre-adapter-matrix medre-adapter-meshtastic' >&2
 	exit 1
 fi
 

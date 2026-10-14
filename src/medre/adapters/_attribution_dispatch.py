@@ -2,7 +2,7 @@
 
 This shared adapter-infrastructure module performs dispatch only.  Native field
 interpretation remains adapter-owned and is reached through lazy registry refs,
-so adding a built-in transport does not require another shared if/elif chain.
+so adding a transport does not require another shared if/elif chain.
 """
 
 from __future__ import annotations

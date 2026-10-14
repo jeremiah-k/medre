@@ -9,18 +9,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-
 from medre.adapters.matrix.runtime import prepare_matrix_runtime_config
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.errors import ConfigValidationError
-from medre.config.model import (
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
-    RuntimeConfig,
-    StorageConfig,
-)
+from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths, resolve
 from medre.config.routes import (
     ContextMapEntry,

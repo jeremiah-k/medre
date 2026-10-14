@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.runtime.drill import AVAILABLE_DRILLS, run_drill
 from medre.runtime.smoke import run_fake_bridge_smoke
 
@@ -771,8 +770,9 @@ class TestAllAdaptersBuildFailDrill:
         adapter_ids = {f["adapter_id"] for f in failures}
         assert adapter_ids == {"broken1", "broken2"}
         transports = {f["transport"] for f in failures}
-        assert "matrix" in transports
-        assert "meshtastic" in transports
+        from medre.adapter_registry import iter_adapter_specs
+
+        assert transports == {spec.transport for spec in iter_adapter_specs()[:2]}
 
     @pytest.mark.asyncio
     async def test_no_adapters_built(self) -> None:

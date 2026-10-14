@@ -24,15 +24,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,

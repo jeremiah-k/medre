@@ -11,9 +11,8 @@ import re
 from pathlib import Path
 
 import pytest
-
 from medre.config._yaml import parse_yaml_config
-from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.matrix_errors import MatrixConfigError
 from medre.config.errors import ConfigFileError
 from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder

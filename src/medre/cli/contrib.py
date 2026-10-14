@@ -26,7 +26,7 @@ DISALLOWED_TOPLEVEL = registered_transports()
 
 
 def register_builtin_contributors(subparsers: Any) -> None:
-    """Register built-in adapter CLI contributors in registry order."""
+    """Register installed adapter CLI contributors in registry order."""
     contributors = [
         spec for spec in iter_adapter_specs() if spec.cli_register is not None
     ]

@@ -160,3 +160,15 @@ dependency-management problem to mature Python tooling (`uv`, `pip`, package
 metadata and lockfiles), then uses entry points for discovery. This avoids
 inventing a second Git/package resolver and supports private Git servers,
 package indexes, local workspaces, and community distribution conventions.
+
+## Package ownership
+
+MEDRE core has no transport SDK extras. Install adapter distributions from
+PyPI, Git revisions, or local paths in a deployment project, then lock the
+complete environment with uv. The adapter package's own dependencies bring
+in its SDK. Install `medre-adapter-matrix[e2e]` when enabling Matrix encryption.
+
+For development, install all five repos as editable packages with a local
+`pyproject.toml` deployment manifest or run `uv pip install -e` for each after
+`uv sync` of MEDRE's core `dev` dependencies. SDK-free fakes belong to the
+corresponding adapter distribution and are not a feature of a core-only install.

@@ -45,7 +45,9 @@ def inspect_adapter_installation(
         raise ConfigFileError(
             f"Cannot read adapter config {path}: {type(exc).__name__}"
         ) from exc
-    adapters = data.get("adapters") or {}
+    adapters = data.get("adapters")
+    if adapters is None:
+        adapters = {}
     if not isinstance(adapters, dict):
         raise ConfigValidationError(
             "adapters must be a mapping", section_path="adapters"

@@ -410,7 +410,7 @@ medre smoke --storage-path /tmp/medre-smoke.db --json
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra matrix --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -442,13 +442,13 @@ uv run --no-sync pytest -m "" -v
 
 ### Failure Interpretation
 
-| Symptom                                             | Likely cause                    | Action                                             |
-| --------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                   |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                       |
-| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`               |
-| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
+| Symptom                                             | Likely cause                    | Action                                                                                         |
+| --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
+| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
 
 ## Diagnostics Commands
 

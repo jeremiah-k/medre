@@ -34,7 +34,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
@@ -118,14 +117,14 @@ def _build_runtime(db_path: Path, lx_storage: Path):
     No Matrix adapter: this suite is mesh-first by design.
     """
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,

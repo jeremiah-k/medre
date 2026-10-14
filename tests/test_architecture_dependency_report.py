@@ -6,7 +6,6 @@ import ast
 from pathlib import Path
 
 import pytest
-
 from medre.runtime.architecture_ast import (
     ImportRecord,
     is_type_checking,
@@ -61,8 +60,9 @@ class TestParseFile:
         py_file = _SRC / "config" / "model.py"
         edges = parse_file(py_file)
         modules = {e.target for e in edges}
-        # Should find some medre.config.adapters.* imports
-        assert any("medre.config.adapters" in m for m in modules)
+        # Core may import generic config helpers, never adapter-owned config.
+        assert "medre.config.routes" in modules
+        assert not any("medre.config.adapters." in m for m in modules)
 
     def test_skips_function_body_imports(self) -> None:
         py_file = _SRC / "config" / "model.py"

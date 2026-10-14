@@ -33,9 +33,9 @@ def _all_py_files_under(directory: Path, prefix: str) -> list[tuple[str, str]]:
     """Yield (module_name, source) for every .py file under *directory*."""
     results: list[tuple[str, str]] = []
     for py in sorted(directory.rglob("*.py")):
-        rel = py.relative_to(_SRC)
+        rel = py.relative_to(directory)
         parts = list(rel.with_suffix("").parts)
-        module_name = ".".join(parts)
+        module_name = ".".join([prefix, *parts])
         with open(py) as f:
             source = f.read()
         results.append((module_name, source))
@@ -118,15 +118,22 @@ class TestResourceControlAdapterIsolation:
 # ===================================================================
 
 
+def _installed_adapter_sources():
+    """Scan the source actually supplied by installed namespace contributors."""
+    import medre.adapters
+
+    for directory in sorted({Path(path).resolve() for path in medre.adapters.__path__}):
+        yield from _all_py_files_under(directory, "medre.adapters")
+
+
 class TestAdapterResourceControlIsolation:
     """Adapter modules must not import resource-control or runtime limit modules."""
 
     def test_adapters_do_not_import_resource_controls(self) -> None:
         """Check that no adapter module imports from medre.core.supervision.capacity."""
-        adapters_dir = _SRC / "medre" / "adapters"
         violations: list[str] = []
 
-        for module_name, source in _all_py_files_under(adapters_dir, "medre.adapters"):
+        for module_name, source in _installed_adapter_sources():
             lines = _import_lines(source)
             banned = _banned_imports(lines, _RESOURCE_CONTROL_MODULES)
             for line in banned:
@@ -147,7 +154,6 @@ class TestSessionResourceControlIsolation:
 
     def test_sessions_do_not_know_about_resource_controls(self) -> None:
         """Check that session.py files under adapters/ do not import resource controls."""
-        adapters_dir = _SRC / "medre" / "adapters"
         violations: list[str] = []
 
         runtime_imports = (
@@ -157,7 +163,7 @@ class TestSessionResourceControlIsolation:
             "RuntimeLimits",
         )
 
-        for module_name, source in _all_py_files_under(adapters_dir, "medre.adapters"):
+        for module_name, source in _installed_adapter_sources():
             # Only check session.py files
             if not module_name.endswith(".session") and "/session" not in module_name:
                 continue

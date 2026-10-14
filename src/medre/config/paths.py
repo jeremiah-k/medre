@@ -143,7 +143,7 @@ class MedrePaths:
             :meth:`adapter_state_dir` against the configured-identifier
             contract.
         transport:
-            Registered built-in transport name.  The registry vocabulary keeps
+            Installed transport name.  The registry vocabulary keeps
             this derived state path to one path-safe component.
 
         Returns

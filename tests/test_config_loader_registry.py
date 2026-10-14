@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import medre.config.loader as loader_mod
+import pytest
 from medre.adapter_registry import AdapterSpec, SymbolRef
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.loader import load_config
-from medre.config.model import GenericAdapterRuntimeConfig, MatrixRuntimeConfig
+from medre.config.model import GenericAdapterRuntimeConfig
 
 
 def _wrapper_free_matrix_spec() -> AdapterSpec:

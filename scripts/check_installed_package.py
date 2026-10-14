@@ -10,7 +10,9 @@ builds the core wheel with the declared build backend (setuptools via the
 requirement), creates a
 throwaway virtual environment, installs ONLY that wheel with its core
 dependencies, and then exercises the installed ``medre`` console script
-from an isolated working directory with a sanitized environment:
+from an isolated working directory with a sanitized environment. By default,
+this proves core independence; --adapter-wheel additionally enables the sample
+bridge proof using installed Matrix and Meshtastic adapter wheels:
 
 * ``--help`` / ``version`` / ``paths`` / ``adapters``
 * ``config sample`` written to a real file and validated with
@@ -34,8 +36,7 @@ checkout's ``pyproject.toml`` version.
 
 The wheel build runs in the source checkout (setuptools writes the
 gitignored ``build/`` and ``*.egg-info`` trees there); every proof child
-runs outside the checkout. POSIX only: the console script is expected at
-``<venv>/bin/medre``.
+runs outside the checkout. The console script uses the platform-specific venv scripts directory.
 
 Exit codes: 0 = all proofs passed, 1 = a proof or prerequisite failed.
 """
@@ -56,6 +57,7 @@ import tomllib
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, NoReturn
+from zipfile import BadZipFile, ZipFile
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
@@ -81,11 +83,20 @@ _REQUIREMENT_NAME_RE = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 # Child-side probe: runs in the proof venv with ``python -I`` and prints
 # distribution/import facts as JSON.
 _PROBE_SRC = """\
+import importlib
 import importlib.metadata
 import json
 import sys
 
 import medre
+from medre.adapter_registry import registered_transports, iter_adapter_specs
+
+adapter_modules = {}
+for spec in iter_adapter_specs():
+    for ref in (spec.config, spec.runtime_config, spec.fake_adapter):
+        if ref is not None:
+            module = importlib.import_module(ref.module)
+            adapter_modules[ref.module] = module.__file__
 
 distributions = sorted(
     dist.metadata["Name"]
@@ -96,6 +107,8 @@ print(
     json.dumps(
         {
             "medre_file": medre.__file__,
+            "transports": registered_transports(),
+            "adapter_modules": adapter_modules,
             "medre_version": importlib.metadata.version("medre"),
             "executable": sys.executable,
             "prefix": sys.prefix,
@@ -335,6 +348,28 @@ def _clear_source_build_artifacts() -> None:
         shutil.rmtree(egg_info, ignore_errors=True)
 
 
+def _verify_wheel_package_files(wheel: Path) -> None:
+    """Reject stale setuptools outputs and missing source modules in artifacts."""
+    source = _REPO_ROOT / "src"
+    expected = {
+        path.relative_to(source).as_posix() for path in (source / "medre").rglob("*.py")
+    }
+    try:
+        with ZipFile(wheel) as archive:
+            actual = {
+                name
+                for name in archive.namelist()
+                if name.startswith("medre/") and name.endswith(".py")
+            }
+    except (OSError, BadZipFile) as exc:
+        _fail("wheel contents", f"cannot read wheel archive: {type(exc).__name__}")
+    _expect(
+        actual == expected,
+        "wheel contents",
+        f"package modules differ from source; missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}",
+    )
+
+
 def _resolve_wheel(
     wheel_arg: str | None,
     out_dir: Path,
@@ -399,6 +434,7 @@ def _resolve_wheel(
         f"wheel name {wheel.name!r} does not match this checkout's version "
         f"{version!r}; refusing a stale or foreign artifact",
     )
+    _verify_wheel_package_files(wheel)
     return wheel
 
 
@@ -421,6 +457,7 @@ def _child_env(home: Path, tmp: Path, xdg: dict[str, Path]) -> dict[str, str]:
     env.update(
         {
             "HOME": str(home),
+            "USERPROFILE": str(home),
             "TMPDIR": str(tmp),
             "LANG": "C.UTF-8",
             "PYTHONNOUSERSITE": "1",
@@ -447,7 +484,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="verify this already-built wheel instead of building one",
     )
+    parser.add_argument(
+        "--adapter-wheel",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="install an adapter wheel without SDKs for the sample bridge proof; requires Matrix and Meshtastic",
+    )
     args = parser.parse_args(argv)
+    adapter_wheels = [Path(path).resolve(strict=True) for path in args.adapter_wheel]
 
     _name, version, build_requires, project_data = _load_project_metadata()
     required_distributions, forbidden_distributions = _declared_distributions(
@@ -472,8 +517,9 @@ def main(argv: list[str] | None = None) -> int:
 
         wheel = _resolve_wheel(args.wheel, wheel_dir, version, build_requires)
 
-        venv_python = venv_dir / "bin" / "python"
-        console = venv_dir / "bin" / "medre"
+        scripts_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+        venv_python = scripts_dir / ("python.exe" if os.name == "nt" else "python")
+        console = scripts_dir / ("medre.exe" if os.name == "nt" else "medre")
         venv_command = [sys.executable, "-m", "venv", str(venv_dir)]
         proc = _run(
             venv_command,
@@ -558,6 +604,12 @@ def main(argv: list[str] | None = None) -> int:
                 stderr=proc.stderr,
             )
 
+        _expect(
+            not probe["transports"],
+            "core independence",
+            "core-only wheel unexpectedly registered a transport",
+        )
+
         medre_file = Path(str(probe["medre_file"])).resolve()
         venv_resolved = venv_dir.resolve()
         _expect(
@@ -641,189 +693,284 @@ def main(argv: list[str] | None = None) -> int:
             proc=proc,
         )
 
-        # -- adapters -------------------------------------------------------
-        # SDK absence itself is proven by the distribution-facts probe above;
-        # here the command just has to run and enumerate every transport.
-        proc = run_cli("adapters", label="adapters")
+        # Prove the public CLI and runtime lifecycle without any adapter packages.
+        proc = run_cli("adapters", label="core adapters")
         _expect(
-            proc.returncode == 0
-            and all(
-                t in proc.stdout for t in ("matrix", "meshtastic", "meshcore", "lxmf")
-            ),
-            "adapters",
-            "'medre adapters' did not enumerate all four transports",
+            proc.returncode == 0,
+            "core adapters",
+            "adapter inventory failed with no providers",
             proc=proc,
         )
-
-        # -- config sample → real file → config check ----------------------
-        proc = run_cli("config", "sample", label="config sample")
+        minimal_path = work / "minimal.yaml"
+        minimal_path.write_text("storage:\n  backend: memory\n", encoding="utf-8")
+        proc = run_cli(
+            "config", "check", "--config", str(minimal_path), label="core config"
+        )
         _expect(
-            proc.returncode == 0 and "adapters:" in proc.stdout,
-            "config sample",
-            "'medre config sample' produced no adapter configuration",
+            proc.returncode == 0,
+            "core config",
+            "minimal configuration requires an external provider",
             proc=proc,
         )
-        sample_path = work / "sample.yaml"
-        sample_path.write_text(proc.stdout, encoding="utf-8")
-
-        yaml_command = [
-            str(venv_python),
-            "-I",
-            "-c",
-            _YAML_KEYS_SRC,
-            str(sample_path),
-        ]
+        lifecycle = """
+import asyncio
+from medre.config.loader import load_config
+from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import RuntimeStartupError
+async def check():
+    config, _, paths = load_config("minimal.yaml")
+    app = RuntimeBuilder(config, paths).build()
+    try:
+        await app.start()
+    except RuntimeStartupError:
+        # An empty runtime has no usable adapters; rejection must clean up.
+        pass
+    else:
+        raise AssertionError("runtime with no adapters unexpectedly started")
+    await app.stop()
+asyncio.run(check())
+"""
+        command = [str(venv_python), "-I", "-c", lifecycle]
         proc = _run(
-            yaml_command,
-            cwd=work,
-            env=env,
-            timeout=_CHILD_TIMEOUT_S,
-            label="config sample",
+            command, cwd=work, env=env, timeout=_CHILD_TIMEOUT_S, label="core lifecycle"
         )
         _expect(
             proc.returncode == 0,
-            "config sample",
-            "sample config did not parse as YAML in the installed " "environment",
-            command=yaml_command,
+            "core lifecycle",
+            "core-only runtime failed to reject empty startup and clean up",
+            command=command,
             proc=proc,
         )
-        keys = set(json.loads(proc.stdout))
-        _expect(
-            {"runtime", "adapters", "routes", "storage", "logging"} <= keys,
-            "config sample",
-            f"sample config top-level keys missing required sections: "
-            f"{sorted(keys)}",
-        )
+        if adapter_wheels:
+            command = [
+                str(venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--isolated",
+                "--no-deps",
+                *map(str, adapter_wheels),
+            ]
+            proc = _run(
+                command,
+                cwd=work,
+                env=env,
+                timeout=_INSTALL_TIMEOUT_S,
+                label="adapter wheels",
+            )
+            _expect(
+                proc.returncode == 0,
+                "adapter wheels",
+                "adapter wheel installation failed",
+                command=command,
+                proc=proc,
+            )
+            proc = _run(
+                probe_command,
+                cwd=work,
+                env=env,
+                timeout=_CHILD_TIMEOUT_S,
+                label="adapter provenance",
+            )
+            _expect(
+                proc.returncode == 0,
+                "adapter provenance",
+                "adapter config/fake imports failed without SDKs",
+                proc=proc,
+            )
+            adapter_probe = json.loads(proc.stdout)
+            for module, filename in adapter_probe["adapter_modules"].items():
+                _expect(
+                    filename is not None
+                    and venv_resolved in Path(filename).resolve().parents,
+                    "adapter provenance",
+                    f"adapter module did not come from installed wheels: {module}",
+                )
+            installed = {_normalize(name) for name in adapter_probe["distributions"]}
+            print("adapter transports: " + ", ".join(adapter_probe["transports"]))
 
-        proc = run_cli(
-            "config",
-            "check",
-            "--config",
-            str(sample_path),
-            label="config check",
-        )
-        _expect(
-            proc.returncode == 0,
-            "config check",
-            "'medre config check' did not validate the generated sample",
-            proc=proc,
-        )
-        _expect(
-            "matrix_radio_bridge" in proc.stdout,
-            "config check",
-            "active sample route missing from the config check inventory",
-            proc=proc,
-        )
+            # -- adapters -------------------------------------------------------
+            # SDK absence itself is proven by the distribution-facts probe above;
+            # here the command just has to run and enumerate every transport.
+            proc = run_cli("adapters", label="adapters")
+            _expect(
+                proc.returncode == 0
+                and all(t in proc.stdout for t in ("matrix", "meshtastic")),
+                "adapters",
+                "sample bridge proof requires Matrix and Meshtastic adapter wheels",
+                proc=proc,
+            )
 
-        # -- smoke ----------------------------------------------------------
-        proc = run_cli(
-            "smoke",
-            "--config",
-            str(sample_path),
-            "--json",
-            label="smoke",
-        )
-        _expect(
-            proc.returncode == 0,
-            "smoke",
-            "'medre smoke' exited nonzero against the sample config",
-            proc=proc,
-        )
-        try:
-            report = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            _fail(
+            # -- config sample → real file → config check ----------------------
+            proc = run_cli("config", "sample", label="config sample")
+            _expect(
+                proc.returncode == 0 and "adapters:" in proc.stdout,
+                "config sample",
+                "'medre config sample' produced no adapter configuration",
+                proc=proc,
+            )
+            sample_path = work / "sample.yaml"
+            sample_path.write_text(proc.stdout, encoding="utf-8")
+
+            yaml_command = [
+                str(venv_python),
+                "-I",
+                "-c",
+                _YAML_KEYS_SRC,
+                str(sample_path),
+            ]
+            proc = _run(
+                yaml_command,
+                cwd=work,
+                env=env,
+                timeout=_CHILD_TIMEOUT_S,
+                label="config sample",
+            )
+            _expect(
+                proc.returncode == 0,
+                "config sample",
+                "sample config did not parse as YAML in the installed " "environment",
+                command=yaml_command,
+                proc=proc,
+            )
+            keys = set(json.loads(proc.stdout))
+            _expect(
+                {"runtime", "adapters", "routes", "storage", "logging"} <= keys,
+                "config sample",
+                f"sample config top-level keys missing required sections: "
+                f"{sorted(keys)}",
+            )
+
+            proc = run_cli(
+                "config",
+                "check",
+                "--config",
+                str(sample_path),
+                label="config check",
+            )
+            _expect(
+                proc.returncode == 0,
+                "config check",
+                "'medre config check' did not validate the generated sample",
+                proc=proc,
+            )
+            _expect(
+                "matrix_radio_bridge" in proc.stdout,
+                "config check",
+                "active sample route missing from the config check inventory",
+                proc=proc,
+            )
+
+            # -- smoke ----------------------------------------------------------
+            proc = run_cli(
                 "smoke",
-                "smoke output was not parsable JSON",
-                returncode=proc.returncode,
-                stdout=proc.stdout,
-                stderr=proc.stderr,
+                "--config",
+                str(sample_path),
+                "--json",
+                label="smoke",
             )
-        _expect(
-            report.get("status") == "passed",
-            "smoke",
-            f"smoke status={report.get('status')!r} "
-            f"fail_reasons={report.get('fail_reasons')}",
-            proc=proc,
-        )
-        _expect(bool(report.get("event_id")), "smoke", "no event_id in report")
-        receipts = report.get("delivery_receipts") or []
-        _expect(
-            any(r.get("status") == "sent" for r in receipts),
-            "smoke",
-            "no delivery receipt with status 'sent'",
-        )
-        accounting = report.get("accounting") or {}
-        _expect(
-            accounting.get("outbound_delivered", 0) >= 1,
-            "smoke",
-            f"accounting outbound_delivered < 1: {accounting}",
-        )
-        _expect(
-            report.get("shutdown_status") == "stopped",
-            "smoke",
-            f"runtime did not reach 'stopped': {report.get('shutdown_status')!r}",
-        )
-        _expect(
-            "radio" in (report.get("target_adapters") or []),
-            "smoke",
-            f"expected delivery to adapter 'radio': {report.get('target_adapters')}",
-        )
-        _expect(
-            report.get("storage_backend") == "sqlite",
-            "smoke",
-            f"expected sqlite storage backend: {report.get('storage_backend')!r}",
-        )
-        storage_path = report.get("storage_path")
-        sandbox_resolved = sandbox.resolve()
-        _expect(
-            isinstance(storage_path, str)
-            and sandbox_resolved in Path(storage_path).resolve().parents,
-            "smoke",
-            f"smoke storage path outside the proof sandbox: {storage_path!r}",
-        )
+            _expect(
+                proc.returncode == 0,
+                "smoke",
+                "'medre smoke' exited nonzero against the sample config",
+                proc=proc,
+            )
+            try:
+                report = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                _fail(
+                    "smoke",
+                    "smoke output was not parsable JSON",
+                    returncode=proc.returncode,
+                    stdout=proc.stdout,
+                    stderr=proc.stderr,
+                )
+            _expect(
+                report.get("status") == "passed",
+                "smoke",
+                f"smoke status={report.get('status')!r} "
+                f"fail_reasons={report.get('fail_reasons')}",
+                proc=proc,
+            )
+            _expect(bool(report.get("event_id")), "smoke", "no event_id in report")
+            receipts = report.get("delivery_receipts") or []
+            _expect(
+                any(r.get("status") == "sent" for r in receipts),
+                "smoke",
+                "no delivery receipt with status 'sent'",
+            )
+            accounting = report.get("accounting") or {}
+            _expect(
+                accounting.get("outbound_delivered", 0) >= 1,
+                "smoke",
+                f"accounting outbound_delivered < 1: {accounting}",
+            )
+            _expect(
+                report.get("shutdown_status") == "stopped",
+                "smoke",
+                f"runtime did not reach 'stopped': {report.get('shutdown_status')!r}",
+            )
+            _expect(
+                "radio" in (report.get("target_adapters") or []),
+                "smoke",
+                f"expected delivery to adapter 'radio': {report.get('target_adapters')}",
+            )
+            _expect(
+                report.get("storage_backend") == "sqlite",
+                "smoke",
+                f"expected sqlite storage backend: {report.get('storage_backend')!r}",
+            )
+            storage_path = report.get("storage_path")
+            sandbox_resolved = sandbox.resolve()
+            _expect(
+                isinstance(storage_path, str)
+                and sandbox_resolved in Path(storage_path).resolve().parents,
+                "smoke",
+                f"smoke storage path outside the proof sandbox: {storage_path!r}",
+            )
 
-        # -- default-discovery smoke -----------------------------------------
-        # Place the generated sample at the discovered default config
-        # location inside the sandbox, then run bare ``medre smoke --json``:
-        # the default Docker-free smoke for wheel users (no example configs
-        # exist outside the checkout), with the same delivery-evidence
-        # contract as the explicit-config run.
-        discovered_dir = xdg["XDG_CONFIG_HOME"] / "medre"
-        discovered_dir.mkdir(parents=True, exist_ok=True)
-        (discovered_dir / "config.yaml").write_text(
-            sample_path.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-        proc = run_cli("smoke", "--json", label="default smoke")
-        _expect(
-            proc.returncode == 0,
-            "default smoke",
-            "'medre smoke --json' with the discovered default config " "exited nonzero",
-            proc=proc,
-        )
-        try:
-            default_report = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            _fail(
-                "default smoke",
-                "default smoke output was not parsable JSON",
-                returncode=proc.returncode,
-                stdout=proc.stdout,
-                stderr=proc.stderr,
+            # -- default-discovery smoke -----------------------------------------
+            # Place the generated sample at the discovered default config
+            # location inside the sandbox, then run bare ``medre smoke --json``:
+            # the default Docker-free smoke for wheel users (no example configs
+            # exist outside the checkout), with the same delivery-evidence
+            # contract as the explicit-config run.
+            discovered_dir = xdg["XDG_CONFIG_HOME"] / "medre"
+            discovered_dir.mkdir(parents=True, exist_ok=True)
+            (discovered_dir / "config.yaml").write_text(
+                sample_path.read_text(encoding="utf-8"), encoding="utf-8"
             )
-        _expect(
-            default_report.get("status") == "passed"
-            and default_report.get("shutdown_status") == "stopped"
-            and any(
-                r.get("status") == "sent"
-                for r in default_report.get("delivery_receipts") or []
-            ),
-            "default smoke",
-            "default smoke lacked delivery/stopped evidence: status="
-            f"{default_report.get('status')!r} shutdown="
-            f"{default_report.get('shutdown_status')!r}",
-            proc=proc,
-        )
+            proc = run_cli("smoke", "--json", label="default smoke")
+            _expect(
+                proc.returncode == 0,
+                "default smoke",
+                "'medre smoke --json' with the discovered default config "
+                "exited nonzero",
+                proc=proc,
+            )
+            try:
+                default_report = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                _fail(
+                    "default smoke",
+                    "default smoke output was not parsable JSON",
+                    returncode=proc.returncode,
+                    stdout=proc.stdout,
+                    stderr=proc.stderr,
+                )
+            _expect(
+                default_report.get("status") == "passed"
+                and default_report.get("shutdown_status") == "stopped"
+                and any(
+                    r.get("status") == "sent"
+                    for r in default_report.get("delivery_receipts") or []
+                ),
+                "default smoke",
+                "default smoke lacked delivery/stopped evidence: status="
+                f"{default_report.get('status')!r} shutdown="
+                f"{default_report.get('shutdown_status')!r}",
+                proc=proc,
+            )
 
         # -- recovery/replay CLI contract boundaries -----------------------
         proc = run_cli("recover", "--help", label="recover help")
@@ -855,8 +1002,12 @@ def main(argv: list[str] | None = None) -> int:
         print("  distributions:   " + ", ".join(sorted(installed)))
         print(
             "  proofs:          help, version, paths, adapters, config "
-            "sample, config check, smoke (explicit config), smoke "
-            "(discovered default), recover --help, replay --help"
+            "check, core lifecycle, recover --help, replay --help"
+            + (
+                ", adapter wheels, bridge smoke (explicit and discovered config)"
+                if adapter_wheels
+                else ""
+            )
         )
         return 0
     finally:

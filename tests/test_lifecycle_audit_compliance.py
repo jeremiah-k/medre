@@ -23,15 +23,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

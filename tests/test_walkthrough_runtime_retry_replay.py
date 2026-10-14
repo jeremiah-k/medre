@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.runtime.builder import RuntimeBuilder
 
@@ -30,9 +29,9 @@ class TestRetryScenario:
     @pytest.mark.asyncio
     async def test_retry_walkthrough(self, tmp_path: Path) -> None:
         from medre.adapters.fakes.matrix import FakeMatrixAdapter
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
-            MatrixRuntimeConfig,
             RetryConfig,
             RuntimeConfig,
             StorageConfig,
@@ -186,12 +185,8 @@ class TestReplayScenario:
 
     @pytest.mark.asyncio
     async def test_replay_walkthrough(self, tmp_path: Path) -> None:
-        from medre.config.model import (
-            AdapterConfigSet,
-            MatrixRuntimeConfig,
-            RuntimeConfig,
-            StorageConfig,
-        )
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+        from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
         from medre.config.paths import MedrePaths
         from medre.core.engine.replay.engine import ReplayEngine
         from medre.core.engine.replay.summary import collect_replay_summary

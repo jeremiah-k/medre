@@ -70,7 +70,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
-
 from tests.helpers.docker_probe import HAS_DOCKER as _HAS_DOCKER
 from tests.helpers.docker_probe import (
     docker_daemon_reachable as _docker_daemon_reachable,
@@ -229,16 +228,16 @@ async def _launch(
     peer's messages fan out to both radio meshes).
     """
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.matrix import MatrixConfig
+    from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MatrixRuntimeConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,
@@ -1274,7 +1273,8 @@ def _lx_ingest_evidence(app: Any) -> str:
 @pytest.mark.timeout(
     max(
         2400.0,
-        1000 + 2 * max(120.0, delivery_timeout_seconds())
+        1000
+        + 2 * max(120.0, delivery_timeout_seconds())
         + (2 * _OBSERVE_ATTEMPTS - 1) * send_timeout_seconds(),
     )
 )

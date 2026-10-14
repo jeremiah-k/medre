@@ -1,0 +1,26 @@
+name: Install compatibility adapters
+description: Install the resolved compatibility snapshot without transport SDKs
+inputs:
+  snapshot:
+    description: JSON matrix emitted by the compatibility plan job
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ADAPTER_SNAPSHOT: ${{ inputs.snapshot }}
+      run: |
+        python - <<'PYCODE'
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+        from importlib.util import module_from_spec, spec_from_file_location
+        spec = spec_from_file_location("adapter_matrix", "scripts/ci/adapter_matrix.py")
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        path = Path(os.environ["RUNNER_TEMP"]) / "medre-adapter-requirements.txt"
+        path.write_text(module.requirements(json.loads(os.environ["ADAPTER_SNAPSHOT"])["include"]))
+        subprocess.run(["uv", "pip", "install", "--no-deps", "-r", str(path)], check=True)
+        PYCODE

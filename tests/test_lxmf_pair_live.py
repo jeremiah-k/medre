@@ -39,16 +39,15 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded
+from tests.helpers.lxmf_live_peer import LxmfPeerListener as _PeerListener
+from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
+from tests.helpers.lxmf_live_peer import run_lxmf_peer as _peer
 from tests.helpers.lxmf_peer_timing import (
     delivery_timeout_seconds,
     send_timeout_seconds,
 )
-from tests.helpers.lxmf_live_peer import LxmfPeerListener as _PeerListener
-from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
-from tests.helpers.lxmf_live_peer import run_lxmf_peer as _peer
 from tests.helpers.meshtastic import make_meshtastic_text_packet
 
 _PAIR_ENABLED = os.environ.get("LXMF_PAIR", "") == "1"
@@ -95,7 +94,10 @@ pytestmark = [
     pytest.mark.timeout(
         max(
             1800.0,
-            1000 + 2 * _DELIVERY_TIMEOUT + send_timeout_seconds(2) + send_timeout_seconds(3),
+            1000
+            + 2 * _DELIVERY_TIMEOUT
+            + send_timeout_seconds(2)
+            + send_timeout_seconds(3),
         )
     ),
     pytest.mark.filterwarnings(
@@ -121,12 +123,12 @@ _PEER_DEST = lambda: _delivery_dest_hash(_PEER_IDENTITY)  # noqa: E731
 def _build_runtime(db_path: Path, *, with_route: bool):
     from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,
@@ -192,7 +194,7 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _stop_app(app) -> None:  # noqa: ANN001
+async def _stop_app(app) -> None:
     await bounded(app.stop(), 30.0, "pair runtime app.stop()")
 
 
@@ -251,7 +253,7 @@ def _nonce(prefix: str) -> str:
     return f"MEDRE {prefix}-{uuid.uuid4().hex[:10]}"
 
 
-async def _events_with_body(app, needle: str) -> list:  # noqa: ANN001
+async def _events_with_body(app, needle: str) -> list:
     """Boundedly poll durable canonical events whose body contains needle."""
     deadline = time.monotonic() + _RECEIPT_TIMEOUT
     hits: list = []
@@ -269,7 +271,7 @@ async def _events_with_body(app, needle: str) -> list:  # noqa: ANN001
     return hits
 
 
-async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
+async def _await_receipts(storage, event_id: str) -> list:
     """Poll durable delivery receipts for one event, bounded."""
 
     async def _poll() -> list:
@@ -284,12 +286,14 @@ async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
     return await _poll()
 
 
-async def _event_count(app) -> int:  # noqa: ANN001
+async def _event_count(app) -> int:
     ids = await app.storage.list_event_ids_page(after_event_id=None, limit=1000)
     return len(list(ids))
 
 
-async def _await_peer_recall(app, dest_hex: str, timeout: float = _RECALL_TIMEOUT) -> bool:
+async def _await_peer_recall(
+    app, dest_hex: str, timeout: float = _RECALL_TIMEOUT
+) -> bool:
     """Wait until the runtime process can recall the peer's LXMF identity.
 
     This is the true egress precondition: LXMRouter DIRECT delivery
@@ -402,7 +406,10 @@ class TestLxmfPairEgress:
             nonce = _nonce("N3")
             packet_id = uuid.uuid4().hex
             with _PeerListener(
-                _RECALL_TIMEOUT + _RECEIPT_TIMEOUT + _DELIVERY_TIMEOUT + _LISTENER_MARGIN
+                _RECALL_TIMEOUT
+                + _RECEIPT_TIMEOUT
+                + _DELIVERY_TIMEOUT
+                + _LISTENER_MARGIN
             ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
@@ -462,8 +469,10 @@ class TestLxmfPairEgress:
             cases = [unicode_msg, newline_msg, big_msg, normal_msg]
             window = _DELIVERY_TIMEOUT + len(cases) * (_PACING_SECONDS + 8.0)
             with _PeerListener(
-                _RECALL_TIMEOUT + len(cases) * (_PACING_SECONDS + 1.0)
-                + window + _LISTENER_MARGIN
+                _RECALL_TIMEOUT
+                + len(cases) * (_PACING_SECONDS + 1.0)
+                + window
+                + _LISTENER_MARGIN
             ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
@@ -619,14 +628,16 @@ async def _set_peer_hub_power(action: str) -> None:
     Cancelling to_thread does not stop its worker. Wait for power-off to
     finish before restoration can start, so a late worker cannot undo it.
     """
-    task = asyncio.create_task(asyncio.to_thread(
-        subprocess.run,
-        ["/usr/sbin/uhubctl", "-l", _PEER_HUB, "-p", _PEER_HUB_PORT, "-a", action],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=20,
-    ))
+    task = asyncio.create_task(
+        asyncio.to_thread(
+            subprocess.run,
+            ["/usr/sbin/uhubctl", "-l", _PEER_HUB, "-p", _PEER_HUB_PORT, "-a", action],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    )
     cancelled = False
     while not task.done():
         try:
@@ -689,7 +700,9 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
             # acceptance semantics must not fabricate a peer delivery.
             delivered_claim = await wait_until(
                 lambda: bool(
-                    app.adapters["lx_radio"].session.delivery_state_counts().get("delivered")
+                    app.adapters["lx_radio"]
+                    .session.delivery_state_counts()
+                    .get("delivered")
                 ),
                 timeout=35.0,
                 interval=2.0,
@@ -758,14 +771,10 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
                 # Require a fresh delivery independently of the queued
                 # pre-outage message to prove the adapter remains usable.
                 rx2 = peer.packets_until(
-                    lambda ps: any(
-                        restored in (p.get("content") or "") for p in ps
-                    ),
+                    lambda ps: any(restored in (p.get("content") or "") for p in ps),
                     120.0,
                 )
-                got_restored = [
-                    p for p in rx2 if restored in (p.get("content") or "")
-                ]
+                got_restored = [p for p in rx2 if restored in (p.get("content") or "")]
                 assert got_restored, (
                     "fresh nonce not delivered after restore; " f"raw2={rx2!r}"
                 )

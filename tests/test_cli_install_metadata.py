@@ -17,7 +17,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from medre.adapter_registry import registered_transports
 from tests.helpers.cli import (
     _run_cli,
@@ -207,17 +206,15 @@ class TestInstallMetadataWorkflow:
         assert "medre" in scripts
         assert scripts["medre"] == "medre.cli:main"
 
-    def test_documented_extras_in_pyproject(self) -> None:
-        """All transport extras are declared in pyproject.toml."""
+    def test_core_extras_are_development_only(self) -> None:
+        """Transport dependencies belong to independently installed adapters."""
         import tomllib
 
         repo_root = Path(__file__).resolve().parent.parent
         with (repo_root / "pyproject.toml").open("rb") as fh:
             data = tomllib.load(fh)
         opt = data["project"].get("optional-dependencies", {})
-        required_extras = {"matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"}
-        missing = required_extras - set(opt.keys())
-        assert not missing, f"missing extras: {sorted(missing)}"
+        assert set(opt) == {"dev"}
 
     def test_dev_extras_exist(self) -> None:
         """Dev extras include pytest."""

@@ -160,19 +160,16 @@ def _make_smoke_event(
 
 
 def _pick_source_adapter(app: MedreApp) -> tuple[str, Any]:
-    """Select a deterministic source adapter for smoke injection.
-
-    Prefers a Matrix-platform adapter (presentation layer) since
-    ``fake-bridge-smoke.yaml`` routes originate from ``fake_matrix``.
-    Falls back to the first adapter sorted alphabetically.
-    """
-    for aid in sorted(app.adapters.keys()):
-        adapter = app.adapters[aid]
-        if getattr(adapter, "platform", None) == "matrix":
-            return aid, adapter
-    # Fallback: first sorted adapter
-    aid = sorted(app.adapters.keys())[0]
-    return aid, app.adapters[aid]
+    """Choose a configured route source deterministically, regardless of platform."""
+    for adapter_id in sorted(app.adapters):
+        if any(
+            route.enabled and route.source.adapter in (None, adapter_id)
+            for route in app._registered_routes
+        ):
+            return adapter_id, app.adapters[adapter_id]
+    # A route-less smoke still reports its normal no-delivery evidence.
+    adapter_id = sorted(app.adapters)[0]
+    return adapter_id, app.adapters[adapter_id]
 
 
 # ---------------------------------------------------------------------------

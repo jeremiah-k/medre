@@ -37,7 +37,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.live_harness import bounded
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _peer
@@ -82,12 +81,12 @@ _MEDRE_TEXT_BUDGET: int = 160  # MEDRE max_text_bytes (== firmware-visible span)
 def _build_runtime(db_path: Path, *, with_route: bool):
     from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,
@@ -152,7 +151,7 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _stop_app(app) -> None:  # noqa: ANN001
+async def _stop_app(app) -> None:
     await bounded(app.stop(), 30.0, "pair runtime app.stop()")
 
 
@@ -202,7 +201,7 @@ async def _preflight() -> None:
             )
 
 
-async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
+async def _await_receipts(storage, event_id: str) -> list:
     """Poll durable delivery receipts for one event, bounded."""
 
     async def _poll() -> list:
@@ -217,9 +216,7 @@ async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
     return await _poll()
 
 
-async def _events_with_body(
-    app, needle: str, expected: int = 1  # noqa: ANN001
-) -> list:
+async def _events_with_body(app, needle: str, expected: int = 1) -> list:
     """Boundedly poll durable canonical events whose body contains needle."""
     deadline = time.monotonic() + _RECEIPT_TIMEOUT
     hits: list = []
@@ -245,7 +242,7 @@ async def _events_with_body(
 # cases share one healthy runtime and separate concerns by unique nonces.
 
 
-async def _event_count(app) -> int:  # noqa: ANN001
+async def _event_count(app) -> int:
     ids = await app.storage.list_event_ids_page(after_event_id=None, limit=1000)
     return len(list(ids))
 

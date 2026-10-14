@@ -522,7 +522,7 @@ fully local regression harness (no external network, hardware, or
 retained state):
 
 ```bash
-uv sync --extra lxmf
+uv sync --locked && uv pip install medre-adapter-lxmf
 uv run pytest "tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances" -m "local_integration or lxmf_sdk"
 ```
 
@@ -580,7 +580,7 @@ proof.
 
 | Library | Purpose                                                            | Optional                    |
 | ------- | ------------------------------------------------------------------ | --------------------------- |
-| `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre[lxmf]`)         |
+| `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre-adapter-lxmf`)  |
 | `RNS`   | Reticulum network stack (`Reticulum`, `Identity`, `Destination`)   | Yes (via `lxmf` dependency) |
 
 **Dependency-version authority:** `pyproject.toml` declares the exact LXMF/RNS

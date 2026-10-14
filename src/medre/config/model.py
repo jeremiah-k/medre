@@ -19,10 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any, Self, get_args, get_type_hints
 
 from medre.adapter_registry import registered_transports
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.routes import RouteConfigSet
@@ -421,11 +417,8 @@ class RuntimeLimits:
 class GenericAdapterRuntimeConfig:
     """Transport-neutral wrapper for one configured adapter instance.
 
-    Concrete built-ins retain thin compatibility subclasses below, but the
-    loader can use this class directly for registered adapters without a
-    compatibility wrapper.  That keeps the
-    runtime wrapper shape stable without requiring :mod:`medre.config.model`
-    changes whenever a new transport is registered.
+    Adapters may provide their own validated subclasses. Core never needs to
+    import transport-specific configuration types.
     """
 
     adapter_id: str
@@ -453,6 +446,13 @@ class GenericAdapterRuntimeConfig:
         adapter_id: str = data.pop("adapter_id", instance_name)
         adapter_kind: str = data.pop("adapter_kind", "real")
         section_path = f"adapters.{transport}.{instance_name}"
+        if not isinstance(enabled, bool):
+            raise ConfigValidationError(
+                f"{section_path}.enabled must be a boolean",
+                transport=transport,
+                adapter_id=adapter_id,
+                section_path=section_path,
+            )
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
                 f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
@@ -477,59 +477,7 @@ class GenericAdapterRuntimeConfig:
         )
 
 
-@dataclass(frozen=True)
-class MatrixRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single Matrix adapter instance."""
-
-    config: MatrixConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="matrix", config_cls=MatrixConfig
-        )
-
-
-@dataclass(frozen=True)
-class MeshtasticRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single Meshtastic adapter instance."""
-
-    config: MeshtasticConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="meshtastic", config_cls=MeshtasticConfig
-        )
-
-
-@dataclass(frozen=True)
-class MeshCoreRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single MeshCore adapter instance."""
-
-    config: MeshCoreConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="meshcore", config_cls=MeshCoreConfig
-        )
-
-
-@dataclass(frozen=True)
-class LxmfRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single LXMF adapter instance."""
-
-    config: LxmfConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="lxmf", config_cls=LxmfConfig
-        )
-
-
-# Registered adapters without a dedicated compatibility wrapper use the
+# Registered adapters without a dedicated wrapper use the
 # transport-neutral runtime config directly.
 AdapterRuntimeConfig = GenericAdapterRuntimeConfig
 
@@ -543,11 +491,9 @@ AdapterRuntimeConfig = GenericAdapterRuntimeConfig
 class AdapterConfigSet:
     """Adapter configs grouped by registered transport name.
 
-    The authoritative storage is a transport-keyed mapping rather than one
-    field per built-in adapter.  The custom constructor intentionally accepts
-    the historical ``AdapterConfigSet(matrix=..., meshtastic=...)`` spelling
-    so existing callers keep working, while a newly registered transport can
-    be supplied without editing this class.
+    The authoritative storage is a transport-keyed mapping. Transport groups
+    can be passed through ``groups`` or keyword arguments, so newly installed
+    providers require no changes to this model.
 
     Note that the private ``_groups`` field is the only dataclass field, so
     ``dataclasses.asdict()`` on this type (or on a root :class:`RuntimeConfig`
@@ -576,7 +522,7 @@ class AdapterConfigSet:
             raise TypeError(
                 f"unknown adapter transport group(s): {sorted(unknown)}; "
                 f"known installed transports: {sorted(known_set)}. "
-                "Install the matching medre-adapter-<transport> distribution."
+                "Install a distribution providing the matching medre.adapters entry point."
             )
         object.__setattr__(
             self,
@@ -585,7 +531,7 @@ class AdapterConfigSet:
         )
 
     def __getattr__(self, name: str) -> dict[str, AdapterRuntimeConfig]:
-        """Expose registered transport groups as compatibility attributes."""
+        """Expose installed transport groups by name."""
         groups = object.__getattribute__(self, "_groups")
         if name in groups:
             return groups[name]

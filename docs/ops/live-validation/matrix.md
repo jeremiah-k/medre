@@ -5,7 +5,7 @@ Live smoke test procedures for the Matrix adapter against a real homeserver.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev --extra matrix
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix
 source .venv/bin/activate
 
 export MATRIX_HOMESERVER=http://localhost:8008
@@ -23,7 +23,7 @@ Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 No external homeserver needed. Uses a local Docker Synapse container.
 
 ```bash
-uv sync --locked --extra dev --extra matrix --extra meshtastic
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -42,7 +42,7 @@ Expected: 15 passed, 1 xfailed (third-party inbound requires second user during 
 ## E2EE Live Validation
 
 ```bash
-uv sync --locked --extra dev --extra matrix-e2e
+uv sync --locked --extra dev && uv pip install 'medre-adapter-matrix[e2e]'
 
 # Docker E2EE harness
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v

@@ -18,7 +18,6 @@ from typing import Any, AsyncGenerator
 from unittest.mock import patch
 
 import pytest
-
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -37,7 +36,6 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # `isolated_config_env` directly or activate it with module-level
 # ``pytest.mark.usefixtures`` markers.
 from tests.helpers.config_env import isolated_config_env  # noqa: F401
-from tests.helpers.matrix import build_mock_nio_module
 from tests.helpers.storage_outbox import admit_default_event
 
 # ---------------------------------------------------------------------------
@@ -427,6 +425,8 @@ def rendering_pipeline() -> RenderingPipeline:
 @pytest.fixture
 def mock_nio() -> Any:
     """Inject a mock nio module into sys.modules and patch HAS_NIO."""
+    from tests.helpers.matrix import build_mock_nio_module
+
     mock = build_mock_nio_module()
     saved_nio = sys.modules.get("nio")
     saved_nio_events = sys.modules.get("nio.events")

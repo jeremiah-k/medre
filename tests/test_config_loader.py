@@ -6,18 +6,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.adapter_registry import registered_transports
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
     ConfigValidationError,
 )
 from medre.config.loader import ConfigSource, find_config, load_config
-from medre.config.model import (
-    MatrixRuntimeConfig,
-    RuntimeConfig,
-)
+from medre.config.model import RuntimeConfig
 from medre.config.paths import MedrePaths
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")

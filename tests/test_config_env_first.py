@@ -12,9 +12,10 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import (
     MedreEnvConfig,
     apply_env_overrides,
@@ -24,8 +25,6 @@ from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

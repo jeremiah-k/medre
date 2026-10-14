@@ -137,3 +137,28 @@ def test_declared_distributions_are_derived_from_project_metadata() -> None:
     assert required == frozenset({"medre", "msgspec", "pyyaml"})
     assert forbidden == frozenset({"mindroom-nio", "mtjk", "pypubsub"})
     assert "pytest" not in forbidden
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        {"medre/__init__.py", "medre/config/adapters/extracted.py"},
+        set(),
+    ],
+)
+def test_wheel_proof_rejects_stale_or_missing_package_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: set[str]
+) -> None:
+    from zipfile import ZipFile
+
+    proof = _load_proof_module()
+    source = tmp_path / "src/medre"
+    source.mkdir(parents=True)
+    (source / "__init__.py").write_text("")
+    monkeypatch.setattr(proof, "_REPO_ROOT", tmp_path)
+    wheel = tmp_path / "medre-0.1.0-py3-none-any.whl"
+    with ZipFile(wheel, "w") as archive:
+        for entry in entries:
+            archive.writestr(entry, "")
+    with pytest.raises(SystemExit):
+        proof._resolve_wheel(str(wheel), tmp_path, "0.1.0", [])

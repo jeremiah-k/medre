@@ -61,13 +61,21 @@ A `RouteDestination` provides structured addressing for adapters that use identi
 ```python
 @dataclass
 class RouteDestination:
-    kind: Literal["channel", "lxmf_destination", "meshcore_contact", "matrix_room"]
+    kind: str  # channel, or a kind declared by an installed adapter
     destination_hash: str | None     # Hash or opaque ID (e.g., LXMF destination hash)
     destination_name: str | None     # Human-readable name for config readability
     metadata: dict = field(default_factory=dict)  # Extensible destination-specific parameters
 ```
 
-The `kind` field determines the addressing model:
+The `kind` field determines the addressing model. Core MUST validate the common
+shape and the generic `channel` kind. Native kinds MUST be declared through an
+installed adapter's `DestinationSpec`; its pure validator MUST enforce native
+address rules without importing SDKs or performing I/O. Conflicting kind owners
+MUST be rejected. Unknown kinds MUST fail configuration validation. Custom
+address parameters travel in `metadata`, so new platforms need no core parser
+change. A native kind MUST be supported by the configured destination adapter;
+loading and runtime assembly MUST reject mismatched targets before construction.
+The first-party kinds are:
 
 | kind                 | Addressing model      | Key fields                                                        |
 | -------------------- | --------------------- | ----------------------------------------------------------------- |

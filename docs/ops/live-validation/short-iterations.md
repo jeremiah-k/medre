@@ -8,12 +8,12 @@ separate final check.
 
 ## Prepare the Bench
 
-Install the locked environment with all extras needed for the campaign. Every
-subsequent sync needs the same extras; uv removes extras omitted from a sync.
+Sync core first, then install the adapters needed for the campaign. A later
+core sync removes separately installed packages; reinstall the adapters after it.
 
 ```bash
-uv sync --locked --extra dev --extra meshtastic --extra meshcore \
-  --extra lxmf --extra matrix-e2e
+uv sync --locked --extra dev && uv pip install medre-adapter-meshtastic medre-adapter-meshcore \
+  medre-adapter-lxmf 'medre-adapter-matrix[e2e]'
 uv run --no-sync medre smoke --json
 ```
 
@@ -147,15 +147,15 @@ module. The floor remains 90%; reducing it after a failure hides the evidence.
 Retain a failing run, then compare it with a native-only control using the same
 radio preset, payload shape, pacing, and fresh receiver window.
 
-| Stage | Main assertions |
-| --- | --- |
-| Meshtastic pair | Native IDs, RF egress, Unicode/newlines, UTF-8 byte boundaries, distinct-message admission. |
-| MeshCore pair | Clock-sensitive ingress, timestamp deduplication, wrong-key rejection and restored positive, peer egress, text boundaries. |
-| LXMF pair | Native hash/source correlation, multi-frame payloads, distinct hashes for identical text, relation envelope reconstruction. |
-| Radio bridge | Both directed routes, isolation, bounded echoes, scoped MeshCore stop/restart with Meshtastic remaining usable. |
-| LXMF bridges | Four directed routes and fanout through real native peers. |
-| Matrix Docker | Lifecycle, plaintext routing, encrypted text, crypto-store restart, attachment transfer and replay. |
-| Radio matrix | Rendering, provenance, route isolation, paced convergence, and Docker Matrix relays through the three radio transports. |
+| Stage           | Main assertions                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Meshtastic pair | Native IDs, RF egress, Unicode/newlines, UTF-8 byte boundaries, distinct-message admission.                                 |
+| MeshCore pair   | Clock-sensitive ingress, timestamp deduplication, wrong-key rejection and restored positive, peer egress, text boundaries.  |
+| LXMF pair       | Native hash/source correlation, multi-frame payloads, distinct hashes for identical text, relation envelope reconstruction. |
+| Radio bridge    | Both directed routes, isolation, bounded echoes, scoped MeshCore stop/restart with Meshtastic remaining usable.             |
+| LXMF bridges    | Four directed routes and fanout through real native peers.                                                                  |
+| Matrix Docker   | Lifecycle, plaintext routing, encrypted text, crypto-store restart, attachment transfer and replay.                         |
+| Radio matrix    | Rendering, provenance, route isolation, paced convergence, and Docker Matrix relays through the three radio transports.     |
 
 After these pass, reverse the A/B endpoint assignments and rerun the relevant
 pair cases to distinguish adapter behavior from a particular board. Change

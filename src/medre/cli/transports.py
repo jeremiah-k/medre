@@ -1,4 +1,4 @@
-"""Built-in transport SDK availability probing."""
+"""Installed transport SDK availability probing."""
 
 from __future__ import annotations
 

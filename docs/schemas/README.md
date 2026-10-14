@@ -67,3 +67,9 @@ and example data.
 `AdapterCapabilities` are checked separately by
 `tests/test_capability_conformance.py` against
 `docs/spec/transport-profiles/*-capabilities.json`.
+
+Runtime and routing schemas describe the shared configuration structure. They
+accept community transport and destination kind names. `medre config check`
+validates installed-provider availability and invokes adapter-owned native
+address validators. Static schema validation alone cannot verify which Python
+providers are installed in an operator's environment.

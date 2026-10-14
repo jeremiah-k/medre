@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.adapter_installation import inspect_adapter_installation
 from medre.cli.main import main
 from medre.config.errors import ConfigValidationError
@@ -75,3 +74,12 @@ def test_cli_check_succeeds_when_installed(
     path = _config(tmp_path, "adapters:\n  matrix:\n    bot: {}\n")
     main(["adapters", "check", "--config", str(path)])
     assert "matrix: installed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("value", ["[]", "''", "false", "0"])
+def test_preflight_rejects_empty_nonmapping_adapter_section(
+    tmp_path: Path, value: str
+) -> None:
+    path = _config(tmp_path, f"adapters: {value}\n")
+    with pytest.raises(ConfigValidationError, match="adapters must be a mapping"):
+        inspect_adapter_installation(path)

@@ -28,15 +28,12 @@ import os
 from pathlib import Path
 
 import pytest
-
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.config.model import (
-    AdapterConfigSet,
-    MeshtasticRuntimeConfig,
-)
+from medre.config.model import AdapterConfigSet
 from medre.config.paths import MedrePaths, MedrePathsError
 from medre.config.sample import generate_sample_config
 from tests.helpers.cli import _run_cli_raw

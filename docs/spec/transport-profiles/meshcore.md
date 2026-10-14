@@ -382,6 +382,6 @@ are deterministically degraded to inline fallback text.
 
 ## Reference Libraries
 
-| Library    | Purpose                                                           | Optional                |
-| ---------- | ----------------------------------------------------------------- | ----------------------- |
-| `meshcore` | MeshCore Python SDK (`MeshCore` factory, `EventType`, `commands`) | Yes (`medre[meshcore]`) |
+| Library    | Purpose                                                           | Optional                       |
+| ---------- | ----------------------------------------------------------------- | ------------------------------ |
+| `meshcore` | MeshCore Python SDK (`MeshCore` factory, `EventType`, `commands`) | Yes (`medre-adapter-meshcore`) |

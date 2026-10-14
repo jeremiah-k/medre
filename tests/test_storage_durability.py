@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Literal, cast
 
 import pytest
-
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
@@ -527,9 +526,9 @@ class TestStorageCloseOnStartupFailure:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When pipeline_runner.start() fails, storage is closed."""
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
-            MatrixRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,

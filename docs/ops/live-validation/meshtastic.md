@@ -5,7 +5,7 @@ Live smoke test procedures for the Meshtastic adapter against a real radio node.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev --extra meshtastic
+uv sync --locked --extra dev && uv pip install medre-adapter-meshtastic
 source .venv/bin/activate
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
@@ -128,7 +128,7 @@ Physical-radio lifecycle endurance is opt-in and never runs in the default
 suite. Configure the same connection variables as the live smoke tests, then:
 
 ```bash
-uv sync --locked --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-meshtastic
 export MESHTASTIC_SOAK_CYCLES=10
 pytest tests/test_meshtastic_hardware_soak.py \
   -m "hardware and live and soak and meshtastic_sdk" -v

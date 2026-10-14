@@ -36,7 +36,9 @@ from contextlib import redirect_stderr
 from pathlib import Path
 
 import pytest
-
+from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import (
     EnvProvenance,
     MedreEnvConfig,
@@ -54,9 +56,6 @@ from medre.config.loader import load_config
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,

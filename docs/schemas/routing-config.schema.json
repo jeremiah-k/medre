@@ -131,12 +131,12 @@
         "source_origin_label": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Source-side human-readable label for the forward leg of this route (source→dest). When set, takes precedence over the source adapter's origin_label in relay-prefix attribution. Falls back to adapter config origin_label when null. This is source-context metadata, not a routing key or delivery evidence."
+          "description": "Source-side human-readable label for the forward leg of this route (source\u2192dest). When set, takes precedence over the source adapter's origin_label in relay-prefix attribution. Falls back to adapter config origin_label when null. This is source-context metadata, not a routing key or delivery evidence."
         },
         "dest_origin_label": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Source-side human-readable label for the reverse leg of this route (dest→source). Same precedence as source_origin_label but applied when direction is swapped during expansion. Falls back to adapter config origin_label when null."
+          "description": "Source-side human-readable label for the reverse leg of this route (dest\u2192source). Same precedence as source_origin_label but applied when direction is swapped during expansion. Falls back to adapter config origin_label when null."
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
@@ -144,32 +144,62 @@
       "allOf": [
         {
           "if": {
-            "properties": { "dest_destination": { "type": "object" } },
+            "properties": {
+              "dest_destination": {
+                "type": "object"
+              }
+            },
             "required": ["dest_destination"]
           },
           "then": {
             "properties": {
-              "dest_channel": { "type": "null" },
-              "dest_room": { "type": "null" },
-              "context_map": { "type": "null" },
-              "dest_adapters": { "maxItems": 1 }
+              "dest_channel": {
+                "type": "null"
+              },
+              "dest_room": {
+                "type": "null"
+              },
+              "context_map": {
+                "type": "null"
+              },
+              "dest_adapters": {
+                "maxItems": 1
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "context_map": { "type": "object" } },
+            "properties": {
+              "context_map": {
+                "type": "object"
+              }
+            },
             "required": ["context_map"]
           },
           "then": {
             "properties": {
-              "source_adapters": { "maxItems": 1 },
-              "dest_adapters": { "maxItems": 1 },
-              "source_channel": { "type": "null" },
-              "dest_channel": { "type": "null" },
-              "source_room": { "type": "null" },
-              "dest_room": { "type": "null" },
-              "dest_destination": { "type": "null" }
+              "source_adapters": {
+                "maxItems": 1
+              },
+              "dest_adapters": {
+                "maxItems": 1
+              },
+              "source_channel": {
+                "type": "null"
+              },
+              "dest_channel": {
+                "type": "null"
+              },
+              "source_room": {
+                "type": "null"
+              },
+              "dest_room": {
+                "type": "null"
+              },
+              "dest_destination": {
+                "type": "null"
+              }
             }
           }
         }
@@ -195,29 +225,24 @@
   "$defs": {
     "RouteDestination": {
       "title": "RouteDestination",
-      "description": "Structured destination addressing (routing-delivery spec §2.3). Mirrors RouteDestinationConfig in config/routes.py.",
+      "description": "Structured destination addressing. Core validates the common shape and named channels; installed adapter DestinationSpec validators enforce native addressing rules.",
       "type": "object",
       "properties": {
         "kind": {
           "type": "string",
-          "enum": [
-            "channel",
-            "lxmf_destination",
-            "meshcore_contact",
-            "matrix_room"
-          ],
-          "description": "Addressing scheme. 'channel'/'matrix_room' address a logical channel or room by name; 'lxmf_destination' addresses a 32-hex-character LXMF destination hash; 'meshcore_contact' addresses a contact by hash and/or name."
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "channel, or an addressing kind declared by an installed adapter."
         },
         "destination_hash": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Hash-based identifier when applicable for the kind. Required and 32-hex for 'lxmf_destination'; must be null for 'channel'/'matrix_room'.",
+          "description": "Optional opaque destination identifier; native format is validated by the declaring adapter.",
           "minLength": 1
         },
         "destination_name": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Human-readable name when applicable for the kind. Required for 'channel'/'matrix_room'.",
+          "description": "Optional human-readable destination name; required for channel.",
           "minLength": 1
         },
         "metadata": {
@@ -231,52 +256,24 @@
       "allOf": [
         {
           "if": {
-            "properties": { "kind": { "const": "lxmf_destination" } },
+            "properties": {
+              "kind": {
+                "const": "channel"
+              }
+            },
             "required": ["kind"]
           },
           "then": {
             "properties": {
               "destination_hash": {
+                "type": "null"
+              },
+              "destination_name": {
                 "type": "string",
-                "pattern": "^[0-9a-fA-F]{32}$"
+                "minLength": 1
               }
-            },
-            "required": ["destination_hash"]
-          }
-        },
-        {
-          "if": {
-            "properties": { "kind": { "enum": ["channel", "matrix_room"] } },
-            "required": ["kind"]
-          },
-          "then": {
-            "properties": {
-              "destination_hash": { "type": "null" },
-              "destination_name": { "type": "string", "minLength": 1 }
             },
             "required": ["destination_name"]
-          }
-        },
-        {
-          "if": {
-            "properties": { "kind": { "const": "meshcore_contact" } },
-            "required": ["kind"]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "properties": {
-                  "destination_hash": { "type": "string", "minLength": 1 }
-                },
-                "required": ["destination_hash"]
-              },
-              {
-                "properties": {
-                  "destination_name": { "type": "string", "minLength": 1 }
-                },
-                "required": ["destination_name"]
-              }
-            ]
           }
         }
       ]
@@ -290,7 +287,7 @@
           "type": ["string", "null"],
           "minLength": 1,
           "default": null,
-          "description": "Opaque dest-side context (e.g. a room, channel, or topic identifier — owned and validated by the dest adapter). Mutually exclusive with dest_destination; exactly one of the two is required."
+          "description": "Opaque dest-side context (e.g. a room, channel, or topic identifier \u2014 owned and validated by the dest adapter). Mutually exclusive with dest_destination; exactly one of the two is required."
         },
         "dest_destination": {
           "oneOf": [
@@ -319,32 +316,55 @@
       "allOf": [
         {
           "if": {
-            "properties": { "dest_context": { "type": "string" } },
+            "properties": {
+              "dest_context": {
+                "type": "string"
+              }
+            },
             "required": ["dest_context"]
           },
           "then": {
-            "properties": { "dest_destination": { "type": "null" } }
+            "properties": {
+              "dest_destination": {
+                "type": "null"
+              }
+            }
           }
         },
         {
           "if": {
-            "properties": { "dest_destination": { "type": "object" } },
+            "properties": {
+              "dest_destination": {
+                "type": "object"
+              }
+            },
             "required": ["dest_destination"]
           },
           "then": {
-            "properties": { "dest_context": { "type": "null" } }
+            "properties": {
+              "dest_context": {
+                "type": "null"
+              }
+            }
           }
         },
         {
           "anyOf": [
             {
               "properties": {
-                "dest_context": { "type": "string", "minLength": 1 }
+                "dest_context": {
+                  "type": "string",
+                  "minLength": 1
+                }
               },
               "required": ["dest_context"]
             },
             {
-              "properties": { "dest_destination": { "type": "object" } },
+              "properties": {
+                "dest_destination": {
+                  "type": "object"
+                }
+              },
               "required": ["dest_destination"]
             }
           ]
@@ -474,32 +494,62 @@
       "allOf": [
         {
           "if": {
-            "properties": { "dest_destination": { "type": "object" } },
+            "properties": {
+              "dest_destination": {
+                "type": "object"
+              }
+            },
             "required": ["dest_destination"]
           },
           "then": {
             "properties": {
-              "dest_channel": { "type": "null" },
-              "dest_room": { "type": "null" },
-              "context_map": { "type": "null" },
-              "dest_adapters": { "maxItems": 1 }
+              "dest_channel": {
+                "type": "null"
+              },
+              "dest_room": {
+                "type": "null"
+              },
+              "context_map": {
+                "type": "null"
+              },
+              "dest_adapters": {
+                "maxItems": 1
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "context_map": { "type": "object" } },
+            "properties": {
+              "context_map": {
+                "type": "object"
+              }
+            },
             "required": ["context_map"]
           },
           "then": {
             "properties": {
-              "source_adapters": { "maxItems": 1 },
-              "dest_adapters": { "maxItems": 1 },
-              "source_channel": { "type": "null" },
-              "dest_channel": { "type": "null" },
-              "source_room": { "type": "null" },
-              "dest_room": { "type": "null" },
-              "dest_destination": { "type": "null" }
+              "source_adapters": {
+                "maxItems": 1
+              },
+              "dest_adapters": {
+                "maxItems": 1
+              },
+              "source_channel": {
+                "type": "null"
+              },
+              "dest_channel": {
+                "type": "null"
+              },
+              "source_room": {
+                "type": "null"
+              },
+              "dest_room": {
+                "type": "null"
+              },
+              "dest_destination": {
+                "type": "null"
+              }
             }
           }
         }

@@ -8,12 +8,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterInfo,
-    AdapterPermanentError,
     AdapterRole,
 )
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
@@ -470,15 +468,6 @@ class TestDeliveryContract:
         adapter = FakePresentationAdapter("test_p")
         event = _make_event()
         with pytest.raises(TypeError, match="RenderingResult only"):
-            await adapter.deliver(event)
-
-    async def test_fake_matrix_rejects_canonical_event(self) -> None:
-        """FakeMatrixAdapter.deliver raises AdapterPermanentError on CanonicalEvent."""
-        from medre.adapters.fakes.matrix import FakeMatrixAdapter
-
-        adapter = FakeMatrixAdapter("test_m")
-        event = _make_event()
-        with pytest.raises(AdapterPermanentError, match="RenderingResult only"):
             await adapter.deliver(event)
 
     async def test_faulty_presentation_rejects_canonical_event(self) -> None:

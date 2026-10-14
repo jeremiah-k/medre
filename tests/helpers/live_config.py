@@ -160,12 +160,12 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
         If required environment variables are missing.
     """
     from medre.config.adapters.matrix import MatrixConfig
+    from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        MatrixRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeOptions,
         StorageConfig,
     )

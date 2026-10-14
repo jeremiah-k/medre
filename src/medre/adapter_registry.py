@@ -21,7 +21,9 @@ from typing import Any
 __all__ = [
     "AdapterSpec",
     "AdapterTypeRegistry",
-    "BUILTIN_ADAPTER_REGISTRY",
+    "DestinationSpec",
+    "get_destination_spec",
+    "ADAPTER_REGISTRY",
     "SymbolRef",
     "adapter_sdk_packages",
     "get_adapter_spec",
@@ -52,6 +54,19 @@ class SymbolRef:
 
 
 @dataclass(frozen=True, slots=True)
+class DestinationSpec:
+    """An adapter-owned addressing kind and its pure config validator.
+
+    The validator accepts a RouteDestinationConfig, returns None on success,
+    and raises ValueError for an invalid address. It must not perform I/O or
+    import native transport SDKs. The generic channel kind belongs to core.
+    """
+
+    kind: str
+    validator: SymbolRef
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterSpec:
     """Declarative assembly metadata for one installed adapter type.
 
@@ -79,14 +94,8 @@ class AdapterSpec:
     cli_dispatch: SymbolRef | None = None
     support_endpoint_fields: tuple[str, ...] = ()
     support_secret_fields: tuple[str, ...] = ()
-    optional_extra: str | None = None
-    traits: frozenset[str] = frozenset()
     native_detection_priority: int = 100
-
-    @property
-    def install_extra(self) -> str:
-        """Return the optional-dependency extra used in operator guidance."""
-        return self.optional_extra or self.transport
+    destinations: tuple[DestinationSpec, ...] = ()
 
     @property
     def has_python_sdk(self) -> bool:
@@ -100,6 +109,8 @@ class AdapterTypeRegistry:
 
     _specs: tuple[AdapterSpec, ...]
     _by_transport: Mapping[str, AdapterSpec]
+    _destinations: Mapping[str, DestinationSpec]
+    _native_order: tuple[AdapterSpec, ...]
 
     def __init__(self, specs: Iterable[AdapterSpec]) -> None:
         """Build and validate an immutable registry from *specs*.
@@ -110,6 +121,7 @@ class AdapterTypeRegistry:
         """
         ordered = tuple(specs)
         by_transport: dict[str, AdapterSpec] = {}
+        destinations: dict[str, DestinationSpec] = {}
         for spec in ordered:
             transport = spec.transport
             if not _TRANSPORT_NAME_RE.fullmatch(transport):
@@ -137,9 +149,23 @@ class AdapterTypeRegistry:
                     f"support fields for {transport!r} cannot be both endpoint "
                     f"and secret: {sorted(overlap)}"
                 )
+            for destination in spec.destinations:
+                if not _TRANSPORT_NAME_RE.fullmatch(destination.kind):
+                    raise ValueError(f"invalid destination kind: {destination.kind!r}")
+                if destination.kind == "channel" or destination.kind in destinations:
+                    raise ValueError(
+                        f"duplicate or reserved destination kind: {destination.kind!r}"
+                    )
+                destinations[destination.kind] = destination
             by_transport[transport] = spec
         object.__setattr__(self, "_specs", ordered)
         object.__setattr__(self, "_by_transport", MappingProxyType(by_transport))
+        object.__setattr__(self, "_destinations", MappingProxyType(destinations))
+        object.__setattr__(
+            self,
+            "_native_order",
+            tuple(sorted(ordered, key=lambda spec: spec.native_detection_priority)),
+        )
 
     def __iter__(self) -> Iterator[AdapterSpec]:
         return iter(self._specs)
@@ -169,20 +195,13 @@ class AdapterTypeRegistry:
         """Return transport names in registration order."""
         return tuple(spec.transport for spec in self._specs)
 
-    def with_trait(self, trait: str) -> tuple[AdapterSpec, ...]:
-        """Return specs declaring *trait* in registration order."""
-        return tuple(spec for spec in self._specs if trait in spec.traits)
+    def destination(self, kind: str) -> DestinationSpec | None:
+        """Return an installed addressing validator without importing it."""
+        return self._destinations.get(kind)
 
     def native_detection_order(self) -> tuple[AdapterSpec, ...]:
         """Return specs in stable native-metadata ambiguity precedence order."""
-        indexed = enumerate(self._specs)
-        return tuple(
-            spec
-            for _index, spec in sorted(
-                indexed,
-                key=lambda item: (item[1].native_detection_priority, item[0]),
-            )
-        )
+        return self._native_order
 
 
 def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
@@ -195,10 +214,9 @@ def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
     from importlib.metadata import entry_points
 
     discovered = []
-    preferred = {"matrix": 0, "meshtastic": 1, "meshcore": 2, "lxmf": 3}
     providers = sorted(
         entry_points(group="medre.adapters"),
-        key=lambda ep: (preferred.get(ep.name, 100), ep.name, ep.value),
+        key=lambda ep: (ep.name, ep.value),
     )
     for ep in providers:
         try:
@@ -218,39 +236,42 @@ def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
     return tuple(discovered)
 
 
-# Historical name retained for internal call sites predating entry-point
-# discovery. This registry is populated by installed distributions, not
-# built-ins.
-BUILTIN_ADAPTER_REGISTRY = AdapterTypeRegistry(_discover_installed_specs())
+# Installed providers are resolved once per process in deterministic name order.
+ADAPTER_REGISTRY = AdapterTypeRegistry(_discover_installed_specs())
 
 
 def iter_adapter_specs() -> tuple[AdapterSpec, ...]:
     """Return installed adapter specs in deterministic registration order."""
-    return tuple(BUILTIN_ADAPTER_REGISTRY)
+    return tuple(ADAPTER_REGISTRY)
 
 
 def native_detection_specs() -> tuple[AdapterSpec, ...]:
     """Return installed adapters in native-metadata precedence order."""
-    return BUILTIN_ADAPTER_REGISTRY.native_detection_order()
+    return ADAPTER_REGISTRY.native_detection_order()
 
 
 def get_adapter_spec(transport: str) -> AdapterSpec | None:
     """Return the installed spec for *transport*, or ``None``."""
-    return BUILTIN_ADAPTER_REGISTRY.get(transport)
+    return ADAPTER_REGISTRY.get(transport)
 
 
 def registered_transports() -> tuple[str, ...]:
     """Return the installed transport vocabulary."""
-    return BUILTIN_ADAPTER_REGISTRY.transports()
+    return ADAPTER_REGISTRY.transports()
 
 
 def adapter_sdk_packages() -> tuple[str, ...]:
     """Return deduplicated SDK import roots declared by installed adapters."""
     seen: set[str] = set()
     ordered: list[str] = []
-    for spec in BUILTIN_ADAPTER_REGISTRY:
+    for spec in ADAPTER_REGISTRY:
         for package in spec.sdk_import_roots:
             if package not in seen:
                 seen.add(package)
                 ordered.append(package)
     return tuple(ordered)
+
+
+def get_destination_spec(kind: str) -> DestinationSpec | None:
+    """Return an installed addressing-kind declaration, or None."""
+    return ADAPTER_REGISTRY.destination(kind)

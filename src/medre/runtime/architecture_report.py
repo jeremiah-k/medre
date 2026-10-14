@@ -264,7 +264,7 @@ def render_dependency_graph_report(report: DependencyGraphReport) -> str:
 
 
 # Adapter SDK package names and per-transport allowances come from the same
-# built-in registry used by runtime assembly.  Architecture policy therefore
+# installed registry used by runtime assembly.  Architecture policy therefore
 # cannot silently drift when another built-in adapter is registered.
 _SDK_PACKAGES = adapter_sdk_packages()
 
@@ -614,7 +614,7 @@ def build_route_adapter_boundary_report(
                     )
                 )
 
-    # --- Authoritative built-in adapter registry assembly refs ---
+    # --- Installed adapter registry assembly refs ---
     registry_info = graph.modules.get("medre.adapter_registry")
     if registry_info and src_root is not None:
         registry_file = src_root / registry_info.file
@@ -859,7 +859,7 @@ def build_route_adapter_boundary_report(
     assembly: list[BoundaryViolation] = []
     for v in allowed:
         rule = (
-            "allowed: built-in adapter registry declaration"
+            "allowed: installed adapter registry declaration"
             if v.source == "medre.adapter_registry"
             else "allowed: RuntimeBuilder adapter assembly"
         )

@@ -11,8 +11,7 @@ From the repository root:
 ```bash
 uv sync --locked --extra dev
 uv run --no-sync medre version
-uv run --no-sync medre smoke --json
-uv run --no-sync pytest tests/test_fake_bridge_smoke.py -q
+uv run --no-sync pytest tests/test_core_independence.py -q
 ```
 
 uv creates `.venv` and installs MEDRE in editable mode. An existing compatible
@@ -38,33 +37,32 @@ Finish synchronization before running commands in that environment; do not sync
 and execute against the same `.venv` concurrently. Separate worktrees or projects
 should use separate environments.
 
-## Select Transport Extras
+## Install external adapters for development
 
-Request every extra needed by the environment on each sync:
+Core's only optional extra is `dev`. Adapter distributions own their SDK pins,
+transport configs, and test fakes. Repositories may be installed from Git,
+local checkouts, or PyPI. For a reproducible deployment use a separate uv
+project and source-pinned `uv.lock` (see
+[adapter installation](../ops/adapter-installation.md)).
 
 ```bash
-# Developer environment with a real LXMF/RNS SDK
-uv sync --locked --extra dev --extra lxmf
-uv run --no-sync pytest tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
-
-# Matrix and Meshtastic Docker boundary tests
-uv sync --locked --extra dev --extra matrix --extra meshtastic
-uv run --no-sync bash scripts/ci/run-docker-integration.sh
-
-# All SDKs, including Matrix E2EE, when their native prerequisites are available
-uv sync --locked --all-extras
+uv sync --locked --extra dev
+uv pip install --no-deps -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic \
+  -e ../medre-adapter-meshcore -e ../medre-adapter-lxmf
+uv run --no-sync python -m pytest tests/test_adapter_registry.py -q
+uv run --no-sync medre smoke --json
 ```
 
-`uv sync` reconciles the environment to the selected extras. A later core-only
-sync removes SDKs and developer tools that were selected earlier. Include
-`--extra dev` in a transport test environment and repeat all required transport
-extras when adding another. The lockfile contains every extra, but sync installs
-only the selected subset. Hardware, credentials, Docker services, and native
-library prerequisites remain separate from package installation.
+For SDK-backed jobs omit `--no-deps` when installing an adapter. To test the
+core/registry with adapters but without native SDKs, use `uv pip install
+--no-deps -e ../medre-adapter-matrix` (repeat for each needed adapter).
+`uv sync` reconciles installed packages to the locked core state; install
+adapters _after_ syncing or use a locked deployment project to avoid removal.
 
 ## Change Dependencies
 
-Declare dependency requirements and exact transport SDK pins in `pyproject.toml`.
+Declare core dependencies in MEDRE, and transport SDK pins in each adapter
+`pyproject.toml`.
 `uv.lock` records the resolved graph and artifacts. Commit metadata and lockfile
 changes together:
 
@@ -72,7 +70,8 @@ changes together:
 # After editing a dependency requirement in pyproject.toml
 uv lock
 uv lock --check
-uv sync --locked --extra dev --extra lxmf
+uv sync --locked --extra dev
+uv pip install -e ../medre-adapter-lxmf
 ```
 
 For an intentional transitive update, use `uv lock --upgrade-package <package>`
@@ -111,11 +110,22 @@ leak into a core install. The proof requires network access.
 An activated pip virtual environment can continue to use:
 
 ```bash
-python -m pip install -e ".[dev,lxmf]"
+python -m pip install -e ".[dev]" -e ../medre-adapter-lxmf
+cd ../medre-adapter-lxmf
 python -m pytest tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
 ```
 
 pip uses package requirements, not `uv.lock`, so transitive versions can differ
 from the locked checkout workflow. When switching an existing environment to uv,
-let `uv sync --locked` reconcile `.venv` and select all required extras. Keep
+let `uv sync --locked` reconcile `.venv` and select the dev extra, then install the required adapter distributions. Keep
 unrelated applications in their own environments.
+
+## Independent test ownership
+
+Run protocol and SDK tests from the owning adapter checkout with the same
+Python environment. Each repository has its own pytest settings and helpers.
+Core keeps cross-adapter routing/lifecycle checks. See
+[external adapters](external-adapters.md) for the CI compatibility snapshot.
+The installed-package proof defaults to core alone. Supply repeated
+`--adapter-wheel PATH` arguments, including Matrix and Meshtastic wheels, to
+also exercise the sample bridge entirely from installed artifacts.

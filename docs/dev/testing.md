@@ -575,7 +575,7 @@ The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra matrix --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -678,7 +678,7 @@ uv run --no-sync pytest -m live -v --tb=short
 uv run --no-sync pytest tests/test_pipeline_delivery.py -v
 
 # Files matching a prefix
-uv run --no-sync pytest tests/test_matrix_session*.py -v
+(cd ../medre-adapter-matrix && ../medre/.venv/bin/python -m pytest tests/test_matrix_session*.py -v)
 
 # Keyword match
 uv run --no-sync pytest -k "test_delivery" -v
@@ -912,14 +912,14 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 
 ### Failure interpretation
 
-| Symptom                                             | Likely cause                          | Action                                                                        |
-| --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                              |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                                  |
-| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                            |
-| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
-| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
+| Symptom                                             | Likely cause                          | Action                                                                                         |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                                  |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                                             |
+| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                                          |
+| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules))                  |
 
 ## See also
 
@@ -927,3 +927,11 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 - [Adapter SDK parity](adapter-sdk-parity.md) -- installed-SDK contract tiers and open parity gaps
 - [Resource lifecycle](resource-lifecycle.md) -- runtime resource ownership and shutdown sequence
 - [Operator workflows](../ops/operator-workflows.md) -- operator commands for bridge testing
+
+## External adapter suites
+
+Single-transport protocol tests, pinned SDK contracts, and deterministic local
+integration live in their owning adapter repositories. MEDRE retains the
+cross-adapter compatibility suite. The adapter-free core job runs separately
+on Linux, macOS, and Windows. The compatibility manifest and resolved CI
+snapshot are documented in [external adapters](external-adapters.md).

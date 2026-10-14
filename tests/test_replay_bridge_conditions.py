@@ -25,13 +25,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from medre.config.model import (
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    RuntimeConfig,
-    StorageConfig,
-)
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths
 from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.engine.replay.engine import ReplayEngine

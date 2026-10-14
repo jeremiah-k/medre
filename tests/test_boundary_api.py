@@ -58,37 +58,29 @@ class TestConfigErrorHierarchy:
     """
 
     def test_matrix_config_error_hierarchy(self) -> None:
-        from medre.config.adapters.errors import (
-            AdapterConfigError,
-            MatrixConfigError,
-        )
+        from medre.config.adapters.errors import AdapterConfigError
+        from medre.config.adapters.matrix_errors import MatrixConfigError
 
         assert issubclass(MatrixConfigError, AdapterConfigError)
         assert issubclass(MatrixConfigError, ValueError)
 
     def test_meshtastic_config_error_hierarchy(self) -> None:
-        from medre.config.adapters.errors import (
-            AdapterConfigError,
-            MeshtasticConfigError,
-        )
+        from medre.config.adapters.errors import AdapterConfigError
+        from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
         assert issubclass(MeshtasticConfigError, AdapterConfigError)
         assert issubclass(MeshtasticConfigError, ValueError)
 
     def test_meshcore_config_error_hierarchy(self) -> None:
-        from medre.config.adapters.errors import (
-            AdapterConfigError,
-            MeshCoreConfigError,
-        )
+        from medre.config.adapters.errors import AdapterConfigError
+        from medre.config.adapters.meshcore_errors import MeshCoreConfigError
 
         assert issubclass(MeshCoreConfigError, AdapterConfigError)
         assert issubclass(MeshCoreConfigError, ValueError)
 
     def test_lxmf_config_error_hierarchy(self) -> None:
-        from medre.config.adapters.errors import (
-            AdapterConfigError,
-            LxmfConfigError,
-        )
+        from medre.config.adapters.errors import AdapterConfigError
+        from medre.config.adapters.lxmf_errors import LxmfConfigError
 
         assert issubclass(LxmfConfigError, AdapterConfigError)
         assert issubclass(LxmfConfigError, ValueError)
@@ -104,25 +96,25 @@ class TestConfigErrorsNotRuntimeErrors:
 
     def test_matrix_config_error_not_runtime_error(self) -> None:
         from medre.adapters.matrix.errors import MatrixError
-        from medre.config.adapters.errors import MatrixConfigError
+        from medre.config.adapters.matrix_errors import MatrixConfigError
 
         assert not issubclass(MatrixConfigError, MatrixError)
 
     def test_meshtastic_config_error_not_runtime_error(self) -> None:
         from medre.adapters.meshtastic.errors import MeshtasticError
-        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
         assert not issubclass(MeshtasticConfigError, MeshtasticError)
 
     def test_meshcore_config_error_not_runtime_error(self) -> None:
         from medre.adapters.meshcore.errors import MeshCoreError
-        from medre.config.adapters.errors import MeshCoreConfigError
+        from medre.config.adapters.meshcore_errors import MeshCoreConfigError
 
         assert not issubclass(MeshCoreConfigError, MeshCoreError)
 
     def test_lxmf_config_error_not_runtime_error(self) -> None:
         from medre.adapters.lxmf.errors import LxmfError
-        from medre.config.adapters.errors import LxmfConfigError
+        from medre.config.adapters.lxmf_errors import LxmfConfigError
 
         assert not issubclass(LxmfConfigError, LxmfError)
 

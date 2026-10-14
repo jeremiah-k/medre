@@ -475,6 +475,9 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     # ConfigValidationError instead of a raw AttributeError on ``.items()``.
     _get_section_dict(data, "routes")
     routes = RouteConfigSet.from_dict(data)
+    routes.validate_destinations(
+        {adapter_id: transport for transport, adapter_id, _ in adapters.all_configs()}
+    )
 
     # [attachments] section — generic durable-attachment policy.
     attachments_data = _get_section_dict(data, "attachments")

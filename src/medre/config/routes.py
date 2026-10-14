@@ -28,10 +28,12 @@ Public symbols
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Self
 
+from medre.adapter_registry import get_adapter_spec, get_destination_spec
 from medre.config.errors import ConfigValidationError
 
 # ---------------------------------------------------------------------------
@@ -806,19 +808,6 @@ def _validate_context_map_route(rc: RouteConfig) -> None:
 # Route config
 # ---------------------------------------------------------------------------
 
-#: Destination ``kind`` values and their addressing model (routing-delivery
-#: spec §2.3).  ``channel``/``matrix_room`` address a logical channel or room
-#: by name; ``lxmf_destination``/``meshcore_contact`` address a specific
-#: entity by hash and/or name.
-_ROUTE_DESTINATION_KINDS: frozenset[str] = frozenset(
-    {"channel", "lxmf_destination", "meshcore_contact", "matrix_room"}
-)
-
-#: LXMF destination hashes are 16-byte Reticulum hashes written as 32
-#: hexadecimal characters — the same convention as the LXMF adapter's
-#: ``propagation_node_destination`` schema field.
-_LXMF_DESTINATION_HASH_RE = re.compile(r"^[0-9a-fA-F]{32}$")
-
 
 @dataclass(frozen=True)
 class RouteDestinationConfig:
@@ -832,8 +821,8 @@ class RouteDestinationConfig:
     Attributes
     ----------
     kind:
-        Addressing scheme: ``"channel"``, ``"lxmf_destination"``,
-        ``"meshcore_contact"``, or ``"matrix_room"``.
+        The generic ``"channel"`` scheme or a native addressing kind declared
+        by an installed adapter.
     destination_hash:
         Hash-based identifier (e.g. a 32-hex-character LXMF destination
         hash), when applicable for *kind*.
@@ -876,18 +865,20 @@ class RouteDestinationConfig:
 
         dest_path = f"{section_path}.{field_name}"
         raw_kind = data.get("kind")
-        if not isinstance(raw_kind, str) or not raw_kind:
+        if not isinstance(raw_kind, str) or not re.fullmatch(
+            r"[a-z][a-z0-9_-]*", raw_kind
+        ):
             raise ConfigValidationError(
                 f"Route {route_id!r}: '{field_name}.kind' must be a "
-                f"non-empty string (one of {sorted(_ROUTE_DESTINATION_KINDS)})",
+                f"non-empty string",
                 section_path=dest_path,
             )
         kind = raw_kind
-        if kind not in _ROUTE_DESTINATION_KINDS:
+        destination_spec = get_destination_spec(kind) if kind != "channel" else None
+        if kind != "channel" and destination_spec is None:
             raise ConfigValidationError(
-                f"Route {route_id!r}: '{field_name}.kind' {kind!r} is not a "
-                f"known destination kind (one of "
-                f"{sorted(_ROUTE_DESTINATION_KINDS)})",
+                f"Route {route_id!r}: '{field_name}.kind' {kind!r} is not a known destination kind; "
+                "install a provider declaring this addressing kind",
                 section_path=dest_path,
             )
 
@@ -932,52 +923,34 @@ class RouteDestinationConfig:
         destination_name = raw_name
         metadata: dict[str, Any] = dict(raw_metadata) if raw_metadata else {}
 
-        # Per-kind requirements (routing-delivery §2.3 kind table).
-        if kind == "lxmf_destination":
-            if destination_hash is None:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' is "
-                    f"required for kind 'lxmf_destination' and must be a "
-                    f"32-hex-character LXMF destination hash",
-                    section_path=dest_path,
-                )
-            if not _LXMF_DESTINATION_HASH_RE.fullmatch(destination_hash):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' "
-                    f"must be a 32-hex-character LXMF destination hash "
-                    f"(16 bytes), got {destination_hash!r}",
-                    section_path=dest_path,
-                )
-        elif kind == "meshcore_contact":
-            if destination_hash is None and destination_name is None:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}' requires "
-                    f"'destination_hash' or 'destination_name' for kind "
-                    f"'meshcore_contact'",
-                    section_path=dest_path,
-                )
-        else:  # "channel" / "matrix_room" address by name, never by hash.
+        # Named channels are generic. Native address rules belong to providers.
+        if kind == "channel":
             if destination_name is None:
                 raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_name' is "
-                    f"required for kind {kind!r}",
+                    f"Route {route_id!r}: '{field_name}.destination_name' is required for kind {kind!r}",
                     section_path=dest_path,
                 )
             if destination_hash is not None:
                 raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' "
-                    f"must not be set for kind {kind!r}; name-based "
-                    f"addressing resolves the native address via the "
-                    f"adapter",
+                    f"Route {route_id!r}: '{field_name}.destination_hash' must not be set for kind {kind!r}; "
+                    "name-based addressing resolves the native address via the adapter",
                     section_path=dest_path,
                 )
-
-        return cls(
+        destination = cls(
             kind=kind,
             destination_hash=destination_hash,
             destination_name=destination_name,
             metadata=metadata,
         )
+        if destination_spec is not None:
+            validator = destination_spec.validator.load()
+            try:
+                validator(destination)
+            except ValueError as exc:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}': {exc}", section_path=dest_path
+                ) from exc
+        return destination
 
 
 # Canonical field names accepted in a ``[routes.<id>]`` section.  Every
@@ -1555,6 +1528,40 @@ class RouteConfigSet:
                     section_path=f"routes.{route.route_id}",
                 )
             seen[route.route_id] = f"routes.{route.route_id}"
+
+    def validate_destinations(self, adapter_transports: Mapping[str, str]) -> None:
+        """Reject native addresses unsupported by their configured target.
+
+        Unknown target IDs remain the route engine's reference-validation
+        concern. Native kind validation must happen before adapter construction.
+        """
+        for route in self.routes:
+            destinations = [
+                (route.dest_destination, f"routes.{route.route_id}.dest_destination")
+            ]
+            destinations.extend(
+                (
+                    entry.dest_destination,
+                    f"routes.{route.route_id}.context_map.{key}.dest_destination",
+                )
+                for key, entry in (route.context_map or {}).items()
+            )
+            for destination, section_path in destinations:
+                if destination is None or destination.kind == "channel":
+                    continue
+                for adapter_id in route.dest_adapters:
+                    transport = adapter_transports.get(adapter_id)
+                    if transport is None:
+                        continue
+                    spec = get_adapter_spec(transport)
+                    if spec is None or not any(
+                        item.kind == destination.kind for item in spec.destinations
+                    ):
+                        raise ConfigValidationError(
+                            f"Route {route.route_id!r}: destination kind {destination.kind!r} "
+                            f"is not supported by adapter {adapter_id!r} ({transport})",
+                            section_path=section_path,
+                        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

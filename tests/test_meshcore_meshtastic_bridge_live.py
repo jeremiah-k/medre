@@ -27,7 +27,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.live_harness import bounded
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
@@ -77,12 +76,12 @@ _QUICK_SKIP = pytest.mark.skipif(
 def _build_runtime(db_path: Path, *, direction: str):
     """direction: 'mt_to_mc', 'mc_to_mt', or 'both'."""
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,

@@ -91,13 +91,12 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
 
+from medre.adapter_registry import iter_adapter_specs
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.config.model import (
     AdapterConfigSet,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
+    GenericAdapterRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
@@ -1296,6 +1295,22 @@ def _drill_paths() -> Any:
     return resolve_paths()
 
 
+def _drill_adapters(*adapter_ids: str) -> AdapterConfigSet:
+    """Use installed fake providers for transport-neutral lifecycle drills."""
+    specs = iter_adapter_specs()
+    if not specs:
+        raise RuntimeConfigError(
+            "Lifecycle drills require an installed adapter with a fake implementation"
+        )
+    groups: dict[str, dict[str, GenericAdapterRuntimeConfig]] = {}
+    for index, adapter_id in enumerate(adapter_ids):
+        transport = specs[index % len(specs)].transport
+        groups.setdefault(transport, {})[adapter_id] = GenericAdapterRuntimeConfig(
+            adapter_id=adapter_id, adapter_kind="fake"
+        )
+    return AdapterConfigSet(groups=groups)
+
+
 # ---------------------------------------------------------------------------
 # Drill: bad_route_config
 # ---------------------------------------------------------------------------
@@ -1312,15 +1327,7 @@ async def _drill_bad_route_config(
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-bad-route-config"),
         storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(
-            matrix={
-                "fake_matrix": MatrixRuntimeConfig(
-                    adapter_id="fake_matrix",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-        ),
+        adapters=_drill_adapters("fake_matrix"),
         routes=RouteConfigSet(
             routes=(
                 RouteConfig(
@@ -1413,22 +1420,7 @@ async def _drill_all_adapters_build_fail(
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-all-build-fail"),
         storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(
-            matrix={
-                "broken1": MatrixRuntimeConfig(
-                    adapter_id="broken1",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-            meshtastic={
-                "broken2": MeshtasticRuntimeConfig(
-                    adapter_id="broken2",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-        ),
+        adapters=_drill_adapters("broken1", "broken2"),
     )
     steps.append(_step("create_multi_adapter_config", "ok"))
 
@@ -1521,29 +1513,7 @@ async def _drill_partial_degraded_startup(
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-partial-degraded"),
         storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(
-            matrix={
-                "alpha": MatrixRuntimeConfig(
-                    adapter_id="alpha",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-            meshtastic={
-                "beta": MeshtasticRuntimeConfig(
-                    adapter_id="beta",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-            meshcore={
-                "gamma": MeshCoreRuntimeConfig(
-                    adapter_id="gamma",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-        ),
+        adapters=_drill_adapters("alpha", "beta", "gamma"),
     )
     steps.append(_step("create_three_adapter_config", "ok"))
 
@@ -1693,22 +1663,7 @@ async def _drill_all_adapters_start_fail(
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-all-start-fail"),
         storage=StorageConfig(backend="memory"),
-        adapters=AdapterConfigSet(
-            matrix={
-                "alpha": MatrixRuntimeConfig(
-                    adapter_id="alpha",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-            meshtastic={
-                "beta": MeshtasticRuntimeConfig(
-                    adapter_id="beta",
-                    enabled=True,
-                    adapter_kind="fake",
-                ),
-            },
-        ),
+        adapters=_drill_adapters("alpha", "beta"),
     )
     steps.append(_step("create_two_adapter_config", "ok"))
 

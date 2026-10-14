@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import (
     _CODEC_RENDERER_FORBIDDEN,
@@ -21,6 +20,7 @@ from tests.helpers.ast_imports import (
     parse_python,
     runtime_scope_imports,
 )
+from tests.helpers.source_locations import source_file
 
 _REPO = Path(__file__).resolve().parents[1]
 _SRC = _REPO / "src" / "medre"
@@ -66,7 +66,7 @@ def _check_module(
     violations: list[str] = []
     tree = parse_python(py_file)
     imports = runtime_scope_imports(tree, file_path=str(py_file))
-    rel = str(py_file.relative_to(_REPO))
+    rel = str(py_file)
 
     # Resolve transport-specific SDK allowlist for session modules
     allowed_sdks: tuple[str, ...] = ()
@@ -128,7 +128,7 @@ class TestCodecRendererBoundary:
 
     @pytest.mark.parametrize("rel_path,transport", _REUSABLE_MODULES)
     def test_module_no_forbidden_imports(self, rel_path: str, transport: str) -> None:
-        py_file = _REPO / rel_path
+        py_file = source_file(_REPO, rel_path)
         assert py_file.exists(), f"File not found: {py_file}"
         is_session = "session" in rel_path
         violations = _check_module(py_file, transport, is_session=is_session)

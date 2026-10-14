@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-
 from medre.runtime.architecture_report import (
     build_dependency_graph,
     build_route_adapter_boundary_report,
@@ -24,18 +23,10 @@ _SRC = Path(__file__).resolve().parents[1] / "src" / "medre"
 # ---------------------------------------------------------------------------
 
 
-def test_extracts_real_built_in_registry() -> None:
-    """Extract lazy adapter refs from the authoritative built-in registry."""
+def test_core_registry_has_no_transport_implementation_refs() -> None:
+    """Adapter assembly is via entry points, not embedded source strings."""
     registry_file = _SRC / "adapter_registry.py"
-    if not registry_file.is_file():
-        pytest.skip("adapter_registry.py not found")
-    source = registry_file.read_text(encoding="utf-8")
-    results = extract_dynamic_adapter_imports(source)
-    modules = [r[0] for r in results]
-    assert len(modules) >= 8
-    assert "medre.adapters.matrix.adapter" in modules
-    assert "medre.adapters.matrix.renderer" in modules
-    assert "medre.adapters.lxmf.adapter" in modules
+    assert extract_dynamic_adapter_imports(registry_file.read_text()) == []
 
 
 class TestExtractDynamicAdapterImports:
@@ -123,22 +114,22 @@ class TestExtractDynamicAdapterImports:
 class TestDynamicBuilderAssembly:
     """Tests that dynamic builder imports appear in allowed section."""
 
-    def test_real_graph_allowed_with_src_root(self) -> None:
-        """With src_root, dynamic adapter imports appear in allowed section."""
+    def test_real_graph_has_no_built_in_assembly(self) -> None:
         graph = build_dependency_graph(_SRC)
         report = build_route_adapter_boundary_report(graph, src_root=_SRC)
-        assert report.allowed_runtime_adapter.count >= 8, (
-            f"Expected >= 8 allowed entries (4 adapters + 4 renderers), "
-            f"got {report.allowed_runtime_adapter.count}"
-        )
+        assert report.allowed_runtime_adapter.count == 0
 
-    def test_allowed_includes_specific_modules(self) -> None:
-        """Allowed section includes specific adapter modules."""
-        graph = build_dependency_graph(_SRC)
-        report = build_route_adapter_boundary_report(graph, src_root=_SRC)
-        targets = {v.target for v in report.allowed_runtime_adapter.violations}
-        assert "medre.adapters.matrix.adapter" in targets
-        assert "medre.adapters.matrix.renderer" in targets
+    def test_installed_registry_declares_external_implementations(self) -> None:
+        from medre.adapter_registry import iter_adapter_specs
+
+        specs = iter_adapter_specs()
+        assert {s.transport for s in specs} >= {
+            "matrix",
+            "meshtastic",
+            "meshcore",
+            "lxmf",
+        }
+        assert all(spec.adapter.module.startswith("medre.adapters.") for spec in specs)
 
     def test_builder_not_in_forbidden(self) -> None:
         """Builder module is NOT in forbidden_runtime_adapter."""
@@ -191,10 +182,8 @@ class TestRealGraphBoundaryReport:
         )
 
     def test_allowed_runtime_adapter_at_least_four(self):
-        # Built-in adapter refs are discovered from the authoritative registry.
-        assert (
-            self.report.allowed_runtime_adapter.count >= 4
-        ), f"Expected ≥4 allowed adapter refs, got {self.report.allowed_runtime_adapter.count}"
+        # Core is no longer permitted to embed static adapter implementations.
+        assert self.report.allowed_runtime_adapter.count == 0
 
     def test_no_route_engine_forbidden(self):
         assert self.report.route_engine_forbidden.count == 0, (
@@ -236,15 +225,17 @@ class TestRealGraphBoundaryReport:
         """Real graph has zero dynamic scan errors."""
         assert self.report.dynamic_scan_errors.count == 0
 
-    def test_allowed_includes_all_four_adapters(self):
-        targets = {v.target for v in self.report.allowed_runtime_adapter.violations}
+    def test_installed_manifest_references_external_adapters(self):
+        from medre.adapter_registry import iter_adapter_specs
+
+        modules = {spec.adapter.module for spec in iter_adapter_specs()}
         for adapter in (
             "medre.adapters.matrix.adapter",
             "medre.adapters.meshtastic.adapter",
             "medre.adapters.meshcore.adapter",
             "medre.adapters.lxmf.adapter",
         ):
-            assert adapter in targets, f"Missing allowed adapter: {adapter}"
+            assert adapter in modules
 
 
 # ---------------------------------------------------------------------------

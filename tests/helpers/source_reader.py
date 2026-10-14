@@ -1,10 +1,11 @@
 """Shared source-file reader for static boundary tests.
 
-Provides direct path resolution — no import machinery used.
+Core files resolve directly; adapter files resolve from their installed package.
 """
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "medre"
@@ -26,6 +27,9 @@ def source_path_for_module(module_name: str) -> Path:
         return py
     if pkg.exists():
         return pkg
+    spec = find_spec(module_name)
+    if spec is not None and spec.origin is not None:
+        return Path(spec.origin)
     raise ModuleNotFoundError(module_name)
 
 

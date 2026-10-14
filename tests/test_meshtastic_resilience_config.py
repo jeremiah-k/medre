@@ -7,9 +7,8 @@ import math
 from pathlib import Path
 
 import pytest
-
-from medre.config.adapters.errors import MeshtasticConfigError
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 from medre.config.sample import generate_sample_config
 
 

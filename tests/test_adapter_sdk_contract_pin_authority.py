@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.sdk_contract import declared_extra_pins
 
 
@@ -24,7 +23,7 @@ def test_adapter_sdk_contract_extras_are_exact_pins(
     extra: str,
     expected_distributions: set[str],
 ) -> None:
-    """Project metadata, not duplicated test literals, owns SDK versions."""
+    """Adapter distribution metadata, not test literals, owns SDK versions."""
     pins = declared_extra_pins(extra)
     assert set(pins) == expected_distributions
     assert all(pin.version for pin in pins.values())
@@ -63,11 +62,10 @@ def _is_source_file(path: Path) -> bool:
 
 
 def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> None:
-    """Current docs/source/tests name SDK contracts without copying pin values.
+    """Core docs/source/tests must not duplicate adapter-owned SDK version pins.
 
-    ``pyproject.toml`` is the declared version authority; ``uv.lock`` records
-    resolved artifacts.  This guard derives the current pin strings from project
-    metadata so dependency updates do not require a second literal update path.
+    Installed adapter distribution metadata is the version authority. This guard
+    derives exact pins from the adapter rather than assuming core SDK extras.
     """
     patterns: dict[str, re.Pattern[str]] = {}
     for extra in ("matrix", "matrix-e2e", "lxmf", "meshtastic", "meshcore"):
@@ -97,7 +95,7 @@ def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> 
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {', '.join(hits)}")
 
     assert offenders == [], (
-        "optional SDK versions must be declared only in pyproject.toml; "
+        "SDK versions belong in adapter pyproject.toml; "
         "derive expected versions from project metadata and use version-neutral "
         "wording elsewhere:\n" + "\n".join(offenders)
     )

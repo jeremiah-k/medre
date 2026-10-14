@@ -632,7 +632,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
-- The `matrix` extra installed: `uv sync --locked --extra matrix`.
+- The `matrix` extra installed: `uv sync --locked && uv pip install medre-adapter-matrix`.
 
 ### Procedure — Matrix
 
@@ -680,7 +680,7 @@ If you have a Meshtastic radio node accessible via TCP or serial, you can valida
 ### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
-- The `meshtastic` extra installed: `uv sync --locked --extra meshtastic`.
+- The `meshtastic` extra installed: `uv sync --locked && uv pip install medre-adapter-meshtastic`.
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
 ### Procedure — Meshtastic
