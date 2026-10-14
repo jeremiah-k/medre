@@ -48,30 +48,39 @@ suite on CPython 3.11–3.14 on Ubuntu runners. Other hosts (Windows, macOS, ARM
 are unverified — not excluded. CI checks the pipeline against pinned SDK
 contracts; it is not radio interoperability testing.
 
-## Choosing a Transport
+## Choosing and Installing Transports
 
-Optional extras add real connectivity. Exact SDK pins live in
-`pyproject.toml`; install SDKs only through these extras — an unpinned
-`pip install` of a transport SDK is not a supported install path and can
-drift from the versions MEDRE is tested against. The transports differ in
-prerequisites and guarantees; there is no feature parity between them.
+Transport adapters are **independent Python distributions**. They can be
+installed from a package index (if published), a Git repository, or a local
+checkout. MEDRE discovers installed `medre.adapters` entry points, regardless
+of where the distribution came from. Runtime startup never downloads packages.
 
-The commands below apply to source checkouts. Each sync selects the complete
-extra set for `.venv`; repeat every transport needed by a bridge, and add
-`--extra dev` for tests. Built-package and existing pip environments remain
-supported; see [installation](docs/ops/install.md) and the
+| Transport  | Distribution (when published)          | Source repository                                             | Prerequisites                         |
+| ---------- | -------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
+| Matrix     | `medre-adapter-matrix` (E2EE: `[e2e]`) | [Git](https://github.com/jeremiah-k/medre-adapter-matrix)     | Homeserver, bot account, access token |
+| Meshtastic | `medre-adapter-meshtastic`             | [Git](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Serial/TCP node                       |
+| MeshCore   | `medre-adapter-meshcore`               | [Git](https://github.com/jeremiah-k/medre-adapter-meshcore)   | TCP/serial/BLE companion              |
+| LXMF       | `medre-adapter-lxmf`                   | [Git](https://github.com/jeremiah-k/medre-adapter-lxmf)       | Reticulum and identity file           |
+
+Create a deployment project with dependencies and pinned Git/registry sources,
+then resolve/lock it with `uv` (or use pip direct Git URL requirements). See
+**[adapter installation: PyPI, Git, and local
+sources](docs/ops/adapter-installation.md)** for complete examples and
+reproducible deployment guidance. For a checked-out package, `python -m pip
+install -e ../medre-adapter-matrix` is also supported in an existing MEDRE
+environment.
+
+```bash
+medre adapters check --config my-bridge.yaml  # requires only package metadata
+medre config check --config my-bridge.yaml    # validates adapter configuration
+medre run --config my-bridge.yaml
+```
+
+Temporary core SDK extras remain for older CI/development workflows while
+adapter package ownership is finalized; they **do not** install the external
+adapter distributions. For new deployments use the adapter distributions as
+the dependency authority, and do not combine mismatched SDK pins. See the
 [development environment guide](docs/dev/environment.md).
-
-| Transport  | Install (source checkout)                            | You need                                    | Setup guide                                                                      |
-| ---------- | ---------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| Matrix     | `uv sync --locked --extra matrix` (E2EE: `--extra matrix-e2e`) | Homeserver, bot account, access token       | [docs/ops/transport-setup/matrix.md](docs/ops/transport-setup/matrix.md)         |
-| Meshtastic | `uv sync --locked --extra meshtastic`                     | Radio node over serial or TCP               | [docs/ops/transport-setup/meshtastic.md](docs/ops/transport-setup/meshtastic.md) |
-| MeshCore   | `uv sync --locked --extra meshcore`                       | Companion node over TCP, serial, or BLE     | [docs/ops/transport-setup/meshcore.md](docs/ops/transport-setup/meshcore.md)     |
-| LXMF       | `uv sync --locked --extra lxmf`                           | Reticulum instance and a node identity file | [docs/ops/transport-setup/lxmf.md](docs/ops/transport-setup/lxmf.md)             |
-
-For example, a Matrix/Meshtastic bridge uses
-`uv sync --locked --extra matrix --extra meshtastic`. Activate `.venv` as above
-or prefix commands with `uv run --no-sync` after syncing.
 
 What a `sent` receipt means per transport is in
 [docs/ops/running-medre.md](docs/ops/running-medre.md); per-transport

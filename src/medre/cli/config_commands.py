@@ -273,3 +273,31 @@ def _adapters() -> None:
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
     except Exception:
         print("No config found — run 'medre config sample' to generate one.")
+
+
+def _adapters_check(config_path: str | None) -> None:
+    """Preflight external adapter availability without installing any packages."""
+    from medre.adapter_installation import inspect_adapter_installation
+
+    try:
+        report = inspect_adapter_installation(config_path)
+    except Exception as exc:
+        print(f"Adapter preflight error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    print(f"Config file: {report.config_path}")
+    if not report.required:
+        print("No adapter types declared.")
+    for transport in report.required:
+        status = "missing" if transport in report.missing else "installed"
+        print(f"  {transport}: {status}")
+    if report.missing:
+        print(
+            "Missing adapter distribution(s). Install packages registering the "
+            "medre.adapters entry points above, using PyPI, Git, or local paths. "
+            "Restart MEDRE and re-run this check. "
+            "See docs/ops/adapter-installation.md.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+    print("All declared adapter types are installed (configuration not yet validated).")

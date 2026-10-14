@@ -115,7 +115,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="Print MEDRE version")
 
     # adapters
-    sub.add_parser("adapters", help="List available and configured adapters")
+    adapters_p = sub.add_parser("adapters", help="List or preflight installed adapters")
+    adapters_p.add_argument("action", nargs="?", choices=("check",), default=None)
+    adapters_p.add_argument("--config", default=None, help="Path to bridge YAML config")
 
     # diagnostics
     diag_p = sub.add_parser(
@@ -581,9 +583,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "version":
         _version()
     elif args.command == "adapters":
-        from .config_commands import _adapters
+        from .config_commands import _adapters, _adapters_check
 
-        _adapters()
+        if args.action == "check":
+            _adapters_check(args.config)
+        else:
+            _adapters()
     elif args.command == "diagnostics":
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 
