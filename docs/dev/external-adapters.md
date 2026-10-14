@@ -72,10 +72,24 @@ including installations through standard pip-compatible Git requirements.
 The Docker workflow creates its own per-run snapshot through the same helper.
 No job independently follows a moving adapter branch halfway through a run.
 
-The manifest pins reviewed adapter commits. After publishing a compatible
-adapter change, update its `ref` to the new full commit SHA to make
-compatibility checks stable across runs.
-Updating the manifest then becomes an explicit compatibility-change review.
+The manifest pins reviewed adapter commits. To prevent locally tested sibling
+checkouts from silently diverging from the revisions CI will install, run:
+
+```bash
+python scripts/ci/adapter_matrix.py --check-local
+```
+
+This compares each manifest SHA with the clean sibling repository HEAD and
+validates the adapter entry point and optional `distribution` expectation (when
+recorded in the manifest). Repository names need not equal distribution names. It does not fetch
+or install anything. Once **all** adapter changes are committed in their own
+repositories, use `--sync-local` to update every `ref` atomically, review the
+diff, then publish those adapter commits before the updated MEDRE manifest.
+These commands require sibling repositories in the default `../medre-adapter-*`
+layout; `--repo-parent` overrides the containing directory. The update fails
+if any checkout is dirty or missing, rather than pinning half a coordinated
+change. Existing full-commit refs remain valid for disconnected CI runs.
+Updating the manifest is always an explicit compatibility-change review.
 Adapter CI defaults to core `main`. During coordinated development, set the
 adapter repository's `MEDRE_CORE_REF` Actions variable to the proposed core
 branch or commit; the manual `core_ref` input overrides it. Clear the variable

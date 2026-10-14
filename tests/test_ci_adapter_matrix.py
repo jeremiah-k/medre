@@ -90,6 +90,7 @@ def test_pinned_commit_requires_no_remote_lookup(
         [_entry(transport="bad; command")],
         [_entry(extras="e2e; command")],
         [_entry(local_integration="false")],
+        [_entry(distribution="../path")],
         [],
     ],
 )
@@ -103,3 +104,127 @@ def test_invalid_manifest_fails_before_installation(
 def test_installer_rejects_moving_refs() -> None:
     with pytest.raises(ValueError, match="full commit SHAs"):
         matrix.requirements([_entry()])
+
+
+def _create_local_adapter(
+    parent: Path, repository: str, transport: str
+) -> tuple[Path, str]:
+    import subprocess
+
+    checkout = parent / repository
+    checkout.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
+    (checkout / "pyproject.toml").write_text(
+        "[project]\n"
+        f'name = "{repository}"\n'
+        '[project.entry-points."medre.adapters"]\n'
+        f'{transport} = "example:adapter_spec"\n'
+    )
+    subprocess.run(["git", "-C", str(checkout), "add", "pyproject.toml"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+    )
+    sha = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    return checkout, sha
+
+
+def test_sibling_snapshot_detects_stale_pins_and_syncs_atomically(
+    tmp_path: Path,
+) -> None:
+    checkout, sha = _create_local_adapter(
+        tmp_path, "medre-adapter-example", "community_sensor"
+    )
+    entry = _entry(repository="someone/medre-adapter-example", ref="b" * 40)
+    path = _manifest(tmp_path, [entry])
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="pins differ from local checkouts"):
+        matrix.reconcile_local([entry], repo_parent=tmp_path)
+    assert path.read_bytes() == original
+    updated = matrix.reconcile_local([entry], repo_parent=tmp_path, update=True)
+    assert updated[0]["ref"] == sha
+    assert entry["ref"] == "b" * 40
+    matrix.write_manifest_atomic(path, updated)
+    assert json.loads(path.read_text())[0]["ref"] == sha
+    assert matrix.reconcile_local(updated, repo_parent=tmp_path) == updated
+    (checkout / "new-untracked-file").write_text("dirty")
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        matrix.reconcile_local(updated, repo_parent=tmp_path, update=True)
+    assert json.loads(path.read_text())[0]["ref"] == sha
+
+
+def test_sibling_snapshot_checks_distribution_and_entry_point(tmp_path: Path) -> None:
+    checkout, sha = _create_local_adapter(
+        tmp_path, "medre-adapter-example", "community_sensor"
+    )
+    entry = _entry(
+        repository="someone/medre-adapter-example",
+        ref=sha,
+        distribution="medre-adapter-example",
+    )
+    assert matrix.reconcile_local([entry], repo_parent=tmp_path) == [entry]
+    (checkout / "pyproject.toml").write_text(
+        '[project]\nname = "other-project"\n'
+        '[project.entry-points."medre.adapters"]\n'
+        'community_sensor = "example:adapter_spec"\n'
+    )
+    with pytest.raises(ValueError, match="distribution or entry point"):
+        matrix.reconcile_local([entry], repo_parent=tmp_path)
+
+
+def test_snapshot_rejects_relative_repository_slug(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="invalid compatibility repository"):
+        matrix.resolve_adapters(
+            _manifest(tmp_path, [_entry(repository="someone/..")]), resolve=False
+        )
+
+
+def test_sibling_check_allows_distribution_name_different_from_repository(
+    tmp_path: Path,
+) -> None:
+    checkout, sha = _create_local_adapter(
+        tmp_path, "medre-adapter-example", "community_sensor"
+    )
+    (checkout / "pyproject.toml").write_text(
+        '[project]\nname = "different-distribution"\n'
+        '[project.entry-points."medre.adapters"]\n'
+        'community_sensor = "example:adapter_spec"\n'
+    )
+    import subprocess
+
+    subprocess.run(["git", "-C", str(checkout), "add", "pyproject.toml"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "rename",
+        ],
+        check=True,
+    )
+    sha = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    entry = _entry(repository="someone/medre-adapter-example", ref=sha)
+    assert matrix.reconcile_local([entry], repo_parent=tmp_path) == [entry]
