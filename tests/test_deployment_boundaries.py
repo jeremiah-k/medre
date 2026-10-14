@@ -416,12 +416,27 @@ class TestCliTransportAgnostic:
         assert banned == [], f"cli.py imports concrete adapter packages: {banned}"
 
     def test_cli_sdk_probe_is_dynamic_only(self) -> None:
-        """SDK availability checks in CLI must use importlib.import_module."""
-        source = _source_of("medre.cli.config_commands")
+        """SDK availability checks in CLI must use dynamic probing."""
+        transports_source = _source_of("medre.cli.transports")
 
+        # The dynamic probe (importlib.import_module) lives in transports.py.
         assert (
-            "importlib.import_module" in source
-        ), "CLI should use importlib.import_module for SDK probing"
+            "importlib.import_module" in transports_source
+        ), "medre.cli.transports should use importlib.import_module for SDK probing"
+
+        # config_commands.py must delegate to the probe helper instead of
+        # doing its own importing.
+        config_source = _source_of("medre.cli.config_commands")
+        assert (
+            "from .transports import" in config_source
+            and "is_transport_installed" in config_source
+        ), (
+            "medre.cli.config_commands should delegate SDK probing to "
+            "is_transport_installed from .transports"
+        )
+        assert (
+            "importlib" not in config_source
+        ), "medre.cli.config_commands must not import SDK modules itself"
 
         direct_instantiation_patterns = (
             "nio.AsyncClient(",
@@ -430,17 +445,18 @@ class TestCliTransportAgnostic:
             "RNS.Transport(",
         )
         violations: list[str] = []
-        for i, line in enumerate(source.splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            for pattern in direct_instantiation_patterns:
-                if pattern in stripped:
-                    violations.append(f"line {i}: {stripped}")
+        for source in (transports_source, config_source):
+            for i, line in enumerate(source.splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                for pattern in direct_instantiation_patterns:
+                    if pattern in stripped:
+                        violations.append(f"line {i}: {stripped}")
 
         assert (
             violations == []
-        ), "cli.py directly instantiates transport SDKs:\n" + "\n".join(violations)
+        ), "CLI directly instantiates transport SDKs:\n" + "\n".join(violations)
 
     def test_cli_test_files_no_sdk_imports(self) -> None:
         """CLI test files must not import transport SDKs."""
