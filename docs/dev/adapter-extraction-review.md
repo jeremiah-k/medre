@@ -133,6 +133,21 @@ integration. [PR #265](https://github.com/jeremiah-k/medre/pull/265) records the
 current revision's CI status; the counts above describe the recorded checks,
 not a claim that later documentation commits were rerun locally.
 
+### Synthetic drill attribution correction
+
+External review identified positional cycling that assigned an LXMF provider to
+an instance named `fake_matrix`. Programmatic lifecycle drills now use neutral
+IDs and explicit instance-to-transport maps, and report
+`coverage_scope: synthetic_adapter_instances` with a cross-transport limitation.
+They deliberately use one installed fake provider. Targeted tests isolate each
+first-party provider and verify three separately constructed startup instances;
+`adapters_total: 3` correctly counts instances rather than transport types.
+With no installed provider, the CLI returns a structured failed report.
+
+The bounded correction slice passed 59 tests, including report-schema checks,
+explicit mixed assignments, and core-only CLI failure. Native addressing still
+requires its owning provider, consistent with adapter-owned validation.
+
 ## Release coordination
 
 The curated CI manifest pins reviewed adapter commits for stability across

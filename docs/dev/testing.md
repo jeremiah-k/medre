@@ -958,3 +958,18 @@ or SDK callback coverage. Use separate hardware/live tests for those contracts.
 
 With sibling source repos, run `python scripts/ci/adapter_matrix.py --check-local`
 before treating local cross-adapter tests as evidence for the pinned CI snapshot.
+
+## Synthetic lifecycle drill coverage
+
+`bad_route_config`, `all_adapters_build_fail`, `partial_degraded_startup`, and
+`all_adapters_start_fail` construct neutral instance IDs using one installed fake
+provider. Their explicit `adapter_transports` map and
+`coverage_scope: synthetic_adapter_instances` disclose the scope of the proof.
+The three-instance startup drill still constructs three different objects with
+one provider; adapter-instance counts do not imply a count of transport types.
+Cross-transport coverage belongs to the compatibility suite. No installed
+provider produces a failed report with an installation reason.
+
+The bounded regressions live in `tests/test_drill_transport_assignments.py` and
+validate `docs/schemas/lifecycle-drill-report.schema.json` alongside the actual
+startup and cleanup results.

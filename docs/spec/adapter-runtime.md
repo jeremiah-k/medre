@@ -1020,6 +1020,25 @@ Adapter failure drills **MUST** select targets through the runtime router's
 matching and target-resolution rules for the injected event, including channel
 and event-kind filters.
 
+### 22.4 Synthetic lifecycle drill coverage
+
+The programmatic `bad_route_config`, `all_adapters_build_fail`,
+`partial_degraded_startup`, and `all_adapters_start_fail` drills select one
+installed fake provider and configure explicitly named adapter instances.
+Instance identifiers **MUST NOT** imply an unrelated transport. Config assembly
+**MUST** preserve the declared instance-to-transport mapping without positional
+cycling or inferred platform names.
+
+Their reports **MUST** include `adapter_transports` and
+`coverage_scope: synthetic_adapter_instances`, with a limitation stating that
+cross-transport coverage is not proven. Counts such as `adapters_total` describe
+adapter instances, not distinct transport types. Three instances of one provider
+remain three independently constructed adapters for startup supervision.
+
+With no installed fake provider, these drills **MUST** return a failed report
+with an empty assignment map and an installation reason. The report shape is
+specified in `docs/schemas/lifecycle-drill-report.schema.json`.
+
 ---
 
 ## 23. Error Hierarchy

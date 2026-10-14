@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/lifecycle-drill-report.schema.json",
+  "title": "Synthetic adapter instance drill report",
+  "description": "Common evidence for the four programmatic configuration/startup drills. Adapter counts describe instances; the assignment map identifies their transport providers. Other drill-specific evidence is preserved as additional properties.",
+  "type": "object",
+  "required": [
+    "status",
+    "command",
+    "drill_name",
+    "coverage_scope",
+    "adapter_transports",
+    "limitations",
+    "evidence_level",
+    "timestamp"
+  ],
+  "properties": {
+    "status": {
+      "enum": ["passed", "failed"]
+    },
+    "command": {
+      "const": "drill"
+    },
+    "drill_name": {
+      "enum": [
+        "bad_route_config",
+        "all_adapters_build_fail",
+        "partial_degraded_startup",
+        "all_adapters_start_fail"
+      ]
+    },
+    "coverage_scope": {
+      "const": "synthetic_adapter_instances"
+    },
+    "adapter_transports": {
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fail_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_level": {
+      "const": "drill"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "passed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "adapter_transports": {
+            "minProperties": 1
+          }
+        }
+      },
+      "else": {
+        "required": ["fail_reasons"]
+      }
+    }
+  ],
+  "additionalProperties": true
+}

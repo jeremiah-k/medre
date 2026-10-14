@@ -13,6 +13,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
 | `delivery-observation.schema.json`       | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
 | `delivery-result.schema.json`            | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
+| `lifecycle-drill-report.schema.json`     | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
 | `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
 | `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
 | `evidence-bundle.schema.json`            | Dict shape                                                      | `medre evidence` bundle structure                                           |

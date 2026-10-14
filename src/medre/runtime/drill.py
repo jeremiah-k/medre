@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
@@ -162,6 +163,7 @@ def _base_report(
     *,
     storage_path: str | None = None,
     config_source: str = "default",
+    adapter_transports: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return the common report skeleton for a drill."""
     report: dict[str, Any] = {
@@ -175,6 +177,13 @@ def _base_report(
         "drill_steps": [],
         "limitations": _DRILL_LIMITATIONS,
     }
+    if adapter_transports is not None:
+        report["adapter_transports"] = dict(adapter_transports)
+        report["coverage_scope"] = "synthetic_adapter_instances"
+        report["limitations"] = [
+            *_DRILL_LIMITATIONS,
+            "Synthetic adapter instances — no cross-transport coverage proven",
+        ]
     if storage_path is not None:
         report["storage_path"] = storage_path
         report["storage_backend"] = "sqlite"
@@ -1302,16 +1311,24 @@ def _drill_paths() -> Any:
     return resolve_paths()
 
 
-def _drill_adapters(*adapter_ids: str) -> AdapterConfigSet:
-    """Use installed fake providers for transport-neutral lifecycle drills."""
+class _DrillProviderUnavailable(RuntimeConfigError):
+    """Synthetic lifecycle setup has no installed fake provider."""
+
+
+def _drill_transport() -> str:
+    """Select one installed fake provider for synthetic lifecycle instances."""
     specs = iter_adapter_specs()
     if not specs:
-        raise RuntimeConfigError(
+        raise _DrillProviderUnavailable(
             "Lifecycle drills require an installed adapter with a fake implementation"
         )
+    return specs[0].transport
+
+
+def _drill_adapters(adapter_transports: Mapping[str, str]) -> AdapterConfigSet:
+    """Build fake configs using explicit instance-to-transport assignments."""
     groups: dict[str, dict[str, GenericAdapterRuntimeConfig]] = {}
-    for index, adapter_id in enumerate(adapter_ids):
-        transport = specs[index % len(specs)].transport
+    for adapter_id, transport in adapter_transports.items():
         groups.setdefault(transport, {})[adapter_id] = GenericAdapterRuntimeConfig(
             adapter_id=adapter_id, adapter_kind="fake"
         )
@@ -1328,18 +1345,24 @@ async def _drill_bad_route_config(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """Enabled route references a non-existent adapter; builder raises."""
-    report = _base_report("bad_route_config", storage_path=storage_path)
+    transport = _drill_transport()
+    adapter_transports = {"source": transport}
+    report = _base_report(
+        "bad_route_config",
+        storage_path=storage_path,
+        adapter_transports=adapter_transports,
+    )
     steps: list[dict[str, Any]] = []
 
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-bad-route-config"),
         storage=StorageConfig(backend="memory"),
-        adapters=_drill_adapters("fake_matrix"),
+        adapters=_drill_adapters(adapter_transports),
         routes=RouteConfigSet(
             routes=(
                 RouteConfig(
                     route_id="bad_route",
-                    source_adapters=("fake_matrix",),
+                    source_adapters=("source",),
                     dest_adapters=("ghost_adapter",),
                     enabled=True,
                 ),
@@ -1386,7 +1409,7 @@ async def _drill_bad_route_config(
 
             report["route_id"] = "bad_route"
             report["unknown_adapter_id"] = "ghost_adapter"
-            report["known_adapter_ids"] = ["fake_matrix"]
+            report["known_adapter_ids"] = ["source"]
             report["error_type"] = error_type
             report["error_message"] = error_msg
             report["build_succeeded"] = False
@@ -1421,13 +1444,19 @@ async def _drill_all_adapters_build_fail(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """All enabled adapters fail construction; builder records failures."""
-    report = _base_report("all_adapters_build_fail", storage_path=storage_path)
+    transport = _drill_transport()
+    adapter_transports = {"broken1": transport, "broken2": transport}
+    report = _base_report(
+        "all_adapters_build_fail",
+        storage_path=storage_path,
+        adapter_transports=adapter_transports,
+    )
     steps: list[dict[str, Any]] = []
 
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-all-build-fail"),
         storage=StorageConfig(backend="memory"),
-        adapters=_drill_adapters("broken1", "broken2"),
+        adapters=_drill_adapters(adapter_transports),
     )
     steps.append(_step("create_multi_adapter_config", "ok"))
 
@@ -1513,14 +1542,20 @@ async def _drill_partial_degraded_startup(
     config_path: str | None,
     storage_path: str | None,
 ) -> dict[str, Any]:
-    """One adapter starts, one fails; runtime enters DEGRADED RUNNING."""
-    report = _base_report("partial_degraded_startup", storage_path=storage_path)
+    """Two adapter instances start, one fails; runtime enters DEGRADED RUNNING."""
+    transport = _drill_transport()
+    adapter_transports = {"alpha": transport, "beta": transport, "gamma": transport}
+    report = _base_report(
+        "partial_degraded_startup",
+        storage_path=storage_path,
+        adapter_transports=adapter_transports,
+    )
     steps: list[dict[str, Any]] = []
 
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-partial-degraded"),
         storage=StorageConfig(backend="memory"),
-        adapters=_drill_adapters("alpha", "beta", "gamma"),
+        adapters=_drill_adapters(adapter_transports),
     )
     steps.append(_step("create_three_adapter_config", "ok"))
 
@@ -1664,13 +1699,19 @@ async def _drill_all_adapters_start_fail(
     storage_path: str | None,
 ) -> dict[str, Any]:
     """All adapters build but fail start(); RuntimeStartupError raised."""
-    report = _base_report("all_adapters_start_fail", storage_path=storage_path)
+    transport = _drill_transport()
+    adapter_transports = {"alpha": transport, "beta": transport}
+    report = _base_report(
+        "all_adapters_start_fail",
+        storage_path=storage_path,
+        adapter_transports=adapter_transports,
+    )
     steps: list[dict[str, Any]] = []
 
     config = RuntimeConfig(
         runtime=RuntimeOptions(name="drill-all-start-fail"),
         storage=StorageConfig(backend="memory"),
-        adapters=_drill_adapters("alpha", "beta"),
+        adapters=_drill_adapters(adapter_transports),
     )
     steps.append(_step("create_two_adapter_config", "ok"))
 
@@ -1889,4 +1930,12 @@ async def run_drill(
             "drill_steps": [],
             "limitations": _DRILL_LIMITATIONS,
         }
-    return await runner(config_path, storage_path)
+    try:
+        return await runner(config_path, storage_path)
+    except _DrillProviderUnavailable as exc:
+        report = _base_report(
+            drill_name, storage_path=storage_path, adapter_transports={}
+        )
+        report["status"] = "failed"
+        report["fail_reasons"] = [str(exc)]
+        return report
