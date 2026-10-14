@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Core resource cleanup CancelledError and retry worker stop supervision.
 
 Split from ``test_startup_cleanup_stop_supervision.py``.  Covers:

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter stale-guard granularity boundary tests.
 
 These tests exercise :meth:`AdapterContract._is_stale_event` directly on

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Operator bridge session lifecycle tests (run_fake_bridge_smoke).
 
 Full operator lifecycle: start -> inject -> stop -> snapshot -> inspect ->

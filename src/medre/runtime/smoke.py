@@ -56,12 +56,16 @@ from typing import Any, Callable
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
 from medre.core.observability.sanitization import sanitize_error
 from medre.core.routing import Router
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import native_ref_to_report_dict
+from medre.runtime.smoke_ingress import (
+    eligible_smoke_sources,
+    make_smoke_event,
+    pick_source_adapter,
+)
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
 
@@ -119,87 +123,6 @@ def _default_smoke_config_path() -> str | None:
     if candidate.is_file():
         return str(candidate)
     return None
-
-
-# ---------------------------------------------------------------------------
-# Event creation helper
-# ---------------------------------------------------------------------------
-
-
-def _make_smoke_event(
-    adapter: Any,
-    text: str,
-) -> CanonicalEvent:
-    """Create a canonical event with both 'body' and 'text' payload keys.
-
-    FakeMatrixAdapter.make_event stores text under ``"body"`` but
-    TextRenderer reads ``payload["text"]``.  This helper bridges the gap
-    so the rendered output is non-empty and inspectable.
-    """
-    base = adapter.make_event(text=text, event_kind=EventKind.MESSAGE_TEXT)
-    merged = dict(base.payload)
-    merged["text"] = text
-    return CanonicalEvent(
-        event_id=base.event_id,
-        event_kind=base.event_kind,
-        schema_version=base.schema_version,
-        timestamp=base.timestamp,
-        source_adapter=base.source_adapter,
-        source_transport_id=base.source_transport_id,
-        source_channel_id=base.source_channel_id,
-        parent_event_id=base.parent_event_id,
-        lineage=base.lineage,
-        relations=base.relations,
-        payload=merged,
-        metadata=base.metadata,
-        source_native_ref=base.source_native_ref,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Source adapter selection
-# ---------------------------------------------------------------------------
-
-
-def _eligible_smoke_sources(app: MedreApp) -> list[str]:
-    """List route sources that can be exercised by smoke injection."""
-    return [
-        adapter_id
-        for adapter_id in sorted(app.adapters)
-        if adapter_id in app.started_adapter_ids
-        and callable(getattr(app.adapters[adapter_id], "make_event", None))
-        and any(
-            route.enabled and route.source.adapter in (None, adapter_id)
-            for route in app._registered_routes
-        )
-    ]
-
-
-def _pick_source_adapter(
-    app: MedreApp, requested_source: str | None = None
-) -> tuple[str, Any]:
-    """Choose a route source, optionally selected explicitly by the operator."""
-    candidates = _eligible_smoke_sources(app)
-    if requested_source is not None:
-        if requested_source not in candidates:
-            raise ValueError(
-                f"Smoke source {requested_source!r} is not an enabled route source; "
-                f"available: {candidates}"
-            )
-        return requested_source, app.adapters[requested_source]
-    if candidates:
-        adapter_id = candidates[0]
-        return adapter_id, app.adapters[adapter_id]
-    # A route-less smoke still reports its normal no-delivery evidence.
-    sources = sorted(
-        adapter_id
-        for adapter_id in app.started_adapter_ids
-        if callable(getattr(app.adapters[adapter_id], "make_event", None))
-    )
-    if not sources:
-        raise ValueError("No started adapter provides the smoke make_event helper")
-    adapter_id = sources[0]
-    return adapter_id, app.adapters[adapter_id]
 
 
 # ---------------------------------------------------------------------------
@@ -438,10 +361,10 @@ async def run_fake_bridge_smoke(
         }
 
     # -- Step 5: Inject event -----------------------------------------------
-    candidates = _eligible_smoke_sources(app)
+    candidates = eligible_smoke_sources(app)
     try:
-        source_aid, source_instance = _pick_source_adapter(app, source_adapter)
-        event = _make_smoke_event(source_instance, message_text)
+        source_aid, source_instance = pick_source_adapter(app, source_adapter)
+        event = make_smoke_event(source_instance, message_text)
     except Exception as exc:
         try:
             await app.stop()

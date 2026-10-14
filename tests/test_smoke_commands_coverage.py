@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cover temp-storage creation path in _run_session (lines 135-145 of smoke_commands.py).
 
 When ``storage_path`` is None, ``_run_session`` creates a temporary SQLite

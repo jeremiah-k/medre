@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MeshtasticRenderer: comprehensive cross-platform reactions,
 no-mapping fallbacks, native reaction preservation, display-name enrichment,
 byte-budget truncation, config validation, adapter capabilities, target-aware

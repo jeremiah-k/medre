@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Unit tests for the attachment seam's edge contracts.
 
 Covers the small surfaces the docker tier exercises but the default suite

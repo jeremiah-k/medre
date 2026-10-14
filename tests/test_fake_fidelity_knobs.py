@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Targeted tests for fake-adapter fidelity knobs (D9).
 
 Each test pins one knob on a fake (LXMF signature_validated, MeshCore

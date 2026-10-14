@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Unit tests for soak config builder infrastructure.
 
 These tests verify the **actual** functions in ``tests.helpers.soak`` —

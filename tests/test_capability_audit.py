@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Capability truth audit tests: durable proof that capability declarations are
 authoritative runtime truth and do not overclaim.
 

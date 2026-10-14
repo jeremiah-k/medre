@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for operator failure drills and smoke persistence.
 
 Proves that:

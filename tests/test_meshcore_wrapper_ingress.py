@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real MeshCoreAdapter wrapper callback ingress tests.
 
 Proves that the real ``MeshCoreAdapter.simulate_inbound`` callback decodes

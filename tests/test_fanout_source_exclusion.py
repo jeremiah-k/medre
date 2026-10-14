@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fanout source-exclusion tests.
 
 Proves that fanout routes (e.g. Matrix → [Meshtastic, MeshCore]) deliver to

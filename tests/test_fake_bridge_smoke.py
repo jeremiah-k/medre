@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fake cross-adapter bridge smoke tests.
 
 Proves that the MEDRE runtime bridges events between fake adapters

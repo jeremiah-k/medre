@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Operator recovery workflow tests (slimmed).
 
 This file was split by behavioral domain. The following domains moved to

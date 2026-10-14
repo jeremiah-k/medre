@@ -1881,7 +1881,13 @@ class MedreApp:
             * ``exception`` -- the exception raised by the adapter, or
               ``None`` for a clean stop.
         """
-        stop_task = asyncio.create_task(adapter.stop(timeout=float(timeout)))
+
+        async def invoke_stop() -> None:
+            # Supervise invocation as well as awaiting: binding/synchronous
+            # errors must not escape cleanup, and hooks may return a Future.
+            await adapter.stop(timeout=float(timeout))
+
+        stop_task = asyncio.create_task(invoke_stop())
         loop = asyncio.get_running_loop()
         try:
             # Stage 1: cooperative.  Poll until done or deadline.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,12 @@ _PROGRAMMATIC_DRILLS = (
 
 
 @pytest.fixture(
-    params=adapter_registry.iter_adapter_specs() or (None,),
+    params=tuple(
+        spec
+        for spec in adapter_registry.iter_adapter_specs()
+        if spec.fake_adapter is not None
+    )
+    or (None,),
     ids=lambda spec: spec.transport if spec else "no_provider",
 )
 def single_provider(
@@ -118,3 +124,68 @@ def test_missing_provider_cli_returns_json_failure(
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "failed"
     _validate_report(report)
+
+
+@pytest.mark.parametrize("name", _PROGRAMMATIC_DRILLS)
+async def test_provider_without_fake_returns_failed_report(name, monkeypatch):
+    from tests.helpers.adapter_spec import make_adapter_spec
+
+    no_fake = replace(make_adapter_spec("aa_no_fake"), fake_adapter=None)
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((no_fake,))
+    )
+    report = await drill.run_drill(name)
+    assert report["status"] == "failed"
+    assert report["adapter_transports"] == {}
+    assert "fake implementation" in report["fail_reasons"][0]
+    _validate_report(report)
+
+
+def test_provider_selection_skips_optional_fake(monkeypatch):
+    from tests.helpers.adapter_spec import make_adapter_spec
+
+    specs = (
+        replace(make_adapter_spec("aa_no_fake"), fake_adapter=None),
+        make_adapter_spec("z_fake"),
+    )
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(specs)
+    )
+    assert drill._drill_transport() == "z_fake"
+
+
+@pytest.mark.parametrize(
+    "name", ["partial_degraded_startup", "all_adapters_start_fail"]
+)
+async def test_broken_fake_cannot_masquerade_as_forced_start_failure(name, monkeypatch):
+    from medre.adapter_registry import SymbolRef
+    from tests.helpers.adapter_spec import make_adapter_spec
+
+    spec = replace(
+        make_adapter_spec("broken_fake"), fake_adapter=SymbolRef("builtins", "object")
+    )
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((spec,))
+    )
+    report = await drill.run_drill(name)
+    assert report["status"] == "failed"
+    assert "before failure injection" in report["fail_reasons"][0]
+
+
+def test_report_schema_rejects_pass_without_provider_evidence():
+    from jsonschema import ValidationError
+
+    with pytest.raises(ValidationError, match="non-empty"):
+        _validate_report(drill._base_report("bad_route_config", adapter_transports={}))
+
+
+async def test_start_failure_requires_adapter_cleanup_evidence(
+    single_provider, monkeypatch
+):
+    async def unobserved_stop(self):
+        return None
+
+    monkeypatch.setattr(drill._DrillFailingAdapter, "stop", unobserved_stop)
+    report = await drill.run_drill("all_adapters_start_fail")
+    assert report["status"] == "failed"
+    assert "Failed-adapter cleanup was not observed" in report["fail_reasons"]

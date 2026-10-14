@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Architecture boundary tests: no public API commitment yet.
 
 Ensures that importing top-level packages does not pull in heavy

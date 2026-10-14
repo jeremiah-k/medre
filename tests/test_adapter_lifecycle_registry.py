@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MedreApp-owned per-adapter lifecycle state registry.
 
 Covers:

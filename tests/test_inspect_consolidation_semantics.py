@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Inspect consolidation semantic equivalence tests.
 
 These tests protect the product-shape direction where ``inspect`` subcommands

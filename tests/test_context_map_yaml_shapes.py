@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigValidationError
 from medre.config.routes import ContextMapEntry, RouteConfigSet
+from tests.helpers.destination_config import registered_test_destination  # noqa: F401
 
 
 def _routes_from_yaml(yaml_text: str) -> RouteConfigSet:
@@ -139,7 +139,7 @@ def test_structured_entry_with_both_dest_sides_is_rejected() -> None:
         '      "0":\n'
         '        dest_context: "!room0:example.com"\n'
         "        dest_destination:\n"
-        "          kind: lxmf_destination\n"
+        "          kind: test_address\n"
         '          destination_hash: "21c0c1b9aabbccddeeff001122334455"\n'
     )
     with pytest.raises(ConfigValidationError, match="exactly one of"):
@@ -180,7 +180,7 @@ def test_structured_destination_entry_loads_through_yaml_parser() -> None:
         "    context_map:\n"
         '      "!room0:example.com":\n'
         "        dest_destination:\n"
-        "          kind: lxmf_destination\n"
+        "          kind: test_address\n"
         '          destination_hash: "21c0c1b9aabbccddeeff001122334455"\n'
         "          destination_name: bob\n"
     )
@@ -189,7 +189,7 @@ def test_structured_destination_entry_loads_through_yaml_parser() -> None:
     entry = route.context_map["!room0:example.com"]
     assert entry.dest_context is None
     assert entry.dest_destination is not None
-    assert entry.dest_destination.kind == "lxmf_destination"
+    assert entry.dest_destination.kind == "test_address"
     assert entry.dest_destination.destination_hash == (
         "21c0c1b9aabbccddeeff001122334455"
     )

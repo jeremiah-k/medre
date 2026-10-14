@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Model tests for :func:`medre.runtime.route_plan.build_route_plan`.
 
 Covers the plan model itself — adapter inventory, route expansion into

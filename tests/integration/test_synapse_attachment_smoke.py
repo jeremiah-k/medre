@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Synapse durable-attachment relay smoke tests — real changed-path proof.
 
 Exercises the actual durable attachment path end to end against a local
@@ -44,7 +45,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_E2EE, HAS_NIO
 from medre.adapters.matrix.renderer import MatrixRenderer
@@ -752,7 +752,7 @@ class TestSynapseAttachmentSmoke:
 
 @pytest.mark.skipif(
     not HAS_E2EE,
-    reason='mindroom-nio[e2e] not installed; pip install -e ".[matrix-e2e]"',
+    reason='mindroom-nio[e2e] not installed; pip install "medre-adapter-matrix[e2e]"',
 )
 class TestSynapseEncryptedAttachmentSmoke:
     async def test_encrypted_source_relays_plaintext_bytes(

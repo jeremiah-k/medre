@@ -7,8 +7,10 @@ version literals into a second place that Renovate must update by hand.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from importlib import metadata
+from pathlib import Path
 from typing import Iterable
 
 from packaging.requirements import Requirement
@@ -29,9 +31,14 @@ def declared_extra_pins(extra: str) -> dict[str, DeclaredSdkPin]:
     Source provenance (PyPI, Git, or local checkout) is intentionally irrelevant.
     MEDRE core does not declare transport SDK dependencies.
     """
-    transport = "matrix" if extra == "matrix-e2e" else extra
-    dist = metadata.distribution(f"medre-adapter-{transport}")
-    selected_extra = "e2e" if extra == "matrix-e2e" else ""
+    entries = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
+        ).read_text()
+    )
+    entry = next(entry for entry in entries if entry["transport"] == extra)
+    dist = metadata.distribution(entry["distribution"])
+    selected_extra = entry["extras"]
     pins: dict[str, DeclaredSdkPin] = {}
     for raw in dist.requires or ():
         requirement = Requirement(raw)

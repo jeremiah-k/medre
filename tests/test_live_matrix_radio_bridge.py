@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live Matrix<->radio bridge tests over the real MEDRE runtime (E2EE room).
 
 Opt-in ONLY: ``MEDRE_MX_BRIDGE=1`` plus explicit owned endpoints (Matrix

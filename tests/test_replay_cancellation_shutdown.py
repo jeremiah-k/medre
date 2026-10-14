@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay cancellation and shutdown tests: CancelledError and capacity release.
 
 Deterministic tests verifying that CancelledError propagates correctly

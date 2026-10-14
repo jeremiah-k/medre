@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-transport mesh interop pipeline tests (Meshtastic / MeshCore / LXMF).
 
 Device-free fast regression for the user-facing core: MT, MC, and LX

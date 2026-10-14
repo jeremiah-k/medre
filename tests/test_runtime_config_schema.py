@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Validation tests for docs/schemas/runtime-config.schema.json.
 
 The runtime-config schema is a FULL-CONFIG schema: it validates the root

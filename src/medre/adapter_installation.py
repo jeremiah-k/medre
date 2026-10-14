@@ -7,16 +7,18 @@ not need transport SDKs or assume a package index, Git host, or package name.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from medre.adapter_registry import registered_transports
+from medre.adapter_registry import (
+    AdapterDiscoveryFailure,
+    adapter_discovery_failures,
+    registered_transports,
+    valid_transport_name,
+)
 from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigFileError, ConfigValidationError
 from medre.config.loader import find_config
-
-_TRANSPORT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +29,7 @@ class AdapterInstallationReport:
     required: tuple[str, ...]
     installed: tuple[str, ...]
     missing: tuple[str, ...]
+    broken: tuple[AdapterDiscoveryFailure, ...]
 
 
 def inspect_adapter_installation(
@@ -54,7 +57,7 @@ def inspect_adapter_installation(
         )
     required: list[str] = []
     for transport, instances in adapters.items():
-        if not isinstance(transport, str) or not _TRANSPORT_RE.fullmatch(transport):
+        if not valid_transport_name(transport):
             raise ConfigValidationError(
                 "invalid adapter transport name", section_path="adapters"
             )
@@ -65,5 +68,11 @@ def inspect_adapter_installation(
             )
         required.append(transport)
     installed = registered_transports()
-    missing = tuple(transport for transport in required if transport not in installed)
-    return AdapterInstallationReport(path, tuple(required), installed, missing)
+    broken = adapter_discovery_failures()
+    broken_names = {failure.transport for failure in broken}
+    missing = tuple(
+        transport
+        for transport in required
+        if transport not in installed and transport not in broken_names
+    )
+    return AdapterInstallationReport(path, tuple(required), installed, missing, broken)

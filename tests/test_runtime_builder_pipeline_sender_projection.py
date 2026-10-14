@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Integration tests for the runtime-to-pipeline sender-projection wiring.
 
 These tests lock the production wiring contract that

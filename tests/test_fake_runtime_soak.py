@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fake runtime soak and comprehensive happy-path tests.
 
 Diagnostics snapshot stability across cycles, replay delivery isolation,

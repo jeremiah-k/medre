@@ -442,3 +442,35 @@ def mock_nio() -> Any:
         sys.modules.pop("nio.events", None)
     else:
         sys.modules["nio.events"] = saved_nio_events
+
+
+# Test ownership must be decided before importing optional adapter modules.
+def pytest_addoption(parser):
+    parser.addoption(
+        "--core-only",
+        action="store_true",
+        help="Run every declared adapter-free test module",
+    )
+
+
+def pytest_sessionstart(session):
+    if not session.config.getoption("--core-only"):
+        return
+    from tests.helpers.suite_ownership import undeclared_dependencies
+
+    problems = undeclared_dependencies(Path(__file__).resolve().parents[1])
+    if problems:
+        raise pytest.UsageError(
+            "Undeclared adapter-dependent tests; remove the coupling or declare '# medre-test-tier: compatibility': "
+            + repr(problems)
+        )
+
+
+def pytest_ignore_collect(collection_path, config):
+    if not config.getoption("--core-only"):
+        return None
+    from tests.helpers.suite_ownership import is_compatibility
+
+    if is_compatibility(collection_path, Path(__file__).resolve().parents[1]):
+        return True
+    return None

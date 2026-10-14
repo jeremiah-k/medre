@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for KEY_REACTION_KEY round-tripping and Meshtastic->Matrix mapped reactions.
 
 Split from test_matrix_reaction_mmrelay.py for line-cap compliance.

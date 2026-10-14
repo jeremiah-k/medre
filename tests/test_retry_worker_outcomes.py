@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Retry worker outcome, backoff, uncancel, and abandonment visibility tests."""
 
 from __future__ import annotations

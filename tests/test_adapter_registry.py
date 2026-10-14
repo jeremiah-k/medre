@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Contract tests for the data-driven built-in adapter registry."""
 
 from __future__ import annotations

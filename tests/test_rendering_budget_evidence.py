@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Budget, truncation, and bounded-size evidence tests for renderers.
 
 Covers:

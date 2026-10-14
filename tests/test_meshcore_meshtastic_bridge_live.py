@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live cross-transport MT<->MC bridge tests over the real MEDRE runtime.
 
 Opt-in ONLY: ``MEDRE_MC_BRIDGE=1`` with explicit owned endpoints.

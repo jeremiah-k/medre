@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """LXMF SDK parity regressions against MEDRE's declared LXMF/RNS pins."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Architecture boundary tests: reusable adapter module boundaries.
 
 Ensures codec/renderer/interop/session modules don't import runtime, CLI,

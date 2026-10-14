@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Deterministic container-runtime validation tests.
 
 Validates MEDRE's container deployment model behaves deterministically

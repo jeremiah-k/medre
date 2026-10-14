@@ -20,6 +20,9 @@ from typing import Any
 
 __all__ = [
     "AdapterSpec",
+    "AdapterSample",
+    "AdapterDiscoveryFailure",
+    "adapter_discovery_failures",
     "AdapterTypeRegistry",
     "DestinationSpec",
     "get_destination_spec",
@@ -30,9 +33,15 @@ __all__ = [
     "iter_adapter_specs",
     "native_detection_specs",
     "registered_transports",
+    "valid_transport_name",
 ]
 
 _TRANSPORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def valid_transport_name(value: object) -> bool:
+    """Whether a value follows the platform-neutral transport token grammar."""
+    return isinstance(value, str) and _TRANSPORT_NAME_RE.fullmatch(value) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +76,18 @@ class DestinationSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class AdapterSample:
+    """SDK-free fake values and an opaque conversation address.
+
+    Config excludes generic lifecycle fields, which core supplies. Adapter
+    authors choose native fields and addresses without core inference.
+    """
+
+    config: Mapping[str, Any]
+    channel: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterSpec:
     """Declarative assembly metadata for one installed adapter type.
 
@@ -79,7 +100,6 @@ class AdapterSpec:
     config: SymbolRef
     runtime_config: SymbolRef | None
     adapter: SymbolRef
-    fake_adapter: SymbolRef
     renderer_factory: SymbolRef | None
     dependency_probe: SymbolRef | None
     distribution: str | None
@@ -88,6 +108,7 @@ class AdapterSpec:
     native_namespace_reader: SymbolRef
     versioned_namespace_reader: SymbolRef
     attribution_projector: SymbolRef
+    fake_adapter: SymbolRef | None = None
     runtime_config_preparer: SymbolRef | None = None
     runtime_directories: SymbolRef | None = None
     cli_register: SymbolRef | None = None
@@ -96,11 +117,23 @@ class AdapterSpec:
     support_secret_fields: tuple[str, ...] = ()
     native_detection_priority: int = 100
     destinations: tuple[DestinationSpec, ...] = ()
+    sample_config: SymbolRef | None = None
+    logger_levels: tuple[tuple[str, str], ...] = ()
 
     @property
     def has_python_sdk(self) -> bool:
         """Whether this adapter declares a separately importable Python SDK."""
         return bool(self.distribution or self.import_names or self.sdk_import_roots)
+
+
+@dataclass(frozen=True, slots=True)
+class AdapterDiscoveryFailure:
+    """A quarantined provider that diagnostics can report without importing it."""
+
+    transport: str
+    entry_point: str
+    reason: str
+    provider_distribution: str | None = None
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -111,20 +144,27 @@ class AdapterTypeRegistry:
     _by_transport: Mapping[str, AdapterSpec]
     _destinations: Mapping[str, DestinationSpec]
     _native_order: tuple[AdapterSpec, ...]
+    failures: tuple[AdapterDiscoveryFailure, ...]
 
-    def __init__(self, specs: Iterable[AdapterSpec]) -> None:
+    def __init__(
+        self,
+        specs: Iterable[AdapterSpec],
+        *,
+        failures: Iterable[AdapterDiscoveryFailure] = (),
+    ) -> None:
         """Build and validate an immutable registry from *specs*.
 
         Raises :class:`ValueError` for invalid or duplicate transport names,
         invalid native-detection priorities, incomplete CLI hook pairs, or
         conflicting support-field declarations.
         """
+        object.__setattr__(self, "failures", tuple(failures))
         ordered = tuple(specs)
         by_transport: dict[str, AdapterSpec] = {}
         destinations: dict[str, DestinationSpec] = {}
         for spec in ordered:
             transport = spec.transport
-            if not _TRANSPORT_NAME_RE.fullmatch(transport):
+            if not valid_transport_name(transport):
                 raise ValueError(f"invalid adapter transport name: {transport!r}")
             if transport in by_transport:
                 raise ValueError(f"duplicate adapter transport: {transport!r}")
@@ -137,6 +177,22 @@ class AdapterTypeRegistry:
                     f"CLI contribution for {transport!r} must declare both "
                     "cli_register and cli_dispatch"
                 )
+            from medre.core.observability.log_levels import VALID_LEVEL_NAMES
+
+            logger_names = set()
+            for logger_name, level in spec.logger_levels:
+                if (
+                    not isinstance(logger_name, str)
+                    or not logger_name
+                    or logger_name in {"root", "medre"}
+                    or logger_name.startswith("medre.")
+                    or logger_name in logger_names
+                    or level not in VALID_LEVEL_NAMES
+                ):
+                    raise ValueError(
+                        f"invalid dependency logger declaration for {transport!r}"
+                    )
+                logger_names.add(logger_name)
             endpoint_fields = spec.support_endpoint_fields
             secret_fields = spec.support_secret_fields
             if len(endpoint_fields) != len(set(endpoint_fields)):
@@ -204,40 +260,75 @@ class AdapterTypeRegistry:
         return self._native_order
 
 
-def _discover_installed_specs() -> tuple[AdapterSpec, ...]:
-    """Discover installed, explicitly packaged transport adapters.
+def _discover_installed_adapters() -> AdapterTypeRegistry:
+    """Quarantine broken and conflicting providers while retaining diagnostics.
 
-    Entry points must be published under ``medre.adapters`` and resolve to
-    zero-argument factories returning an AdapterSpec. A broken provider is a
-    configuration error, not a silently skipped transport.
+    No winner is selected for duplicate transport or destination ownership.
+    Healthy, unrelated providers remain usable, including by the preflight CLI.
     """
+    from collections import Counter
     from importlib.metadata import entry_points
 
-    discovered = []
+    from medre.core.observability.sanitization import sanitize_error
+
+    candidates = []
+    failures = []
     providers = sorted(
-        entry_points(group="medre.adapters"),
-        key=lambda ep: (ep.name, ep.value),
+        entry_points(group="medre.adapters"), key=lambda ep: (ep.name, ep.value)
     )
     for ep in providers:
         try:
             spec = ep.load()()
+            if not isinstance(spec, AdapterSpec):
+                raise TypeError(f"expected AdapterSpec, received {type(spec).__name__}")
+            if spec.transport != ep.name:
+                raise ValueError(
+                    f"entry point {ep.name!r} registered transport {spec.transport!r}"
+                )
+            AdapterTypeRegistry((spec,))
         except Exception as exc:
-            raise RuntimeError(
-                f"cannot load MEDRE adapter {ep.name!r} from {ep.value!r}"
-            ) from exc
-        if not isinstance(spec, AdapterSpec):
-            raise TypeError(f"MEDRE adapter {ep.name!r} returned {type(spec)!r}")
-        if spec.transport != ep.name:
-            raise ValueError(
-                f"MEDRE adapter entry point {ep.name!r} registered "
-                f"transport {spec.transport!r}"
+            failures.append(
+                AdapterDiscoveryFailure(
+                    ep.name,
+                    ep.value,
+                    sanitize_error(f"{type(exc).__name__}: {exc}"),
+                    getattr(getattr(ep, "dist", None), "name", None),
+                )
             )
-        discovered.append(spec)
-    return tuple(discovered)
+        else:
+            candidates.append((ep, spec))
+    transports = Counter(ep.name for ep in providers)
+    kinds = Counter(
+        destination.kind for _, spec in candidates for destination in spec.destinations
+    )
+    accepted = []
+    for ep, spec in candidates:
+        conflicts = sorted(
+            destination.kind
+            for destination in spec.destinations
+            if kinds[destination.kind] > 1
+        )
+        if transports[spec.transport] > 1 or conflicts:
+            failures.append(
+                AdapterDiscoveryFailure(
+                    ep.name,
+                    ep.value,
+                    f"Conflicting provider ownership: transport={transports[spec.transport] > 1}, destination kinds={conflicts}",
+                    getattr(getattr(ep, "dist", None), "name", None),
+                )
+            )
+        else:
+            accepted.append(spec)
+    return AdapterTypeRegistry(accepted, failures=failures)
 
 
-# Installed providers are resolved once per process in deterministic name order.
-ADAPTER_REGISTRY = AdapterTypeRegistry(_discover_installed_specs())
+# Discovery is deterministic and does not import adapter implementations or SDKs.
+ADAPTER_REGISTRY = _discover_installed_adapters()
+
+
+def adapter_discovery_failures() -> tuple[AdapterDiscoveryFailure, ...]:
+    """Return installed providers that failed registration."""
+    return ADAPTER_REGISTRY.failures
 
 
 def iter_adapter_specs() -> tuple[AdapterSpec, ...]:

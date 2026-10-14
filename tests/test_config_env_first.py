@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for env-created adapters and routes in the MEDRE config system.
 
 Ensures that MEDRE_ADAPTER__<TOKEN>__<FIELD> and

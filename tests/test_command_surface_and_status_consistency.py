@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Command-surface and status-value consistency tests.
 
 These tests verify:

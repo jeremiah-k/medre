@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Direct _cleanup_started_adapters unit tests and drain-site verification.
 
 Split from ``test_startup_cleanup_stop_supervision.py``.  Covers started-

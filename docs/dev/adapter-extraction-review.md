@@ -148,6 +148,54 @@ The bounded correction slice passed 59 tests, including report-schema checks,
 explicit mixed assignments, and core-only CLI failure. Native addressing still
 requires its owning provider, consistent with adapter-owned validation.
 
+## October 14 follow-up review
+
+The later adversarial report identified concrete gaps beyond relocation. All
+reported functional issues were addressed:
+
+| Finding                                                    | Resolution                                                                                                                                                              |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run-session retained Matrix-first selection                | Share route-aware event/source helpers across smoke, sessions, and drills.                                                                                              |
+| Native simulation methods accepted different input formats | Use the canonical `AdapterContract.publish_inbound` seam for session callbacks.                                                                                         |
+| Providers without fakes produced misleading drill evidence | Filter optional fake declarations and verify construction before startup fault injection; verify the actual injected build exception.                                   |
+| Short provider names shadowed longer names                 | Prefer explicit hints/native evidence, then exact and bounded longest ID matches.                                                                                       |
+| Recovery scan assumed three radio transports               | Warn from unresolved delivery evidence; omit the warning for empty scans.                                                                                               |
+| Generated samples required uninstalled providers           | Use adapter-owned native sample values/opaque addresses and core-assigned unique IDs; generate two instances for one provider or a loadable empty config with guidance. |
+| Shared sample lists emitted forbidden YAML anchors         | Use safe, alias-free YAML serialization; prove every first-party provider alone.                                                                                        |
+| One broken factory prevented help/preflight                | Quarantine failing/conflicting owners with retained diagnostics and actual provider distribution names.                                                                 |
+| Core-only CI used a short positive allowlist               | Select all adapter-free modules by default with explicit compatibility ownership and a transitive import guard; separate provider-dependent helpers.                    |
+| SDK extras had divergent CI consumers                      | Use manifest identity/extras for core contracts, Docker, and standalone adapter CI.                                                                                     |
+| Compatibility planning used ambient Python                 | Select the declared Python before planning; execute through uv/the core interpreter.                                                                                    |
+| SDK tests assumed distribution naming                      | Read core manifest identity or the adapter's own project metadata.                                                                                                      |
+| Standalone results hid the core revision                   | Record exact tested SHA pairs; retain core's pinned pair as the qualification authority.                                                                                |
+| Architecture audits omitted extracted source               | Add opt-in installed namespace/community source scans and a real-source inventory test; remove phantom shared-fake transports.                                          |
+| Wheel/source mismatches and stale caches were confusing    | Explain untracked source/build leftovers and document scoped cache cleanup.                                                                                             |
+| Core encoded native logger policy                          | Derive SDK defaults from registration; keep Matrix-specific policy in its provider and preserve operator overrides.                                                     |
+| State-path calculation required installed providers        | Validate portable transport tokens independently of installation.                                                                                                       |
+
+A negative cleanup test additionally exposed call-time stop-hook errors escaping
+the supervisor. Invocation now occurs inside the deadline task, preserving
+cleanup isolation and accepting Future-backed hooks. A lifecycle drill cannot
+pass without observed failed-adapter cleanup.
+
+The adapter-free tier was run once across its broad selection: 7,927 passed,
+32 skipped, two expected failures, and 28 failures exposed remaining native
+fixtures and generic assumptions about installed providers. Those findings
+were corrected or given explicit compatibility ownership. A targeted rerun of
+the affected core modules passed 292 checks; the broad tier was not repeated.
+The complete compatibility suite still runs all modules in CI. Final core-only
+collection succeeds across roughly 8,000 cases, with no undeclared import
+coupling.
+
+Follow-up slices passed 415 affected checks, 65 metadata/import contracts,
+23 final provider contracts, and 140 serialization/discovery/logging checks.
+These slices overlap. Another 50 schema/report checks and 27 run-session
+checks passed. The final stop-invocation, deadline/cancellation, and lifecycle
+evidence slice passed 58 checks. Each adapter's new standalone offline-sample regression
+also passed. Formatting, lint, workflow checks, and final collection are
+recorded with publication; hardware, live endpoints, Docker services, and soak
+were not run locally during this follow-up.
+
 ## Release coordination
 
 The curated CI manifest pins reviewed adapter commits for stability across

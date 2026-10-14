@@ -11,7 +11,7 @@ runs:
       env:
         ADAPTER_SNAPSHOT: ${{ inputs.snapshot }}
       run: |
-        python - <<'PYCODE'
+        uv run --no-sync python - <<'PYCODE'
         import json
         import os
         import subprocess

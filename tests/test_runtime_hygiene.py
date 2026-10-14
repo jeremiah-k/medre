@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Long-running runtime hygiene tests.
 
 Covers:

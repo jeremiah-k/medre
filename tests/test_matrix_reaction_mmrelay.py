@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for Matrix codec/renderer/adapter reaction support and
 MMRelay metadata edge handling.
 

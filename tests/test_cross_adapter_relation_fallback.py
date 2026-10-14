@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """W6 cross-adapter relation fallback integration tests.
 
 End-to-end tests verifying that native relations degrade correctly when

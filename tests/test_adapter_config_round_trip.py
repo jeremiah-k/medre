@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter config round-trip tests.
 
 Verifies each transport's adapter config survives the full load path:

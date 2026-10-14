@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Opt-in soak/resilience tests for Matrix and Meshtastic adapters.
 
 These tests exercise **sustained operation** against real services/hardware

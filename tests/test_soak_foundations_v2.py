@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Soak foundations v2: extended stability verification.
 
 Builds on the harness from ``test_soak_harness.py`` with deeper patterns:

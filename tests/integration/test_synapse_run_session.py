@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Docker-gated run-session integration test for the MEDRE Matrix bridge.
 
 This test exercises the real MEDRE runtime (adapters + pipeline + storage)

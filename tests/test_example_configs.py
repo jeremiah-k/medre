@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Validate shipped example configs load, parse, and conform to current schema.
 
 Requirement: every shipped example must be loadable and either fully

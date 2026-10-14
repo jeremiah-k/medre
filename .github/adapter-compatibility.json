@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "84c5663706cda87215799a4a3d3cff23132f3b50",
+    "ref": "0cef1b4313b373a469eaa4df4cec751e19fc609f",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix"
@@ -10,7 +10,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "6444710148b90b1cbd1c7fa3b7acc0e4a79c62be",
+    "ref": "2a0f5272a1f8c8d3fd98eb19c99d6792836b23da",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -18,7 +18,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "43e2eac71b6ee581432d5a99f8b5792e9ee0a85d",
+    "ref": "b0cfd1157fe5a84bd5315e301e87fc1a469abfbc",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
@@ -26,7 +26,7 @@
   {
     "transport": "lxmf",
     "repository": "jeremiah-k/medre-adapter-lxmf",
-    "ref": "8be1cf796331e4fbb65b772cfdbaf1c729b654f8",
+    "ref": "64b39539433e0b765680704517dcdbf86152e320",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-lxmf"

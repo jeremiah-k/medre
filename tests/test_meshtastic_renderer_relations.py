@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MeshtasticRenderer relation rendering: cross-platform descriptive
 reactions, fallback-text delivery strategy, relation degradation, and
 targeted coverage paths for relation handling.

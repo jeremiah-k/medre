@@ -4,7 +4,7 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-Every transport has a fake adapter that exercises the full pipeline. The
+Providers may supply a fake adapter that exercises the full pipeline. The
 default marker policy excludes live, Docker, hardware, optional SDK, local
 integration, and soak tiers. The full default suite can exceed ten minutes;
 use affected files during development and CI for broad verification. Collection
@@ -17,6 +17,31 @@ commands.
 For real devices, follow the [short hardware iteration sequence](../ops/live-validation/short-iterations.md).
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
+
+## Adapter-free and compatibility ownership
+
+`uv run --no-sync pytest tests/ --core-only -q` runs all adapter-free modules.
+CI uses a core-only environment for this tier on Linux, macOS, and Windows.
+There is no positive file allowlist: new modules belong to this tier by default.
+A module requiring installed providers declares
+`# medre-test-tier: compatibility` within its first ten lines. A containing
+`conftest.py` can declare an entire provider-dependent suite before pytest
+imports that conftest. Mixed modules should be split when practical so generic
+contracts can run in the core tier.
+
+A static import walk follows local test helpers and rejects undeclared imports
+of adapter-owned MEDRE modules before collection. It also recognizes relative helper imports and literal
+dynamic imports. Provider fixtures, native source audits, metadata assertions,
+and source-example smoke sessions require explicit compatibility ownership;
+these dependencies cannot all be inferred from imports. The compatibility job
+still runs the complete suite with its resolved adapter snapshot. No tests are
+removed from that job.
+
+The compatibility manifest owns distribution identity and SDK extras for core
+contracts, Docker integration, and standalone adapter SDK CI. Standalone adapter
+jobs report the exact core/adapter SHA pair they tested. Core CI's pinned pair
+is authoritative; an adapter's green test against a moving core baseline does
+not qualify a different pair.
 
 ## File Size Limits
 
@@ -215,7 +240,7 @@ overclaim the evidence level of a test. If a test uses fake adapters, call it
 | Tier | Label                   | What it proves                                                                         | How to test                                                                           |
 | ---- | ----------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | 1    | `fake_pipeline`         | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection         | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly        |
-| 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection             | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
+| 2    | `fake_adapter_callback` | `adapter.publish_inbound()` produces the same results as direct injection              | Use canonical callback injection; compare output with direct injection                |
 | 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target            | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
 | 4    | `sdk_contract`          | Exact pinned optional SDK exposes the constructors, enums and callbacks MEDRE consumes | Dedicated `*_sdk` marker/job with the adapter extra installed                         |
 | 5    | `local_integration`     | Real pinned SDK and MEDRE session run together against a deterministic local endpoint  | `@pytest.mark.local_integration` plus the adapter's `*_sdk` marker                    |

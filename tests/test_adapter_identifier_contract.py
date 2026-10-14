@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Regression tests for the configured adapter identifier contract.
 
 One contract (``medre.config.identifiers``) governs the four configuration
@@ -517,10 +518,10 @@ def test_generated_sample_config_round_trips(tmp_path: Path) -> None:
     config, _source, _paths = load_config(str(config_file))
 
     ids = {aid for _t, aid, _rtc in config.adapters.all_configs()}
-    assert {"main", "radio", "mc_node", "lxmf_node"} <= ids
+    assert ids == {"sample_1", "sample_2", "sample_3", "sample_4"}
     # The runtime derives the Matrix crypto store; the sample must not set
     # or suggest setting it with a {adapter_id} placeholder.
-    assert config.adapters.matrix["main"].config.store_path is None
+    assert next(iter(config.adapters.matrix.values())).config.store_path is None
 
 
 def test_json_schema_identifier_patterns_match_runtime_authority() -> None:

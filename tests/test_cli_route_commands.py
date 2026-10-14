@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for 'medre routes validate/topology/list' commands."""
 
 from __future__ import annotations
@@ -5,19 +6,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.cli import main
-from tests.helpers.cli import (
+from tests.helpers.cli import CONFIG_MINIMAL, _run_cli, _run_cli_both, _run_cli_raw
+from tests.helpers.compatibility_configs import (
     CONFIG_DISABLED_ADAPTER_IN_ROUTE,
     CONFIG_DISABLED_ROUTE_UNKNOWN_REFS,
-    CONFIG_MINIMAL,
     CONFIG_NO_ROUTES,
     CONFIG_ROUTE_UNKNOWN_ADAPTERS,
     CONFIG_WITH_ROUTE_TARGETING,
     CONFIG_WITH_ROUTES,
-    _run_cli,
-    _run_cli_both,
-    _run_cli_raw,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")

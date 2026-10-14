@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MeshtasticRenderer: source origin_label from attribution
 registry, Meshtastic-origin clean rendering, and cross-radio attribution.
 

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Config repair workflow tests.
 
 Validates realistic operator repair loops for configuration errors:

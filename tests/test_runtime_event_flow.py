@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime Event Flow Validation.
 
 Tests that events flow correctly through the runtime pipeline:

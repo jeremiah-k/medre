@@ -10,7 +10,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, EXIT_NOT_FOUND, main
 from medre.core.storage.backend import UnresolvedDeliveriesPage
 
@@ -217,14 +216,20 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
@@ -251,14 +256,20 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _stdout, stderr = _run_cli_both(
@@ -276,10 +287,15 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
@@ -307,14 +323,20 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict")
@@ -344,14 +366,20 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             output = _run_cli("replay", "--mode", "strict", "--json")
@@ -364,10 +392,15 @@ class TestReplayDispatch:
         mock_builder = MagicMock()
         mock_builder.build.side_effect = RuntimeError("build broke")
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
         ):
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             with pytest.raises(SystemExit) as exc_info:
@@ -580,7 +613,7 @@ class TestRecoverDispatch:
             parsed = json.loads(output)
             assert parsed["scope"] == "scan"
             assert isinstance(parsed["warnings"], list)
-            assert len(parsed["warnings"]) > 0
+            assert parsed["warnings"] == []
             assert parsed["page"]["has_more"] is False
             assert parsed["unresolved"] == []
 
@@ -748,15 +781,21 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
-        ) as mock_collect:
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ) as mock_collect,
+        ):
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())
             _run_cli("replay", "--mode", "dry_run", "--event", "evt-42", "--json")
@@ -784,14 +823,20 @@ class TestReplayWithEvent:
         mock_builder = MagicMock()
         mock_builder.build.return_value = mock_app
 
-        with patch(
-            "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
-        ), patch("medre.cli.replay_commands.load_config") as mock_load, patch(
-            "medre.cli.replay_commands.apply_env_overrides", side_effect=lambda c, p: c
-        ), patch(
-            "medre.cli.replay_commands.collect_replay_summary",
-            new_callable=AsyncMock,
-            return_value=summary,
+        with (
+            patch(
+                "medre.cli.replay_commands.RuntimeBuilder", return_value=mock_builder
+            ),
+            patch("medre.cli.replay_commands.load_config") as mock_load,
+            patch(
+                "medre.cli.replay_commands.apply_env_overrides",
+                side_effect=lambda c, p: c,
+            ),
+            patch(
+                "medre.cli.replay_commands.collect_replay_summary",
+                new_callable=AsyncMock,
+                return_value=summary,
+            ),
         ):
 
             mock_load.return_value = (MagicMock(), MagicMock(), MagicMock())

@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from medre.core.routing import Route, RouteSource, RouteTarget
-from medre.runtime.smoke import _pick_source_adapter
+from medre.runtime.smoke_ingress import pick_source_adapter
 
 
 def test_source_selection_uses_route_instead_of_platform() -> None:
@@ -21,11 +21,11 @@ def test_source_selection_uses_route_instead_of_platform() -> None:
         started_adapter_ids=["a-destination", "z-source"],
         _registered_routes=(route,),
     )
-    assert _pick_source_adapter(app) == ("z-source", source)
+    assert pick_source_adapter(app) == ("z-source", source)
 
 
 def test_explicit_source_selection_is_route_aware() -> None:
-    from medre.runtime.smoke import _eligible_smoke_sources
+    from medre.runtime.smoke_ingress import eligible_smoke_sources
 
     app = SimpleNamespace(
         adapters={
@@ -47,17 +47,17 @@ def test_explicit_source_selection_is_route_aware() -> None:
             ),
         ),
     )
-    assert _eligible_smoke_sources(app) == ["matrix", "meshcore"]
-    assert _pick_source_adapter(app)[0] == "matrix"
-    assert _pick_source_adapter(app, "meshcore")[0] == "meshcore"
+    assert eligible_smoke_sources(app) == ["matrix", "meshcore"]
+    assert pick_source_adapter(app)[0] == "matrix"
+    assert pick_source_adapter(app, "meshcore")[0] == "meshcore"
     import pytest
 
     with pytest.raises(ValueError, match="not an enabled route source"):
-        _pick_source_adapter(app, "lxmf")
+        pick_source_adapter(app, "lxmf")
 
 
 def test_smoke_sources_require_successful_start_and_optional_event_helper() -> None:
-    from medre.runtime.smoke import _eligible_smoke_sources
+    from medre.runtime.smoke_ingress import eligible_smoke_sources
 
     app = SimpleNamespace(
         adapters={
@@ -74,5 +74,5 @@ def test_smoke_sources_require_successful_start_and_optional_event_helper() -> N
             ),
         ),
     )
-    assert _eligible_smoke_sources(app) == ["c-source"]
-    assert _pick_source_adapter(app)[0] == "c-source"
+    assert eligible_smoke_sources(app) == ["c-source"]
+    assert pick_source_adapter(app)[0] == "c-source"

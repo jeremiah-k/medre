@@ -629,11 +629,16 @@ async def _recover(
                 "live_view": page.live_view,
             },
             "unresolved": [_scan_record(item) for item in page.items],
-            "warnings": [
-                "Radio transports (Meshtastic, MeshCore, LXMF) use "
-                "fire-and-forget delivery.  Recovery is best-effort "
-                "and duplicates are possible.",
-            ],
+            "warnings": (
+                [
+                    "Unresolved delivery attempts do not establish whether the "
+                    "destination received a message. Recovery may produce duplicate "
+                    "sends; inspect event evidence and preview replay with "
+                    "'medre replay --mode dry_run' first."
+                ]
+                if page.items
+                else []
+            ),
         }
         if json_output:
             print(to_json(scan_report))

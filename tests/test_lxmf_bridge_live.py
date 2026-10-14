@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live cross-transport bridge tests over the real MEDRE runtime with LXMF.
 
 Opt-in ONLY: ``MEDRE_LX_BRIDGE=1`` with the explicit owned endpoints of the

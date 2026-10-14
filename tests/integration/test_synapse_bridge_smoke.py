@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Synapse SDK-boundary bridge smoke tests for the MEDRE Matrix adapter.
 
 These tests start a real Synapse homeserver in Docker, register two users

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Operator failure UX hardening tests.
 
 Validates that operators receive concise, actionable, deterministic error

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: Matrix store_path derivation
 and _ensure_dirs directory creation."""
 

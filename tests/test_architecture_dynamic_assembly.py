@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for dynamic adapter assembly detection and boundary report completeness."""
 
 from __future__ import annotations

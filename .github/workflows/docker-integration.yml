@@ -37,9 +37,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version-file: .tool-versions
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
       - name: Snapshot adapter compatibility revisions
         id: adapters
-        run: python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
+        run: uv run --no-project --python 3.14 python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
 
       - name: Checkout matrix adapter
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,18 +116,11 @@ jobs:
 
       # --- Python setup ---
 
-      - name: Set up uv and Python
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version-file: .tool-versions
-          python-version: "3.14"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
       - name: Install MEDRE and adapter-owned integration dependencies
         run: |
           uv sync --locked --extra dev
-          uv pip install -e .adapters/medre-adapter-matrix .adapters/medre-adapter-meshtastic
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-matrix
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-meshtastic
 
       # --- Run tests ---
 

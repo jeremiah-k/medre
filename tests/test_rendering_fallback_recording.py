@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fallback-applied recording tests for all transport renderers.
 
 Covers:

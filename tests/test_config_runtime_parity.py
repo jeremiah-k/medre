@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Config-to-runtime parity tests.
 
 Proves that fake, Docker, and minimal configs all traverse the same

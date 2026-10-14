@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Long-running fake-runtime soak validation.
 
 Deterministic, fake-only tests covering:

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MatrixRenderer: name, can_render dispatch, rendering output,
 relation handling, envelope embedding, and long body handling.
 """

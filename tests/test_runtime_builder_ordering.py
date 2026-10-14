@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: fake adapter ID propagation,
 deterministic build ordering, and all-adapters-build-failure handling."""
 

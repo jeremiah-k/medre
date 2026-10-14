@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Route validate, topology, and list CLI workflows.
 
 Operators run validate, topology, and list commands and get consistent,

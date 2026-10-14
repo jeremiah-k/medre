@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Coherence contract tests for the evidence and convergence surface.
 
 MEDRE has two distinct surfaces that share the "evidence bundle" name:

@@ -350,7 +350,9 @@ orchestration, routing, storage, evidence, and runtime lifecycle.
 registration module and config validators stay SDK-free at import time. SDK
 imports belong behind the live session/compatibility implementation. Optional
 hooks support runtime preparation, directories, CLI contributions, and
-support-bundle field classification.
+support-bundle field classification. SDK logger roots default to WARNING;
+`logger_levels=(("your_sdk.crypto", "ERROR"),)` declares more specific noise
+policy without importing the SDK. Operator overrides take precedence.
 
 An adapter with native structured addresses declares a `DestinationSpec` for
 each addressing kind it owns. Its lazy validator accepts a
@@ -362,7 +364,8 @@ Use a distinctive transport-qualified kind to avoid clashes.
 
 Installed entry points are discovered once per process and ordered by name.
 Duplicate transport names, broken factories, and conflicting declarations
-fail explicitly. Discovery never fetches packages. Restart after changing
+are quarantined with diagnostics available through `medre adapters check`.
+Conflicting owners are all rejected; healthy providers remain usable. Discovery never fetches packages. Restart after changing
 installed providers. Config YAML selects `adapters.<transport>.<instance>`;
 it contains neither installer URLs nor arbitrary Python class paths.
 
@@ -372,13 +375,29 @@ runtime, renderer, CLI, and native-metadata dispatch share those declarations.
 Core's CI compatibility manifest is a curated test set, independent of runtime
 discovery and open third-party distribution.
 
+### Contribute an offline sample
+
+Set `sample_config=SymbolRef("your_package.sample", "sample_config")` to a
+zero-argument callback returning `AdapterSample(native_values, channel="opaque-conversation")`. Core supplies distinct instance IDs,
+`enabled: true`, and `adapter_kind: fake`. Leave lifecycle fields out of
+`native_values`. This callback is optional and SDK-free. Providers without a
+fake or sample remain supported, but are omitted from `medre config sample`.
+The callback owns native config values and addressing; core generates routes
+without recognizing your platform name.
+
 ## Step 7: Write Tests
 
 ### Use the fake adapter pattern
 
 An adapter may declare a fake variant through `AdapterSpec.fake_adapter`,
 implemented in that adapter's distribution. Its fake exercises the full
-pipeline without network or hardware dependencies. See the
+pipeline without network or hardware dependencies. `fake_adapter=None` is valid;
+core does not fabricate fake support for that provider. Lifecycle drills choose
+only declared fake providers and report failure when none is available.
+Fake event factories may expose `make_event(text=..., event_kind=...)` for smoke
+injection. Run-session callback ingress uses the canonical
+`AdapterContract.publish_inbound(event)` seam; native packet simulation methods
+are adapter-specific and are not part of that generic interface. See the
 [testing guide](./testing.md) for tier definitions.
 
 The fake adapters (`FakeTransportAdapter`, `FakePresentationAdapter`) are the

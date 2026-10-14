@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Bridge rendering realism tests.
 
 Verifies that each transport renderer produces correct outbound payloads

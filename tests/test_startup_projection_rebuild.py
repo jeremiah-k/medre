@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup containment tests for conversation projection rebuild failures."""
 
 from __future__ import annotations

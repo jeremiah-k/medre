@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Post-stop ingress guard tests for adapter callback paths.
 
 These tests cover the lifecycle boundary where an adapter retains ``ctx`` after

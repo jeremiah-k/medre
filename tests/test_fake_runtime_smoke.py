@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fake multi-adapter runtime smoke and short soak tests.
 
 Proves the fake runtime can start from a multi-adapter config, route a

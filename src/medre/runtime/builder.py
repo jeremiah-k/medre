@@ -195,6 +195,10 @@ def _dependency_available(spec: AdapterSpec) -> bool:
 
 def _build_fake_adapter(spec: AdapterSpec, adapter_id: str) -> AdapterContract:
     """Construct the registered fake adapter without importing live SDKs."""
+    if spec.fake_adapter is None:
+        raise RuntimeConfigError(
+            f"Adapter provider {spec.transport!r} does not declare a fake implementation"
+        )
     try:
         fake_cls = spec.fake_adapter.load()
         return cast(AdapterContract, fake_cls(adapter_id=adapter_id))

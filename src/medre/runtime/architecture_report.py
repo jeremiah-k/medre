@@ -89,7 +89,7 @@ def parse_file(py_file: Path) -> list[ImportEdge]:
     return edges
 
 
-def module_path_for(py_file: Path, src_root: Path) -> str:
+def module_path_for(py_file: Path, src_root: Path, *, package: str = "medre") -> str:
     """Convert a file path under src_root to a dotted module name.
 
     Prepends ``medre.`` because *src_root* is expected to be
@@ -103,7 +103,7 @@ def module_path_for(py_file: Path, src_root: Path) -> str:
         parts[-1] = parts[-1][:-3]
     # Remove __init__
     parts = [p for p in parts if p != "__init__"]
-    return "medre" if not parts else "medre." + ".".join(parts)
+    return package if not parts else package + "." + ".".join(parts)
 
 
 @dataclass
@@ -114,28 +114,62 @@ class ArchitectureGraph:
     parse_errors: dict[str, str] = field(default_factory=dict)
 
 
-def build_dependency_graph(src_root: Path) -> ArchitectureGraph:
-    """Build a dependency graph from source files under src_root.
+def build_dependency_graph(
+    src_root: Path, *, include_installed_adapters: bool = False
+) -> ArchitectureGraph:
+    """Scan core and, on request, installed provider source without executing it.
 
-    Scans all .py files recursively. Pure AST-based; does NOT import modules.
+    The default is a core-only audit. Compatibility audits include namespace
+    contributors and arbitrary top-level adapter packages. Resolving top-level
+    specs does not execute provider implementations or import their SDKs.
     """
     graph = ArchitectureGraph()
-    py_files = sorted(src_root.rglob("*.py"))
-    for py_file in py_files:
-        module = module_path_for(py_file, src_root)
-        if module != "medre" and not module.startswith("medre."):
-            continue
+    roots = {(src_root.resolve(), "medre")}
+    standalone = []
+    if include_installed_adapters:
+        import importlib.util
+
+        import medre
+
+        roots.update((Path(path).resolve(), "medre") for path in medre.__path__)
+        packages = {
+            spec.adapter.module.split(".")[0] for spec in iter_adapter_specs()
+        } - {"medre"}
+        for package in sorted(packages):
+            spec = importlib.util.find_spec(package)
+            if spec is None:
+                graph.parse_errors[package] = (
+                    "Installed provider implementation cannot be located"
+                )
+            elif spec.submodule_search_locations:
+                roots.update(
+                    (Path(path).resolve(), package)
+                    for path in spec.submodule_search_locations
+                )
+            elif spec.origin and spec.origin.endswith(".py"):
+                standalone.append((Path(spec.origin), package))
+    sources = [
+        (file, module_path_for(file, root, package=package))
+        for root, package in sorted(roots)
+        for file in sorted(root.rglob("*.py"))
+    ]
+    for file, module in [*sources, *standalone]:
         info = ModuleInfo(
             module=module,
-            file=str(py_file.relative_to(src_root)),
-            layer=_classify_layer(module),
+            file=(
+                str(file.relative_to(src_root.resolve()))
+                if file.is_relative_to(src_root.resolve())
+                else str(file)
+            ),
+            layer=(
+                _classify_layer(module) if module.startswith("medre.") else "adapters"
+            ),
         )
         try:
-            edges = parse_file(py_file)
-            for edge in edges:
+            info.imports = parse_file(file)
+            for edge in info.imports:
                 edge.source = module
-            info.imports = edges
-        except SyntaxError as exc:
+        except (SyntaxError, OSError, UnicodeError) as exc:
             graph.parse_errors[module] = str(exc)
         graph.modules[module] = info
     return graph
@@ -382,6 +416,14 @@ def _transport_for(module: str) -> str | None:
     """
     prefix = "medre.adapters."
     if not module.startswith(prefix):
+        for spec in iter_adapter_specs():
+            owner = (
+                spec.adapter.module.rsplit(".", 1)[0]
+                if "." in spec.adapter.module
+                else spec.adapter.module
+            )
+            if module_matches(module, owner):
+                return spec.transport
         return None
     rest = module[len(prefix) :]
     parts = rest.split(".")
@@ -391,7 +433,7 @@ def _transport_for(module: str) -> str | None:
         return None
     # New package layout: medre.adapters.fakes.<transport>
     if transport == "fakes" and len(parts) >= 2:
-        return parts[1]
+        return None if parts[1] in {"transport", "presentation"} else parts[1]
     # Flat modules: fake_<transport>
     if transport and transport in _FAKE_TO_TRANSPORT:
         transport = _FAKE_TO_TRANSPORT[transport]
@@ -711,7 +753,7 @@ def build_route_adapter_boundary_report(
     # --- Adapter → Runtime Imports ---
     adapter_runtime_imports: list[BoundaryViolation] = []
     for mod, info in graph.modules.items():
-        if not mod.startswith("medre.adapters."):
+        if not mod.startswith("medre.adapters.") and _transport_for(mod) is None:
             continue
         for edge in info.imports:
             if edge.target.startswith("medre.runtime.") and not edge.is_type_checking:

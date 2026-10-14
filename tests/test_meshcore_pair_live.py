@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live physical-pair tests for the MeshCore adapter (two real T-Beam nodes).
 
 Opt-in ONLY: set ``MESHCORE_PAIR=1`` plus explicit owned BLE addresses.

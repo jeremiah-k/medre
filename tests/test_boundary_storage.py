@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Comprehensive boundary and storage surface tests.
 
 These tests protect structural invariants of the MEDRE framework — ensuring

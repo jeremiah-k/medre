@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live mesh<->mesh interop bridge tests over the real MEDRE runtime.
 
 Opt-in ONLY: ``MEDRE_MESH_INTEROP=1`` plus explicit owned radio endpoints.

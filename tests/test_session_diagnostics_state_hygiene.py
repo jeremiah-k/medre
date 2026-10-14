@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter session diagnostics state hygiene tests.
 
 Covers diagnostics truthfulness gaps found during audit:

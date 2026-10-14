@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Structural guards for optional adapter SDK contract pin authority."""
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from tests.helpers.sdk_contract import declared_extra_pins
     ("extra", "expected_distributions"),
     [
         ("matrix", {"mindroom-nio"}),
-        ("matrix-e2e", {"mindroom-nio"}),
         ("lxmf", {"lxmf", "rns"}),
         ("meshtastic", {"mtjk", "pypubsub"}),
         ("meshcore", {"meshcore"}),
@@ -68,7 +68,7 @@ def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> 
     derives exact pins from the adapter rather than assuming core SDK extras.
     """
     patterns: dict[str, re.Pattern[str]] = {}
-    for extra in ("matrix", "matrix-e2e", "lxmf", "meshtastic", "meshcore"):
+    for extra in ("matrix", "lxmf", "meshtastic", "meshcore"):
         for pin in declared_extra_pins(extra).values():
             # Ban exact version tokens, not prefixes embedded in longer values.
             # The section marker exclusion prevents unrelated ``§1.2.3`` prose

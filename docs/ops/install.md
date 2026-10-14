@@ -151,11 +151,11 @@ medre config sample
 # Save and validate
 medre config sample > /tmp/medre-alpha.yaml
 medre config check --config /tmp/medre-alpha.yaml
-# Expected: "Config valid", 2 enabled fake adapters,
-# route inventory showing matrix_radio_bridge as active.
+# Expected: "Config valid", installed sample providers enabled,
+# route inventory showing sample_bridge as active.
 ```
 
-The sample config uses `adapter_kind: fake` for all adapters. To switch to real adapters, change `adapter_kind` to `real` and fill in transport-specific credentials.
+The sample config includes fake contributions from installed providers only; a single provider gets two instances, and no contributions produce empty adapter/route sections with installation guidance. To switch to real adapters, change `adapter_kind` to `real` and fill in transport-specific credentials.
 
 For live Matrix setups, use the auth CLI:
 

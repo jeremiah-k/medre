@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Long-run fanout + partial failure session test.
 
 Combines patterns from ``test_mixed_adapter_longrun_bridge`` and

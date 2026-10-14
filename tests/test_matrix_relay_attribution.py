@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MatrixRenderer relay attribution, prefix formatting, and
 missing-target fallback behaviour.
 

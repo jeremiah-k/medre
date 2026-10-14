@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup-failure cleanup: adapter stop timeout and cancel supervision.
 
 Split from ``test_startup_cleanup_stop_supervision.py`` (which was itself

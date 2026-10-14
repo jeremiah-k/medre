@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: degraded route validation,
 adapter build failure handling for routes, and Matrix auto_join_rooms
 derivation from route configuration."""

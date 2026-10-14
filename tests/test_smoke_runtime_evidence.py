@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for runtime evidence fields in smoke reports.
 
 Validates the three compact derived fields added to the smoke report:

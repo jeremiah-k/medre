@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter-callback mode reporting tests.
 
 Verifies that ``run_bridge_session(ingress_mode="adapter_callback")``

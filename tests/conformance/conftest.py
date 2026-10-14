@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shared fixtures and builders for conformance tests.
 
 Provides codec instances, renderer instances, capability sets, and

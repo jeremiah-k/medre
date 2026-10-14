@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real MatrixAdapter wrapper callback ingress tests.
 
 Proves that the real ``MatrixAdapter._on_room_message`` callback decodes nio

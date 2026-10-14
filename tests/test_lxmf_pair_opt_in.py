@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Independent collection gates for RF relations and peer-power tests."""
 
 import importlib

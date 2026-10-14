@@ -172,7 +172,7 @@
     },
     "adapters": {
       "type": "object",
-      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings.",
+      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",
       "propertyNames": {
         "pattern": "^[a-z][a-z0-9_-]*$"
       },
@@ -302,5 +302,17 @@
       },
       "required": ["source_adapters", "dest_adapters"]
     }
-  }
+  },
+  "examples": [
+    {
+      "runtime": {
+        "name": "core-only"
+      },
+      "storage": {
+        "backend": "memory"
+      },
+      "adapters": {},
+      "routes": {}
+    }
+  ]
 }

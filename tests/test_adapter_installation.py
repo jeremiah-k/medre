@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Source-agnostic external adapter installation preflight."""
 
 from __future__ import annotations
@@ -83,3 +84,28 @@ def test_preflight_rejects_empty_nonmapping_adapter_section(
     path = _config(tmp_path, f"adapters: {value}\n")
     with pytest.raises(ConfigValidationError, match="adapters must be a mapping"):
         inspect_adapter_installation(path)
+
+
+def test_preflight_distinguishes_broken_from_missing(tmp_path, monkeypatch, capsys):
+    from medre import adapter_registry
+    from medre.adapter_registry import AdapterDiscoveryFailure, AdapterTypeRegistry
+
+    failure = AdapterDiscoveryFailure(
+        "private_chat", "broken_plugin:spec", "ImportError: unavailable"
+    )
+    monkeypatch.setattr(
+        adapter_registry,
+        "ADAPTER_REGISTRY",
+        AdapterTypeRegistry((), failures=(failure,)),
+    )
+    path = _config(tmp_path, "adapters:\n  private_chat:\n    node: {}\n")
+    report = inspect_adapter_installation(path)
+    assert report.missing == ()
+    assert report.broken == (failure,)
+    with pytest.raises(SystemExit) as error:
+        main(["adapters", "check", "--config", str(path)])
+    assert error.value.code == 2
+    assert "private_chat: broken" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as error:
+        main(["--help"])
+    assert error.value.code == 0

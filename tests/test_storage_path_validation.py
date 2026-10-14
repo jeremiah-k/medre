@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Storage / Path Validation.
 
 Tests that the storage and path model behaves correctly:

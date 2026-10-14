@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real Matrix/Meshtastic adapter wrapper callbacks with multiple messages.
 
 Proves that:

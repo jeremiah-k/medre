@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Reaction-to-reaction suppression tests.
 
 Verifies that reactions targeting other reactions are suppressed by the

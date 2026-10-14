@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for CLI contribution registry and namespace restrictions."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.adapters.matrix.cli and the adapter matrix auth CLI surface.
 
 Covers: parser structure (tristate optional flags), status subcommand,

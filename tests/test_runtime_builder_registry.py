@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Registry-specific runtime builder contract tests."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MeshCoreRenderer: name, can_render dispatch, rendering output,
 target channel propagation, truncation, metadata, and edge cases.
 """

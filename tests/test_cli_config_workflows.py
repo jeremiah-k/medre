@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Config sample and config check CLI workflows.
 
 Covers:

@@ -7,6 +7,7 @@ so adding a transport does not require another shared if/elif chain.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from medre.adapter_registry import (
@@ -29,16 +30,22 @@ def detect_source_platform(
     if platform_hint:
         return platform_hint
 
-    lowered = source_adapter.lower()
-    for spec in iter_adapter_specs():
-        if spec.transport in lowered:
-            return spec.transport
-
-    if not native_data:
-        return None
-
+    # Native evidence is authoritative; instance IDs are arbitrary operator labels.
     for spec in native_detection_specs():
         if versioned_native_namespace(native_data, spec.transport):
+            return spec.transport
+
+    lowered = source_adapter.lower()
+    specs = sorted(
+        iter_adapter_specs(), key=lambda spec: (-len(spec.transport), spec.transport)
+    )
+    for spec in specs:
+        if lowered == spec.transport:
+            return spec.transport
+    for spec in specs:
+        if re.search(
+            r"(?<![a-z0-9])" + re.escape(spec.transport) + r"(?![a-z0-9])", lowered
+        ):
             return spec.transport
     return None
 

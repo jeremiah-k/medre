@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Transport-specific fallback_text delivery strategy tests.
 
 Verifies that each transport renderer (Matrix, LXMF, Meshtastic, MeshCore)

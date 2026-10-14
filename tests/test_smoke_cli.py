@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for the operator-facing fake bridge smoke command and runner.
 
 Proves that :func:`medre.runtime.smoke.run_fake_bridge_smoke` produces a

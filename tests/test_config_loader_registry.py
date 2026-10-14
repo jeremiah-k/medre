@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Loader handling of registered adapters without a dedicated wrapper class.
 
 Built-ins that ship a ``runtime_config`` reference keep their compatibility

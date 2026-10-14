@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Lifecycle-order regressions for adapters with callback subscriptions."""
 
 from __future__ import annotations

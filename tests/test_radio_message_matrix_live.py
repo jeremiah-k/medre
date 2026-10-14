@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Message-level radio matrix: routes, provenance, rendering, volume.
 
 Opt-in bench harness (``MEDRE_RADIO_MATRIX=1`` plus the four device envs)

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """An installed multi-adapter smoke must test each route source, not just one.
 
 These tests are gated by external entry-point availability so MEDRE's core-only

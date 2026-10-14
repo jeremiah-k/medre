@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI JSON output tests for Operator Control Plane v2.
 
 Proves that ``medre smoke``, ``medre trace event``, ``medre inspect event``,

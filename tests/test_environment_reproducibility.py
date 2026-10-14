@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Environment reproducibility validation tests.
 
 Validates that MEDRE produces a **deterministic, reproducible** environment

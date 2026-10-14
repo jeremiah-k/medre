@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for formatting_exception guards in MeshCore and LXMF renderers.
 
 When ``format_relay_prefix`` catches an internal exception, it returns the

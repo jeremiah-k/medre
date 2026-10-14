@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Availability contracts independent of optional extras installed on the host."""
 
 from __future__ import annotations

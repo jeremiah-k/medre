@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Env-only reliability tests for the delivery path.
 
 End-to-end tests that exercise delivery reliability semantics — successful

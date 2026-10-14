@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for Blocker 1 (build failures in startup outcome),
 Blocker 2 (total startup failure resource cleanup), and
 Blocker 1 PC Fix (catastrophic adapter-loop failure cleanup).

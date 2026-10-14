@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Extended operator recovery workflow tests.
 
 Goes beyond ``test_operator_recovery.py`` by exercising multi-error

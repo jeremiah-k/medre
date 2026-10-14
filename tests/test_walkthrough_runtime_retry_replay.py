@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime-level retry and replay integration tests.
 
 These tests exercise internal runtime APIs (RetryWorker._process_due,

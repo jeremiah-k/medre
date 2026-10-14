@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """API/export boundary and documentation regression tests.
 
 Verify canonical contract exports, config error hierarchy, credential

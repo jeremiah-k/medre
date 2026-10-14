@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Exercise radio-matrix collection gates without opening physical devices."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """RenderingContext field capture tests for all transport renderers.
 
 Covers:

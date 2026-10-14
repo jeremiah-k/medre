@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI tests for ``medre routes plan``.
 
 Exercises the ``_routes_plan`` command through :func:`tests.helpers.cli._run_cli_raw`,

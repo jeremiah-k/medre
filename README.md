@@ -33,7 +33,9 @@ medre smoke --config /tmp/medre-sample.yaml --json
 
 `medre config check` validates a config file given by `--config` (or found
 via discovery); it does not read a config from stdin. The sample config uses
-fake adapters only — it proves the pipeline and storage, not any transport.
+fake contributions from installed providers only. With one provider it creates
+two instances; without contributions it emits installation guidance and empty
+adapter/route sections. A fake smoke proves pipeline and storage behavior.
 Expected output, the persistent-storage variant, and troubleshooting:
 [docs/ops/install.md](docs/ops/install.md).
 

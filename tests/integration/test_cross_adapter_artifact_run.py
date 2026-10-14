@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 r"""Cross-adapter artifact run test: Matrix → Meshtastic delivery.
 
 Docker-gated integration test proving real Matrix adapter ingress through

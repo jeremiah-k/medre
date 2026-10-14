@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fail native target mismatches before adapter construction or delivery."""
 
 import pytest

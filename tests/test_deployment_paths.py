@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Deployment / Container Path Verification.
 
 Tests that verify MEDRE's deployment path model behaves correctly for

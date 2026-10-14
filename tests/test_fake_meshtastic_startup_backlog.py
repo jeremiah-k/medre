@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for FakeMeshtasticAdapter startup backlog suppression.
 
 Verifies that the fake adapter mirrors the real adapter's startup backlog

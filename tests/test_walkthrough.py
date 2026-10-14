@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Walkthrough tests exercising operator-visible paths.
 
 Uses run_fake_bridge_smoke (the function behind medre smoke) and

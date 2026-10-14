@@ -194,6 +194,10 @@ class TestParserCommandsDocumented:
             "adapter",
             "support",
         }
+        from medre.adapter_registry import iter_adapter_specs
+
+        if not any(spec.cli_register is not None for spec in iter_adapter_specs()):
+            expected.remove("adapter")
         missing = expected - parser_commands
         extra = parser_commands - expected
         assert not missing, (

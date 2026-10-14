@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Drain abandoned evidence persistence tests.
 
 Split from test_runtime_cancellation.py to keep it under the 1500-line limit.

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for adapter health normalization.
 
 Covers:

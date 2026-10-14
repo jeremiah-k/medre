@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Bidirectional Matrix↔Meshtastic reaction roundtrip tests.
 
 Verifies that reactions traverse the full pipeline (codec → relation

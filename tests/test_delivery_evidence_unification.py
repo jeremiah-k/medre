@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for delivery evidence unification across the pipeline.
 
 Covers the operator-facing explanation/reporting contract without running

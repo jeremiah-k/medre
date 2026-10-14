@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from medre.adapter_registry import registered_transports
+from medre.adapter_registry import valid_transport_name
 from medre.config.identifiers import adapter_id_problem
 
 __all__ = ["MedrePaths", "MedrePathsError", "resolve"]
@@ -45,10 +45,6 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 _VALID_PLACEHOLDERS: frozenset[str] = frozenset(
     {"config", "state", "data", "cache", "logs"}
-)
-
-_SUPPORTED_TRANSPORT_PATH_COMPONENTS: frozenset[str] = frozenset(
-    registered_transports()
 )
 
 
@@ -143,8 +139,8 @@ class MedrePaths:
             :meth:`adapter_state_dir` against the configured-identifier
             contract.
         transport:
-            Installed transport name.  The registry vocabulary keeps
-            this derived state path to one path-safe component.
+            Transport token used as one portable path component. Path resolution
+            is independent of installed provider availability.
 
         Returns
         -------
@@ -157,10 +153,10 @@ class MedrePaths:
             If *adapter_id* violates the configured-identifier contract
             or *transport* is not a supported transport component.
         """
-        if transport not in _SUPPORTED_TRANSPORT_PATH_COMPONENTS:
+        if not valid_transport_name(transport) or adapter_id_problem(transport):
             raise MedrePathsError(
-                f"unsupported transport path component: {transport!r}; expected one "
-                f"of {sorted(_SUPPORTED_TRANSPORT_PATH_COMPONENTS)!r}"
+                f"unsupported transport path component: {transport!r}; "
+                "expected one portable transport token"
             )
         return self.adapter_state_dir(adapter_id) / transport
 

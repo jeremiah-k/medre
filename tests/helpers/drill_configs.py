@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shared drill/smoke configuration writers.
 
 Extracted from tests/test_drill_route_target.py so test modules can share

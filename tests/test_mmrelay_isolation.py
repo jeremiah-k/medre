@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Durable isolation guards for mmrelay wire-format compatibility.
 
 Locks the architectural boundary that mmrelay external Matrix wire fields

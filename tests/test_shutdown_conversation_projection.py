@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shutdown invariants for the rebuildable conversation projection."""
 
 from __future__ import annotations

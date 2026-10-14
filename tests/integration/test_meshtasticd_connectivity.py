@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Meshtasticd connectivity integration tests for the MEDRE Meshtastic adapter.
 
 These tests start a real meshtasticd instance in Docker and exercise the

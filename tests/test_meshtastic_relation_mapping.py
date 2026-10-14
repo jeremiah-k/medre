@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Integration tests for delayed Meshtastic outbound NativeMessageRef mapping
 and Meshtastic-to-Matrix reply resolution.
 

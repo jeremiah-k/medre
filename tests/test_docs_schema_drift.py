@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Source drift detection between docs/schemas JSON schemas and source models.
 
 Asserts that schema top-level properties match source dataclass /

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Command-surface/operator validation coverage for route retry config behavior.
 
 Tests exercise the SAME paths operators use:

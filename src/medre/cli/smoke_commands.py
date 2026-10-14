@@ -190,7 +190,10 @@ async def _run_session(
             print("Run session: PASS")
         else:
             print("Run session: FAIL")
-            for r in report.get("fail_reasons", []):
+            reasons = report.get("fail_reasons", [])
+            if not reasons and report.get("fail_reason"):
+                reasons = [report["fail_reason"]]
+            for r in reasons:
                 print(f"  \u2717 {r}")
 
         print(f"  Event:       {event_id}")

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Storage durability tests for SQLite operational correctness.
 
 Covers gaps not addressed by test_storage.py or test_runtime_recovery.py:

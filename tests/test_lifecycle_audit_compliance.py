@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Lifecycle authority compliance tests for MEDRE adapters.
 
 Proves the documented lifecycle authority without requiring live

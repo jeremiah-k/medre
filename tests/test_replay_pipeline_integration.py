@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Integration tests for ReplayEngine × PipelineRunner.
 
 Proves that ReplayEngine works with real PipelineRunner, RouteEngine,

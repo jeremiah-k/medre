@@ -35,7 +35,10 @@ MEDRE's documentation describe first-party examples, not an installation list.
 1. **Core independence:** the CI core job installs zero adapter distributions
    and exercises generic event/routing/fake contracts, configuration, discovery,
    a metadata-backed community provider, and installed core-wheel behavior.
-   It runs on Linux, macOS, and Windows independently of adapter availability.
+   It runs on Linux, macOS, and Windows independently of adapter availability,
+   selecting every module without a compatibility declaration through
+   `pytest tests/ --core-only`. Import dependency guards reject undeclared
+   coupling, including compatibility helpers.
 2. **Adapter ownership:** each repository runs its own protocol tests and SDK
    contracts against MEDRE core. Its fake job omits SDK dependencies; its SDK
    job installs the distribution's own pins. LXMF and MeshCore also own their
@@ -61,7 +64,7 @@ private `tests` package. Gated SDK/service/hardware/soak tiers stay explicit.
 ## Dynamic compatibility selection
 
 `.github/adapter-compatibility.json` is the source of truth for the **curated CI
-test set**. It records each repository/ref, optional SDK extra, and whether a
+test set**. It records each repository/ref, distribution identity, optional SDK extra, and whether a
 local integration tier exists. Runtime discovery does not consult this file;
 third-party adapters need no manifest entry to work.
 
@@ -121,3 +124,9 @@ the router's actual channel and event-kind matching to select a target.
 `medre adapters` uses each provider's declared dependency probe for SDK readiness;
 a partial SDK installation cannot satisfy a probe requiring multiple modules.
 See [multi-source smoke coverage](testing.md#multi-source-fake-smoke-coverage).
+
+Standalone adapter jobs record the resolved core/adapter SHAs. Their SDK install
+uses `scripts/ci/install_checkout_adapter.py` from the selected core baseline,
+so qualification extras share the manifest used by core and Docker CI. SDK
+versions remain in the owning adapter's package metadata. Core's pinned pair
+job is authoritative; standalone results qualify the recorded pair only.

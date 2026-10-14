@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """mmrelay sender-name resolution (KEY_LONGNAME / KEY_SHORTNAME).
 
 Tests for ``MatrixRenderer._resolve_mmrelay_sender_names`` resolution

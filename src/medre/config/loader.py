@@ -455,6 +455,18 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     adapters_data = _get_section_dict(data, "adapters")
     unknown_transports = set(adapters_data) - _KNOWN_TRANSPORTS
     if unknown_transports:
+        from medre.adapter_registry import adapter_discovery_failures
+
+        broken = [
+            f for f in adapter_discovery_failures() if f.transport in unknown_transports
+        ]
+        if broken:
+            raise ConfigValidationError(
+                "Broken adapter provider(s): "
+                + "; ".join(f"{f.transport}: {f.reason}" for f in broken)
+                + ". Run medre adapters check to diagnose installation.",
+                section_path="adapters",
+            )
         msg = (
             f"adapters: unknown transport group(s): "
             f"{sorted(unknown_transports, key=lambda k: repr(k))}. "

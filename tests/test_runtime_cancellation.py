@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime cancellation / task hygiene hardening tests.
 
 Covers:

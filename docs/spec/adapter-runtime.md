@@ -86,6 +86,12 @@ The runtime calls `stop()` once during graceful shutdown. The adapter **MUST**:
 
 No orphaned asyncio tasks **MUST** remain after `stop()` returns. Leaked tasks after `stop()` returns are a bug.
 
+The runtime **MUST** invoke and await the stop hook inside its supervised
+deadline task. Call-time errors, including argument-binding errors, **MUST NOT**
+bypass cleanup of other adapters, the pipeline, or storage. A hook may return a
+coroutine or another awaitable such as a Future. Stop implementations **MUST**
+remain non-blocking and cooperate with cancellation.
+
 ### 3.4 `deliver(result)`
 
 ```python
@@ -849,7 +855,13 @@ MEDRE discovers installed Python distributions through the `medre.adapters`
 entry-point group and stores their declarative `AdapterSpec` values in the
 process-static `ADAPTER_REGISTRY`. Each entry point **MUST** resolve to a
 zero-argument factory returning an `AdapterSpec`. A broken provider **MUST**
-surface as a configuration error rather than being silently skipped.
+be retained as a discovery failure rather than silently skipped. Conflicting
+transport or native-kind owners **MUST** all be quarantined; discovery **MUST
+NOT** choose a winner by installation order. Unrelated healthy providers remain
+usable. Basic CLI help **MUST** remain available, and `medre adapters check`
+**MUST** report broken providers distinctly from missing distributions and exit
+with a configuration error. Configuring a broken provider **MUST** fail with an
+actionable configuration error.
 
 Distribution names, import packages, repository hosts, and transport names are
 independent. Providers **MAY** be installed from a package index, Git, a wheel,
@@ -861,10 +873,10 @@ a process restart.
 
 Each `AdapterSpec` identifies one transport and the lazy symbols generic
 assembly needs: config type, optional adapter-owned runtime wrapper, live and
-fake adapter classes, renderer factory, dependency probe/package metadata,
+optional fake adapter class, renderer factory, dependency probe/package metadata,
 native-metadata readers, attribution projector, optional runtime-config
 preparation/state-directory hooks, optional adapter-owned CLI contribution
-hooks, support-bundle field classification metadata, and optional native
+hooks, support-bundle field classification metadata, dependency logger levels, and optional native
 addressing kinds with pure `DestinationSpec` validators.
 
 All implementation references **MUST** remain lazy `SymbolRef` values. Importing
@@ -874,6 +886,24 @@ NOT** import an optional transport SDK.
 The registry is immutable after import. Installed transport names **MUST** be
 unique. Runtime code **MUST** reject an enabled adapter whose transport is not
 registered.
+
+A provider **MAY** declare `sample_config: SymbolRef`, an SDK-free zero-argument
+callback returning `AdapterSample(config, channel=None)`. Native
+values and the opaque conversation address are adapter-owned. `config` **MUST
+NOT** override `adapter_id`, `adapter_kind`, or `enabled`. The sample generator
+**MUST** include only installed providers declaring both a fake and a sample;
+it supplies unique instance IDs, fake lifecycle fields, and generic routes. With one contribution it
+creates two distinct instances; with none it emits an empty, loadable config
+and installation guidance. Sample callbacks **MUST NOT** include real secrets,
+perform I/O, or import SDKs.
+
+External SDK import roots receive a warning-level logging default; the root
+logger and MEDRE namespace remain controlled by core/operator settings. Providers **MAY**
+declare `logger_levels`, a tuple of dependency logger name / canonical level
+name pairs. Names **MUST NOT** target the root logger or MEDRE's own logger namespace. Shared
+provider declarations use the most restrictive level; explicit operator
+logging overrides **MUST** take precedence. Logger policy is metadata-only and
+**MUST NOT** import SDKs.
 
 ### 20.2 Assembly Flow
 

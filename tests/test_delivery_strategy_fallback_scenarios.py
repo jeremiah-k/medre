@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fallback-text scenario tests: reaction, reply, evidence, and edit/delete/thread.
 
 Verifies:

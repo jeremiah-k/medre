@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Multi-Adapter Runtime Validation.
 
 Tests that the runtime correctly builds, starts, and manages multiple

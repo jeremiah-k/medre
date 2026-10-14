@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Extended long-run soak with larger route graphs and combined stress.
 
 Goes beyond ``test_longrun_soak.py`` (single-axis) and

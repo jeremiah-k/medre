@@ -33,11 +33,10 @@ from io import StringIO
 from typing import Any, Generator
 
 import pytest
-
 from medre.core.observability.logging import (
-    _DEPENDENCY_DEFAULTS,
     _MEDRE_HANDLER_ATTR,
     _JsonFormatter,
+    dependency_logger_defaults,
     diagnostic_event,
     get_logger,
     log_route_delivered,
@@ -658,7 +657,7 @@ class TestSetupLoggingOverrides:
 
         # Also snapshot dependency loggers that might be touched.
         saved_dep_levels: dict[str, int] = {}
-        for name in list(_DEPENDENCY_DEFAULTS.keys()) + ["custom.lib"]:
+        for name in list(dependency_logger_defaults()) + ["custom.lib"]:
             saved_dep_levels[name] = logging.getLogger(name).level
 
         yield
@@ -705,20 +704,31 @@ class TestSetupLoggingOverrides:
     def test_dependency_defaults_applied(self) -> None:
         """Dependency loggers get their default levels when no override is provided."""
         setup_logging(level="DEBUG", json_format=False)
-        assert logging.getLogger("nio").level == logging.WARNING
-        assert logging.getLogger("nio.crypto.log").level == logging.ERROR
-        assert logging.getLogger("aiohttp").level == logging.WARNING
-        assert logging.getLogger("meshtastic").level == logging.WARNING
-        assert logging.getLogger("peewee").level == logging.WARNING
-        assert logging.getLogger("urllib3").level == logging.WARNING
-        assert logging.getLogger("serial").level == logging.WARNING
-        assert logging.getLogger("serial_asyncio").level == logging.WARNING
-        assert logging.getLogger("asyncio").level == logging.WARNING
+        for name, level in dependency_logger_defaults().items():
+            assert logging.getLogger(name).level == level
 
-    def test_nio_default_is_warning(self) -> None:
-        """nio logger is WARNING by default when no override provided."""
+    def test_sdk_defaults_are_owned_by_installed_provider(self, monkeypatch) -> None:
+        from dataclasses import replace
+
+        from medre import adapter_registry
+        from medre.adapter_registry import AdapterTypeRegistry
+        from tests.helpers.adapter_spec import make_adapter_spec
+
+        spec = replace(
+            make_adapter_spec("private_chat"),
+            sdk_import_roots=("private_sdk",),
+            logger_levels=(("private_sdk.crypto", "ERROR"),),
+        )
+        monkeypatch.setattr(
+            adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((spec,))
+        )
+        for name in ("private_sdk", "private_sdk.crypto"):
+            monkeypatch.setattr(logging.getLogger(name), "level", logging.NOTSET)
         setup_logging(level="DEBUG", json_format=False)
-        assert logging.getLogger("nio").level == logging.WARNING
+        assert logging.getLogger("private_sdk").level == logging.WARNING
+        assert logging.getLogger("private_sdk.crypto").level == logging.ERROR
+        setup_logging(level="DEBUG", overrides={"private_sdk.crypto": "INFO"})
+        assert logging.getLogger("private_sdk.crypto").level == logging.INFO
 
     def test_override_takes_precedence_over_default(self) -> None:
         """User override takes precedence over dependency defaults."""
@@ -837,7 +847,7 @@ class TestLoggingTopology:
         saved_root_handlers = list(root_logger.handlers)
         saved_root_level = root_logger.level
         saved_dep_levels: dict[str, int] = {}
-        for name in list(_DEPENDENCY_DEFAULTS.keys()) + ["custom.lib", "unknown.dep"]:
+        for name in list(dependency_logger_defaults()) + ["custom.lib", "unknown.dep"]:
             saved_dep_levels[name] = logging.getLogger(name).level
 
         yield
@@ -1168,3 +1178,27 @@ class TestLoggingTopology:
         """setup_logging with non-string level raises ValueError."""
         with pytest.raises(ValueError, match="must be a string"):
             setup_logging(level=10, json_format=False)  # type: ignore[arg-type]
+
+
+def test_sdk_namespaces_cannot_override_host_logger_defaults(monkeypatch):
+    from dataclasses import replace
+
+    from medre import adapter_registry
+    from medre.adapter_registry import AdapterTypeRegistry
+    from tests.helpers.adapter_spec import make_adapter_spec
+
+    spec = replace(
+        make_adapter_spec("private_chat"),
+        sdk_import_roots=(
+            "root",
+            "medre",
+            "medre.adapters.private_chat",
+            "private_sdk",
+        ),
+    )
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((spec,))
+    )
+    defaults = dependency_logger_defaults()
+    assert not {"root", "medre", "medre.adapters.private_chat"} & defaults.keys()
+    assert defaults["private_sdk"] == logging.WARNING

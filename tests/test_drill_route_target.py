@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for route-aware adapter failure drill target selection.
 
 Proves that the adapter failure drills patch an adapter the injected

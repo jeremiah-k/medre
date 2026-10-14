@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live physical-pair tests for the LXMF adapter over RNode RF (two T-LoRas).
 
 Opt-in ONLY: ``LXMF_PAIR=1`` with explicit owned lab endpoints. Default

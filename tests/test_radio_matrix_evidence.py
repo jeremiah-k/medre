@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Retain convergence evidence when a later radio operation fails."""
 
 from __future__ import annotations

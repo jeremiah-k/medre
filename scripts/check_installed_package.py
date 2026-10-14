@@ -366,7 +366,7 @@ def _verify_wheel_package_files(wheel: Path) -> None:
     _expect(
         actual == expected,
         "wheel contents",
-        f"package modules differ from source; missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}",
+        f"package modules differ from source; absent from wheel={sorted(expected - actual)}, absent from source={sorted(actual - expected)}. Source inventory includes untracked .py files: remove abandoned modules or rebuild the wheel after adding them. Remove stale build/lib outputs before rebuilding.",
     )
 
 
@@ -855,7 +855,7 @@ asyncio.run(check())
                 proc=proc,
             )
             _expect(
-                "matrix_radio_bridge" in proc.stdout,
+                "sample_bridge" in proc.stdout,
                 "config check",
                 "active sample route missing from the config check inventory",
                 proc=proc,
@@ -911,9 +911,9 @@ asyncio.run(check())
                 f"runtime did not reach 'stopped': {report.get('shutdown_status')!r}",
             )
             _expect(
-                "radio" in (report.get("target_adapters") or []),
+                bool(report.get("target_adapters")),
                 "smoke",
-                f"expected delivery to adapter 'radio': {report.get('target_adapters')}",
+                f"expected delivery to configured sample targets: {report.get('target_adapters')}",
             )
             _expect(
                 report.get("storage_backend") == "sqlite",

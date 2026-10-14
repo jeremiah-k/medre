@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Evidence bundle LXMF adapter diagnostics integration test.
 
 Verifies that the evidence bundle correctly handles a configuration that

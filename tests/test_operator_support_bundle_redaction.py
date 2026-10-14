@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Redaction tests for the operator support bundle.
 
 Verifies that no raw secret values appear in ANY member of the produced

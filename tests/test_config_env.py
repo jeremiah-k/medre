@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.config.env: env var parsing, type coercion,
 instance-scoped adapter overrides, token normalization, secrets redaction."""
 

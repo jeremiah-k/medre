@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """SDK availability probing for the registry-driven CLI transport inventory."""
 
 from __future__ import annotations

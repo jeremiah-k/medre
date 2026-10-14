@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.config.loader: YAML parsing, search order,
 config construction, error handling."""
 

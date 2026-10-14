@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for 'medre run' error handling, exit codes, and sample config + fake runtime."""
 
 from __future__ import annotations
@@ -6,13 +7,8 @@ import json
 from pathlib import Path
 
 import pytest
-
-from tests.helpers.cli import (
-    CONFIG_NO_ADAPTERS,
-    CONFIG_WITH_ROUTES,
-    _run_cli,
-    _run_cli_both,
-)
+from tests.helpers.cli import CONFIG_NO_ADAPTERS, _run_cli, _run_cli_both
+from tests.helpers.compatibility_configs import CONFIG_WITH_ROUTES
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
@@ -308,12 +304,15 @@ class TestRunExitCodes:
             )
         ]
 
-        with patch(
-            "medre.runtime.builder.RuntimeBuilder.build",
-            return_value=fake_app,
-        ), patch(
-            "medre.runtime.snapshot.build_runtime_snapshot",
-            return_value={"status": "degraded"},
+        with (
+            patch(
+                "medre.runtime.builder.RuntimeBuilder.build",
+                return_value=fake_app,
+            ),
+            patch(
+                "medre.runtime.snapshot.build_runtime_snapshot",
+                return_value={"status": "degraded"},
+            ),
         ):
             output = _run_cli("diagnostics", "--config", str(config_with_routes))
         parsed = json.loads(output)
@@ -363,7 +362,6 @@ adapters:
     def test_sample_config_parses(self) -> None:
         """generate_sample_config() produces valid YAML."""
         import yaml
-
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()

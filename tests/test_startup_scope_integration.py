@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup scope integration: readiness enforcement vs stored-work routing.
 
 Covers the three startup integration boundaries that the blanket

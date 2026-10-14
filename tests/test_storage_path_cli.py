@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for --storage-path support on inspect, trace, and evidence commands.
 
 Verifies that operators can run read-only commands directly against a SQLite

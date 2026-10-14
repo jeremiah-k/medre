@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Clean-environment validation tests — reproducibility evidence.
 
 Validates that a **bare ``pip install .``** (no extras) produces a fully

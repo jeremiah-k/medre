@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-cutting integration tests for runtime evidence completeness.
 
 Fills gaps not covered by the existing focused test files:

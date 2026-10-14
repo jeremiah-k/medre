@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Evidence/trace agreement tests and CLI smoke tests for env-only fake deployments.
 
 Seeds a SQLite DB with canonical events using env-style adapter IDs (radio-a,

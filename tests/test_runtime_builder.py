@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: multi-adapter construction,
 disabled adapters, error handling."""
 

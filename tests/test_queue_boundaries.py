@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Queue boundary and invariant tests.
 
 Verifies that:

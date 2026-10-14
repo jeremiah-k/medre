@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Unit tests for tests/helpers/live_harness.py.
 
 Covers redaction, environment gating, secret-leak detection,

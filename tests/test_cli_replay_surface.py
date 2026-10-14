@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI-surface tests proving replay command uses real command handlers.
 
 Every test calls ``main(["replay", ...])`` — the same entry point operators

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay partial-failure tests: mixed outcomes during BEST_EFFORT replay.
 
 Tests verify that ReplayEngine handles render failures, adapter permanent/

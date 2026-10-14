@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from medre.config.env import apply_env_overrides
 from medre.config.model import (
     AdapterConfigSet,
@@ -30,6 +29,7 @@ from medre.config.routes import (
     RouteConfig,
     RouteConfigSet,
 )
+from tests.helpers.destination_config import registered_test_destination  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def _make_config_with_parsed_context_map() -> RuntimeConfig:
                 "1": {"dest_context": "!room2:matrix.org"},
                 "!room3:matrix.org": {
                     "dest_destination": {
-                        "kind": "lxmf_destination",
+                        "kind": "test_address",
                         "destination_hash": "21c0c1b9aabbccddeeff001122334455",
                         "destination_name": "bob",
                         "metadata": {"gate": "north"},
@@ -115,7 +115,7 @@ def test_env_override_preserves_parsed_context_map(
     entry2 = route.context_map["!room3:matrix.org"]
     assert entry2.dest_context is None
     assert entry2.dest_destination is not None
-    assert entry2.dest_destination.kind == "lxmf_destination"
+    assert entry2.dest_destination.kind == "test_address"
     assert entry2.dest_destination.destination_hash == (
         "21c0c1b9aabbccddeeff001122334455"
     )

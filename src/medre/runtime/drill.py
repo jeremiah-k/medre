@@ -122,10 +122,9 @@ from medre.runtime.errors import (
 from medre.runtime.route_engine import RouteValidationError
 from medre.runtime.smoke import (
     _default_smoke_config_path,
-    _make_smoke_event,
-    _pick_source_adapter,
     _run_preflight,
 )
+from medre.runtime.smoke_ingress import make_smoke_event, pick_source_adapter
 
 __all__ = ["run_drill", "AVAILABLE_DRILLS"]
 
@@ -299,8 +298,8 @@ async def _drill_renderer_failure(
         app.pipeline_runner._rendering_pipeline._renderers.clear()
         steps.append(_step("remove_renderers", "ok", renderers_cleared=True))
 
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: renderer_failure")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: renderer_failure")
         steps.append(_step("inject_event", "ok", event_id=event.event_id))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
@@ -385,8 +384,8 @@ async def _drill_adapter_permanent_failure(
     steps.append(_step("runtime_start", "ok"))
 
     try:
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: adapter_permanent_failure")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: adapter_permanent_failure")
         steps.append(_step("inject_event", "ok", event_id=event.event_id))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
@@ -534,8 +533,8 @@ async def _drill_adapter_transient_failure(
     )
 
     try:
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: adapter_transient_failure")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: adapter_transient_failure")
         steps.append(
             _step(
                 "inject_event",
@@ -666,7 +665,7 @@ async def _drill_adapter_transient_failure(
             recovery_receipt_status: str | None = None
             if original_deliver is not None and failed_adapter is not None:
                 failed_adapter.deliver = original_deliver  # type: ignore[assignment]
-                recovery_event = _make_smoke_event(
+                recovery_event = make_smoke_event(
                     source_adapter,
                     "drill: adapter_transient_failure recovery",
                 )
@@ -777,8 +776,8 @@ async def _drill_capacity_rejection(
         app.pipeline_runner.set_capacity_controller(small_cc)
         steps.append(_step("exhaust_capacity", "ok", delivery_limit=1))
 
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: capacity_rejection")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: capacity_rejection")
         steps.append(_step("inject_event", "ok", event_id=event.event_id))
         report["event_id"] = event.event_id
         report["source_adapter"] = source_aid
@@ -887,8 +886,8 @@ async def _drill_shutdown_rejection(
             )
         )
 
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: shutdown_rejection")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: shutdown_rejection")
         inject_ts = datetime.now(timezone.utc).isoformat()
         steps.append(
             _step(
@@ -1006,8 +1005,8 @@ async def _drill_replay_duplicate_risk(
     )
 
     try:
-        source_aid, source_adapter = _pick_source_adapter(app)
-        event = _make_smoke_event(source_adapter, "drill: replay_duplicate_risk")
+        source_aid, source_adapter = pick_source_adapter(app)
+        event = make_smoke_event(source_adapter, "drill: replay_duplicate_risk")
         steps.append(
             _step(
                 "inject_event",
@@ -1317,12 +1316,24 @@ class _DrillProviderUnavailable(RuntimeConfigError):
 
 def _drill_transport() -> str:
     """Select one installed fake provider for synthetic lifecycle instances."""
-    specs = iter_adapter_specs()
+    specs = tuple(
+        spec for spec in iter_adapter_specs() if spec.fake_adapter is not None
+    )
     if not specs:
         raise _DrillProviderUnavailable(
             "Lifecycle drills require an installed adapter with a fake implementation"
         )
     return specs[0].transport
+
+
+def _require_drill_instances(app: MedreApp, assignments: Mapping[str, str]) -> None:
+    """Do not mistake provider construction faults for injected start failures."""
+    if app.build_failures or set(app.adapters) != set(assignments):
+        raise RuntimeConfigError(
+            "Synthetic drill setup failed before failure injection: "
+            f"expected instances={sorted(assignments)}, built={sorted(app.adapters)}, "
+            f"build failures={len(app.build_failures)}"
+        )
 
 
 def _drill_adapters(adapter_transports: Mapping[str, str]) -> AdapterConfigSet:
@@ -1463,9 +1474,10 @@ async def _drill_all_adapters_build_fail(
     paths = _drill_paths()
 
     try:
+        forced_error = RuntimeConfigError("drill: forced build failure")
         with patch(
             "medre.runtime.builder._build_fake_adapter",
-            side_effect=RuntimeConfigError("drill: forced build failure"),
+            side_effect=forced_error,
         ):
             builder = RuntimeBuilder(config, paths)
             app = builder.build()
@@ -1489,6 +1501,17 @@ async def _drill_all_adapters_build_fail(
                 failure_count=failure_count,
             )
         )
+
+        if {failure.adapter_id for failure in app.build_failures} != set(
+            adapter_transports
+        ) or any(
+            failure.error is not forced_error
+            and failure.error.__cause__ is not forced_error
+            for failure in app.build_failures
+        ):
+            raise RuntimeConfigError(
+                "Construction failures did not match the injected drill fault"
+            )
 
         build_failure_records = [
             {
@@ -1565,6 +1588,7 @@ async def _drill_partial_degraded_startup(
     try:
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
+        _require_drill_instances(app, adapter_transports)
         steps.append(_step("build_runtime", "ok"))
 
         # Replace beta with a failing adapter.
@@ -1720,6 +1744,7 @@ async def _drill_all_adapters_start_fail(
     try:
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
+        _require_drill_instances(app, adapter_transports)
         steps.append(_step("build_runtime", "ok"))
 
         # Replace both adapters with failing trackers.
@@ -1853,11 +1878,15 @@ async def _drill_all_adapters_start_fail(
             and is_failed_state
             and no_started
             and all_failed
+            and alpha_fail.stop_called
+            and beta_fail.stop_called
             and pipeline_stop_called
             and storage_close_called
         ):
             report["status"] = "failed"
             report["fail_reasons"] = []
+            if not (alpha_fail.stop_called and beta_fail.stop_called):
+                report["fail_reasons"].append("Failed-adapter cleanup was not observed")
             if not startup_error_caught:
                 report["fail_reasons"].append("RuntimeStartupError was not raised")
             if not is_total_failure:

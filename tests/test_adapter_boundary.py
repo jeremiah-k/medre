@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter boundary contract tests.
 
 Documents the uniform contract expectations for AdapterContract subclasses

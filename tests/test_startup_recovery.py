@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup failure and degraded runtime recovery tests.
 
 Validates operator repair loops for runtime startup failures: total startup

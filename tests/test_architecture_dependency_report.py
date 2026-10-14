@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for the architecture dependency graph and boundary reports."""
 
 from __future__ import annotations

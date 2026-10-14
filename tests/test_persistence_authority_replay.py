@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Persistence authority tests: replay.
 
 Focused tests proving the replay authority model where gaps exist from

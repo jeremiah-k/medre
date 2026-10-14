@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI replay-flow tests: dry_run, best_effort, full walkthrough.
 
 Split from the original walkthrough CLI test monolith.

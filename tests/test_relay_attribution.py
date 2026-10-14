@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused unit tests for relay attribution model, formatter, and generic
 builder.
 

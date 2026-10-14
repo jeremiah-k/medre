@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay bridge-condition tests: live delivery vs replay delivery traceability.
 
 Tests verify that BEST_EFFORT replay of events previously delivered via a

@@ -55,8 +55,7 @@ medre-adapter-matrix = { path = "../medre-adapter-matrix", editable = true }
 
 Run `uv lock` to resolve the complete dependency graph, then `uv sync --locked`
 for reproducible installs. `uv run --no-sync medre adapters check --config
-bridge.yaml` reports missing transport providers without starting any radio or
-connecting to a homeserver. Finish with `medre config check --config bridge.yaml`.
+bridge.yaml` reports missing or broken providers without opening a platform connection. Finish with `medre config check --config bridge.yaml`.
 
 For a private Git repository, uv also accepts authenticated SSH Git URLs;
 use your SSH agent or credential helper, not credentials embedded in committed
@@ -111,6 +110,18 @@ adapters:
       adapter_kind: real
       # ... radio connection options ...
 ```
+
+`medre config sample` includes SDK-free samples contributed by installed
+providers. With one contribution it creates two fake instances; with none it
+emits a loadable empty config with installation guidance. Install a provider
+and regenerate to exercise routing. Providers may omit fake/sample support;
+consult their documentation for real connection settings.
+
+Broken entry points are reported as `broken`, separately from `missing`,
+including the actual provider distribution name and entry-point reference.
+Repair or uninstall those distributions and restart MEDRE. Help and unrelated
+healthy providers remain usable; configuring a broken provider fails with a
+configuration error.
 
 MEDRE does not assume that the `meshcore` transport comes from a PyPI package
 named `medre-adapter-meshcore`: the adapter author chooses their distribution

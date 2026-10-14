@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Packaging, install, and import-boundary contract tests.
 
 Tracks 2 & 10 — validates:

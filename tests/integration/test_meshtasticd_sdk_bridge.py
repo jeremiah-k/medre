@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Docker-backed meshtasticd SDK-boundary bridge smoke tests.
 
 These tests prove the MEDRE MeshtasticAdapter can operate against a real

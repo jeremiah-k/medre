@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Static guards for prerelease shape and documentation contracts.
 
 These checks preserve the mechanical anti-regression value that used to live

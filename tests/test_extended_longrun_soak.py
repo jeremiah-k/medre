@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Extended long-duration fake-only soak validation.
 
 Larger combined scenarios that stress multiple axes simultaneously, going

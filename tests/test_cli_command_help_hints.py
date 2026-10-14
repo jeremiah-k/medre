@@ -237,7 +237,9 @@ class TestPublicConstants:
         from medre.cli.transports import TRANSPORTS
 
         assert isinstance(TRANSPORTS, list)
-        assert len(TRANSPORTS) > 0
+        from medre.adapter_registry import registered_transports
+
+        assert tuple(TRANSPORTS) == registered_transports()
 
     def test_no_private_transport_constant_in_transports_module(self) -> None:
         """transports.py must not still export _TRANSPORTS."""

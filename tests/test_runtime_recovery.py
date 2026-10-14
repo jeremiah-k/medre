@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime crash/recovery and persistence tests.
 
 Covers:

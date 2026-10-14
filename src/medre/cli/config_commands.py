@@ -288,8 +288,20 @@ def _adapters_check(config_path: str | None) -> None:
     if not report.required:
         print("No adapter types declared.")
     for transport in report.required:
+        if any(f.transport == transport for f in report.broken):
+            continue
         status = "missing" if transport in report.missing else "installed"
         print(f"  {transport}: {status}")
+    for failure in report.broken:
+        print(
+            f"  {failure.transport}: broken ({failure.provider_distribution or 'unknown distribution'}, {failure.entry_point}): {failure.reason}"
+        )
+    if report.broken:
+        print(
+            "Repair or uninstall broken provider distributions, restart MEDRE, and re-run this check.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
     if report.missing:
         print(
             "Missing adapter distribution(s). Install packages registering the "

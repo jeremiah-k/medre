@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Paths, version, adapters, Docker env, install metadata, and redaction workflows.
 
 Covers:

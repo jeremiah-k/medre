@@ -34,7 +34,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, main
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
 from medre.core.storage.backend import (
@@ -1035,3 +1034,28 @@ def test_json_page_shape_is_stable(tmp_path: Path) -> None:
     for typed_field in ("receipt_sequence", "attempt_number"):
         assert isinstance(row[typed_field], int)
     assert isinstance(row["target_channel"], (str, type(None)))
+
+
+def test_scan_warns_from_unresolved_evidence_without_platform_assumptions(tmp_path):
+    db = tmp_path / "private-chat.sqlite"
+    _seed(
+        db,
+        [_event("evt-private", at=_T0)],
+        [
+            _receipt(
+                "evt-private",
+                receipt_id="r-private",
+                status="failed",
+                adapter="independent-chat",
+            )
+        ],
+    )
+    report = _run_cli_json("recover", "--json", "--storage-path", str(db))
+    assert any("duplicate sends" in warning for warning in report["warnings"])
+    assert all("radio" not in warning.lower() for warning in report["warnings"])
+    empty = tmp_path / "empty.sqlite"
+    _seed(empty, [], [])
+    assert (
+        _run_cli_json("recover", "--json", "--storage-path", str(empty))["warnings"]
+        == []
+    )

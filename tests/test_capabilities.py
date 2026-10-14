@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for runtime transport capability metadata.
 
 Covers:

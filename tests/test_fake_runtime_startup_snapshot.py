@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup/shutdown and snapshot integration tests.
 
 Multi-adapter startup with partial and total failure scenarios, shutdown

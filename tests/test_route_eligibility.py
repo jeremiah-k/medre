@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for route eligibility/readiness metadata.
 
 Covers:
