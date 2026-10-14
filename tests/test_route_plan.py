@@ -15,7 +15,6 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
-
 from medre.config.loader import load_config
 from medre.runtime.route_plan import (
     AdapterSummary,
@@ -660,8 +659,8 @@ routes:
         dest_context: '!shared:fake.local'
       "c":
         dest_destination:
-          kind: lxmf_destination
-          destination_hash: 21c0c1b9aabbccddeeff001122334455
+          kind: matrix_room
+          destination_name: '!structured:fake.local'
 """
 
 

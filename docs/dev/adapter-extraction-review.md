@@ -94,9 +94,19 @@ environments pass dependency consistency checks. Lint, formatting, compilation, 
 validation, whitespace checks, and the offline core lock freshness check are recorded
 with the final verification. The entire core regression suite was not executed.
 
-Hardware, external live services, soak, macOS/Windows execution, and remote
-GitHub Actions runs remain unverified locally. Core CI is configured to run its
-independence checks on Linux, macOS, and Windows; SDK qualification is Linux.
+Publishing qualification runs in [PR #265](https://github.com/jeremiah-k/medre/pull/265).
+The initial remote regression exposed 17 remaining obsolete assertions: bundled
+source locations, removed core SDK extras, a ban on namespace extension, and two
+fixtures attaching LXMF addresses to Matrix targets. Targeted corrections pass
+509 checks, retaining the new target validation and scanning installed adapter
+sources. The Docker runner also passed an empty pytest path, collecting unrelated
+suites; positional argument forwarding now keeps collection within its integration
+tier and has regression coverage.
+
+All four independent adapter workflows passed. Core independence and installed-wheel
+checks passed on Linux, macOS, and Windows; SDK qualification and deterministic
+Docker integration run on Linux. Hardware, external live services, and soak remain
+unexecuted. The PR checks record the current full regression result.
 
 ## Release coordination
 

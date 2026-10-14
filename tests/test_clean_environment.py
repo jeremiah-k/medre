@@ -13,7 +13,7 @@ functional, deterministic environment.  Every test in this module:
 
   1. Editable-install command documentation matches pyproject.toml.
   2. Build-system metadata is complete for ``python -m build``.
-  3. Extras dependency graph is internally consistent (e2e ⊃ matrix).
+  3. Core extras contain development dependencies, without transport SDKs.
   4. Console-script entry point resolves to a live callable.
   5. All library subpackages import cleanly (broader than base-import test).
    6. Config sample generation works and is valid YAML.
@@ -38,7 +38,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.adapter_registry import registered_transports
 
 # ---------------------------------------------------------------------------
@@ -101,11 +100,9 @@ class TestEditableInstallDocumentation:
         """Each transport extra in pyproject.toml must appear in the doc."""
         transport_extras = set(self._opt) - {"dev"}
         for extra in transport_extras:
-            assert (
-                re.search(
-                    rf"uv sync --locked --extra {re.escape(extra)}(?:\s|`|$)",
-                    self._doc_text,
-                )
+            assert re.search(
+                rf"uv sync --locked --extra {re.escape(extra)}(?:\s|`|$)",
+                self._doc_text,
             ), f"install.md does not document locked installation of {extra} extra"
 
     def test_doc_install_commands_use_project_name(self) -> None:
@@ -212,24 +209,14 @@ class TestExtrasDependencyGraph:
             "optional-dependencies", {}
         )
 
-    def test_matrix_e2e_superset_of_matrix(self) -> None:
-        """``matrix-e2e`` should depend on the same mindroom-nio base."""
-        matrix_deps = set(self._opt.get("matrix", []))
-        e2e_deps = set(self._opt.get("matrix-e2e", []))
-        # matrix-e2e uses mindroom-nio[e2e] which is a superset dependency
-        assert e2e_deps, "matrix-e2e extra is empty"
-        # At minimum both should reference mindroom-nio
-        matrix_has_nio = any("mindroom-nio" in d for d in matrix_deps)
-        e2e_has_nio = any("mindroom-nio" in d for d in e2e_deps)
-        assert matrix_has_nio, "matrix extra missing mindroom-nio reference"
-        assert e2e_has_nio, "matrix-e2e extra missing mindroom-nio reference"
+    def test_core_extras_only_own_development_dependencies(self) -> None:
+        """SDK and e2e requirements belong to independent adapter metadata."""
+        assert set(self._opt) == {"dev"}
 
-    def test_all_extras_have_at_least_one_dep(self) -> None:
-        """Transport extras must not be empty lists."""
-        transport_extras = {"matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"}
-        for name in transport_extras:
-            deps = self._opt.get(name, [])
-            assert len(deps) >= 1, f"transport extra {name!r} has no dependencies"
+    def test_all_declared_extras_have_dependencies(self) -> None:
+        """An advertised extra must install something."""
+        for name, deps in self._opt.items():
+            assert deps, f"extra {name!r} has no dependencies"
 
     def test_no_duplicate_deps_within_extra(self) -> None:
         """No extra should list the same dependency string twice."""

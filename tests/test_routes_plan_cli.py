@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.cli.route_commands import _format_structured_destination
 from tests.helpers.cli import _run_cli_raw
 
@@ -645,15 +644,11 @@ runtime:
 storage:
   backend: memory
 adapters:
-  matrix:
-    main:
+  lxmf:
+    peer:
       enabled: true
       adapter_kind: fake
-      homeserver: https://fake.local
-      user_id: '@bot:fake.local'
-      access_token: tok_main
-      room_allowlist: ['!shared:fake.local']
-      encryption_mode: plaintext
+      connection_type: fake
   meshtastic:
     radio:
       enabled: true
@@ -662,7 +657,7 @@ adapters:
 routes:
   mapped:
     source_adapters: [radio]
-    dest_adapters: [main]
+    dest_adapters: [peer]
     directionality: source_to_dest
     context_map:
       "0":

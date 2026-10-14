@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.helpers.source_locations import source_file
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,7 +39,7 @@ _NATIVE_METADATA_VERSION_SOURCES: dict[str, tuple[str, str]] = {
 
 
 def _parse(relative: str) -> ast.Module:
-    path = _ROOT / relative
+    path = source_file(_ROOT, relative)
     return ast.parse(path.read_text(encoding="utf-8"), filename=relative)
 
 

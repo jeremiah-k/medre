@@ -540,7 +540,5 @@ def test_json_schema_identifier_patterns_match_runtime_authority() -> None:
     runtime_schema = json.loads(
         (root / "docs/schemas/runtime-config.schema.json").read_text()
     )
-    groups = runtime_schema["properties"]["adapters"]["properties"]
-    assert {group["propertyNames"]["pattern"] for group in groups.values()} == {
-        expected
-    }
+    groups = runtime_schema["properties"]["adapters"]["additionalProperties"]
+    assert groups["propertyNames"]["pattern"] == expected

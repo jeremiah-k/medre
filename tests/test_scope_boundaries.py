@@ -13,7 +13,7 @@ text inspection** (not runtime importing of optional SDKs) and cover:
 7. No persistent queue infrastructure.
 8. No replay deduplication engine (only run_id tracking allowed).
 9. No dynamic route/config reload mechanism.
-10. No package split — single ``medre`` package only.
+10. Core remains one distribution with explicit external-adapter namespace seams.
 11. No canonical event redesign — single stable ``CanonicalEvent`` in
    ``medre.core.events.canonical``.
 
@@ -30,11 +30,11 @@ The helper functions and scanning patterns are reused from
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
 import pytest
-
 from medre.runtime.architecture_report import _SDK_PACKAGES
 from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
 from tests.helpers.import_scanner import banned_imports as _banned_imports
@@ -811,17 +811,15 @@ class TestNoDynamicReload:
 
 
 # ===================================================================
-# 10. No package split
+# 10. Core distribution and external adapter seams
 # ===================================================================
 
 
-class TestNoPackageSplit:
-    """Beta must be a single ``medre`` package — no namespace packages
-    or split distributions.
+class TestCoreDistributionLayout:
+    """Core ships one distribution; adapters extend declared namespace seams.
 
-    There must be exactly one ``pyproject.toml`` at the project root,
-    no nested ``pyproject.toml`` or ``setup.py`` under ``src/``,
-    and no PEP 420 implicit namespace package declarations.
+    Build metadata stays at the repository root. The first-party adapter
+    namespace uses explicit pkgutil extension rather than implicit packages.
     """
 
     def test_single_root_pyproject(self) -> None:
@@ -839,39 +837,30 @@ class TestNoPackageSplit:
             str(f) for f in nested
         )
 
-    def test_no_namespace_package_declaration(self) -> None:
-        """No __init__.py declares namespace package status."""
-        violations: list[str] = []
-        for path in _all_source_py_files(_SRC_ROOT):
-            if path.name != "__init__.py":
-                continue
-            source = _file_source(path)
-            for bad in (
-                "__path__",
-                "declare_namespace",
-                "extend_path",
-                "namespace_packages",
-            ):
-                # Skip if it's just a comment/docstring reference.
-                for i, line in enumerate(source.splitlines(), 1):
-                    stripped = line.strip()
-                    if stripped.startswith("#"):
-                        continue
-                    if bad in stripped:
-                        rel = path.relative_to(_SRC_ROOT)
-                        violations.append(f"{rel}:{i}: {stripped}")
-        # The observability/__init__.py has "namespace" in a docstring
-        # — filter out that specific false positive.
-        real_violations = [
-            v
-            for v in violations
-            if not re.match(r".*\d+:.*#.*", v)
-            and "obtain a child logger in the framework namespace" not in v
-            and "logging namespace" not in v
-        ]
-        assert (
-            real_violations == []
-        ), "Found namespace package declarations:\n" + "\n".join(real_violations)
+    def test_namespace_extensions_are_limited_to_adapter_seams(self) -> None:
+        """Only declared package boundaries extend the installed namespace."""
+        expected = {
+            "__init__.py",
+            "adapters/__init__.py",
+            "adapters/fakes/__init__.py",
+            "config/__init__.py",
+            "config/adapters/__init__.py",
+        }
+        extended: set[str] = set()
+        for path in _SRC_ROOT.rglob("__init__.py"):
+            tree = ast.parse(_file_source(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    assert node.module != "pkg_resources", path
+                if isinstance(node, ast.Assign) and any(
+                    isinstance(target, ast.Name) and target.id == "__path__"
+                    for target in node.targets
+                ):
+                    assert (
+                        ast.unparse(node.value) == "extend_path(__path__, __name__)"
+                    ), path
+                    extended.add(path.relative_to(_SRC_ROOT).as_posix())
+        assert extended == expected
 
     def test_single_package_name(self) -> None:
         """pyproject.toml must define a single medre package."""

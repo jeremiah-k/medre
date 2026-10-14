@@ -57,6 +57,7 @@ from medre.core.supervision.health import (
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
+from tests.helpers.source_locations import source_file
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -482,10 +483,10 @@ class TestAdaptersReportHealthNotState:
     def test_real_adapters_do_not_import_adapter_state(self) -> None:
         """No real adapter module mentions AdapterState."""
         adapter_files = [
-            REPO_ROOT / "src/medre/adapters/matrix/adapter.py",
-            REPO_ROOT / "src/medre/adapters/meshtastic/adapter.py",
-            REPO_ROOT / "src/medre/adapters/meshcore/adapter.py",
-            REPO_ROOT / "src/medre/adapters/lxmf/adapter.py",
+            source_file(REPO_ROOT, "src/medre/adapters/matrix/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/meshtastic/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/meshcore/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/lxmf/adapter.py"),
         ]
         for path in adapter_files:
             content = path.read_text()
