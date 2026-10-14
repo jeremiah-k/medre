@@ -965,14 +965,14 @@ wheels = [
 
 [[package]]
 name = "lxmf"
-version = "1.2.0"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rns" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/e0/4e1efc0f20abd41a9ea2c01a5f1870b452f85c7cc710f74f45dd979d520b/lxmf-1.2.0.tar.gz", hash = "sha256:f14243283b90ad06356071d90394357640924201f9c992dcdfecbc23614fb309", size = 80711, upload-time = "2026-09-30T12:58:53.789Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/c4/9042fcd535e815efc8baebad5fdc3eb2bb308500c781ec828a4e60a532e5/lxmf-1.2.1.tar.gz", hash = "sha256:acb1551066406de97c6aacaa38cf512131b60167db5ab5787a525d1d2586b304", size = 81509, upload-time = "2026-10-13T14:43:12.909Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/39/a15dd88f5bafcee5664dbfee288507e5aa02e2f33f0f3a24aab81c660e97/lxmf-1.2.0-py3-none-any.whl", hash = "sha256:805f053e61082f585efc6d09beffd039fd921174c5e1547a2e690bc479d75b85", size = 69602, upload-time = "2026-09-30T12:58:52.175Z" },
+    { url = "https://files.pythonhosted.org/packages/90/90/89a1ba2135cd9bf9bb98f41ed3b9379b8079a2c2c6473e246029ff1eee58/lxmf-1.2.1-py3-none-any.whl", hash = "sha256:4bd95325b00e5fae81241e28f26a5ed22b38fea941e128d1c63a33c99e931440", size = 70324, upload-time = "2026-10-13T14:43:10.076Z" },
 ]
 
 [[package]]
@@ -1018,7 +1018,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = "==1.6.1" },
     { name = "coverage", marker = "extra == 'dev'", specifier = "==7.16.2" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
-    { name = "lxmf", marker = "extra == 'lxmf'", specifier = "==1.2.0" },
+    { name = "lxmf", marker = "extra == 'lxmf'", specifier = "==1.2.1" },
     { name = "meshcore", marker = "extra == 'meshcore'", specifier = "==2.3.15" },
     { name = "mindroom-nio", marker = "extra == 'matrix'", specifier = "==0.40.0" },
     { name = "mindroom-nio", extras = ["e2e"], marker = "extra == 'matrix-e2e'", specifier = "==0.40.0" },
