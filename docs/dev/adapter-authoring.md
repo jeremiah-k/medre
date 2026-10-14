@@ -517,8 +517,8 @@ The runtime handles all of it:
 The `src/medre/adapters/fakes/` directory contains working reference
 implementations:
 
-| File                                                                        | Purpose                                                   |
-| --------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `transport.py`                                                              | `FakeTransportAdapter` -- minimal TRANSPORT adapter       |
-| `presentation.py`                                                           | `FakePresentationAdapter` -- minimal PRESENTATION adapter |
-| Transport-specific fakes live in their corresponding adapter distributions. |
+| File                     | Purpose                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| `transport.py`           | `FakeTransportAdapter` -- minimal TRANSPORT adapter       |
+| `presentation.py`        | `FakePresentationAdapter` -- minimal PRESENTATION adapter |
+| Transport-specific fakes | Live in their corresponding adapter distributions         |
