@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.runtime.smoke import run_fake_bridge_smoke
 from tests.helpers.drill_configs import write_drill_target_config
@@ -96,3 +95,54 @@ async def test_partial_fanout_delivery_cannot_be_reported_as_pass(
     )
     assert "meshtastic" in report["target_adapters"]
     assert "lxmf" in report["target_adapters"]
+
+
+@pytest.mark.parametrize("failure_stage", ["build", "start"])
+async def test_pruned_fanout_target_cannot_disappear_from_smoke_pass(
+    cross_adapter_config: str,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+
+    if failure_stage == "build":
+
+        def fail_build(self: Any, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("target construction failed")
+
+        monkeypatch.setattr(FakeMeshCoreAdapter, "__init__", fail_build)
+    else:
+
+        async def fail_start(self: Any, ctx: Any) -> None:
+            raise RuntimeError("target startup failed")
+
+        monkeypatch.setattr(FakeMeshCoreAdapter, "start", fail_start)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed", report
+    assert any("meshcore" in reason for reason in report["fail_reasons"])
+    assert "meshtastic" in report["target_adapters"]
+    assert "lxmf" in report["target_adapters"]
+
+
+async def test_smoke_event_factory_error_stops_runtime(
+    cross_adapter_config: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from medre.adapters.fakes.matrix import FakeMatrixAdapter
+    from medre.runtime.app import MedreApp
+
+    stopped = []
+    original_stop = MedreApp.stop
+
+    async def stop(app: MedreApp) -> None:
+        await original_stop(app)
+        stopped.append(app)
+
+    def fail_event(self: Any, **kwargs: Any) -> None:
+        raise RuntimeError("event factory failed")
+
+    monkeypatch.setattr(MedreApp, "stop", stop)
+    monkeypatch.setattr(FakeMatrixAdapter, "make_event", fail_event)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed"
+    assert "event factory failed" in report["fail_reasons"][0]
+    assert len(stopped) == 1

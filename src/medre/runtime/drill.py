@@ -111,6 +111,7 @@ from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
 )
+from medre.core.events.canonical import CanonicalEvent
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import (
@@ -247,27 +248,17 @@ async def _clean_stop(app: MedreApp) -> None:
         _logger.warning("Drill stop error (non-fatal): %s", exc)
 
 
-def _pick_delivery_target_adapter(app: MedreApp, source_aid: str) -> str | None:
-    """Choose the first sorted non-source adapter reachable from *source_aid*.
-
-    An adapter is reachable when an enabled registered route leg sourced
-    from *source_aid* (wildcard ``None`` sources match any adapter) lists
-    it as a delivery target.  Bidirectional config routes appear here as
-    their expanded per-direction legs, so both directions count.  Returns
-    ``None`` when no enabled route delivers from the chosen source to any
-    other adapter.
-    """
-    for aid in sorted(app.adapters):
-        if aid == source_aid:
-            continue
-        if any(
-            route.enabled
-            and route.source.adapter in (None, source_aid)
-            and any(target.adapter == aid for target in route.targets)
-            for route in app._registered_routes
-        ):
-            return aid
-    return None
+def _pick_delivery_target_adapter(app: MedreApp, event: CanonicalEvent) -> str | None:
+    """Choose a non-source target using the runtime's actual event matching."""
+    reachable = {
+        target.adapter
+        for route in app.router.match(event)
+        for target in app.router.resolve_targets(event, route)
+        if target.adapter is not None
+        and target.adapter != event.source_adapter
+        and target.adapter in app.started_adapter_ids
+    }
+    return min(reachable) if reachable else None
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +384,7 @@ async def _drill_adapter_permanent_failure(
 
         # Patch the first non-source adapter that an enabled route leg from
         # the chosen source actually delivers to.
-        patched_aid = _pick_delivery_target_adapter(app, source_aid)
+        patched_aid = _pick_delivery_target_adapter(app, event)
 
         if patched_aid is None:
             report["status"] = "failed"
@@ -401,7 +392,6 @@ async def _drill_adapter_permanent_failure(
                 f"no delivery target for source {source_aid}",
             ]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         adapter = app.adapters[patched_aid]
@@ -550,7 +540,7 @@ async def _drill_adapter_transient_failure(
 
         # Patch the first non-source adapter that an enabled route leg from
         # the chosen source actually delivers to.
-        patched_aid = _pick_delivery_target_adapter(app, source_aid)
+        patched_aid = _pick_delivery_target_adapter(app, event)
 
         if patched_aid is None:
             report["status"] = "failed"
@@ -558,7 +548,6 @@ async def _drill_adapter_transient_failure(
                 f"no delivery target for source {source_aid}",
             ]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         adapter = app.adapters[patched_aid]

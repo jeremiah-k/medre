@@ -58,6 +58,7 @@ from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.observability.sanitization import sanitize_error
+from medre.core.routing import Router
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import native_ref_to_report_dict
@@ -82,7 +83,7 @@ _LIMITATIONS: list[str] = [
     "Fake adapters only — no real transport connectivity proven",
     "No live codec verification for real packet formats",
     "No reconnection resilience or retry-against-live proof",
-    "Fire-and-forget delivery model for radio transports",
+    "No live delivery acknowledgement or recipient receipt proven",
     "Single source injection — unselected route sources not exercised",
 ]
 
@@ -165,7 +166,9 @@ def _eligible_smoke_sources(app: MedreApp) -> list[str]:
     return [
         adapter_id
         for adapter_id in sorted(app.adapters)
-        if any(
+        if adapter_id in app.started_adapter_ids
+        and callable(getattr(app.adapters[adapter_id], "make_event", None))
+        and any(
             route.enabled and route.source.adapter in (None, adapter_id)
             for route in app._registered_routes
         )
@@ -188,7 +191,14 @@ def _pick_source_adapter(
         adapter_id = candidates[0]
         return adapter_id, app.adapters[adapter_id]
     # A route-less smoke still reports its normal no-delivery evidence.
-    adapter_id = sorted(app.adapters)[0]
+    sources = sorted(
+        adapter_id
+        for adapter_id in app.started_adapter_ids
+        if callable(getattr(app.adapters[adapter_id], "make_event", None))
+    )
+    if not sources:
+        raise ValueError("No started adapter provides the smoke make_event helper")
+    adapter_id = sources[0]
     return adapter_id, app.adapters[adapter_id]
 
 
@@ -432,7 +442,7 @@ async def run_fake_bridge_smoke(
     try:
         source_aid, source_instance = _pick_source_adapter(app, source_adapter)
         event = _make_smoke_event(source_instance, message_text)
-    except (ValueError, AttributeError, IndexError) as exc:
+    except Exception as exc:
         try:
             await app.stop()
         except Exception:
@@ -451,6 +461,22 @@ async def run_fake_bridge_smoke(
             **_empty_runtime_evidence(),
         }
 
+    # Compare against configured routes: startup may prune unavailable targets
+    # from the live router, so outcomes alone cannot prove the complete fanout.
+    from medre.runtime.route_engine import build_runtime_routes
+
+    configured_router = Router(
+        build_runtime_routes(config.routes) if config.routes is not None else []
+    )
+    expected_deliveries = {
+        (route.id, target.adapter)
+        for route in configured_router.match(event)
+        for target in configured_router.resolve_targets(event, route)
+        if target.adapter is not None
+    }
+    unavailable_deliveries = {
+        pair for pair in expected_deliveries if pair[1] not in app.started_adapter_ids
+    }
     outcomes: list[Any] = []
     injection_error: str | None = None
     try:
@@ -546,6 +572,10 @@ async def run_fake_bridge_smoke(
     event_stored = stored_event is not None
     has_success = any(o.status == "success" for o in outcomes)
     has_failure = any(o.status != "success" for o in outcomes)
+    missing_deliveries = unavailable_deliveries | (
+        expected_deliveries
+        - {(o.route_id, o.target_adapter) for o in outcomes if o.status == "success"}
+    )
     has_sent_receipt = any(r.status == "sent" for r in receipts)
     delivered_count = accounting.get("outbound_delivered", 0) if accounting else 0
 
@@ -553,6 +583,7 @@ async def run_fake_bridge_smoke(
         event_stored
         and has_success
         and not has_failure
+        and not missing_deliveries
         and has_sent_receipt
         and delivered_count >= 1
         and injection_error is None
@@ -567,6 +598,13 @@ async def run_fake_bridge_smoke(
         fail_reasons.append("No successful delivery outcome")
     if has_failure:
         fail_reasons.append("One or more route delivery outcomes were not successful")
+    if missing_deliveries:
+        fail_reasons.append(
+            "Configured route target(s) unavailable or missing successful delivery: "
+            + ", ".join(
+                f"{route} -> {target}" for route, target in sorted(missing_deliveries)
+            )
+        )
     if not has_sent_receipt:
         fail_reasons.append("No receipt with status 'sent'")
     if delivered_count < 1:

@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from medre.runtime.drill import run_drill
 from tests.helpers.drill_configs import write_drill_target_config
 
@@ -94,3 +93,26 @@ async def test_adapter_transient_failure_patches_route_target(
     assert verify_step is not None
     assert verify_step["observed"] == "transient_failure"
     assert report["recovery_path"]["recovery_simulated"] is True
+
+
+@pytest.mark.parametrize(
+    "drill", ["adapter_permanent_failure", "adapter_transient_failure"]
+)
+async def test_failure_drill_ignores_nonmatching_event_filters(
+    tmp_path: Path, drill: str
+) -> None:
+    path = Path(write_drill_target_config(tmp_path))
+    path.write_text(path.read_text() + """
+  unrelated_channel:
+    source_adapters: [lxmf]
+    source_channel: different-channel
+    dest_adapters: [matrix]
+  unrelated_kind:
+    source_adapters: [lxmf]
+    dest_adapters: [matrix]
+    policy:
+      allowed_event_types: [message.reaction]
+""")
+    report = await run_drill(drill, config_path=str(path))
+    assert report["status"] == "passed", report.get("fail_reasons")
+    assert report["target_adapters"] == ["meshcore"]

@@ -984,6 +984,24 @@ Fake adapters **MUST NOT**:
 4. Produce non-deterministic output (random IDs, varying timestamps).
 5. Depend on external state (files, environment variables beyond test configuration).
 
+### 22.3 Fake smoke evidence
+
+A fake adapter **MAY** provide a synchronous `make_event(text=..., event_kind=...)`
+helper returning a `CanonicalEvent` originating from that adapter. Normal smoke
+source selection **MUST** require successful startup and this helper. Missing
+helpers **MUST NOT** prevent a fake from participating as a delivery target.
+
+A smoke pass **MUST** require successful delivery for every configured route
+and target pair matched by its injected event. Adapter construction or startup
+failure **MUST NOT** turn a missing target into a successful reduced fanout.
+A target that did not start cannot prove delivery even if its fake returns a
+successful handoff. Event-factory errors **MUST** produce a failed report and
+trigger runtime cleanup.
+
+Adapter failure drills **MUST** select targets through the runtime router's
+matching and target-resolution rules for the injected event, including channel
+and event-kind filters.
+
 ---
 
 ## 23. Error Hierarchy

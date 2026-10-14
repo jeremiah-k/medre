@@ -951,7 +951,9 @@ medre smoke --config bridge.yaml --source-adapter meshtastic --storage-path mesh
 `--source-adapter` rejects unknown, disabled or unrouted sources instead of
 silently injecting through a different adapter. Smoke now fails when **any**
 selected source's fanout target returns a non-success outcome, even if a different
-target succeeds. This remains fake direct-pipeline evidence, not live transport
+target succeeds. Targets lost during construction or startup also fail the smoke;
+the report compares delivery evidence with the configured routes. Eligible
+sources must have started and provide the optional `make_event` helper. This remains fake direct-pipeline evidence, not live transport
 or SDK callback coverage. Use separate hardware/live tests for those contracts.
 
 With sibling source repos, run `python scripts/ci/adapter_matrix.py --check-local`
