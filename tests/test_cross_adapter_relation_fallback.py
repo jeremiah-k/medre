@@ -57,15 +57,13 @@ from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.packet_classifier import \
-    MeshtasticPacketClassifier
+from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events import (CanonicalEvent, EventMetadata, NativeMessageRef,
-                               NativeRef)
+from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingContext, RenderingPipeline

@@ -18,7 +18,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "a12ce24a64ec92a405816032412f37d62815aa53",
+    "ref": "ca6cb6aef1a7aa2b4f1a5eb3f77a17d04f756ca1",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
