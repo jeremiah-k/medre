@@ -358,6 +358,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.runtime.observability",
         "medre.runtime.run_session",
         "medre.plugins",
+        "medre.testing",
         "medre.cli",
     ]
 
