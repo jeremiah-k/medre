@@ -215,8 +215,11 @@ Each transport has its own sub-table under
 Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
 the fallback for installed providers that do not declare a specialized wrapper.
 Specialized wrappers, including the first-party transport wrappers, are owned
-by their adapter distributions and imported directly from those packages. The
-wrapper consumes three wrapper-level fields before constructing the adapter
+by their adapter distributions and imported directly from those packages. Core
+validates the structural `AdapterRuntimeConfig` interface (`adapter_id`,
+`enabled`, `adapter_kind`, and `config`); inheritance from the generic fallback
+**MUST NOT** be required. Independent wrappers use the same field validation as
+subclasses. The wrapper consumes three lifecycle fields before constructing the adapter
 dataclass:
 
 | Wrapper field  | Type   | Default       | Description                                                                                                                                                                       |
@@ -351,6 +354,10 @@ When present, `policy`, `retry`, and `context_map` **MUST** be mappings, not
 `null` MUST NOT mean an unrestricted allowlist. Route retry durations
 (`backoff_base` and `max_delay_seconds`) **MUST** be finite non-negative
 numbers in both parsed and programmatically constructed configurations.
+
+Direct `BridgePolicy` construction **MUST** enforce the same allowlist element
+types as parsed configuration. Caller-owned list inputs **MUST** be copied into
+immutable tuples so later mutation cannot remove a routing guard.
 
 #### 3.4.1 context_map
 

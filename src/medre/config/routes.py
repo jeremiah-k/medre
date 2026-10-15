@@ -134,6 +134,18 @@ class BridgePolicy:
         ("allowed_event_types", "event types"),
     )
 
+    def __post_init__(self) -> None:
+        """Validate direct policies and freeze caller-owned allowlist sequences."""
+        for name, _ in self._ALLOWLIST_FIELDS:
+            values = getattr(self, name)
+            if not isinstance(values, (list, tuple)) or any(
+                not isinstance(value, str) for value in values
+            ):
+                raise ConfigValidationError(
+                    f"policy.{name} must be a list or tuple of strings"
+                )
+            object.__setattr__(self, name, tuple(values))
+
     @classmethod
     def from_dict(
         cls,
@@ -238,7 +250,7 @@ def _validate_policy(
     """
     # Intentionally empty: structural validation (unknown keys, type
     # checking, per-element string checks) is performed in
-    # BridgePolicy.from_dict before this function is called.
+    # BridgePolicy construction, including from_dict, before this function is called.
 
 
 # ---------------------------------------------------------------------------

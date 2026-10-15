@@ -86,47 +86,23 @@
           "description": "Optional structured destination addressing for the delivery targets (identity/hash form). Mutually exclusive with dest_channel and dest_room: a route target has exactly one addressing authority. Applies to the route's configured dest side only."
         },
         "policy": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/BridgePolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional static bridge policy. Null means no restrictions."
+          "description": "Optional static bridge policy. Omit this block for no restrictions; explicit null is invalid.",
+          "$ref": "#/$defs/BridgePolicy"
         },
         "retry": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/RouteRetryConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional per-route retry policy. Null means no retry scheduling."
+          "description": "Optional per-route retry policy. Omit this block for no retry scheduling; explicit null is invalid.",
+          "$ref": "#/$defs/RouteRetryConfig"
         },
         "context_map": {
-          "oneOf": [
-            {
-              "type": "object",
-              "minProperties": 1,
-              "propertyNames": {
-                "pattern": "^[^\\s](.*[^\\s])?$"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/ContextMapEntry"
-              }
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Mapping of source-side opaque context strings to structured entries with exactly one of 'dest_context' / 'dest_destination' plus optional 'source_origin_label' / 'dest_origin_label'. Contexts are opaque strings owned by their adapters; no transport-specific syntax is validated here. Mutually exclusive with source_channel/dest_channel/source_room/dest_room. Requires exactly one source and one dest adapter."
+          "description": "Mapping of source-side opaque context strings to structured entries with exactly one of 'dest_context' / 'dest_destination' plus optional 'source_origin_label' / 'dest_origin_label'. Contexts are opaque strings owned by their adapters; no transport-specific syntax is validated here. Mutually exclusive with source_channel/dest_channel/source_room/dest_room. Requires exactly one source and one dest adapter.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[^\\s](.*[^\\s])?$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ContextMapEntry"
+          }
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -159,9 +135,7 @@
               "dest_room": {
                 "type": "null"
               },
-              "context_map": {
-                "type": "null"
-              },
+              "context_map": false,
               "dest_adapters": {
                 "maxItems": 1
               }
@@ -441,44 +415,20 @@
           "default": null
         },
         "policy": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/BridgePolicy"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/BridgePolicy"
         },
         "retry": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/RouteRetryConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/RouteRetryConfig"
         },
         "context_map": {
-          "oneOf": [
-            {
-              "type": "object",
-              "minProperties": 1,
-              "propertyNames": {
-                "pattern": "^[^\\s](.*[^\\s])?$"
-              },
-              "additionalProperties": {
-                "$ref": "#/$defs/ContextMapEntry"
-              }
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[^\\s](.*[^\\s])?$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ContextMapEntry"
+          }
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -509,9 +459,7 @@
               "dest_room": {
                 "type": "null"
               },
-              "context_map": {
-                "type": "null"
-              },
+              "context_map": false,
               "dest_adapters": {
                 "maxItems": 1
               }
@@ -557,7 +505,7 @@
     },
     "BridgePolicy": {
       "title": "BridgePolicy",
-      "description": "Static allowlist policy attached to a route. Empty tuples mean 'allow all'.",
+      "description": "Static allowlist policy attached to a route. Empty arrays mean 'allow all'; explicit null and non-sequences are invalid.",
       "type": "object",
       "properties": {
         "allowed_event_types": {

@@ -16,7 +16,7 @@ import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Self, get_args, get_type_hints
+from typing import Any, Protocol, Self, get_args, get_type_hints, runtime_checkable
 
 from medre.adapter_registry import registered_transports
 from medre.config.errors import ConfigValidationError
@@ -452,7 +452,7 @@ class RuntimeLimits:
 class GenericAdapterRuntimeConfig:
     """Transport-neutral wrapper for one configured adapter instance.
 
-    Adapters may provide their own validated subclasses. Core never needs to
+    Adapters may provide independent validated wrappers. Core never needs to
     import transport-specific configuration types.
     """
 
@@ -512,9 +512,21 @@ class GenericAdapterRuntimeConfig:
         )
 
 
-# Registered adapters without a dedicated wrapper use the
-# transport-neutral runtime config directly.
-AdapterRuntimeConfig = GenericAdapterRuntimeConfig
+@runtime_checkable
+class AdapterRuntimeConfig(Protocol):
+    """Structural lifecycle fields owned wrappers expose to core consumers."""
+
+    @property
+    def adapter_id(self) -> str: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    @property
+    def adapter_kind(self) -> str: ...
+
+    @property
+    def config(self) -> Any | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -615,7 +627,7 @@ class AdapterConfigSet:
         for transport, group in self.groups():
             for instance_name, rtc in group.items():
                 section = f"adapters.{transport}.{instance_name}"
-                if not isinstance(rtc, GenericAdapterRuntimeConfig):
+                if not isinstance(rtc, AdapterRuntimeConfig):
                     raise ConfigValidationError(
                         f"{section}: expected an adapter runtime configuration",
                         transport=transport,

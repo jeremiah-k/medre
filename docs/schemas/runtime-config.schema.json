@@ -281,18 +281,15 @@
           "description": "Optional structured destination addressing (identity/hash form). Shape validated by routing-config.schema.json RouteDestination. Mutually exclusive with dest_channel and dest_room."
         },
         "policy": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional static bridge policy. Shape validated by routing-config.schema.json BridgePolicy."
         },
         "retry": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional per-route retry policy. Shape validated by routing-config.schema.json RouteRetryConfig."
         },
         "context_map": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional mapping of source-side opaque context strings to dest contexts or structured destinations. Shape validated by routing-config.schema.json. Contexts are opaque strings owned by their adapters."
         },
         "source_origin_label": {

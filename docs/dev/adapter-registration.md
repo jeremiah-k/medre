@@ -51,6 +51,8 @@ the full transport-to-wrapper-map, and core's generic attribution map. Return a
 does not import another provider or an optional native SDK.
 
 `runtime_config=None` has a deliberate generic fallback; it is not a dead field.
+Dedicated wrappers satisfy the structural `AdapterRuntimeConfig` interface and
+may be independent classes; inheriting `GenericAdapterRuntimeConfig` is optional.
 Likewise, a provider without `runtime_directories` needs no additional directory
 hook. Hooks declare actual provider requirements rather than mandating four
 transport-specific shapes.
