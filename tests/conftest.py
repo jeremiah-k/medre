@@ -37,6 +37,13 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.config_env import isolated_config_env  # noqa: F401
 from tests.helpers.storage_outbox import admit_default_event
 
+# Imported for import-order hermeticity: medre.cli.transports computes
+# TRANSPORTS from the adapter registry at import time, so tests that swap
+# ADAPTER_REGISTRY with synthetic specs must never be the process's first
+# importer. Computing the table here pins it against the real registry for
+# every invocation order.
+from medre.cli import transports  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Event fixtures
 # ---------------------------------------------------------------------------
