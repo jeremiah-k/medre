@@ -48,7 +48,7 @@ Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore
 | text              | `True`                                   |
 | title             | `False`                                  |
 | threads           | `"fallback"`                             |
-| replies           | `"unsupported"`                          |
+| replies           | `"fallback"`                             |
 | reactions         | `"unsupported"`                          |
 | edits             | `"unsupported"`                          |
 | deletes           | `"unsupported"`                          |
@@ -326,15 +326,14 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 
 | Relation type | Capability level | Strategy        | Rendering path                                                                 |
 | ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
-| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Replies       | `"fallback"`     | `fallback_text` | Deterministic inline reply context; no native reply operation.                 |
 | Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
 | Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
 | Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
 | Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-MeshCore has no verified native relation support. Replies, reactions, edits, and
-deletes remain unsupported planning-time skips, while `threads="fallback"`
-selects deterministic inline thread context during normal live planning. Plain
+MeshCore has no verified native relation support. Reactions, edits, and deletes remain unsupported planning-time skips, while
+`replies="fallback"` and `threads="fallback"` select deterministic inline context during normal live planning. Plain
 message kinds continue to deliver directly.
 
 When `fallback_text` is supplied for a relation, the MeshCore renderer produces its

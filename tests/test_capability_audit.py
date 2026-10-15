@@ -141,7 +141,8 @@ def _get_fake_caps(transport: str) -> AdapterCapabilities:
 
         return _FAKE_MATRIX_CAPABILITIES
     if transport == "meshtastic":
-        from medre.adapters.fakes.meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
+        from medre.adapters.fakes.meshtastic import \
+            _FAKE_MESHTASTIC_CAPABILITIES
 
         return _FAKE_MESHTASTIC_CAPABILITIES
     if transport == "meshcore":
@@ -322,14 +323,14 @@ class TestThreadingAndReplies:
         """Meshtastic channels are numeric, not named topics."""
         assert _get_fake_caps("meshtastic").topic_rooms is False
 
-    def test_meshcore_replies_unsupported(self) -> None:
-        assert _get_fake_caps("meshcore").replies == "unsupported"
+    def test_meshcore_replies_fallback(self) -> None:
+        assert _get_fake_caps("meshcore").replies == "fallback"
 
     def test_meshcore_topic_rooms_false(self) -> None:
         assert _get_fake_caps("meshcore").topic_rooms is False
 
-    def test_lxmf_replies_unsupported(self) -> None:
-        assert _get_fake_caps("lxmf").replies == "unsupported"
+    def test_lxmf_replies_fallback(self) -> None:
+        assert _get_fake_caps("lxmf").replies == "fallback"
 
     def test_lxmf_topic_rooms_false(self) -> None:
         assert _get_fake_caps("lxmf").topic_rooms is False

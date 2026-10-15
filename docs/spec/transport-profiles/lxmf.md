@@ -45,7 +45,7 @@ Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabil
 | text                | `True`                              |
 | title               | `True`                              |
 | threads             | `"fallback"`                        |
-| replies             | `"unsupported"`                     |
+| replies             | `"fallback"`                        |
 | reactions           | `"unsupported"`                     |
 | edits               | `"unsupported"`                     |
 | deletes             | `"unsupported"`                     |
@@ -444,15 +444,14 @@ Session also exposes `diagnostics()` and `delivery_state_counts()` with addition
 
 | Relation type | Capability level | Strategy        | Rendering path                                                                 |
 | ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
-| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Replies       | `"fallback"`     | `fallback_text` | Deterministic inline reply context; no native reply operation.                 |
 | Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
 | Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
 | Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
 | Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-LXMF has no verified native relation support beyond basic text delivery. Replies,
-reactions, edits, and deletes remain unsupported planning-time skips, while
-`threads="fallback"` selects deterministic inline thread context during normal
+LXMF has no verified native relation support beyond basic text delivery. Reactions, edits, and deletes remain unsupported planning-time skips, while
+`replies="fallback"` and `threads="fallback"` select deterministic inline context during normal
 live planning. Plain message kinds continue to deliver directly.
 
 When `fallback_text` is selected for a relation, the LXMF renderer produces its

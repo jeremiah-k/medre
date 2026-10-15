@@ -119,6 +119,24 @@ versioned `medre.envelope` object produced by `MatrixMetadataEnvelope`:
 }
 ```
 
+Matrix embedding is selected by the destination adapter's
+`metadata_embedding_mode`. `off` MUST omit `content.medre`; `minimal` MUST carry
+only `schema_version`, `canonical_event_id`, `source_transport_id`, and
+`metadata_mode` inside its envelope. `safe` MUST add event/source/native-reference
+identity and normalized `transport`, `routing`, `radio`, and `telemetry` domains
+under `content.medre.metadata`. It MUST exclude provider-native and custom
+metadata. `full` MUST additionally include canonical native/custom metadata;
+configuration, credentials, and SDK objects are never projection inputs.
+
+The adapter owns the machine-readable wire schema at
+`docs/schemas/matrix-embedded-metadata.schema.json` in `medre-adapter-matrix`.
+Embedded identities are untrusted relay hints. They MUST NOT authorize a native
+mutation or substitute for stored delivery evidence.
+
+Meshtastic's `mmrelay_compatibility` independently opts into legacy
+`meshtastic_*` content keys. Selecting `off` disables the MEDRE namespace only;
+disable mmrelay compatibility too when no relay metadata should be embedded.
+
 Inbound readers interpret only the current envelope schema version. A missing
 or unsupported version is not treated as the current envelope shape. The
 Matrix canonical-native projection stores a safe copy of a valid envelope under
