@@ -19,9 +19,7 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from tests.helpers.native_metadata import (
-    lxmf_native_data,
-)
+from tests.helpers.native_metadata import lxmf_native_data
 from tests.helpers.native_metadata import matrix_native_data as _matrix_native
 from tests.helpers.native_metadata import meshcore_native_data, meshtastic_native_data
 
@@ -413,7 +411,7 @@ class TestMeshCoreRendererMetadata:
                 target_adapter="meshcore_node", delivery_strategy="direct"
             ),
         )
-        assert result.metadata["max_text_bytes"] == 256
+        assert result.metadata["max_text_bytes"] == 127
 
     async def test_metadata_includes_truncated_flag(self) -> None:
         renderer = _make_renderer()
@@ -465,8 +463,8 @@ class TestMeshCoreRendererTruncation:
 
     pytestmark = pytest.mark.asyncio
 
-    async def test_default_512_byte_budget_no_truncation(self) -> None:
-        """Default max_text_bytes=512; text under budget passes through."""
+    async def test_large_operator_limit_cannot_bypass_firmware_truncation(self) -> None:
+        """The renderer reserves an unknown sender name even for a larger operator limit."""
         renderer = _make_renderer()
         text = "x" * 500
         event = _make_event(payload={"body": text})
@@ -476,11 +474,11 @@ class TestMeshCoreRendererTruncation:
                 target_adapter="meshcore_node", delivery_strategy="direct"
             ),
         )
-        assert result.payload["text"] == text
-        assert result.truncated is False
+        assert result.payload["text"] == text[:127]
+        assert result.truncated is True
 
-    async def test_default_512_byte_budget_truncates(self) -> None:
-        """Text over 512 bytes is truncated."""
+    async def test_firmware_byte_budget_truncates(self) -> None:
+        """Long text is truncated to the firmware-safe group budget."""
         renderer = _make_renderer()
         text = "x" * 600
         event = _make_event(payload={"body": text})
@@ -492,7 +490,7 @@ class TestMeshCoreRendererTruncation:
         )
         rendered_text = result.payload["text"]
         assert isinstance(rendered_text, str)
-        assert len(rendered_text.encode("utf-8")) <= 512
+        assert len(rendered_text.encode("utf-8")) == 127
         assert result.truncated is True
 
     async def test_custom_byte_limit(self) -> None:

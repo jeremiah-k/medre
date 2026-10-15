@@ -580,7 +580,7 @@ class TestRendererMMRelayEmoteFallback:
     @pytest.mark.asyncio
     async def test_reply_id_zero_emits_key_reply_id(self) -> None:
         """Reaction with metadata meshtastic_reply_id=0 emits KEY_REPLY_ID='0'."""
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
         from datetime import datetime, timezone
 
         rel = EventRelation(
@@ -625,7 +625,7 @@ class TestRendererMMRelayEmoteFallback:
         )
 
         assert _payload_content(result)["msgtype"] == "m.emote"
-        assert KEY_EMOJI in _payload_content(result)
+        assert KEY_EMOJI not in _payload_content(result)
         assert KEY_REPLY_ID not in _payload_content(
             result
         )  # no target or metadata to populate it
@@ -637,7 +637,7 @@ class TestRendererReplyWithReplyId:
 
     @pytest.mark.asyncio
     async def test_reply_injects_reply_id_from_native(self) -> None:
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
         event = _make_canonical_reply(
             body="reply text",
             target_event_id="$orig-1",
@@ -652,7 +652,7 @@ class TestRendererReplyWithReplyId:
 
     @pytest.mark.asyncio
     async def test_reply_without_mmrelay_reply_id_uses_target(self) -> None:
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
         event = _make_canonical_reply(
             body="reply text",
             target_event_id="$orig-1",
@@ -1343,7 +1343,7 @@ class TestReplyNoMatrixTargetNoInReplyTo:
 
     @pytest.mark.asyncio
     async def test_no_matrix_native_target_no_in_reply_to(self) -> None:
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
         rel = EventRelation(
             relation_type="reply",
             target_event_id=None,
@@ -1377,7 +1377,7 @@ class TestReplyNoMatrixTargetNoInReplyTo:
 
     @pytest.mark.asyncio
     async def test_foreign_native_ref_reply_no_in_reply_to(self) -> None:
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
         foreign_ref = NativeRef(
             adapter="mesh-1", native_channel_id="0", native_message_id="99"
         )

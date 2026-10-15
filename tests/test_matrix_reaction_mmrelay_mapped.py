@@ -455,7 +455,11 @@ class TestRendererEmitsReactionKey:
     @pytest.mark.asyncio
     async def test_no_target_also_emits_key_reaction_key(self) -> None:
         """No-target emote fallback also emits KEY_REACTION_KEY."""
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(
+            source_configs={
+                "matrix-1": _StubMeshtasticConfig(mmrelay_compatibility=True)
+            }
+        )
         event = _make_canonical_reaction_no_target(key="🔥", body="🔥")
         result = await renderer.render(
             event,

@@ -141,8 +141,7 @@ def _get_fake_caps(transport: str) -> AdapterCapabilities:
 
         return _FAKE_MATRIX_CAPABILITIES
     if transport == "meshtastic":
-        from medre.adapters.fakes.meshtastic import \
-            _FAKE_MESHTASTIC_CAPABILITIES
+        from medre.adapters.fakes.meshtastic import _FAKE_MESHTASTIC_CAPABILITIES
 
         return _FAKE_MESHTASTIC_CAPABILITIES
     if transport == "meshcore":
@@ -498,10 +497,10 @@ class TestTextLimits:
         assert caps.max_text_bytes == 227
         assert caps.max_text_chars is None
 
-    def test_meshcore_512_bytes_no_char_limit(self) -> None:
+    def test_meshcore_unknown_name_reserves_firmware_prefix(self) -> None:
         """Default from MeshCoreConfig.max_text_bytes."""
         caps = _get_fake_caps("meshcore")
-        assert caps.max_text_bytes == 512
+        assert caps.max_text_bytes == 127
         assert caps.max_text_chars is None
 
     def test_lxmf_no_byte_limit_16384_chars(self) -> None:
@@ -526,7 +525,7 @@ class TestTextLimitsJsonConformance:
 
     def test_meshcore_json_limits(self) -> None:
         caps = _load_json_caps("meshcore")
-        assert caps["max_text_bytes"] == 512
+        assert caps["max_text_bytes"] == 127
         assert caps["max_text_chars"] is None
 
     def test_lxmf_json_limits(self) -> None:

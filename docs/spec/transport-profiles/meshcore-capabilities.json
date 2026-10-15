@@ -18,7 +18,7 @@
     "topic_rooms": false,
     "mesh_routing": true,
     "priority_delivery": false,
-    "max_text_bytes": 512,
+    "max_text_bytes": 127,
     "max_text_chars": null
   }
 }
