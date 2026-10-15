@@ -37,16 +37,26 @@ async def _poll_for_receipts(
     event_id: str,
     timeout: float = _RECEIPT_POLL_TIMEOUT,
     interval: float = _RECEIPT_POLL_INTERVAL,
+    *,
+    expected_deliveries: set[tuple[str, str]] | None = None,
 ) -> list[Any]:
-    """Poll storage for delivery receipts until found or timeout.
+    """Poll until all expected route/target pairs have receipts, or timeout.
 
-    Returns the receipt list (may be empty on timeout).
+    With no expected set, stop at the first receipt (failure-scenario evidence).
+    Returns the latest receipt list, which may be incomplete on timeout.
     """
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         try:
             receipts = await storage.list_receipts_for_event(event_id)
-            if receipts:
+            observed = {
+                (receipt.route_id, receipt.target_adapter)
+                for receipt in receipts
+                if receipt.status != "queued"
+            }
+            if (
+                expected_deliveries is not None and expected_deliveries <= observed
+            ) or (expected_deliveries is None and receipts):
                 return receipts
         except Exception:
             # cleanup-silent: retry on next poll cycle until deadline.

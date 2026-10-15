@@ -207,6 +207,42 @@ dependency rather than requiring Matrix metadata. A fresh virtual environment
 with no adapter entry points passed 120 focused checks, including its cold
 subprocess imports. Native probe coverage remains in the compatibility tier.
 
+## Merge-readiness review
+
+The October 14 review of core `618831ef4` found all 27 workflow qualification
+jobs successful, alongside 18 successful coverage checks. Core-only tests and
+installed-package proofs passed on Linux, macOS, and Windows; full compatibility
+passed on Python 3.11–3.14; all four adapters passed their SDK contracts; local
+LXMF/MeshCore and Docker integration passed. The latest standalone runs for all
+four pinned adapters also passed. The Matrix pin is now
+`431109976db6dd18eed315f20a832aedc1e634b1`, including its Windows E2EE contract job.
+
+One remaining diagnostic inconsistency was reproduced: happy-path run sessions
+could pass after partial fanout or conceal an earlier event failure with later
+success. Eight negative cases reproduced it across direct and callback ingress.
+Sessions now share normal smoke's configured-route resolution, verify every
+event/route/target receipt, and wait for complete callback evidence or a bounded
+deadline. Deliberately injected failure scenarios retain their own criteria.
+Existing report fields suffice; no schema shape changed. Generic session
+limitations and callback documentation no longer assume a radio platform or a
+provider-specific simulation signature.
+
+The final targeted slice passed 123 checks, including the new fanout, delayed
+receipt, source-selection, failure-scenario, and ownership regressions. Another
+17 checks passed in a genuinely adapter-free environment. Formatting, lint,
+whitespace, offline lock freshness, and local manifest alignment passed.
+
+Fresh wheels for `618831ef4` and all four pinned adapters passed the installed-package
+proof outside source checkouts. After rebuilding core with the session correction,
+a separate wheel-only consumer exercised
+each adapter as source with fanout to the other three: four normal smoke runs
+and eight two-message sessions covering both ingress modes, all passed with
+complete per-event receipts and stopped shutdown. That environment contained
+only core dependencies and the five wheels, with no native SDK distributions.
+These twelve consumer checks prove fake pipeline interoperability, not hardware
+or recipient delivery. No broad local regression suite, live endpoint, hardware,
+or soak session was repeated; the final fix requires its own head's CI results.
+
 ## Release coordination
 
 The curated CI manifest pins reviewed adapter commits for stability across

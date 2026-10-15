@@ -29,7 +29,7 @@ with ``ingress_mode="adapter_callback"``:
   The adapter-level ``publish_inbound`` callback is not invoked.
 
 - **Adapter callback** (run-session optional): calls
-  ``adapter.simulate_inbound(event)``, which goes through the
+  ``adapter.publish_inbound(event)``, which goes through the
   adapter's ``ctx.publish_inbound`` callback before reaching
   ``handle_ingress`` internally.  This exercises the same callback
   path that real adapter inbound messages use, but does not return
@@ -37,7 +37,7 @@ with ``ingress_mode="adapter_callback"``:
   polling instead.
 
 Design note: ``handle_ingress`` is used instead of
-:meth:`~medre.adapters.fakes.matrix.FakeMatrixAdapter.simulate_inbound`
+:meth:`~medre.core.contracts.adapter.AdapterContract.publish_inbound`
 because the smoke needs the ``list[DeliveryOutcome]`` return value for
 evidence collection.  This still exercises the full pipeline
 (validate → resolve_relations → store → route → plan → render →
@@ -57,12 +57,12 @@ from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.observability.sanitization import sanitize_error
-from medre.core.routing import Router
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.smoke_ingress import (
     eligible_smoke_sources,
+    expected_smoke_deliveries,
     make_smoke_event,
     pick_source_adapter,
 )
@@ -386,17 +386,7 @@ async def run_fake_bridge_smoke(
 
     # Compare against configured routes: startup may prune unavailable targets
     # from the live router, so outcomes alone cannot prove the complete fanout.
-    from medre.runtime.route_engine import build_runtime_routes
-
-    configured_router = Router(
-        build_runtime_routes(config.routes) if config.routes is not None else []
-    )
-    expected_deliveries = {
-        (route.id, target.adapter)
-        for route in configured_router.match(event)
-        for target in configured_router.resolve_targets(event, route)
-        if target.adapter is not None
-    }
+    expected_deliveries = expected_smoke_deliveries(config, event)
     unavailable_deliveries = {
         pair for pair in expected_deliveries if pair[1] not in app.started_adapter_ids
     }

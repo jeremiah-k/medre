@@ -1046,6 +1046,15 @@ A target that did not start cannot prove delivery even if its fake returns a
 successful handoff. Event-factory errors **MUST** produce a failed report and
 trigger runtime cleanup.
 
+Happy-path run sessions **MUST** apply the same configured-fanout check to each
+injected event in both direct-pipeline and adapter-callback ingress modes.
+Successful delivery of a later event **MUST NOT** hide an earlier event's missing
+target. Callback evidence polling **MUST** wait for all available configured
+route/target pairs or its bounded deadline, rather than stop at the first receipt.
+Missing or failed deliveries **MUST** identify the event, route, and target in
+the report's existing `fail_reasons` field. Failure scenarios continue to judge
+their deliberately injected fault instead of requiring successful delivery.
+
 Adapter failure drills **MUST** select targets through the runtime router's
 matching and target-resolution rules for the injected event, including channel
 and event-kind filters.

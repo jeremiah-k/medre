@@ -4,9 +4,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from medre.config.model import RuntimeConfig
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
+from medre.core.routing import Router
 from medre.runtime.app import MedreApp
+from medre.runtime.route_engine import build_runtime_routes
+
+
+def expected_smoke_deliveries(
+    config: RuntimeConfig, event: CanonicalEvent
+) -> set[tuple[str, str]]:
+    """Resolve configured fanout before startup can prune unavailable targets."""
+    router = Router(build_runtime_routes(config.routes) if config.routes else [])
+    return {
+        (route.id, target.adapter)
+        for route in router.match(event)
+        for target in router.resolve_targets(event, route)
+        if target.adapter is not None
+    }
 
 
 def make_smoke_event(

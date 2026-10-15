@@ -204,7 +204,7 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
   "limitations": [
     "Fake adapters only — no real transport connectivity proven",
     "In-memory storage — no persistence or crash-recovery proof",
-    "Fire-and-forget delivery model for radio transports"
+    "No live delivery acknowledgement or recipient receipt proven"
   ]
 }
 ```
@@ -381,6 +381,13 @@ medre smoke --scenario <name> --json
 ```
 
 ### Smoke Persistence Caveat
+
+Happy-path `medre smoke --run-session` checks every configured route/target pair
+for every injected event, in both ingress modes. A surviving fanout target or a
+later successful message cannot conceal a missing delivery. Failure reasons name
+the affected event, route, and adapter. Callback sessions wait for complete
+receipt evidence up to their polling deadline. Their fake receipts prove local
+pipeline handoff; they do not prove recipient delivery on a live platform.
 
 `medre smoke` uses in-memory storage by default. When the smoke process exits, all stored evidence is released. The JSON report printed to stdout is the only surviving record.
 

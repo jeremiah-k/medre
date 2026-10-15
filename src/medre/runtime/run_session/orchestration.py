@@ -38,7 +38,11 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import delivery_receipt_to_report_dict
-from medre.runtime.smoke_ingress import make_smoke_event, pick_source_adapter
+from medre.runtime.smoke_ingress import (
+    expected_smoke_deliveries,
+    make_smoke_event,
+    pick_source_adapter,
+)
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
 from .evidence import (
@@ -354,11 +358,14 @@ async def run_bridge_session(
         # Inject multiple events if message_count > 1.
         all_outcomes: list[Any] = []
         event_ids: list[str] = []
+        expected_by_event: dict[str, set[tuple[str, str]]] = {}
+        started_adapters = set(app.started_adapter_ids)
         injection_error: str | None = None
 
         for _i in range(message_count):
             event = make_smoke_event(source_adapter, message_text)
             event_ids.append(event.event_id)
+            expected_by_event[event.event_id] = expected_smoke_deliveries(config, event)
 
             try:
                 if ingress_mode == "adapter_callback":
@@ -387,7 +394,19 @@ async def run_bridge_session(
         if storage is not None and injection_error is None:
             for eid in event_ids:
                 try:
-                    receipts = await _poll_for_receipts(storage, eid)
+                    receipts = await _poll_for_receipts(
+                        storage,
+                        eid,
+                        expected_deliveries=(
+                            None
+                            if is_failure_scenario
+                            else {
+                                pair
+                                for pair in expected_by_event[eid]
+                                if pair[1] in started_adapters
+                            }
+                        ),
+                    )
                     all_receipts.extend(receipts)
                 except Exception as exc:
                     collection_errors.append(f"Receipt polling error: {exc}")
@@ -555,6 +574,21 @@ async def run_bridge_session(
                     )
         else:
             # Happy path: all steps must succeed.
+            missing_deliveries = []
+            for eid, expected in expected_by_event.items():
+                sent = {
+                    (receipt.route_id, receipt.target_adapter)
+                    for receipt in all_receipts
+                    if receipt.event_id == eid and receipt.status == "sent"
+                }
+                unavailable = {
+                    pair for pair in expected if pair[1] not in started_adapters
+                }
+                for route_id, target in sorted((expected - sent) | unavailable):
+                    missing_deliveries.append(
+                        f"Event {eid}: configured route {route_id} target {target} "
+                        "unavailable or missing successful delivery"
+                    )
             passed = (
                 event_stored
                 and has_success
@@ -562,8 +596,9 @@ async def run_bridge_session(
                 and delivered_count >= message_count
                 and injection_error is None
                 and runtime_state == "stopped"
+                and not missing_deliveries
             )
-            fail_reasons = []
+            fail_reasons = missing_deliveries
             if injection_error is not None:
                 fail_reasons.append(f"Event injection failed: {injection_error}")
             if not event_stored:

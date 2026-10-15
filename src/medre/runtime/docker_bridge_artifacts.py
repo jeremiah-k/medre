@@ -138,7 +138,7 @@ _LIMITATIONS: list[str] = [
     "Meshtastic inbound through real pubsub callback is unconfirmed",
     "Cross-adapter bridge proven in container smoke test only — not sustained or multi-hop",
     "No reconnect resilience, retry-against-live, or load evidence",
-    "Fire-and-forget delivery model for radio transports",
+    "No recipient receipt or physical radio delivery proven",
 ]
 
 _MAX_LOG_SIZE: int = 256 * 1024  # 256 KiB per log capture

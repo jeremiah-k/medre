@@ -406,13 +406,13 @@ reference implementation. They demonstrate the contract:
 - `start()` stores the context and marks started
 - `stop()` marks stopped
 - `deliver()` receives a `RenderingResult`, returns an `AdapterHandoffResult`
-- `simulate_inbound()` publishes events into the pipeline
+- `publish_inbound(event)` publishes canonical events into the pipeline
 - `health_check()` returns an `AdapterInfo` snapshot
 
 **Optional smoke-source contract:** if the fake participates in `medre smoke`,
 it provides a synchronous `make_event(*, text: str, event_kind: EventKind)`
 returning a `CanonicalEvent` with its own `source_adapter`. MEDRE uses this
-solely for deterministic direct-pipeline injection. The core does not ask real
+for deterministic smoke and run-session injection. The core does not ask real
 transport adapters to implement this testing helper. Adapter-owned unit tests
 should check the method's signature and originating adapter ID. A multi-route
 smoke selects only one source per run; use `--source-adapter` to exercise each
@@ -424,13 +424,13 @@ Event-factory errors fail the smoke and trigger runtime cleanup.
 
 ### Test your adapter with these tiers
 
-| Tier | What to test                                                          |
-| ---- | --------------------------------------------------------------------- |
-| 1    | Pipeline processes your canonical events correctly                    |
-| 2    | `simulate_inbound()` produces the same results as direct injection    |
-| 3    | SDK callback wiring works with mocked SDK                             |
-| 4    | Real SDK works against containerized services (`@pytest.mark.docker`) |
-| 5    | Real adapter against real endpoint (`@pytest.mark.live`)              |
+| Tier | What to test                                                           |
+| ---- | ---------------------------------------------------------------------- |
+| 1    | Pipeline processes your canonical events correctly                     |
+| 2    | `publish_inbound(event)` produces the same results as direct injection |
+| 3    | SDK callback wiring works with mocked SDK                              |
+| 4    | Real SDK works against containerized services (`@pytest.mark.docker`)  |
+| 5    | Real adapter against real endpoint (`@pytest.mark.live`)               |
 
 ### Codec tests
 
