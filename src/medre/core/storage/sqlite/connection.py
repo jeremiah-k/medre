@@ -116,7 +116,10 @@ def sync_open(db_path: str) -> sqlite3.Connection:
     db = sqlite3.connect(db_path, check_same_thread=False)
     try:
         db.row_factory = sqlite3.Row
-        db.executescript(_SCHEMA)
+        # Single transaction: per-statement autocommit would force one
+        # journal cycle per CREATE, and a failed init must leave no
+        # partial schema behind.
+        db.executescript("BEGIN;\n" + _SCHEMA + "\nCOMMIT;")
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA busy_timeout=5000")
         db.execute("PRAGMA foreign_keys=ON")
@@ -151,7 +154,9 @@ def sync_open_readonly(db_path: str) -> sqlite3.Connection:
 
 def sync_create_indexes(db: sqlite3.Connection) -> None:
     """Execute index DDL."""
-    db.executescript(_INDEXES)
+    # Single transaction: per-statement autocommit would force one journal
+    # cycle per CREATE INDEX, and a failure must leave no partial indexes.
+    db.executescript("BEGIN;\n" + _INDEXES + "\nCOMMIT;")
     db.commit()
 
 

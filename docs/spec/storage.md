@@ -299,7 +299,9 @@ class StorageBackend(Protocol):
         """Prepare the backend for use (open connections, create schema).
 
         MUST enable WAL mode.  MUST validate schema version, column
-        shape, and structural constraints (see Section 10).
+        shape, and structural constraints (see Section 10).  Schema and
+        index DDL each execute as a single transaction, so a failed or
+        interrupted initialize leaves no partial schema.
         """
         ...
 
