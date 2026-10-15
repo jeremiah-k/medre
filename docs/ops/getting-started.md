@@ -23,6 +23,10 @@ their main branches already contain the extracted implementations.
 ```bash
 uv init --bare --python 3.13 my-medre-bridge
 cd my-medre-bridge
+mkdir -p .medre
+chmod 700 .medre
+export MEDRE_HOME="$PWD/.medre"
+printf '.medre/\n' >> .gitignore
 uv add \
   'medre @ git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction' \
   'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
@@ -44,6 +48,20 @@ Here, uv manages Python, the virtual environment, and packages. Run commands
 with `uv run --locked` from this directory; there is no activation step. To
 restore the recorded environment later, use `uv sync --locked`. Keep credentials,
 state databases, and generated private configs out of version control.
+
+`MEDRE_HOME` keeps this bridge's state and credentials separate from other
+deployments. Set it to the same private directory in the service environment
+when running unattended. The `.gitignore` entry keeps that directory out of Git.
+
+The shell examples above use POSIX syntax. In PowerShell, replace the
+mkdir/chmod/export/printf lines with the following, choosing a directory whose
+Windows permissions restrict access to the bridge operator:
+
+```powershell
+New-Item -ItemType Directory -Force .medre | Out-Null
+$env:MEDRE_HOME = Join-Path $PWD ".medre"
+Add-Content .gitignore ".medre/"
+```
 
 ### Where uvx fits
 
@@ -69,7 +87,7 @@ routing and storage without opening a homeserver or device connection.
 uv run --locked medre config sample > sample.yaml
 uv run --locked medre adapters check --config sample.yaml
 uv run --locked medre config check --config sample.yaml
-uv run --locked medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
+uv run --locked medre smoke --config sample.yaml --storage-path .medre/smoke.sqlite3 --json
 ```
 
 The smoke report should show status passed, a source adapter, matched targets,
