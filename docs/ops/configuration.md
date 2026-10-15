@@ -298,7 +298,7 @@ adapters:
       channel_mapping:
         "0": general
         "1": admin
-      message_delay_seconds: 0.5
+      message_delay_seconds: 2.2
       startup_backlog_suppress_seconds: 5.0
       sync_timeout_ms: 30000
       outbound_mode: enabled
@@ -317,7 +317,7 @@ adapters:
 | `origin_label`                     | string             | `""`          | Platform-neutral source label for relay prefixes.                                     |
 | `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                    |
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                         |
-| `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                     |
+| `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                     |
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                |
 | `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                          |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                       |
