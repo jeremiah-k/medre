@@ -173,6 +173,17 @@ class RuntimeOptions:
     name: str = "medre"
     shutdown_timeout_seconds: int = 10
 
+    def validate(self) -> Self:
+        """Validate operator-supplied options before runtime construction."""
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ConfigValidationError("runtime.name must be a non-empty string")
+        timeout = self.shutdown_timeout_seconds
+        if type(timeout) is not int or timeout <= 0:
+            raise ConfigValidationError(
+                "runtime.shutdown_timeout_seconds must be a positive integer"
+            )
+        return self
+
 
 @dataclass(frozen=True)
 class LoggingConfig:
@@ -339,49 +350,50 @@ class RuntimeLimits:
 
     max_inflight_deliveries: int = 100
     max_inflight_replay_events: int = 100
-    shutdown_drain_timeout_seconds: int = 10
+    shutdown_drain_timeout_seconds: float = 10.0
     delivery_acquire_timeout_seconds: float = 1.0
     max_inflight_inbound_admissions: int = 100
     inbound_admission_timeout_seconds: float = 5.0
 
     def validate(self) -> Self:
-        """Validate runtime limits.
+        """Reject invalid limits before they reach asyncio capacity controls.
 
-        Raises
-        ------
-        ConfigValidationError
-            If any limit is non-positive.
+        Concurrent-work limits are positive integers; timeouts are positive,
+        finite real numbers. In particular, ``bool`` is not an integer limit.
         """
-        if self.max_inflight_deliveries <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_deliveries must be > 0, got {self.max_inflight_deliveries}"
-            )
-        if self.max_inflight_replay_events <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_replay_events must be > 0, got {self.max_inflight_replay_events}"
-            )
-        if self.shutdown_drain_timeout_seconds <= 0:
-            raise ConfigValidationError(
-                f"shutdown_drain_timeout_seconds must be > 0, "
-                f"got {self.shutdown_drain_timeout_seconds}"
-            )
-        if self.delivery_acquire_timeout_seconds <= 0:
-            raise ConfigValidationError(
-                f"delivery_acquire_timeout_seconds must be > 0, "
-                f"got {self.delivery_acquire_timeout_seconds}"
-            )
-        if self.max_inflight_inbound_admissions <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_inbound_admissions must be > 0, "
-                f"got {self.max_inflight_inbound_admissions}"
-            )
-        if not math.isfinite(self.inbound_admission_timeout_seconds) or (
-            self.inbound_admission_timeout_seconds <= 0
+        for name in (
+            "max_inflight_deliveries",
+            "max_inflight_replay_events",
+            "max_inflight_inbound_admissions",
         ):
-            raise ConfigValidationError(
-                f"inbound_admission_timeout_seconds must be a positive finite "
-                f"number, got {self.inbound_admission_timeout_seconds!r}"
-            )
+            value = getattr(self, name)
+            if type(value) is not int:
+                raise ConfigValidationError(
+                    f"{name} must be a positive integer, got {type(value).__name__}"
+                )
+            if value <= 0:
+                raise ConfigValidationError(f"{name} must be > 0, got {value!r}")
+
+        for name in (
+            "shutdown_drain_timeout_seconds",
+            "delivery_acquire_timeout_seconds",
+            "inbound_admission_timeout_seconds",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigValidationError(
+                    f"{name} must be a positive finite number, got {type(value).__name__}"
+                )
+            try:
+                finite = math.isfinite(value)
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise ConfigValidationError(
+                    f"{name} must be a positive finite number, got {type(value).__name__}"
+                )
+            if value <= 0:
+                raise ConfigValidationError(f"{name} must be > 0, got {value!r}")
         # Reasonable upper-bound warnings (not hard failures).
         _UPPER_BOUND = 10_000
         if self.max_inflight_deliveries > _UPPER_BOUND:

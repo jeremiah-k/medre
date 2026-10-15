@@ -83,6 +83,14 @@ changing the root config model.
 | `max_inflight_inbound_admissions`   | `100`   | Max concurrent inbound admissions    |
 | `inbound_admission_timeout_seconds` | `5.0`   | Inbound admission wait before reject |
 
+The YAML loader **MUST** accept and forward all six fields to the same
+`RuntimeLimits` value consumed by the capacity controller. Concurrent-work
+limits **MUST** be strictly positive integers (not booleans); timeouts **MUST**
+be strictly positive, finite numbers (not booleans). Invalid values **MUST**
+raise `ConfigValidationError` before runtime construction. The top-level
+`runtime.shutdown_timeout_seconds` **MUST** be a positive integer and
+`runtime.name` **MUST** be a non-empty, non-whitespace string.
+
 ### 2.5 RetryConfig
 
 | Field              | Default | Description                                    |

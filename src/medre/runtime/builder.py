@@ -311,6 +311,11 @@ class RuntimeBuilder:
             If the configuration is invalid or inconsistent.
         """
         try:
+            # Programmatically constructed RuntimeConfig instances bypass the
+            # YAML loader. Enforce the same resource contracts before creating
+            # any runtime components or scheduling work.
+            self._config.runtime.validate()
+            self._config.limits.validate()
             self._config.routes.validate_destinations(
                 {
                     adapter_id: transport

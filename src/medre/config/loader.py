@@ -103,6 +103,8 @@ _RUNTIME_LIMITS_KNOWN_KEYS: frozenset[str] = frozenset(
         "max_inflight_replay_events",
         "shutdown_drain_timeout_seconds",
         "delivery_acquire_timeout_seconds",
+        "max_inflight_inbound_admissions",
+        "inbound_admission_timeout_seconds",
     }
 )
 
@@ -379,7 +381,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     runtime = RuntimeOptions(
         name=runtime_data.get("name", "medre"),
         shutdown_timeout_seconds=runtime_data.get("shutdown_timeout_seconds", 10),
-    )
+    ).validate()
 
     # [runtime.limits] section (nested under [runtime]) — same pattern.
     limits_data = _get_section_dict(
@@ -396,6 +398,12 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         ),
         delivery_acquire_timeout_seconds=limits_data.get(
             "delivery_acquire_timeout_seconds", 1.0
+        ),
+        max_inflight_inbound_admissions=limits_data.get(
+            "max_inflight_inbound_admissions", 100
+        ),
+        inbound_admission_timeout_seconds=limits_data.get(
+            "inbound_admission_timeout_seconds", 5.0
         ),
     ).validate()
 

@@ -14,12 +14,15 @@
         "name": {
           "type": "string",
           "default": "medre",
-          "description": "Runtime name."
+          "description": "Runtime name.",
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "shutdown_timeout_seconds": {
           "type": "integer",
           "default": 10,
-          "description": "Graceful shutdown timeout in seconds."
+          "description": "Graceful shutdown timeout in seconds.",
+          "minimum": 1
         },
         "limits": {
           "type": "object",
@@ -29,22 +32,26 @@
             "max_inflight_deliveries": {
               "type": "integer",
               "default": 100,
-              "description": "Maximum concurrently in-flight deliveries."
+              "description": "Maximum concurrently in-flight deliveries.",
+              "minimum": 1
             },
             "max_inflight_replay_events": {
               "type": "integer",
               "default": 100,
-              "description": "Maximum concurrently processed replay events."
+              "description": "Maximum concurrently processed replay events.",
+              "minimum": 1
             },
             "shutdown_drain_timeout_seconds": {
-              "type": "integer",
+              "type": "number",
               "default": 10,
-              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown."
+              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown.",
+              "exclusiveMinimum": 0
             },
             "delivery_acquire_timeout_seconds": {
               "type": "number",
               "default": 1.0,
-              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached."
+              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached.",
+              "exclusiveMinimum": 0
             },
             "max_inflight_inbound_admissions": {
               "type": "integer",
@@ -55,7 +62,6 @@
             "inbound_admission_timeout_seconds": {
               "type": "number",
               "default": 5.0,
-              "minimum": 0,
               "exclusiveMinimum": 0,
               "description": "Seconds an inbound arrival may wait for an admission slot before rejection."
             }
