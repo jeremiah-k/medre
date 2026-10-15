@@ -326,6 +326,13 @@ per concern:
   the committed Classic cursor; and
 - MEDRE's core pipeline owns routing, outbox creation, and delivery retries.
 
+A fresh SDK client MUST request full room state on its first successful sync,
+even when resuming MEDRE's saved cursor. The cursor resumes event delivery; it
+does not restore the client's in-memory membership and encryption state.
+Subsequent syncs on the initialized client remain incremental. A process restart
+MUST preserve display-name attribution and encrypted-room detection without
+replaying previously admitted messages.
+
 When storage is unavailable, the runtime MUST omit all three durable callbacks
 (admission, checkpoint load, and checkpoint commit). In that non-durable mode,
 limited-timeline recovery is disabled and mindroom-nio retains ordinary Classic
