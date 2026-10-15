@@ -1043,8 +1043,14 @@ A smoke pass **MUST** require successful delivery for every configured route
 and target pair matched by its injected event. Adapter construction or startup
 failure **MUST NOT** turn a missing target into a successful reduced fanout.
 A target that did not start cannot prove delivery even if its fake returns a
-successful handoff. Event-factory errors **MUST** produce a failed report and
-trigger runtime cleanup.
+successful handoff. Every configured route/target pair **MUST** have a
+persisted `sent` receipt for the injected event; a successful adapter outcome
+alone is insufficient. Process-local `outbound_delivered` accounting **MUST**
+cover at least the number of expected deliveries. Event-factory errors
+**MUST** produce a failed report and trigger runtime cleanup. A smoke pass
+**MUST** also observe a completed runtime shutdown and a readable final
+snapshot with `runtime_state="stopped"`. The report **MUST** fail when these
+checks cannot be established, even if delivery previously succeeded.
 
 Happy-path run sessions **MUST** apply the same configured-fanout check to each
 injected event in both direct-pipeline and adapter-callback ingress modes.

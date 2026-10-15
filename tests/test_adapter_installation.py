@@ -6,9 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.adapter_installation import inspect_adapter_installation
 from medre.cli.main import main
-from medre.config.errors import ConfigValidationError
+from medre.config.errors import ConfigFileError, ConfigValidationError
 
 
 def _config(tmp_path: Path, text: str) -> Path:
@@ -109,3 +110,31 @@ def test_preflight_distinguishes_broken_from_missing(tmp_path, monkeypatch, caps
     with pytest.raises(SystemExit) as error:
         main(["--help"])
     assert error.value.code == 0
+
+
+def test_preflight_treats_null_adapter_section_as_empty(tmp_path: Path) -> None:
+    report = inspect_adapter_installation(_config(tmp_path, "adapters: null\n"))
+    assert report.required == ()
+    assert report.missing == ()
+
+
+def test_preflight_rejects_nonmapping_instance_section(tmp_path: Path) -> None:
+    with pytest.raises(ConfigValidationError, match="instances must be a mapping"):
+        inspect_adapter_installation(_config(tmp_path, "adapters:\n  matrix: []\n"))
+
+
+def test_preflight_does_not_reveal_unreadable_config_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _config(tmp_path, "adapters: {}\n")
+    original = Path.read_text
+
+    def unreadable(self: Path, *args: object, **kwargs: object) -> str:
+        if self == path:
+            raise PermissionError("access to private-token-string denied")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    with pytest.raises(ConfigFileError, match="PermissionError") as error:
+        inspect_adapter_installation(path)
+    assert "private-token-string" not in str(error.value)

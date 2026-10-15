@@ -463,22 +463,24 @@ async def run_fake_bridge_smoke(
     ]
 
     # -- Step 7: Stop cleanly -----------------------------------------------
+    shutdown_error: str | None = None
     try:
         await app.stop()
     except Exception as exc:
-        _logger.warning("Smoke stop error (non-fatal): %s", exc)
+        shutdown_error = f"{type(exc).__name__}: {exc}"
+        _logger.warning("Smoke shutdown failed: %s", sanitize_error(shutdown_error))
 
     # -- Full snapshot (after stop so lifecycle.runtime_state reflects "stopped")
     snap: dict[str, Any] = {}
+    snapshot_error: str | None = None
     try:
         snap = build_runtime_snapshot(
             app,
             now_fn=now_fn,
             monotonic_fn=monotonic_fn,
         )
-    except Exception:
-        # cleanup-silent: snap stays {}; report omits snapshot-derived fields.
-        pass
+    except Exception as exc:
+        snapshot_error = f"{type(exc).__name__}: {exc}"
 
     # -- Step 8: Build report -----------------------------------------------
     # passed criteria
@@ -489,17 +491,27 @@ async def run_fake_bridge_smoke(
         expected_deliveries
         - {(o.route_id, o.target_adapter) for o in outcomes if o.status == "success"}
     )
-    has_sent_receipt = any(r.status == "sent" for r in receipts)
+    sent_deliveries = {
+        (r.route_id, r.target_adapter) for r in receipts if r.status == "sent"
+    }
+    missing_receipts = expected_deliveries - sent_deliveries
+    has_sent_receipt = bool(sent_deliveries)
     delivered_count = accounting.get("outbound_delivered", 0) if accounting else 0
+    required_deliveries = len(expected_deliveries)
+    runtime_state = (snap.get("lifecycle") or {}).get("runtime_state", "unknown")
 
     passed = (
         event_stored
         and has_success
         and not has_failure
         and not missing_deliveries
+        and not missing_receipts
         and has_sent_receipt
-        and delivered_count >= 1
+        and delivered_count >= required_deliveries
         and injection_error is None
+        and shutdown_error is None
+        and snapshot_error is None
+        and runtime_state == "stopped"
     )
 
     fail_reasons: list[str] = []
@@ -518,10 +530,26 @@ async def run_fake_bridge_smoke(
                 f"{route} -> {target}" for route, target in sorted(missing_deliveries)
             )
         )
+    if missing_receipts:
+        fail_reasons.append(
+            "Configured route target(s) missing durable sent receipt: "
+            + ", ".join(
+                f"{route} -> {target}" for route, target in sorted(missing_receipts)
+            )
+        )
     if not has_sent_receipt:
         fail_reasons.append("No receipt with status 'sent'")
-    if delivered_count < 1:
-        fail_reasons.append("Accounting outbound_delivered < 1")
+    if delivered_count < required_deliveries:
+        fail_reasons.append(
+            f"Accounting outbound_delivered {delivered_count} < "
+            f"configured delivery count {required_deliveries}"
+        )
+    if shutdown_error is not None:
+        fail_reasons.append(f"Runtime shutdown failed: {shutdown_error}")
+    if snapshot_error is not None:
+        fail_reasons.append(f"Final runtime snapshot failed: {snapshot_error}")
+    if runtime_state != "stopped":
+        fail_reasons.append(f"Runtime state is {runtime_state!r}, expected 'stopped'")
 
     # Sanitize error fields.
     sanitized = False

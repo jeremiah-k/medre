@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.runtime.smoke import run_fake_bridge_smoke
 from tests.helpers.drill_configs import write_drill_target_config
@@ -147,3 +148,78 @@ async def test_smoke_event_factory_error_stops_runtime(
     assert report["status"] == "failed"
     assert "event factory failed" in report["fail_reasons"][0]
     assert len(stopped) == 1
+
+
+async def test_missing_durable_receipt_for_one_target_fails_smoke(
+    cross_adapter_config: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Successful adapter outcomes alone cannot stand in for persisted evidence."""
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    original = SQLiteStorage.list_receipts_for_event
+
+    async def hide_one_target(self: SQLiteStorage, event_id: str) -> list[Any]:
+        receipts = await original(self, event_id)
+        return [r for r in receipts if r.target_adapter != "meshcore"]
+
+    monkeypatch.setattr(SQLiteStorage, "list_receipts_for_event", hide_one_target)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed"
+    assert any(
+        "missing durable sent receipt" in reason and "meshcore" in reason
+        for reason in report["fail_reasons"]
+    )
+    assert {r["target_adapter"] for r in report["delivery_receipts"]} >= {
+        "meshtastic",
+        "lxmf",
+    }
+
+
+async def test_shutdown_failure_does_not_produce_passing_smoke(
+    cross_adapter_config: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from medre.runtime.app import MedreApp
+
+    original = MedreApp.stop
+
+    async def stop_then_fail(self: MedreApp) -> None:
+        await original(self)
+        raise RuntimeError("injected shutdown error")
+
+    monkeypatch.setattr(MedreApp, "stop", stop_then_fail)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed"
+    assert any("Runtime shutdown failed" in r for r in report["fail_reasons"])
+    assert report["shutdown_status"] == "stopped"
+
+
+async def test_snapshot_failure_does_not_produce_passing_smoke(
+    cross_adapter_config: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_snapshot(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("injected snapshot error")
+
+    monkeypatch.setattr("medre.runtime.smoke.build_runtime_snapshot", fail_snapshot)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed"
+    assert report["shutdown_status"] is None
+    assert any("Final runtime snapshot failed" in r for r in report["fail_reasons"])
+
+
+async def test_partial_delivery_accounting_cannot_pass_multi_target_smoke(
+    cross_adapter_config: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from medre.core.supervision.accounting import RuntimeAccounting
+
+    original = RuntimeAccounting.snapshot
+
+    def undercount(self: RuntimeAccounting) -> dict[str, int]:
+        snapshot = original(self)
+        return {**snapshot, "outbound_delivered": 1}
+
+    monkeypatch.setattr(RuntimeAccounting, "snapshot", undercount)
+    report = await run_fake_bridge_smoke(cross_adapter_config, source_adapter="matrix")
+    assert report["status"] == "failed"
+    assert any(
+        "configured delivery count 3" in reason for reason in report["fail_reasons"]
+    )

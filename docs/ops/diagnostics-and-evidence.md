@@ -413,6 +413,14 @@ To persist smoke evidence to SQLite without editing the config, use `--storage-p
 medre smoke --storage-path /tmp/medre-smoke.db --json
 ```
 
+A successful fake smoke requires evidence for **every** configured route/target
+pair matched by the single injected source event: successful outcomes,
+persisted `sent` receipts, consistent delivery accounting, and a stopped
+runtime confirmed by its final snapshot. If a receipt is missing, shutdown
+fails, or the snapshot cannot establish the final state, the report fails.
+This does not prove live SDK behavior or cover other route sources; run smoke
+separately for each eligible source as needed.
+
 ## Docker SDK-Boundary Tests
 
 ```bash
