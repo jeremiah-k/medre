@@ -12,11 +12,13 @@ import re
 from pathlib import Path
 
 import pytest
+
 from medre.config._yaml import parse_yaml_config
 from medre.config.adapters.matrix_errors import MatrixConfigError
 from medre.config.errors import ConfigFileError
 from medre.config.loader import load_config
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.smoke import run_fake_bridge_smoke
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -1264,3 +1266,31 @@ class TestLiveMatrixMeshtasticTargeting:
         assert (
             "channel index" in raw.lower() or "Meshtastic channel" in raw
         ), "Missing comment explaining Meshtastic channel index format"
+
+
+# ===========================================================================
+# 14. Fake examples: end-to-end fake-bridge smoke passes
+# ===========================================================================
+
+
+FAKE_SMOKE_CONFIG_NAMES = [
+    "fake-bridge-smoke.yaml",
+    "fake-multi-adapter.yaml",
+    "fake-retry-smoke.yaml",
+]
+
+
+@pytest.mark.parametrize("name", FAKE_SMOKE_CONFIG_NAMES)
+async def test_fake_example_configs_pass_bridge_smoke(name: str) -> None:
+    """Each fake example config must pass the full fake-bridge smoke cycle.
+
+    Exercises load -> preflight -> build -> start -> inject -> deliver ->
+    receipt end-to-end with the config as shipped, catching example configs
+    whose routes can never match the smoke-injected event.
+    """
+    config_path = CONFIGS_DIR / name
+    report = await run_fake_bridge_smoke(config_path=str(config_path))
+    assert report["status"] == "passed", (
+        f"{name}: expected smoke status 'passed', got {report['status']!r}: "
+        f"{report.get('fail_reasons', report.get('fail_reason'))}"
+    )
