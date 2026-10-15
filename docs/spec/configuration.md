@@ -582,6 +582,10 @@ Path placeholders `{config}`, `{state}`, `{data}`, `{cache}`, `{logs}` are
 expanded via `MedrePaths.expand_placeholder()`. Directories are never created
 by pure path resolution — only during runtime startup.
 
+Programmatic callers may supply `resolve(environ=mapping)` to resolve an isolated
+layout. The supplied mapping replaces MEDRE/XDG environment lookup; resolution
+**MUST NOT** modify either mapping or process environment.
+
 ## 7. Adapter Config Wrapping
 
 Every registered adapter type is wrapped in an `AdapterRuntimeConfig`-compatible

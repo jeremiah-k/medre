@@ -1044,8 +1044,8 @@ network, or hardware. Additional optional constructor arguments are permitted.
 The [registration reference](../dev/adapter-registration.md) defines every
 `AdapterSpec` field and hook signature, including the public metadata helpers.
 
-Fake smoke and run sessions **MUST** reject any enabled real adapter before
-constructing or starting the runtime. Their fake evidence classification does
+Fake smoke, run sessions, and configured failure drills **MUST** reject any
+enabled real adapter before constructing or starting the runtime. Their fake evidence classification does
 not authorize live transport connections or failure injection into real adapters.
 
 A fake adapter **MAY** provide a synchronous `make_event(text=..., event_kind=...)`
@@ -1086,6 +1086,13 @@ Adapter failure drills **MUST** select targets through the runtime router's
 matching and target-resolution rules for the injected event, including channel
 and event-kind filters.
 
+Every drill evidence check **MUST** succeed for the report to pass. Missing
+receipts, unreadable native-reference evidence, unsuccessful manual recovery,
+and failed cleanup checks **MUST NOT** be overridden by the expected injected
+failure. Drills that start a runtime **MUST** close it on cancellation and
+unexpected exceptions, report `shutdown_status`, and require error-free shutdown
+with status `stopped`. Cleanup errors **MUST NOT** replace the original report.
+
 ### 22.4 Synthetic lifecycle drill coverage
 
 The programmatic `bad_route_config`, `all_adapters_build_fail`,
@@ -1104,6 +1111,10 @@ remain three independently constructed adapters for startup supervision.
 With no installed fake provider, these drills **MUST** return a failed report
 with an empty assignment map and an installation reason. The report shape is
 specified in `docs/schemas/lifecycle-drill-report.schema.json`.
+
+Synthetic drill paths **MUST** be isolated from operator paths without changing
+the process environment. Their temporary state root **MUST** be removed after
+completion, including cancellation and failure.
 
 ---
 

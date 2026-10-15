@@ -12,7 +12,8 @@
     "adapter_transports",
     "limitations",
     "evidence_level",
-    "timestamp"
+    "timestamp",
+    "drill_steps"
   ],
   "properties": {
     "status": {
@@ -60,6 +61,32 @@
     "timestamp": {
       "type": "string",
       "format": "date-time"
+    },
+    "shutdown_status": {
+      "enum": [
+        "initialized",
+        "starting",
+        "running",
+        "stopping",
+        "stopped",
+        "failed"
+      ]
+    },
+    "drill_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "result"],
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "result": {
+            "enum": ["ok", "unexpected", "missing"]
+          }
+        },
+        "additionalProperties": true
+      }
     }
   },
   "allOf": [
@@ -76,6 +103,36 @@
         "properties": {
           "adapter_transports": {
             "minProperties": 1
+          },
+          "drill_steps": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "passed"
+          },
+          "drill_name": {
+            "enum": ["partial_degraded_startup", "all_adapters_start_fail"]
+          }
+        },
+        "required": ["status", "drill_name"]
+      },
+      "then": {
+        "required": ["shutdown_status"],
+        "properties": {
+          "shutdown_status": {
+            "const": "stopped"
           }
         }
       }

@@ -89,6 +89,7 @@ import dataclasses
 import logging
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from tempfile import TemporaryDirectory
 from typing import Any
 from unittest.mock import patch
 
@@ -102,6 +103,7 @@ from medre.config.model import (
     RuntimeOptions,
     StorageConfig,
 )
+from medre.config.paths import MedrePaths
 from medre.config.paths import resolve as resolve_paths
 from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.contracts.adapter import (
@@ -113,7 +115,8 @@ from medre.core.contracts.adapter import (
     AdapterRole,
 )
 from medre.core.events.canonical import CanonicalEvent
-from medre.runtime.app import MedreApp
+from medre.core.observability.sanitization import sanitize_error
+from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import (
     RuntimeConfigError,
@@ -124,7 +127,11 @@ from medre.runtime.smoke import (
     _default_smoke_config_path,
     _run_preflight,
 )
-from medre.runtime.smoke_ingress import make_smoke_event, pick_source_adapter
+from medre.runtime.smoke_ingress import (
+    make_smoke_event,
+    pick_source_adapter,
+    validate_fake_smoke,
+)
 
 __all__ = ["run_drill", "AVAILABLE_DRILLS"]
 
@@ -211,7 +218,7 @@ async def _build_smoke_runtime(
 ) -> tuple[MedreApp, dict[str, Any], str, dict[str, Any]]:
     """Load config, build runtime, start it.  Returns (app, preflight, config_source, paths).
 
-    Raises SystemExit on config/build/start errors (returns error report instead).
+    Raises on config/build/start errors; the runner returns the failed report.
     """
     resolved = config_path
     config_source_value = "explicit"
@@ -226,6 +233,7 @@ async def _build_smoke_runtime(
         # Env overrides share the config-error boundary so identifier
         # rejections surface as a drill failure report, not a crash.
         config = apply_env_overrides(config, paths)
+        validate_fake_smoke(config)
     except Exception as exc:
         raise RuntimeError(f"Config load error: {exc}") from exc
 
@@ -244,16 +252,41 @@ async def _build_smoke_runtime(
 
     builder = RuntimeBuilder(config, paths)
     app = builder.build()
-    await app.start()
+    try:
+        await app.start()
+    except BaseException:
+        await _clean_stop(app, {})
+        raise
     return app, preflight, config_source_value, {"config": config, "paths": paths}
 
 
-async def _clean_stop(app: MedreApp) -> None:
-    """Stop a runtime, swallowing non-fatal errors."""
+async def _clean_stop(app: MedreApp, report: dict[str, Any]) -> None:
+    """Close the runtime and retain shutdown failures in its drill evidence."""
     try:
-        await app.stop()
+        if app.state != RuntimeState.STOPPED:
+            await app.stop()
     except Exception as exc:
-        _logger.warning("Drill stop error (non-fatal): %s", exc)
+        reason = sanitize_error(f"Drill shutdown failed: {exc}")
+        _logger.warning("%s", reason)
+        report["status"] = "failed"
+        report.setdefault("fail_reasons", []).append(reason)
+    report["shutdown_status"] = app.state.value
+    if app.state != RuntimeState.STOPPED:
+        report["status"] = "failed"
+        report.setdefault("fail_reasons", []).append(
+            f"Runtime state is {app.state.value!r}, expected 'stopped'"
+        )
+
+
+async def _has_outbound_ref(app: MedreApp, event_id: str, adapter_id: str) -> bool:
+    """Require readable evidence before claiming a failed send created no ref."""
+    if app.storage is None:
+        raise RuntimeError("Native-reference evidence requires storage")
+    records = await app.storage.list_native_refs_for_event(event_id)
+    return any(
+        record.direction == "outbound" and record.adapter == adapter_id
+        for record in records
+    )
 
 
 def _pick_delivery_target_adapter(app: MedreApp, event: CanonicalEvent) -> str | None:
@@ -356,7 +389,7 @@ async def _drill_renderer_failure(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -447,25 +480,9 @@ async def _drill_adapter_permanent_failure(
             # Verify: no native ref for failed delivery (native refs only
             # created on success).  Query storage for any outbound refs for
             # this event targeting the failed adapter.
-            failed_adapter = app.adapters.get(patched_aid)
-            has_unexpected_ref = False
-            if failed_adapter is not None and app.storage is not None:
-                try:
-                    native_ref_records = await app.storage.list_native_refs_for_event(
-                        event.event_id,
-                    )
-                    for nref in native_ref_records:
-                        if (
-                            getattr(nref, "direction", None) == "outbound"
-                            and getattr(nref, "adapter", None) == patched_aid
-                        ):
-                            has_unexpected_ref = True
-                            break
-                except (AttributeError, TypeError):
-                    # Storage backend may not implement list_native_refs_for_event.
-                    pass
-                except Exception:
-                    pass
+            has_unexpected_ref = await _has_outbound_ref(
+                app, event.event_id, patched_aid
+            )
             steps.append(
                 _step(
                     "verify_no_native_ref",
@@ -499,7 +516,7 @@ async def _drill_adapter_permanent_failure(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -632,25 +649,9 @@ async def _drill_adapter_transient_failure(
                 )
             )
             # Verify: no native ref for failed delivery.
-            failed_adapter = app.adapters.get(patched_aid)
-            has_unexpected_ref = False
-            if failed_adapter is not None and app.storage is not None:
-                try:
-                    native_ref_records = await app.storage.list_native_refs_for_event(
-                        event.event_id,
-                    )
-                    for nref in native_ref_records:
-                        if (
-                            getattr(nref, "direction", None) == "outbound"
-                            and getattr(nref, "adapter", None) == patched_aid
-                        ):
-                            has_unexpected_ref = True
-                            break
-                except (AttributeError, TypeError):
-                    # Storage backend may not implement list_native_refs_for_event.
-                    pass
-                except Exception:
-                    pass
+            has_unexpected_ref = await _has_outbound_ref(
+                app, event.event_id, patched_aid
+            )
             steps.append(
                 _step(
                     "verify_no_native_ref",
@@ -663,8 +664,8 @@ async def _drill_adapter_transient_failure(
             # Recovery simulation: restore adapter, re-deliver a new event.
             recovery_ok = False
             recovery_receipt_status: str | None = None
-            if original_deliver is not None and failed_adapter is not None:
-                failed_adapter.deliver = original_deliver  # type: ignore[assignment]
+            if original_deliver is not None:
+                adapter.deliver = original_deliver  # type: ignore[assignment]
                 recovery_event = make_smoke_event(
                     source_adapter,
                     "drill: adapter_transient_failure recovery",
@@ -718,7 +719,7 @@ async def _drill_adapter_transient_failure(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -835,7 +836,7 @@ async def _drill_capacity_rejection(
             if synthetic_capacity_controller is not None:
                 await synthetic_capacity_controller.release_delivery()
         finally:
-            await _clean_stop(app)
+            await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -872,7 +873,6 @@ async def _drill_shutdown_rejection(
             report["status"] = "failed"
             report["fail_reasons"] = ["No capacity controller wired"]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         cc.stop_accepting()
@@ -971,7 +971,7 @@ async def _drill_shutdown_rejection(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -1043,7 +1043,6 @@ async def _drill_replay_duplicate_risk(
             report["status"] = "failed"
             report["fail_reasons"] = ["No replay engine wired"]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         request = ReplayRequest(
@@ -1103,7 +1102,7 @@ async def _drill_replay_duplicate_risk(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -1145,7 +1144,6 @@ async def _drill_degraded_live_health(
             report["status"] = "failed"
             report["fail_reasons"] = ["No adapter available"]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         adapter = app.adapters[target_aid]
@@ -1241,7 +1239,7 @@ async def _drill_degraded_live_health(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -1292,24 +1290,6 @@ class _DrillFailingAdapter(AdapterContract):
 # ---------------------------------------------------------------------------
 
 
-def _drill_paths() -> Any:
-    """Return a MedrePaths pointing at a temp-safe root.
-
-    Uses MEDRE_HOME so no real filesystem paths are touched.
-    """
-    import os
-
-    os.environ.pop("MEDRE_HOME", None)
-    os.environ.pop("XDG_CONFIG_HOME", None)
-    os.environ.pop("XDG_STATE_HOME", None)
-    os.environ.pop("XDG_DATA_HOME", None)
-    os.environ.pop("XDG_CACHE_HOME", None)
-    import tempfile
-
-    os.environ["MEDRE_HOME"] = tempfile.mkdtemp(prefix="medre-drill-")
-    return resolve_paths()
-
-
 class _DrillProviderUnavailable(RuntimeConfigError):
     """Synthetic lifecycle setup has no installed fake provider."""
 
@@ -1354,6 +1334,8 @@ def _drill_adapters(adapter_transports: Mapping[str, str]) -> AdapterConfigSet:
 async def _drill_bad_route_config(
     config_path: str | None,
     storage_path: str | None,
+    *,
+    paths: MedrePaths,
 ) -> dict[str, Any]:
     """Enabled route references a non-existent adapter; builder raises."""
     transport = _drill_transport()
@@ -1382,7 +1364,6 @@ async def _drill_bad_route_config(
     )
     steps.append(_step("create_bad_config", "ok"))
 
-    paths = _drill_paths()
     builder = RuntimeBuilder(config, paths)
 
     try:
@@ -1453,6 +1434,8 @@ async def _drill_bad_route_config(
 async def _drill_all_adapters_build_fail(
     config_path: str | None,
     storage_path: str | None,
+    *,
+    paths: MedrePaths,
 ) -> dict[str, Any]:
     """All enabled adapters fail construction; builder records failures."""
     transport = _drill_transport()
@@ -1470,8 +1453,6 @@ async def _drill_all_adapters_build_fail(
         adapters=_drill_adapters(adapter_transports),
     )
     steps.append(_step("create_multi_adapter_config", "ok"))
-
-    paths = _drill_paths()
 
     try:
         forced_error = RuntimeConfigError("drill: forced build failure")
@@ -1564,6 +1545,8 @@ async def _drill_all_adapters_build_fail(
 async def _drill_partial_degraded_startup(
     config_path: str | None,
     storage_path: str | None,
+    *,
+    paths: MedrePaths,
 ) -> dict[str, Any]:
     """Two adapter instances start, one fails; runtime enters DEGRADED RUNNING."""
     transport = _drill_transport()
@@ -1582,8 +1565,6 @@ async def _drill_partial_degraded_startup(
     )
     steps.append(_step("create_three_adapter_config", "ok"))
 
-    paths = _drill_paths()
-
     app: MedreApp | None = None
     try:
         builder = RuntimeBuilder(config, paths)
@@ -1600,8 +1581,6 @@ async def _drill_partial_degraded_startup(
         steps.append(_step("attempt_start", "ok"))
 
         # Verify runtime state.
-        from medre.runtime.app import RuntimeState
-
         is_running = app.state == RuntimeState.RUNNING
         steps.append(
             _step(
@@ -1701,13 +1680,9 @@ async def _drill_partial_degraded_startup(
     except Exception as exc:
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
-        # If app was built, attempt cleanup.
+    finally:
         if app is not None:
-            await _clean_stop(app)
-
-    else:
-        if app is not None:
-            await _clean_stop(app)
+            await _clean_stop(app, report)
 
     report["drill_steps"] = steps
     return report
@@ -1721,6 +1696,8 @@ async def _drill_partial_degraded_startup(
 async def _drill_all_adapters_start_fail(
     config_path: str | None,
     storage_path: str | None,
+    *,
+    paths: MedrePaths,
 ) -> dict[str, Any]:
     """All adapters build but fail start(); RuntimeStartupError raised."""
     transport = _drill_transport()
@@ -1739,8 +1716,7 @@ async def _drill_all_adapters_start_fail(
     )
     steps.append(_step("create_two_adapter_config", "ok"))
 
-    paths = _drill_paths()
-
+    app: MedreApp | None = None
     try:
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
@@ -1791,8 +1767,6 @@ async def _drill_all_adapters_start_fail(
                 runtime_startup_error_caught=startup_error_caught,
             )
         )
-
-        from medre.runtime.app import RuntimeState
 
         is_failed_state = app.state == RuntimeState.FAILED
         steps.append(
@@ -1903,8 +1877,20 @@ async def _drill_all_adapters_start_fail(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
 
+    finally:
+        if app is not None:
+            await _clean_stop(app, report)
+
     report["drill_steps"] = steps
     return report
+
+
+_SYNTHETIC_DRILL_RUNNERS: dict[str, Any] = {
+    "bad_route_config": _drill_bad_route_config,
+    "all_adapters_build_fail": _drill_all_adapters_build_fail,
+    "partial_degraded_startup": _drill_partial_degraded_startup,
+    "all_adapters_start_fail": _drill_all_adapters_start_fail,
+}
 
 
 _DRILL_RUNNERS: dict[str, Any] = {
@@ -1915,10 +1901,7 @@ _DRILL_RUNNERS: dict[str, Any] = {
     "shutdown_rejection": _drill_shutdown_rejection,
     "replay_duplicate_risk": _drill_replay_duplicate_risk,
     "degraded_live_health": _drill_degraded_live_health,
-    "bad_route_config": _drill_bad_route_config,
-    "all_adapters_build_fail": _drill_all_adapters_build_fail,
-    "partial_degraded_startup": _drill_partial_degraded_startup,
-    "all_adapters_start_fail": _drill_all_adapters_start_fail,
+    **_SYNTHETIC_DRILL_RUNNERS,
 }
 
 
@@ -1960,7 +1943,25 @@ async def run_drill(
             "limitations": _DRILL_LIMITATIONS,
         }
     try:
-        return await runner(config_path, storage_path)
+        if drill_name in _SYNTHETIC_DRILL_RUNNERS:
+            with TemporaryDirectory(prefix="medre-drill-") as root:
+                paths = resolve_paths(environ={"MEDRE_HOME": root})
+                report = await runner(config_path, storage_path, paths=paths)
+        else:
+            report = await runner(config_path, storage_path)
+        failed_steps = [
+            step["step"] for step in report["drill_steps"] if step["result"] != "ok"
+        ]
+        if failed_steps:
+            report["status"] = "failed"
+            report.setdefault("fail_reasons", []).extend(
+                f"Drill evidence check failed: {name}" for name in failed_steps
+            )
+        if "fail_reasons" in report:
+            report["fail_reasons"] = [
+                sanitize_error(reason) for reason in report["fail_reasons"]
+            ]
+        return report
     except _DrillProviderUnavailable as exc:
         report = _base_report(
             drill_name, storage_path=storage_path, adapter_transports={}
