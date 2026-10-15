@@ -17,6 +17,7 @@ test_operator_docs_consistency.py.
 
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
@@ -425,30 +426,28 @@ def _subparser_choices(parser, *path: str) -> set[str]:
     example ``_subparser_choices(root, "adapter", "matrix", "auth")``
     walks adapter -> matrix -> auth and returns the choices registered
     on the auth subparser. Returns an empty set if the path does not
-    resolve or the leaf parser has no subparsers.
+    resolve or the leaf parser has no subparsers. Resolution goes
+    through each parser's ``argparse._SubParsersAction`` entries in the
+    action table, because parents-copied nodes do not carry the private
+    ``_subparsers`` attribute.
     """
     current = parser
     for name in path:
-        subparsers = getattr(current, "_subparsers", None)
-        if subparsers is None:
-            return set()
         found = None
-        for action in subparsers._actions:
-            choices = getattr(action, "choices", None)
-            if choices and name in choices:
-                found = choices[name]
+        for action in current._actions:
+            if (
+                isinstance(action, argparse._SubParsersAction)
+                and name in action.choices
+            ):
+                found = action.choices[name]
                 break
         if found is None:
             return set()
         current = found
-    subparsers = getattr(current, "_subparsers", None)
-    if subparsers is None:
-        return set()
     result: set[str] = set()
-    for action in subparsers._actions:
-        choices = getattr(action, "choices", None)
-        if choices:
-            result.update(choices.keys())
+    for action in current._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            result.update(action.choices.keys())
     return result
 
 
