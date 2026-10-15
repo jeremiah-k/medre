@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig

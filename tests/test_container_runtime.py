@@ -38,6 +38,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (

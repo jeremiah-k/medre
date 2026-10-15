@@ -26,6 +26,7 @@ from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
 
 import pytest
+
 from medre.cli import main
 from medre.cli.exit_codes import EXIT_BUILD
 from medre.core.storage.backend import (

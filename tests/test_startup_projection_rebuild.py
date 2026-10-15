@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import pytest
+
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,

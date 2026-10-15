@@ -6,6 +6,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+
 from medre.cli.transports import is_transport_installed
 
 

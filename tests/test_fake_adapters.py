@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (

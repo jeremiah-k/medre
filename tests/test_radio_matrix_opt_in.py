@@ -8,6 +8,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+
 from medre.adapters.lxmf import compat
 from tests.helpers import docker_probe
 

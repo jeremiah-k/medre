@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.adapter_registry import registered_transports
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.errors import (

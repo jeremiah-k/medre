@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 
 import pytest
+
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig

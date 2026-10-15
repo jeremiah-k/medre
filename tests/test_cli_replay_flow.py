@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.cli import main
 from medre.cli.replay_commands import _drain_inflight_deliveries
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig

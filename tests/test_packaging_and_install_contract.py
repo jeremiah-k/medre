@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.config.paths import MedrePaths
 from tests.helpers.source_locations import source_file
 

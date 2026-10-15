@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+
 from medre.adapter_registry import AdapterTypeRegistry
 from medre.adapter_spec import SymbolRef
 from medre.testing import sdk_contract

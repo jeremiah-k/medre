@@ -2,6 +2,7 @@
 """Fail native target mismatches before adapter construction or delivery."""
 
 import pytest
+
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,

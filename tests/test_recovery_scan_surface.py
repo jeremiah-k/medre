@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, main
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
 from medre.core.storage.backend import (

@@ -6,7 +6,7 @@ set -euo pipefail
 # Use Bash builtins so a minimal macOS/test PATH needs no extra utilities.
 medre_script_dir="${BASH_SOURCE[0]%/*}"
 if [[ ${medre_script_dir} == "${BASH_SOURCE[0]}" ]]; then
-    medre_script_dir=.
+	medre_script_dir=.
 fi
 cd -- "${medre_script_dir}/../.."
 
@@ -126,11 +126,11 @@ echo ""
 # Run via the Python helper, which handles everything. GNU timeout is not
 # bundled with macOS. Prefer gtimeout if coreutils is installed; otherwise
 # rely on the collector's internal deadline and the caller's job deadline.
-runner=( "${PYTHON}" )
+runner=("${PYTHON}")
 if command -v timeout >/dev/null 2>&1; then
-	runner=( timeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" )
+	runner=(timeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}")
 elif command -v gtimeout >/dev/null 2>&1; then
-	runner=( gtimeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" )
+	runner=(gtimeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}")
 else
 	echo "WARNING: global timeout utility not found; using collector deadline." >&2
 fi

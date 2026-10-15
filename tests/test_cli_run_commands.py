@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from tests.helpers.cli import CONFIG_NO_ADAPTERS, _run_cli, _run_cli_both
 from tests.helpers.compatibility_configs import CONFIG_WITH_ROUTES
 
@@ -362,6 +363,7 @@ adapters:
     def test_sample_config_parses(self) -> None:
         """generate_sample_config() produces valid YAML."""
         import yaml
+
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()

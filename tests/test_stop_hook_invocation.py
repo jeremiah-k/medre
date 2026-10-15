@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+
 from medre.config.model import RuntimeConfig, StorageConfig
 from medre.config.paths import resolve
 from medre.runtime.builder import RuntimeBuilder

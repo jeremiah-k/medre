@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths

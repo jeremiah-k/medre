@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import (
     _CODEC_RENDERER_FORBIDDEN,

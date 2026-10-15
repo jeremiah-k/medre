@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.config.adapters.matrix import MatrixConfig

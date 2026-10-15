@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from scripts.ci.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     _collect_log_artifacts,

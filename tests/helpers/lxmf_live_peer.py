@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
 from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
 from tests.helpers.lxmf_peer_timing import (
     PEER_STARTUP_SECONDS,

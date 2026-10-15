@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
 from medre.config.adapters.meshtastic import MeshtasticConfig

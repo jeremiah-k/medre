@@ -2,6 +2,7 @@
 
 import msgspec
 import pytest
+
 from medre.cli.recover_commands import _build_event_recovery_runbook
 
 

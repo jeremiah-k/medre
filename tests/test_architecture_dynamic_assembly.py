@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
 from medre.runtime.architecture_report import (
     build_dependency_graph,
     build_route_adapter_boundary_report,

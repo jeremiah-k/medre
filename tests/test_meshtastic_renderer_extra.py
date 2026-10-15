@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (

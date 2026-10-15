@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
+
 from medre.runtime import smoke
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder

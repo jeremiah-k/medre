@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+
 from medre import adapter_registry
 from medre.adapter_registry import AdapterTypeRegistry
 from medre.runtime import drill

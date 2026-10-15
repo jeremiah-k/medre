@@ -16,6 +16,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
+
 from medre.config.loader import load_config
 from medre.runtime.route_plan import (
     AdapterSummary,

@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from medre.adapter_registry import registered_transports
 from tests.helpers.cli import (
     _run_cli,

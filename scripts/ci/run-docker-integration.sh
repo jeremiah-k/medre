@@ -69,16 +69,16 @@ echo ""
 # A vanilla macOS runner has neither; pytest's per-test timeout still applies,
 # and GitHub Actions provides a job-wide deadline.
 pytest_args=(
-    -m pytest tests/integration/ -m docker -v --tb=short --timeout=300 "$@"
+	-m pytest tests/integration/ -m docker -v --tb=short --timeout=300 "$@"
 )
 set +e
 if command -v timeout >/dev/null 2>&1; then
-    timeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" "${pytest_args[@]}"
+	timeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" "${pytest_args[@]}"
 elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" "${pytest_args[@]}"
+	gtimeout --foreground "${TIMEOUT_MINUTES}m" "${PYTHON}" "${pytest_args[@]}"
 else
-    echo "WARNING: global timeout utility not found; using pytest per-test timeout." >&2
-    "${PYTHON}" "${pytest_args[@]}"
+	echo "WARNING: global timeout utility not found; using pytest per-test timeout." >&2
+	"${PYTHON}" "${pytest_args[@]}"
 fi
 TEST_EXIT=$?
 set -e

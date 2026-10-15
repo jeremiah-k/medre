@@ -14,7 +14,11 @@ poisoning that would break subsequent tests in the same process.
 from __future__ import annotations
 
 import pytest
-from tests.helpers.import_side_effects import _FORBIDDEN_SDKS, _FORBIDDEN_SIDE_EFFECTS
+
+from tests.helpers.import_side_effects import (
+    _FORBIDDEN_SDKS,
+    _FORBIDDEN_SIDE_EFFECTS,
+)
 from tests.helpers.import_side_effects import (
     check_in_subprocess as _check_in_subprocess,
 )

@@ -33,6 +33,7 @@ from io import StringIO
 from typing import Any, Generator
 
 import pytest
+
 from medre.core.observability.logging import (
     _MEDRE_HANDLER_ATTR,
     _JsonFormatter,

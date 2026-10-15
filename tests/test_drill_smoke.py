@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.runtime.drill import AVAILABLE_DRILLS, run_drill
 from medre.runtime.smoke import run_fake_bridge_smoke
 

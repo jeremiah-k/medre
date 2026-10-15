@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.cli import main
 from tests.helpers.cli import CONFIG_MINIMAL, _run_cli, _run_cli_both, _run_cli_raw
 from tests.helpers.compatibility_configs import (

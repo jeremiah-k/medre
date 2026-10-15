@@ -43,10 +43,9 @@ def test_adapters_command_reports_optional_sdk_availability(
     tmp_path: Path,
     installed: bool,
 ) -> None:
+    import medre.cli.config_commands as config_commands
     from medre.cli import main
     from medre.cli.config_commands import TRANSPORTS
-
-    import medre.cli.config_commands as config_commands
 
     monkeypatch.setattr(
         config_commands, "is_transport_installed", lambda _name: installed

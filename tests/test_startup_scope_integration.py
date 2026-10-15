@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.cli import main

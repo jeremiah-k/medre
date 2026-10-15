@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.cli.route_commands import _format_structured_destination
 from tests.helpers.cli import _run_cli_raw
 

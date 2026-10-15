@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.kinds import EventKind

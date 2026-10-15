@@ -36,6 +36,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import msgspec
 import pytest
+
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.adapter import (
@@ -1391,10 +1392,11 @@ class TestSuppressedIncidentSummary:
 def test_execution_evidence_rejects_mismatched_receipt_kinds() -> None:
     """The evidence value refuses receipts placed in the wrong kind slot."""
     import pytest
+    from msgspec.structs import force_setattr
+
     from medre.core.engine.pipeline.delivery_evidence import (
         DeliveryExecutionEvidence,
     )
-    from msgspec.structs import force_setattr
     from tests.lifecycle.conftest import _make_receipt
 
     attempt_in_authority_slot = _make_receipt(

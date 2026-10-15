@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.runtime.run_session.orchestration import run_bridge_session

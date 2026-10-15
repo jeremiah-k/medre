@@ -68,6 +68,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC

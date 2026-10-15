@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self
 
 import pytest
+
 from medre.config.errors import ConfigValidationError
 from medre.config.model import GenericAdapterRuntimeConfig
 

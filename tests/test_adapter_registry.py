@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
 from medre.adapter_registry import (
     ADAPTER_REGISTRY,
     AdapterTypeRegistry,

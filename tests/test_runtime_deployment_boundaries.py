@@ -44,6 +44,7 @@ import sys as _sys
 from pathlib import Path
 
 import pytest
+
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
 from tests.helpers.import_scanner import (
     ADAPTER_CONFIG_PREFIXES as _ADAPTER_CONFIG_PREFIXES,

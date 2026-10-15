@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from scripts.ci.docker_bridge_artifacts import (
     _LIMITATIONS,
     ARTIFACT_PLAN,

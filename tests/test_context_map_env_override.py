@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 
 import pytest
+
 from medre.config.env import apply_env_overrides
 from medre.config.model import (
     AdapterConfigSet,

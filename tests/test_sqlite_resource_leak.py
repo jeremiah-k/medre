@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from medre.core.storage.backend import StorageInitializationError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 

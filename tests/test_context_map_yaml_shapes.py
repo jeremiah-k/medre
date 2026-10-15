@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigValidationError
 from medre.config.routes import ContextMapEntry, RouteConfigSet

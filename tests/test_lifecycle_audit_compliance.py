@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter

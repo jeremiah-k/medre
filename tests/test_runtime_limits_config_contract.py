@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 
 import pytest
+
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import _RUNTIME_LIMITS_KNOWN_KEYS, load_config
 from medre.config.model import RuntimeLimits
@@ -44,29 +45,38 @@ def test_inbound_admission_limits_reach_capacity_controller(tmp_path: Path) -> N
     assert capacity._inbound_timeout == 0.25
 
 
-@pytest.mark.parametrize("name", [
-    "max_inflight_deliveries", "max_inflight_replay_events",
-    "max_inflight_inbound_admissions",
-])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "max_inflight_deliveries",
+        "max_inflight_replay_events",
+        "max_inflight_inbound_admissions",
+    ],
+)
 @pytest.mark.parametrize("value", [True, False, 0, -1, "5", 0.5, None])
 def test_concurrency_bounds_reject_invalid_values(name: str, value: object) -> None:
     with pytest.raises(ConfigValidationError, match=name):
         RuntimeLimits(**{name: value}).validate()
 
 
-@pytest.mark.parametrize("name", [
-    "shutdown_drain_timeout_seconds", "delivery_acquire_timeout_seconds",
-    "inbound_admission_timeout_seconds",
-])
 @pytest.mark.parametrize(
-    "value", [True, False, 0, -0.1, float("nan"), float("inf"), float("-inf"), "5", None]
+    "name",
+    [
+        "shutdown_drain_timeout_seconds",
+        "delivery_acquire_timeout_seconds",
+        "inbound_admission_timeout_seconds",
+    ],
+)
+@pytest.mark.parametrize(
+    "value",
+    [True, False, 0, -0.1, float("nan"), float("inf"), float("-inf"), "5", None],
 )
 def test_timeout_bounds_reject_invalid_values(name: str, value: object) -> None:
     with pytest.raises(ConfigValidationError, match=name):
         RuntimeLimits(**{name: value}).validate()
 
 
-@pytest.mark.parametrize("value", [False, "bad", float('nan'), float('inf'), -1])
+@pytest.mark.parametrize("value", [False, "bad", float("nan"), float("inf"), -1])
 def test_invalid_yaml_limits_raise_config_error(tmp_path: Path, value: object) -> None:
     # Use YAML scalars directly so the operator-facing load path is tested.
     encoded = {False: "false", "bad": "bad", -1: "-1"}.get(value)
@@ -148,6 +158,8 @@ def test_fractional_drain_timeout_allowed_by_yaml_and_schema(tmp_path: Path) -> 
     assert config.limits.shutdown_drain_timeout_seconds == 0.25
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     assert (
-        schema["properties"]["runtime"]["properties"]["limits"]["properties"]
-        ["shutdown_drain_timeout_seconds"]["type"] == "number"
+        schema["properties"]["runtime"]["properties"]["limits"]["properties"][
+            "shutdown_drain_timeout_seconds"
+        ]["type"]
+        == "number"
     )

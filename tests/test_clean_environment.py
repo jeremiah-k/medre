@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.adapter_registry import registered_transports
 
 # ---------------------------------------------------------------------------

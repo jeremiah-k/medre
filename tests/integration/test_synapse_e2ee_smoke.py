@@ -74,6 +74,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_E2EE

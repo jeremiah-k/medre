@@ -21,6 +21,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from medre.adapters.lxmf.session import LxmfSession
 from medre.adapters.matrix.session import MatrixSession
 from medre.adapters.meshtastic.session import MeshtasticSession

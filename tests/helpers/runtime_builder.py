@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
 from medre.config.adapters.matrix import MatrixConfig

@@ -5,6 +5,7 @@ from importlib import metadata
 from typing import Any
 
 import pytest
+
 from medre.adapter_registry import (
     AdapterTypeRegistry,
     _discover_installed_adapters,

@@ -32,6 +32,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+
 from tests.helpers.live_harness import bounded
 from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash

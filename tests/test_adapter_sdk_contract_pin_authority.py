@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from tests.helpers.sdk_contract import declared_extra_pins
 
 

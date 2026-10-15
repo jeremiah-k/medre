@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from tests.helpers.async_utils import wait_until
 from tests.helpers.cli import _run_cli, _run_cli_raw
 from tests.helpers.compatibility_configs import CONFIG_FAKE_MULTI, CONFIG_SINGLE_ADAPTER

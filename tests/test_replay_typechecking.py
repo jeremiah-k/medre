@@ -12,6 +12,7 @@ from typing import AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
+
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.summary import ReplaySummary, _build_summary
 from medre.core.engine.replay.types import (

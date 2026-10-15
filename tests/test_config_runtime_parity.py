@@ -17,6 +17,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+
 from medre.config.adapters.lxmf_errors import LxmfConfigError
 from medre.config.adapters.matrix_errors import MatrixConfigError
 from medre.config.adapters.meshcore_errors import MeshCoreConfigError

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (

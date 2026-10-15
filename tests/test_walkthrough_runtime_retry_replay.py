@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.core.planning.delivery_plan import DeliveryPlan
 from medre.runtime.builder import RuntimeBuilder
 

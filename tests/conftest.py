@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
+
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,

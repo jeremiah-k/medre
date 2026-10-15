@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+
 from medre.adapters.matrix.runtime import prepare_matrix_runtime_config
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig

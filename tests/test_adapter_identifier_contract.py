@@ -29,6 +29,7 @@ import os
 from pathlib import Path
 
 import pytest
+
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import apply_env_overrides

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig

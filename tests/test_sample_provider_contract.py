@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+
 from medre import adapter_registry
 from medre.adapter_registry import AdapterTypeRegistry
 from medre.adapter_spec import AdapterSample, SymbolRef

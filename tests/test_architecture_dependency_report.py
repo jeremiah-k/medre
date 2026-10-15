@@ -7,6 +7,7 @@ import ast
 from pathlib import Path
 
 import pytest
+
 from medre.runtime.architecture_ast import (
     ImportRecord,
     is_type_checking,

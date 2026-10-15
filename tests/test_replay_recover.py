@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, EXIT_NOT_FOUND, main
 from medre.core.storage.backend import UnresolvedDeliveriesPage
 

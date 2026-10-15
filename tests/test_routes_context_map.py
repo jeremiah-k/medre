@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.route_expansion import (

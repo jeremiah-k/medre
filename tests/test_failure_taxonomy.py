@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+
 from medre.core.evidence.failure_taxonomy import (
     FAILURE_KIND_TO_TAXON,
     FailureTaxon,

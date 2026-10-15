@@ -31,6 +31,7 @@ import os
 from pathlib import Path
 
 import pytest
+
 from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig

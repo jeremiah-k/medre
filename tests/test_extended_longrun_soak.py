@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
