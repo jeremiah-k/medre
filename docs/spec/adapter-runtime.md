@@ -891,6 +891,19 @@ The registry is immutable after import. Installed transport names **MUST** be
 unique. Runtime code **MUST** reject an enabled adapter whose transport is not
 registered.
 
+Core **MUST** own the `medre adapter <transport>` command namespace. Optional
+`cli_register` hooks receive that provider's `argparse.ArgumentParser` and
+configure only its arguments and descendants. They **MUST NOT** use the core
+dispatch destinations/defaults `command`, `adapter_command`, or
+`_adapter_cli_failures`, including in nested parsers. Both CLI hooks **MUST**
+resolve to callables without importing optional SDKs.
+
+CLI contribution failures **MUST** remain isolated from healthy command trees
+and runtime registration. Basic help and version **MUST** remain available;
+adapter preflight **MUST** diagnose the broken contribution and exit 2. Exception
+details **MUST** be sanitized before display. A partially configured failing
+parser **MUST NOT** be exposed.
+
 A provider **MAY** declare `sample_config: SymbolRef`, an SDK-free zero-argument
 callback returning `AdapterSample(config, channel=None)`. Native
 values and the opaque conversation address are adapter-owned. `config` **MUST

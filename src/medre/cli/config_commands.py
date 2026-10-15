@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from medre.config.paths import resolve
 
 from .exit_codes import EXIT_CONFIG
 from .transports import TRANSPORTS, is_transport_installed
+
+if TYPE_CHECKING:
+    from .contrib import CliContributionFailure
 
 
 def _dir_status(p: object) -> str:
@@ -234,7 +238,7 @@ def _config_check(config_path: str | None) -> None:
         )
 
 
-def _adapters() -> None:
+def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
     """List available adapter types, SDK availability, and configured adapters."""
     from medre.config.errors import (
         ConfigFileError,
@@ -244,6 +248,7 @@ def _adapters() -> None:
     from medre.config.loader import load_config
 
     print("Adapter types:")
+    _print_cli_failures(cli_failures)
 
     # Check SDK availability
     for transport, dist_name, import_names in TRANSPORTS:
@@ -274,7 +279,14 @@ def _adapters() -> None:
         print("Config cannot be loaded — run 'medre config check' for details.")
 
 
-def _adapters_check(config_path: str | None) -> None:
+def _print_cli_failures(failures: tuple[CliContributionFailure, ...]) -> None:
+    for failure in failures:
+        print(f"  {failure.transport}: broken CLI contribution: {failure.reason}")
+
+
+def _adapters_check(
+    config_path: str | None, *, cli_failures: tuple[CliContributionFailure, ...] = ()
+) -> None:
     """Preflight external adapter availability without installing any packages."""
     from medre.adapter_installation import inspect_adapter_installation
 
@@ -285,6 +297,7 @@ def _adapters_check(config_path: str | None) -> None:
         sys.exit(EXIT_CONFIG)
 
     print(f"Config file: {report.config_path}")
+    _print_cli_failures(cli_failures)
     if not report.required:
         print("No adapter types declared.")
     for transport in report.required:
@@ -296,7 +309,7 @@ def _adapters_check(config_path: str | None) -> None:
         print(
             f"  {failure.transport}: broken ({failure.provider_distribution or 'unknown distribution'}, {failure.entry_point}): {failure.reason}"
         )
-    if report.broken:
+    if report.broken or cli_failures:
         print(
             "Repair or uninstall broken provider distributions, restart MEDRE, and re-run this check.",
             file=sys.stderr,

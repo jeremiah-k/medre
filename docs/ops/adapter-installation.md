@@ -123,6 +123,11 @@ Repair or uninstall those distributions and restart MEDRE. Help and unrelated
 healthy providers remain usable; configuring a broken provider fails with a
 configuration error.
 
+Optional CLI contribution errors appear as `broken CLI contribution`. Core
+omits the failed command tree while preserving help, version, healthy provider
+commands, and runtime discovery. Preflight exits 2 until the contribution is
+repaired; `medre adapters` also displays the registration error.
+
 MEDRE does not assume that the `meshcore` transport comes from a PyPI package
 named `medre-adapter-meshcore`: the adapter author chooses their distribution
 name and advertises the `meshcore` entry point. This also supports community

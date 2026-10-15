@@ -527,9 +527,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
-    from .contrib import register_builtin_contributors
+    from .contrib import register_adapter_contributors
 
-    register_builtin_contributors(sub)
+    parser.set_defaults(_adapter_cli_failures=register_adapter_contributors(sub))
 
     # support (with sub-subcommands)
     support_p = sub.add_parser(
@@ -592,9 +592,9 @@ def main(argv: list[str] | None = None) -> None:
         from .config_commands import _adapters, _adapters_check
 
         if args.action == "check":
-            _adapters_check(args.config)
+            _adapters_check(args.config, cli_failures=args._adapter_cli_failures)
         else:
-            _adapters()
+            _adapters(cli_failures=args._adapter_cli_failures)
     elif args.command == "diagnostics":
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 

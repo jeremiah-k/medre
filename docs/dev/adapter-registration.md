@@ -35,7 +35,7 @@ their value may be `None` or empty. Remaining fields have the defaults shown.
 | `fake_adapter`               | Optional `SymbolRef`, default `None`. Its constructor accepts `adapter_id=` as a keyword without any other required arguments and returns an `AdapterContract`. Extra optional native arguments are allowed. Construction/start/delivery require no SDK, network, credentials, or hardware. | Fake runtime construction and lifecycle drills.                                               |
 | `runtime_config_preparer`    | Optional `SymbolRef`, default `None`, to `prepare(config, *, adapter_id, paths, routes) -> config`. Pure preflight for all enabled fake/real instances. Failure aborts runtime assembly.                                                                                                    | Runtime builder before adapter construction.                                                  |
 | `runtime_directories`        | Optional `SymbolRef`, default `None`, to `directories(config, *, adapter_id, paths) -> Iterable[Path]`. Declare additional required state directories; core creates them.                                                                                                                   | Runtime startup. Core always creates the generic per-instance state root.                     |
-| `cli_register`               | Optional `SymbolRef`, default `None`, to `register(adapter_subparsers) -> None`. Register below `medre adapter`; declaration/help imports remain SDK-free.                                                                                                                                  | CLI parser construction.                                                                      |
+| `cli_register`               | Optional `SymbolRef`, default `None`, to `register(parser: argparse.ArgumentParser) -> None`. Configure the core-owned `medre adapter <transport>` parser; declaration/help imports remain SDK-free.                                                                                        | CLI parser construction.                                                                      |
 | `cli_dispatch`               | Optional `SymbolRef`, default `None`, to `dispatch(args) -> bool`. Return whether the provider handled the adapter command. Declare both CLI hooks or neither.                                                                                                                              | Adapter CLI dispatch.                                                                         |
 | `support_endpoint_fields`    | Tuple of native config field names safe for endpoint diagnostics, default `()`. No duplicates.                                                                                                                                                                                              | Support evidence projection.                                                                  |
 | `support_secret_fields`      | Tuple of credential field names to redact, default `()`. No duplicates; disjoint from endpoint fields.                                                                                                                                                                                      | Support evidence sanitization.                                                                |
@@ -54,6 +54,21 @@ does not import another provider or an optional native SDK.
 Likewise, a provider without `runtime_directories` needs no additional directory
 hook. Hooks declare actual provider requirements rather than mandating four
 transport-specific shapes.
+
+Core builds each CLI contribution in isolation before exposing its parser.
+The registration callback adds arguments and subcommands to its own parser;
+it does not register its transport name in a shared subparser collection.
+Use provider-specific argument destinations. The `command`, `adapter_command`,
+and `_adapter_cli_failures` destinations/defaults belong to core and are rejected
+at every nesting level. Description, epilog, usage, and formatter customization
+are preserved. Dispatch implementations keep SDK-touching imports inside the
+selected command handler.
+
+A failed CLI hook is omitted from the command tree and reported by
+`medre adapters` and `medre adapters check`; preflight exits with configuration
+status 2. Help, version, healthy contributions, and the provider's runtime
+registration remain available. Fixing an optional CLI does not require changing
+or disabling unrelated transport implementations.
 
 ## Public metadata helpers
 
