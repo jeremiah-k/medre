@@ -34,7 +34,8 @@ pins and mixed sources.
 ### Source Checkout (Developers)
 
 ```bash
-git clone --branch build/external-adapter-extraction https://github.com/jeremiah-k/medre.git\ncd medre
+git clone --branch build/external-adapter-extraction https://github.com/jeremiah-k/medre.git
+cd medre
 
 uv sync --locked --extra dev
 source .venv/bin/activate

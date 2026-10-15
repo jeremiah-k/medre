@@ -18,6 +18,14 @@ For real devices, follow the [short hardware iteration sequence](../ops/live-val
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
 
+Native provider suites live in their independent repositories. Commands using
+a path such as ../medre-adapter-meshtastic/tests assume the corresponding
+checkout sits beside MEDRE and is installed in the test environment. Core
+retains cross-adapter, lifecycle, routing, and Docker integration suites.
+See [adapter installation](../ops/adapter-installation.md) for matching sources
+and [short hardware iterations](../ops/live-validation/short-iterations.md)
+for coordinated bench setup.
+
 ## Adapter-free and compatibility ownership
 
 `uv run --no-sync pytest tests/ --core-only -q` runs all adapter-free modules.
@@ -567,11 +575,11 @@ raising the constant.
   so development runs cannot transmit accidentally:
 
   - `MESHTASTIC_LIVE_SEND=1` — Meshtastic RF transmission (see
-    `tests/test_meshtastic_live.py`).
+    `../medre-adapter-meshtastic/tests/test_meshtastic_live.py`).
   - `MESHCORE_LIVE_SEND=1` — MeshCore node send (see
-    `tests/test_meshcore_live.py`).
+    `../medre-adapter-meshcore/tests/test_meshcore_live.py`).
   - `LXMF_LIVE_SEND=1` — LXMF / Reticulum outbound send (see
-    `tests/test_lxmf_live.py`).
+    `../medre-adapter-lxmf/tests/test_lxmf_live.py`).
 
   Without the corresponding flag, live-send tests in that module are
   skipped. Other live and hardware opt-ins (e.g. the `docker` marker,

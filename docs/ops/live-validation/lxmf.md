@@ -43,7 +43,7 @@ export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
 export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
 export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 
-pytest tests/test_lxmf_live.py -m live -v
+pytest ../medre-adapter-lxmf/tests/test_lxmf_live.py -m live -v
 ```
 
 ## Prerequisites for Live Validation
@@ -257,7 +257,7 @@ external Reticulum testing:
 
 ```bash
 uv sync --locked --extra dev && uv pip install medre-adapter-lxmf
-pytest tests/integration/test_lxmf_local_integration.py \
+pytest ../medre-adapter-lxmf/tests/test_lxmf_local_integration.py \
   -m "local_integration and lxmf_sdk and not soak" -v
 ```
 

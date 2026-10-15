@@ -112,7 +112,7 @@ An activated pip virtual environment can continue to use:
 ```bash
 python -m pip install -e ".[dev]" -e ../medre-adapter-lxmf
 cd ../medre-adapter-lxmf
-python -m pytest tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
+python -m pytest ../medre-adapter-lxmf/tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
 ```
 
 pip uses package requirements, not `uv.lock`, so transitive versions can differ

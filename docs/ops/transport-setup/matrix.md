@@ -341,10 +341,10 @@ export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 export MATRIX_ROOM_ID="!test:localhost"
 export MATRIX_INBOUND_SENDER="@alice:localhost"  # second account
 
-pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+pytest ../medre-adapter-matrix/tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
 ```
 
-While the test waits (30 s window), send a message from the second account. If no second account is available, the test will xfail — deterministic unit tests in `tests/test_matrix_adapter.py` cover the same logic paths.
+While the test waits (30 s window), send a message from the second account. If no second account is available, the test will xfail — deterministic unit tests in `../medre-adapter-matrix/tests/test_matrix_adapter.py` cover the same logic paths.
 
 ### Self-message Suppression Validation
 
