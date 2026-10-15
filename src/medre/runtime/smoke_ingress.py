@@ -12,6 +12,19 @@ from medre.runtime.app import MedreApp
 from medre.runtime.route_engine import build_runtime_routes
 
 
+def validate_fake_smoke(config: RuntimeConfig) -> None:
+    """Reject live connectivity before assembling a fake-only diagnostic."""
+    real = sorted(
+        adapter_id
+        for _, adapter_id, runtime in config.adapters.all_configs()
+        if runtime.enabled and runtime.adapter_kind != "fake"
+    )
+    if real:
+        raise ValueError(
+            f"Fake smoke requires adapter_kind: fake for every enabled adapter; real adapter(s): {real}"
+        )
+
+
 def expected_smoke_deliveries(
     config: RuntimeConfig, event: CanonicalEvent
 ) -> set[tuple[str, str]]:

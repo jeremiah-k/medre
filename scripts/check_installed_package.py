@@ -12,7 +12,7 @@ throwaway virtual environment, installs ONLY that wheel with its core
 dependencies, and then exercises the installed ``medre`` console script
 from an isolated working directory with a sanitized environment. By default,
 this proves core independence; --adapter-wheel additionally enables the sample
-bridge proof using installed Matrix and Meshtastic adapter wheels:
+bridge proof using any installed provider that contributes an offline sample:
 
 * ``--help`` / ``version`` / ``paths`` / ``adapters``
 * ``config sample`` written to a real file and validated with
@@ -108,6 +108,10 @@ print(
         {
             "medre_file": medre.__file__,
             "transports": registered_transports(),
+            "sample_transports": [
+                spec.transport for spec in iter_adapter_specs()
+                if spec.fake_adapter is not None and spec.sample_config is not None
+            ],
             "adapter_modules": adapter_modules,
             "medre_version": importlib.metadata.version("medre"),
             "executable": sys.executable,
@@ -489,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="PATH",
-        help="install an adapter wheel without SDKs for the sample bridge proof; requires Matrix and Meshtastic",
+        help="install an adapter wheel without SDKs; at least one provider must contribute an offline fake sample",
     )
     args = parser.parse_args(argv)
     adapter_wheels = [Path(path).resolve(strict=True) for path in args.adapter_wheel]
@@ -795,9 +799,10 @@ asyncio.run(check())
             proc = run_cli("adapters", label="adapters")
             _expect(
                 proc.returncode == 0
-                and all(t in proc.stdout for t in ("matrix", "meshtastic")),
+                and bool(adapter_probe["sample_transports"])
+                and all(t in proc.stdout for t in adapter_probe["transports"]),
                 "adapters",
-                "sample bridge proof requires Matrix and Meshtastic adapter wheels",
+                "sample bridge proof requires an installed provider with an offline fake sample",
                 proc=proc,
             )
 

@@ -18,7 +18,7 @@ def test_arbitrary_distribution_config_and_runtime(tmp_path: Path) -> None:
     )
     (tmp_path / "sensor_plugin.py").write_text("""
 from dataclasses import dataclass
-from medre.adapter_registry import AdapterSpec, DestinationSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, DestinationSpec, SymbolRef
 from medre.adapters.fakes.transport import FakeTransportAdapter
 
 @dataclass(frozen=True)

@@ -9,13 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 import tempfile
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
-from unittest.mock import patch
 
 import pytest
 from medre.core.events import (
@@ -417,34 +415,6 @@ def rendering_pipeline() -> RenderingPipeline:
     return pipeline
 
 
-# ---------------------------------------------------------------------------
-# Matrix mock fixtures (shared across test_wrapper_multi_callback.py)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def mock_nio() -> Any:
-    """Inject a mock nio module into sys.modules and patch HAS_NIO."""
-    from tests.helpers.matrix import build_mock_nio_module
-
-    mock = build_mock_nio_module()
-    saved_nio = sys.modules.get("nio")
-    saved_nio_events = sys.modules.get("nio.events")
-    sys.modules["nio"] = mock
-    sys.modules["nio.events"] = mock.events
-    with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
-        yield mock
-    if saved_nio is None:
-        sys.modules.pop("nio", None)
-    else:
-        sys.modules["nio"] = saved_nio
-    if saved_nio_events is None:
-        sys.modules.pop("nio.events", None)
-    else:
-        sys.modules["nio.events"] = saved_nio_events
-
-
-# Test ownership must be decided before importing optional adapter modules.
 def pytest_addoption(parser):
     parser.addoption(
         "--core-only",

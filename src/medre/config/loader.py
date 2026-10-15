@@ -18,11 +18,8 @@ from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
-from medre.adapter_registry import (
-    AdapterSpec,
-    iter_adapter_specs,
-    registered_transports,
-)
+from medre.adapter_registry import iter_adapter_specs, registered_transports
+from medre.adapter_spec import AdapterSpec
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.errors import (
     ConfigFileError,

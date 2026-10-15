@@ -21,7 +21,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from medre.adapters.lxmf.session import LxmfSession
 from medre.adapters.matrix.session import MatrixSession
 from medre.adapters.meshtastic.session import MeshtasticSession
@@ -416,9 +415,10 @@ class TestLxmfReconnectCounterRecovery:
         # _connect_real is awaited by the loop. Patch at the class level
         # so the async function becomes a bound method matching the
         # production call shape.
-        with patch.object(
-            LxmfSession, "_connect_real", _connect_fail_then_succeed
-        ), patch("asyncio.sleep", side_effect=_fast_sleep):
+        with (
+            patch.object(LxmfSession, "_connect_real", _connect_fail_then_succeed),
+            patch("asyncio.sleep", side_effect=_fast_sleep),
+        ):
             await session._reconnect_loop()
 
         # One failure then one success — the failure-then-success cycle ran.

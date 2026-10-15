@@ -871,6 +871,10 @@ a process restart.
 
 ### 20.1 Registry Model
 
+Providers **MUST** import declaration types from `medre.adapter_spec`. Importing
+that module **MUST NOT** start entry-point discovery. This keeps direct factory
+imports independent of registry initialization order.
+
 Each `AdapterSpec` identifies one transport and the lazy symbols generic
 assembly needs: config type, optional adapter-owned runtime wrapper, live and
 optional fake adapter class, renderer factory, dependency probe/package metadata,
@@ -1034,6 +1038,16 @@ Fake adapters **MUST NOT**:
 
 ### 22.3 Fake smoke evidence
 
+A declared fake **MUST** be constructible with `adapter_id=` as its only required
+argument, implement `AdapterContract`, and require no native SDK, credentials,
+network, or hardware. Additional optional constructor arguments are permitted.
+The [registration reference](../dev/adapter-registration.md) defines every
+`AdapterSpec` field and hook signature, including the public metadata helpers.
+
+Fake smoke and run sessions **MUST** reject any enabled real adapter before
+constructing or starting the runtime. Their fake evidence classification does
+not authorize live transport connections or failure injection into real adapters.
+
 A fake adapter **MAY** provide a synchronous `make_event(text=..., event_kind=...)`
 helper returning a `CanonicalEvent` originating from that adapter. Normal smoke
 source selection **MUST** require successful startup and this helper. Missing
@@ -1060,6 +1074,13 @@ route/target pairs or its bounded deadline, rather than stop at the first receip
 Missing or failed deliveries **MUST** identify the event, route, and target in
 the report's existing `fail_reasons` field. Failure scenarios continue to judge
 their deliberately injected fault instead of requiring successful delivery.
+
+Every run-session scenario **MUST** also require persisted events, successfully
+collected required evidence and snapshot artifacts, and error-free stopped
+shutdown. A matching injected fault **MUST NOT** override lifecycle failure.
+Happy-path accounting **MUST** cover the total configured event/route/target
+pairs. Smoke cancellation or unexpected post-start exceptions **MUST** trigger
+cleanup; cleanup errors **MUST NOT** replace a structured failure report.
 
 Adapter failure drills **MUST** select targets through the runtime router's
 matching and target-resolution rules for the injected event, including channel

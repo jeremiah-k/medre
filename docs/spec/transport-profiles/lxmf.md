@@ -245,9 +245,9 @@ Inbound LXMF events persist one versioned object at
 message identity, timestamp/title descriptors, delivery method, field presence,
 and announce-derived display labels when available. The normative machine
 contract is
-[`lxmf-native-metadata.schema.json`](../../schemas/lxmf-native-metadata.schema.json),
+[`lxmf-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-lxmf/blob/main/docs/schemas/lxmf-native-metadata.schema.json),
 and the representative payload is
-[`lxmf-native-metadata-example.json`](../../schemas/examples/lxmf-native-metadata-example.json).
+[`lxmf-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-lxmf/blob/main/docs/schemas/examples/lxmf-native-metadata-example.json).
 The codec builder in `medre.adapters.lxmf.event_shape` is the source
 implementation authority. Flat LXMF event metadata is not an alternate shape.
 

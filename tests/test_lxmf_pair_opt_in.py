@@ -1,30 +1,33 @@
 # medre-test-tier: compatibility
 """Independent collection gates for RF relations and peer-power tests."""
 
-import importlib
 import asyncio
+import importlib
 import inspect
 import runpy
 import subprocess
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from pathlib import Path
 
 import pytest
 
 
 @pytest.mark.parametrize("hub_configured", [False, True])
 def test_lxmf_relations_do_not_require_peer_power_control(
-    monkeypatch: pytest.MonkeyPatch, hub_configured: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    hub_configured: bool,
 ) -> None:
     # Preserve helper endpoint snapshots before installing synthetic inputs.
     importlib.import_module("tests.helpers.lxmf_live_peer")
     monkeypatch.setenv("LXMF_PAIR", "1")
     monkeypatch.setenv("MEDRE_LIVE_QUICK", "0")
     for name in (
-        "LXMF_MEDRE_RNS_CONFIG", "LXMF_PEER_RNS_CONFIG",
-        "LXMF_MEDRE_IDENTITY", "LXMF_PEER_IDENTITY",
+        "LXMF_MEDRE_RNS_CONFIG",
+        "LXMF_PEER_RNS_CONFIG",
+        "LXMF_MEDRE_IDENTITY",
+        "LXMF_PEER_IDENTITY",
     ):
         monkeypatch.setenv(name, "test-endpoint")
     for name in ("LXMF_PEER_HUB", "LXMF_PEER_HUB_PORT"):
@@ -35,8 +38,13 @@ def test_lxmf_relations_do_not_require_peer_power_control(
     namespace = runpy.run_path(str(Path(__file__).with_name("test_lxmf_pair_live.py")))
     relations = namespace["TestLxmfPairRelationsAndIsolation"]
     power = namespace["test_rf_off_control_and_restored_delivery"]
-    assert not any(mark.args[0] for mark in relations.pytestmark if mark.name == "skipif")
-    assert any(mark.args[0] for mark in power.pytestmark if mark.name == "skipif") is not hub_configured
+    assert not any(
+        mark.args[0] for mark in relations.pytestmark if mark.name == "skipif"
+    )
+    assert (
+        any(mark.args[0] for mark in power.pytestmark if mark.name == "skipif")
+        is not hub_configured
+    )
 
 
 @pytest.fixture
@@ -45,10 +53,14 @@ def power_case(monkeypatch: pytest.MonkeyPatch) -> tuple:
     namespace = runpy.run_path(str(Path(__file__).with_name("test_lxmf_pair_live.py")))
     case = namespace["test_rf_off_control_and_restored_delivery"]
     globals_ = case.__globals__
-    app = SimpleNamespace(adapters={
-        "lab_src": SimpleNamespace(simulate_inbound=AsyncMock()),
-        "lx_radio": SimpleNamespace(session=SimpleNamespace(delivery_state_counts=lambda: {})),
-    })
+    app = SimpleNamespace(
+        adapters={
+            "lab_src": SimpleNamespace(simulate_inbound=AsyncMock()),
+            "lx_radio": SimpleNamespace(
+                session=SimpleNamespace(delivery_state_counts=lambda: {})
+            ),
+        }
+    )
 
     class Listener:
         def __init__(self, seconds: float) -> None:
@@ -69,17 +81,23 @@ def power_case(monkeypatch: pytest.MonkeyPatch) -> tuple:
 
     stop = AsyncMock()
     for key, value in {
-        "_launch": AsyncMock(return_value=app), "_stop_app": stop,
-        "_await_peer_recall": AsyncMock(return_value=True), "_PEER_DEST": lambda: "peer",
+        "_launch": AsyncMock(return_value=app),
+        "_stop_app": stop,
+        "_await_peer_recall": AsyncMock(return_value=True),
+        "_PEER_DEST": lambda: "peer",
         "_events_with_body": AsyncMock(return_value=[object()]),
-        "_PeerListener": Listener, "_nonce": lambda label: label, "wait_until": ready,
+        "_PeerListener": Listener,
+        "_nonce": lambda label: label,
+        "wait_until": ready,
     }.items():
         monkeypatch.setitem(globals_, key, value)
     return case, globals_, stop
 
 
 async def test_power_off_failure_restores_hub_and_stops_runtime(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, power_case: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    power_case: tuple,
 ) -> None:
     case, globals_, stop = power_case
     actions = []
@@ -99,7 +117,9 @@ async def test_power_off_failure_restores_hub_and_stops_runtime(
 
 
 async def test_power_off_cancellation_settles_worker_before_restoration(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, power_case: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    power_case: tuple,
 ) -> None:
     case, globals_, stop = power_case
     started, release = Event(), Event()
@@ -131,7 +151,9 @@ async def test_power_off_cancellation_settles_worker_before_restoration(
 
 
 async def test_queued_ghost_alone_cannot_prove_fresh_delivery(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, power_case: tuple,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    power_case: tuple,
 ) -> None:
     case, globals_, stop = power_case
     power = {"state": "on"}

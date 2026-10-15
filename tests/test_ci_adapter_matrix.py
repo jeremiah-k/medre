@@ -31,6 +31,26 @@ def _manifest(tmp_path: Path, entries: list[dict]) -> Path:
     return path
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        None,
+        {},
+        {"transport": "private_chat"},
+        {
+            "transport": 7,
+            "repository": "a/b",
+            "ref": "a" * 40,
+            "extras": "",
+            "local_integration": False,
+        },
+    ],
+)
+def test_malformed_entries_have_configuration_diagnostics(tmp_path, bad):
+    with pytest.raises(ValueError):
+        matrix.resolve_adapters(_manifest(tmp_path, [bad]), resolve=False)
+
+
 def test_resolves_once_to_full_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

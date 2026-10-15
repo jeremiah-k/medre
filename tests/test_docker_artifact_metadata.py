@@ -1,4 +1,4 @@
-"""Tests for medre.runtime.docker_bridge_artifacts — metadata, redaction, and paths.
+"""Tests for scripts.ci.docker_bridge_artifacts — metadata, redaction, and paths.
 
 Covers _read_run_metadata, _write_redacted_config (including write-failure
 handling), _collect_log_artifacts, structured metadata precedence in
@@ -16,8 +16,7 @@ from typing import Any
 
 import pytest
 import yaml
-
-from medre.runtime.docker_bridge_artifacts import (
+from scripts.ci.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     _collect_log_artifacts,
     _format_yaml_key,
@@ -718,7 +717,7 @@ def test_config_snapshot_failure_recorded_in_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A raising _collect_config_snapshot is caught and reported in errors."""
-    import medre.runtime.docker_bridge_artifacts as dba
+    import scripts.ci.docker_bridge_artifacts as dba
 
     mock_runner = _make_mock_runner(stdout="1 passed in 1s\n")
 

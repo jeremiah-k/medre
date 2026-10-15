@@ -6,7 +6,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from medre.cli.transports import is_transport_installed
 
 
@@ -27,6 +26,20 @@ def no_sdk_imports(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 def test_unknown_transport_is_not_installed() -> None:
     assert is_transport_installed("no-such-transport") is False
+
+
+def test_broken_dependency_probe_is_unavailable_instead_of_crashing(monkeypatch):
+    def fail():
+        raise RuntimeError("broken SDK initialization")
+
+    monkeypatch.setattr(
+        "medre.cli.transports.get_adapter_spec",
+        lambda name: SimpleNamespace(dependency_probe=SimpleNamespace(load=fail)),
+    )
+    monkeypatch.setattr(
+        "medre.cli.transports.TRANSPORTS", [("private_chat", "private-sdk", ())]
+    )
+    assert is_transport_installed("private_chat") is False
 
 
 def test_transport_without_import_names_needs_no_sdk(

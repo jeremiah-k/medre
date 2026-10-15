@@ -105,7 +105,7 @@ class TestReplayAccounting:
 
         async def _fake_replay_event(*args: Any, **kwargs: Any) -> Any:
             raise RuntimeError("unrecoverable crash")
-            yield  # noqa: unreachable -- makes this an async generator
+            yield  # Unreachable: marks this function as an async generator.
 
         with unittest.mock.patch.object(
             engine,

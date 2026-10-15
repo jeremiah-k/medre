@@ -12,7 +12,6 @@ from typing import AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
-
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.summary import ReplaySummary, _build_summary
 from medre.core.engine.replay.types import (
@@ -350,7 +349,7 @@ class TestCollectReplayState:
     async def test_empty_iterator(self) -> None:
         async def _empty() -> AsyncIterator[ReplayResult]:
             return
-            yield  # noqa: unreachable – makes this an async generator
+            yield  # Unreachable: marks this function as an async generator.
 
         state = await collect_replay_state(_empty())
         assert state.events_processed == 0

@@ -7,11 +7,10 @@ from typing import Any
 import pytest
 from medre.adapter_registry import (
     AdapterTypeRegistry,
-    DestinationSpec,
-    SymbolRef,
     _discover_installed_adapters,
     registered_transports,
 )
+from medre.adapter_spec import DestinationSpec, SymbolRef
 from tests.helpers.adapter_spec import make_adapter_spec
 
 
@@ -140,7 +139,7 @@ def test_provider_cannot_override_core_logging_or_declare_invalid_levels(declara
 def test_fake_declaration_can_be_omitted():
     from dataclasses import fields
 
-    from medre.adapter_registry import AdapterSpec
+    from medre.adapter_spec import AdapterSpec
 
     base = make_adapter_spec("private_chat")
     values = {

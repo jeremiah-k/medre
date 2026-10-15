@@ -1052,7 +1052,7 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
 @_REQUIRE
 @pytest.mark.skipif(
     not _HAS_NIO,
-    reason="matrix transport requires mindroom-nio (pip install '.[matrix]')",
+    reason="matrix transport requires mindroom-nio (pip install 'medre-adapter-matrix')",
 )
 @pytest.mark.skipif(not _HAS_DOCKER, reason="matrix transport runs Synapse in Docker")
 async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
@@ -1269,7 +1269,7 @@ def _lx_ingest_evidence(app: Any) -> str:
 @pytest.mark.skipif(
     not _HAS_LXMF,
     reason="lxmf matrix leg requires the pinned lxmf/rns SDKs "
-    "(pip install 'medre[lxmf]')",
+    "(pip install 'medre-adapter-lxmf')",
 )
 @pytest.mark.timeout(
     max(

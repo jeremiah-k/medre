@@ -22,6 +22,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
+from tests.helpers.matrix import mock_nio as mock_nio
 from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,

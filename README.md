@@ -97,6 +97,10 @@ the adapter's `[e2e]` extra. See the
 [development environment guide](docs/dev/environment.md) and
 [external adapter ownership and CI](docs/dev/external-adapters.md).
 
+Adapter authors can use the [registration reference](docs/dev/adapter-registration.md)
+for every hook signature, the public metadata API, and optional fake/SDK
+conformance tools. Native schemas and examples belong to the adapter repositories.
+
 What a `sent` receipt means per transport is in
 [docs/ops/running-medre.md](docs/ops/running-medre.md); per-transport
 validation status and dated live records are in

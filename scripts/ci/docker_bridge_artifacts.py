@@ -123,9 +123,7 @@ _DEFAULT_ARTIFACT_BASE = Path(
     os.environ.get(
         "MEDRE_CI_ARTIFACT_DIR",
         str(
-            Path(__file__).resolve().parent.parent.parent.parent.parent
-            / ".ci-artifacts"
-            / "docker-bridge-runs"
+            Path(__file__).resolve().parents[2] / ".ci-artifacts" / "docker-bridge-runs"
         ),
     )
 )

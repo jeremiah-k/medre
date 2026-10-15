@@ -82,7 +82,7 @@ pytestmark: list[Any] = [pytest.mark.docker]
 if not HAS_NIO:
     pytestmark.append(
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         )
     )
 

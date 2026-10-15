@@ -9,7 +9,7 @@
 # "radio" — short, unambiguous, and used directly in route declarations.
 #
 # Prerequisites:
-#   pip install ".[matrix,meshtastic]"
+#   pip install medre-adapter-matrix medre-adapter-meshtastic
 #   A Meshtastic radio on /dev/ttyACM0 (or change serial_port below)
 #   A Matrix bot account with a valid access token
 #

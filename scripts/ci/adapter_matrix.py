@@ -29,21 +29,33 @@ def resolve_adapters(path: Path, *, resolve: bool) -> list[dict[str, Any]]:
         raise ValueError("compatibility manifest must be a nonempty list")
     seen: set[str] = set()
     for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("each compatibility entry must be an object")
+        required = {"transport", "repository", "ref", "extras", "local_integration"}
+        missing = required - entry.keys()
+        if missing:
+            raise ValueError(f"compatibility entry missing field(s): {sorted(missing)}")
         transport = entry["transport"]
         repository = entry["repository"]
         ref = entry["ref"]
-        if not re.fullmatch(r"[a-z][a-z0-9_-]*", transport) or transport in seen:
+        if (
+            not isinstance(transport, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]*", transport)
+            or transport in seen
+        ):
             raise ValueError(
                 f"invalid or duplicate compatibility transport: {transport!r}"
             )
         seen.add(transport)
-        if not re.fullmatch(
+        if not isinstance(repository, str) or not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository
         ):
             raise ValueError(f"invalid compatibility repository: {repository!r}")
         if not isinstance(entry["local_integration"], bool):
             raise ValueError("local_integration must be a boolean")
-        if entry["extras"] and not re.fullmatch(r"[A-Za-z0-9_-]+", entry["extras"]):
+        if not isinstance(entry["extras"], str) or (
+            entry["extras"] and not re.fullmatch(r"[A-Za-z0-9_-]+", entry["extras"])
+        ):
             raise ValueError("extras must be a single package extra")
         distribution = entry.get("distribution")
         if distribution is not None and (
@@ -51,6 +63,8 @@ def resolve_adapters(path: Path, *, resolve: bool) -> list[dict[str, Any]]:
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", distribution)
         ):
             raise ValueError("distribution must be a valid Python distribution name")
+        if not isinstance(ref, str):
+            raise ValueError("compatibility ref must be a string")
         if _SHA.fullmatch(ref):
             continue
         if not ref.startswith(("refs/heads/", "refs/tags/")) or any(

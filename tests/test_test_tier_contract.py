@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from tests.helpers.suite_ownership import (
     COMPATIBILITY,
     external_imports,
@@ -52,3 +53,33 @@ def test_relative_and_literal_dynamic_helper_imports_are_guarded(tmp_path):
         'import importlib\nimportlib.import_module("medre.adapters.private_chat")\n'
     )
     assert external_imports(path, tmp_path) == {"medre.adapters.private_chat"}
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        'import pytest\npytest.importorskip("medre.adapters.private_chat")',
+        'from pytest import importorskip as optional\noptional("medre.adapters.private_chat")',
+        "import medre.adapters\nmedre.adapters.private_chat.Client()",
+        'import medre.adapters as adapters\ngetattr(adapters, "private_chat")',
+    ],
+)
+def test_optional_and_namespace_dependencies_are_guarded(tmp_path, code):
+    package = tmp_path / "src/medre/adapters"
+    package.mkdir(parents=True)
+    (package / "__init__.py").touch()
+    test = tmp_path / "tests/test_example.py"
+    test.parent.mkdir()
+    test.write_text(code)
+    assert external_imports(test, tmp_path) == {"medre.adapters.private_chat"}
+
+
+def test_conftest_dependencies_require_ownership(tmp_path):
+    suite = tmp_path / "tests/operational"
+    suite.mkdir(parents=True)
+    (suite / "conftest.py").write_text(
+        "from medre.adapters.private_chat import Client\n"
+    )
+    assert undeclared_dependencies(tmp_path) == {
+        "tests/operational/conftest.py": ["medre.adapters.private_chat"]
+    }

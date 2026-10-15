@@ -306,6 +306,7 @@ class TestReusableAdapterModuleBoundary:
                         other_transport != transport
                         and other_transport != ""
                         and not other_transport.startswith("_")
+                        and other_transport != "metadata"
                     ):
                         violations.append(
                             f"{rel}:{r.lineno}: imports {r.module} "

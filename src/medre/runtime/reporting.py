@@ -26,6 +26,10 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.evidence.capability import derive_capability_evidence
+from medre.core.evidence.failure_taxonomy import compute_retryable as _compute_retryable
+from medre.core.evidence.failure_taxonomy import (
+    derive_failure_kind_detail as _derive_failure_kind_detail,
+)
 from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 
@@ -105,104 +109,6 @@ def _to_iso_or_none(dt: datetime | None) -> str | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.isoformat()
-
-
-def _derive_failure_kind_detail(
-    failure_kind: str | None,
-    error: str | None,
-) -> str | None:
-    """Derive a conservative *failure_kind_detail* from error context.
-
-    Produces a more specific classification without changing the
-    :class:`~medre.core.planning.delivery_plan.DeliveryFailureKind` enum.
-    Returns the original ``failure_kind`` when no specialised pattern
-    matches, or ``None`` when ``failure_kind`` itself is ``None``.
-
-    Patterns:
-
-    * ``"e2ee_blocked"`` — Matrix E2EE decryption or blocking errors
-      (Matrix-specific patterns only; generic "encrypted" alone does
-      not match).
-    * ``"meshtastic_queue_rejected"`` — Queue-full or enqueue-rejected
-      error patterns (detected from error text alone; no requirement
-      for "meshtastic" in adapter ID or error text).
-    * Otherwise — same as ``failure_kind``.
-    """
-    if not failure_kind:
-        return None
-    err = (error or "").lower()
-    # Shutdown drain-timeout abandonment — persisted by MedreApp.stop() when
-    # in-flight deliveries remain after the drain deadline expires.  Distinct
-    # from the generic shutdown_rejection recorded at capacity-acquire time.
-    if "shutdown_drain_timeout" in err:
-        return "shutdown_drain_timeout"
-    # Route-policy denial — persisted when a target is suppressed by
-    # policy configuration.  Detected from "route policy denied" in
-    # error text for more specific detail; falls through to generic
-    # policy_suppressed when only the failure_kind matches.
-    if "route policy denied" in err:
-        return "policy_suppressed"
-    if failure_kind == "policy_suppressed":
-        return "policy_suppressed"
-    # E2EE / encrypted blocking (Matrix adapters).
-    # Tightened to Matrix-specific patterns only — generic "encrypted"
-    # alone is insufficient (e.g. "encrypted packet" is not E2EE).
-    if any(
-        s in err
-        for s in (
-            "e2ee",
-            "megolm",
-            "olm session",
-            "unable to decrypt",
-            "crypto is not active",
-            "matrix room is encrypted",
-            "room is encrypted but e2ee",
-        )
-    ):
-        return "e2ee_blocked"
-    # Meshtastic queue-full / rejection — detect from error text alone.
-    # No requirement for "meshtastic" in error or target_adapter so
-    # adapters with non-standard IDs (e.g. radio/mesh/test-full) are
-    # still recognised.
-    if ("queue" in err and "full" in err) or "enqueue rejected" in err:
-        return "meshtastic_queue_rejected"
-    # Meshtastic outbound gate suppression — listen_only mode.
-    if "outbound suppressed" in err and "listen_only" in err:
-        return "meshtastic_outbound_suppressed"
-    # Meshtastic queue drain cancelled — shutdown or crash while items
-    # were enqueued but not yet sent.  Distinguished from queue-full
-    # rejection by the "drain cancelled" / "queue abandoned" phrasing.
-    if "queue drain cancelled" in err or "queue abandoned" in err:
-        return "meshtastic_queue_drain_cancelled"
-    # Default: preserve the original failure_kind.
-    return failure_kind
-
-
-def _compute_retryable(
-    failure_kind: str | None,
-    status: str,
-    next_retry_at: datetime | None,
-) -> bool:
-    """Determine whether a receipt represents a retryable delivery state.
-
-    Rules (evaluated in order; first match wins):
-
-    * ``status == "dead_lettered"`` → ``False`` (terminal).
-    * ``status == "suppressed"`` → ``False`` (terminal).
-    * ``next_retry_at is not None`` → ``True`` (scheduled retry).
-    * ``status == "failed"`` and ``failure_kind == "adapter_transient"``
-      → ``True``.
-    * Everything else → ``False``.
-    """
-    if status == "dead_lettered":
-        return False
-    if status == "suppressed":
-        return False
-    if next_retry_at is not None:
-        return True
-    if status == "failed" and failure_kind == "adapter_transient":
-        return True
-    return False
 
 
 # ---------------------------------------------------------------------------

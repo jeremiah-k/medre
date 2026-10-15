@@ -29,11 +29,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
-from medre.adapter_registry import (
-    AdapterSpec,
-    get_adapter_spec,
-    iter_adapter_specs,
-)
+from medre.adapter_registry import get_adapter_spec, iter_adapter_specs
+from medre.adapter_spec import AdapterSpec
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     RuntimeConfig,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,8 @@ _RUNNER = Path(__file__).resolve().parents[1] / "scripts/ci/run-docker-integrati
 # This harness exercises a POSIX Bash entry point with executable shell fakes.
 # Windows core/runtime coverage runs separately without relying on WSL Bash.
 pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="POSIX Docker runner harness (not a Windows entry point)"
+    sys.platform == "win32",
+    reason="POSIX Docker runner harness (not a Windows entry point)",
 )
 
 
@@ -114,11 +115,17 @@ def test_docker_runner_without_gnu_timeout_uses_pytest_timeout(
     assert "global timeout utility not found" in result.stderr
 
 
-@pytest.mark.parametrize("scenario", [
-    "matrix_to_meshtastic", "meshtastic_to_matrix", "bidirectional",
-])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "matrix_to_meshtastic",
+        "meshtastic_to_matrix",
+        "bidirectional",
+    ],
+)
 def test_docker_artifact_runner_without_gnu_timeout_uses_collector_deadline(
-    runner_environment: tuple[dict[str, str], Path], scenario: str,
+    runner_environment: tuple[dict[str, str], Path],
+    scenario: str,
 ) -> None:
     """All scenarios work without coreutils and never reach a catch-all branch."""
     env, log = runner_environment
@@ -128,7 +135,10 @@ def test_docker_artifact_runner_without_gnu_timeout_uses_collector_deadline(
     artifact_runner = _RUNNER.with_name("run-docker-bridge-artifacts.sh")
     result = subprocess.run(
         [shell, str(artifact_runner), scenario],
-        env=env, capture_output=True, text=True, timeout=10,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "global timeout utility not found" in result.stderr
@@ -144,8 +154,11 @@ def test_docker_artifact_timeout_is_validated_before_embedding_in_python(
     assert shell is not None
     artifact_runner = _RUNNER.with_name("run-docker-bridge-artifacts.sh")
     result = subprocess.run(
-        [shell, str(artifact_runner)], env=env,
-        capture_output=True, text=True, timeout=10,
+        [shell, str(artifact_runner)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 2
     assert "TIMEOUT_MINUTES must be a positive integer" in result.stderr

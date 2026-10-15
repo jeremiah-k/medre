@@ -4,7 +4,8 @@ from dataclasses import replace
 
 import pytest
 from medre import adapter_registry
-from medre.adapter_registry import AdapterTypeRegistry, DestinationSpec, SymbolRef
+from medre.adapter_registry import AdapterTypeRegistry
+from medre.adapter_spec import DestinationSpec, SymbolRef
 from tests.helpers.adapter_spec import make_adapter_spec
 
 

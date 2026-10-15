@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import yaml
-from medre.adapter_registry import AdapterSample, iter_adapter_specs
+from medre.adapter_registry import iter_adapter_specs
+from medre.adapter_spec import AdapterSample
 
 
 class _SampleDumper(yaml.SafeDumper):

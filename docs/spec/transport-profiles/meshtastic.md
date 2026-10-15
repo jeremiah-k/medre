@@ -288,9 +288,9 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 Inbound Meshtastic events persist one versioned object at
 `metadata.native.data["meshtastic"]`. The normative machine contract is
-[`meshtastic-native-metadata.schema.json`](../../schemas/meshtastic-native-metadata.schema.json),
+[`meshtastic-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshtastic/blob/main/docs/schemas/meshtastic-native-metadata.schema.json),
 and the representative payload is
-[`meshtastic-native-metadata-example.json`](../../schemas/examples/meshtastic-native-metadata-example.json).
+[`meshtastic-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-meshtastic/blob/main/docs/schemas/examples/meshtastic-native-metadata-example.json).
 The codec builder in `medre.adapters.meshtastic.event_shape` is the source
 implementation authority.
 

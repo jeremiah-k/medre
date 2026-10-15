@@ -17,6 +17,23 @@ env:
   PYTHONUTF8: "1"
 
 jobs:
+  quality:
+    name: Python quality and whitespace
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version-file: .tool-versions
+          python-version: "3.13"
+      - run: uvx --from ruff==0.16.9 ruff check src tests scripts
+      - run: uvx --from black==26.5.1 black --check --target-version py311 src tests scripts
+      - run: git show --format= --check HEAD
+
   adapter-plan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -172,11 +189,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Install core and adapter-owned dependencies
-        env:
-          ADAPTER_EXTRAS: ${{ matrix.provider.extras }}
         run: |
           uv sync --locked --extra dev
-          uv pip install -e ".adapter[test${ADAPTER_EXTRAS:+,$ADAPTER_EXTRAS}]"
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --test --python .venv/bin/python
       - name: Run adapter-owned unit and SDK contracts
         working-directory: .adapter
         run: |

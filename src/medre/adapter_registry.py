@@ -1,8 +1,9 @@
 """Registry for separately distributed MEDRE adapter types.
 
 The registry contains *declarative registration metadata only*. It deliberately
-stores implementation references as strings so importing configuration code
-never imports adapter implementations or optional transport SDKs.
+stores implementation references as strings so configuration/discovery imports
+only SDK-free declarations, config models, and pure destination validators.
+It does not import native runtime implementations or optional transport SDKs.
 
 Adapter packages register zero-argument factories through Python entry points
 in the ``medre.adapters`` group. Discovery runs once at import time; installing
@@ -11,23 +12,19 @@ new packages requires a process restart. The registry never downloads packages.
 
 from __future__ import annotations
 
-import importlib
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+
+from medre.adapter_spec import AdapterSpec, DestinationSpec
 
 __all__ = [
-    "AdapterSpec",
-    "AdapterSample",
     "AdapterDiscoveryFailure",
     "adapter_discovery_failures",
     "AdapterTypeRegistry",
-    "DestinationSpec",
     "get_destination_spec",
     "ADAPTER_REGISTRY",
-    "SymbolRef",
     "adapter_sdk_packages",
     "get_adapter_spec",
     "iter_adapter_specs",
@@ -42,88 +39,6 @@ _TRANSPORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 def valid_transport_name(value: object) -> bool:
     """Whether a value follows the platform-neutral transport token grammar."""
     return isinstance(value, str) and _TRANSPORT_NAME_RE.fullmatch(value) is not None
-
-
-@dataclass(frozen=True, slots=True)
-class SymbolRef:
-    """Lazy reference to a Python symbol.
-
-    Keeping references lazy is important: config parsing and CLI discovery
-    must not import optional SDK-backed adapter modules merely to learn which
-    transports MEDRE supports.
-    """
-
-    module: str
-    name: str
-
-    def load(self) -> Any:
-        """Import and return the referenced symbol."""
-        module = importlib.import_module(self.module)
-        return getattr(module, self.name)
-
-
-@dataclass(frozen=True, slots=True)
-class DestinationSpec:
-    """An adapter-owned addressing kind and its pure config validator.
-
-    The validator accepts a RouteDestinationConfig, returns None on success,
-    and raises ValueError for an invalid address. It must not perform I/O or
-    import native transport SDKs. The generic channel kind belongs to core.
-    """
-
-    kind: str
-    validator: SymbolRef
-
-
-@dataclass(frozen=True, slots=True)
-class AdapterSample:
-    """SDK-free fake values and an opaque conversation address.
-
-    Config excludes generic lifecycle fields, which core supplies. Adapter
-    authors choose native fields and addresses without core inference.
-    """
-
-    config: Mapping[str, Any]
-    channel: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AdapterSpec:
-    """Declarative assembly metadata for one installed adapter type.
-
-    ``distribution`` and ``import_names`` describe an optional Python SDK when
-    one exists. They may be empty for sidecar-backed adapters that use only a
-    MEDRE-owned client.
-    """
-
-    transport: str
-    config: SymbolRef
-    runtime_config: SymbolRef | None
-    adapter: SymbolRef
-    renderer_factory: SymbolRef | None
-    dependency_probe: SymbolRef | None
-    distribution: str | None
-    import_names: tuple[str, ...]
-    sdk_import_roots: tuple[str, ...]
-    native_namespace_reader: SymbolRef
-    versioned_namespace_reader: SymbolRef
-    attribution_projector: SymbolRef
-    fake_adapter: SymbolRef | None = None
-    runtime_config_preparer: SymbolRef | None = None
-    runtime_directories: SymbolRef | None = None
-    cli_register: SymbolRef | None = None
-    cli_dispatch: SymbolRef | None = None
-    support_endpoint_fields: tuple[str, ...] = ()
-    support_secret_fields: tuple[str, ...] = ()
-    native_detection_priority: int = 100
-    destinations: tuple[DestinationSpec, ...] = ()
-    sample_config: SymbolRef | None = None
-    logger_levels: tuple[tuple[str, str], ...] = ()
-
-    @property
-    def has_python_sdk(self) -> bool:
-        """Whether this adapter declares a separately importable Python SDK."""
-        return bool(self.distribution or self.import_names or self.sdk_import_roots)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +83,13 @@ class AdapterTypeRegistry:
                 raise ValueError(f"invalid adapter transport name: {transport!r}")
             if transport in by_transport:
                 raise ValueError(f"duplicate adapter transport: {transport!r}")
-            if spec.native_detection_priority < 0:
+            if (
+                isinstance(spec.native_detection_priority, bool)
+                or not isinstance(spec.native_detection_priority, int)
+                or spec.native_detection_priority < 0
+            ):
                 raise ValueError(
-                    f"native_detection_priority must be >= 0 for {transport!r}"
+                    f"native_detection_priority must be an integer >= 0 for {transport!r}"
                 )
             if (spec.cli_register is None) != (spec.cli_dispatch is None):
                 raise ValueError(
@@ -322,10 +241,6 @@ def _discover_installed_adapters() -> AdapterTypeRegistry:
     return AdapterTypeRegistry(accepted, failures=failures)
 
 
-# Discovery is deterministic and does not import adapter implementations or SDKs.
-ADAPTER_REGISTRY = _discover_installed_adapters()
-
-
 def adapter_discovery_failures() -> tuple[AdapterDiscoveryFailure, ...]:
     """Return installed providers that failed registration."""
     return ADAPTER_REGISTRY.failures
@@ -366,3 +281,9 @@ def adapter_sdk_packages() -> tuple[str, ...]:
 def get_destination_spec(kind: str) -> DestinationSpec | None:
     """Return an installed addressing-kind declaration, or None."""
     return ADAPTER_REGISTRY.destination(kind)
+
+
+# Define the public lookup functions before loading factories: a declarative
+# provider may import SDK-free public helpers while discovery is in progress.
+# Factories must not query the incomplete registry or import native SDKs.
+ADAPTER_REGISTRY = _discover_installed_adapters()

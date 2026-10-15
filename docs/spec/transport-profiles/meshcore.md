@@ -197,9 +197,9 @@ for the cross-transport policy.
 
 Inbound MeshCore events persist one versioned object at
 `metadata.native.data["meshcore"]`. The normative machine contract is
-[`meshcore-native-metadata.schema.json`](../../schemas/meshcore-native-metadata.schema.json),
+[`meshcore-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshcore/blob/main/docs/schemas/meshcore-native-metadata.schema.json),
 and the representative payload is
-[`meshcore-native-metadata-example.json`](../../schemas/examples/meshcore-native-metadata-example.json).
+[`meshcore-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-meshcore/blob/main/docs/schemas/examples/meshcore-native-metadata-example.json).
 The codec builder in `medre.adapters.meshcore.event_shape` is the source
 implementation authority.
 

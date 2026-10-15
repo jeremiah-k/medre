@@ -11,6 +11,7 @@ from tests.helpers.import_side_effects import check_in_subprocess
         "medre.core.observability.sanitization",
         "medre",
         "medre.adapters",
+        "medre.adapters.metadata",
         "medre.config",
         "medre.config.adapters",
         "medre.runtime",

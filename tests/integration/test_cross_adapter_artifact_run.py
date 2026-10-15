@@ -38,7 +38,7 @@ Honest limitations
 
 Running locally::
 
-    pip install -e ".[matrix,meshtastic]"
+    pip install medre-adapter-matrix medre-adapter-meshtastic
     pytest tests/integration/test_cross_adapter_artifact_run.py -m docker -v
 
 With artifact collection::
@@ -56,7 +56,6 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
-
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
@@ -98,9 +97,13 @@ pytestmark = pytest.mark.docker
 
 _SKIP_REASONS: list[str] = []
 if not HAS_NIO:
-    _SKIP_REASONS.append("mindroom-nio not installed; run: pip install '.[matrix]'")
+    _SKIP_REASONS.append(
+        "mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
+    )
 if not HAS_MESHTASTIC:
-    _SKIP_REASONS.append("mtjk not installed; run: pip install '.[meshtastic]'")
+    _SKIP_REASONS.append(
+        "mtjk not installed; run: pip install 'medre-adapter-meshtastic'"
+    )
 
 if _SKIP_REASONS:
     pytestmark = [

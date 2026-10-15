@@ -82,7 +82,6 @@ HELPER_FILES_LEGACY = [
     "helpers/matrix.py",
     "helpers/matrix_session.py",
     "helpers/meshtastic.py",
-    "helpers/meshtastic_bridge.py",
     "helpers/replay.py",
     "helpers/replay_routing.py",
     "helpers/runtime_builder.py",

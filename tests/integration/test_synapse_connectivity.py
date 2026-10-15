@@ -9,7 +9,7 @@ default runs.
 Running locally::
 
     # Prerequisites: Docker running, MEDRE matrix extras installed
-    pip install -e ".[matrix]"
+    pip install medre-adapter-matrix
     pytest tests/integration/test_synapse_connectivity.py -m docker -v
 
 To include in a broader integration run::
@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.config.adapters.matrix import MatrixConfig
@@ -45,7 +44,7 @@ if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         ),
     ]
 

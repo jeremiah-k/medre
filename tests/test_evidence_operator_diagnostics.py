@@ -657,7 +657,7 @@ class TestEvidenceShowsFailureReason:
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        assert entry["failure_kind_detail"] == "meshtastic_queue_rejected"
+        assert entry["failure_kind_detail"] == "queue_rejected"
 
     async def test_suppression_reason_in_dsbt(self, tmp_path: Any) -> None:
         """suppression_reason explains *why* a delivery was suppressed."""

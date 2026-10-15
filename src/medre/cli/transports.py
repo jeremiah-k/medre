@@ -28,7 +28,7 @@ def is_transport_installed(transport: str) -> bool:
         if spec is not None and spec.dependency_probe is not None:
             try:
                 return bool(spec.dependency_probe.load())
-            except ImportError:
+            except Exception:
                 return False
         if not import_names:
             return True
@@ -36,7 +36,7 @@ def is_transport_installed(transport: str) -> bool:
             try:
                 importlib.import_module(mod_name)
                 return True
-            except ImportError:
+            except Exception:
                 continue
         return False
     return False

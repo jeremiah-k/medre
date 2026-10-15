@@ -941,10 +941,17 @@ A single evidence bundle for a fully-processed event contains data from all five
 | `capability_field`    | Structured `DeliveryReceipt.capability_field`.                                                                       |
 | `capability_level`    | Structured `DeliveryReceipt.capability_level`.                                                                       |
 | `delivery_strategy`   | Structured `DeliveryReceipt.delivery_strategy`.                                                                      |
-| `failure_kind_detail` | More specific classification derived from error patterns (e.g. `"e2ee_blocked"`, `"meshtastic_queue_rejected"`).     |
+| `failure_kind_detail` | More specific classification derived from error patterns (e.g. `"e2ee_blocked"`, `"queue_rejected"`).                |
 | `retryable`           | Derived from `status`, `failure_kind`, and `next_retry_at`. `True` only for transient failures or scheduled retries. |
 
 ### 17.3 delivery_state_by_target Enrichment
+
+Failure-detail classification **MUST** use one shared, pure implementation for
+runtime reports and offline evidence. Queue details use the transport-neutral
+labels `queue_rejected`, `outbound_suppressed`, and `queue_drain_cancelled`.
+Error text **MUST NOT** assign a provider identity or transport-specific label.
+SDK-specific vocabulary alone does not establish generic encryption failure;
+adapters describe such failures using transport-neutral error context.
 
 The incident summary's `delivery_state_by_target` dict is a compatibility
 projection of the delivery outcome ledger grouped by the full event-scoped

@@ -6,7 +6,8 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 from medre import adapter_registry
-from medre.adapter_registry import AdapterSample, AdapterTypeRegistry, SymbolRef
+from medre.adapter_registry import AdapterTypeRegistry
+from medre.adapter_spec import AdapterSample, SymbolRef
 from medre.config._yaml import parse_yaml_config
 from medre.config.loader import load_config
 from medre.config.sample import generate_sample_config

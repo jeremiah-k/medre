@@ -15,6 +15,8 @@ import tomllib
 from pathlib import Path
 
 from adapter_matrix import resolve_adapters
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 
 def checkout_requirement(checkout: Path, manifest: Path, *, test: bool) -> str:
@@ -53,8 +55,38 @@ def main() -> None:
     parser.add_argument("--test", action="store_true")
     args = parser.parse_args()
     requirement = checkout_requirement(args.adapter, args.manifest, test=args.test)
+    project = tomllib.loads(
+        (args.adapter / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+    selected = requirement[len(str(args.adapter.resolve())) :].strip("[]")
+    dependencies = list(project.get("dependencies", []))
+    for extra in selected.split(",") if selected else ():
+        dependencies.extend(project["optional-dependencies"][extra])
+    # Qualify the selected core checkout even when prerelease versions move.
+    # Resolving the adapter itself with dependencies can replace it with a
+    # published MEDRE wheel. Install declared SDK/test requirements explicitly,
+    # then install the adapter without resolving its core dependency again.
+    dependencies = [
+        raw
+        for raw in dependencies
+        if canonicalize_name(Requirement(raw).name) != "medre"
+    ]
+    if dependencies:
+        subprocess.run(
+            ["uv", "pip", "install", "--python", args.python, *dependencies], check=True
+        )
     subprocess.run(
-        ["uv", "pip", "install", "--python", args.python, "-e", requirement], check=True
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            args.python,
+            "--no-deps",
+            "-e",
+            requirement,
+        ],
+        check=True,
     )
 
 

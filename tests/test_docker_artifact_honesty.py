@@ -1,4 +1,4 @@
-"""Tests for medre.runtime.docker_bridge_artifacts — honesty and scenario-aware reporting.
+"""Tests for scripts.ci.docker_bridge_artifacts — honesty and scenario-aware reporting.
 
 Covers TestScenarioAwareMissingArtifacts and TestMeshtasticPubsubHonesty.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from medre.runtime.docker_bridge_artifacts import (
+from scripts.ci.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     _build_meshtastic_evidence,
     collect_docker_bridge_artifacts,

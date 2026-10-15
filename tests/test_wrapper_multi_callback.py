@@ -29,6 +29,7 @@ from tests.helpers.bridge import (
     make_pipeline_config,
     make_text_packet,
 )
+from tests.helpers.matrix import mock_nio as mock_nio
 from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,

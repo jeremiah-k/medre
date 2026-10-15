@@ -36,7 +36,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import msgspec
 import pytest
-
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.adapter import (
@@ -407,9 +406,9 @@ class TestDeriveFailureKindDetail:
 
     Patterns under test:
     * Meshtastic queue-full / enqueue-rejected error with adapter name
-      containing "meshtastic" → ``"meshtastic_queue_rejected"``.
+      containing "meshtastic" → ``"queue_rejected"``.
     * Meshtastic queue error with adapter name "radio" (config alias) →
-      ``"meshtastic_queue_rejected"`` (error text is authoritative).
+      ``"queue_rejected"`` (error text is authoritative).
     * Meshtastic queue error with no "meshtastic" in error text
       (e.g. "queue is full; enqueue rejected") → still detected.
     * Unrelated error where neither ``queue+full`` nor ``enqueue rejected``
@@ -423,7 +422,7 @@ class TestDeriveFailureKindDetail:
 
     def test_meshtastic_adapter_queue_full_rejected(self) -> None:
         """target_adapter='meshtastic' with queue-full error produces
-        failure_kind_detail='meshtastic_queue_rejected'."""
+        failure_kind_detail='queue_rejected'."""
         receipt = _make_receipt(
             status="failed",
             failure_kind="adapter_transient",
@@ -443,11 +442,11 @@ class TestDeriveFailureKindDetail:
             created_at=receipt.created_at,
         )
         report = delivery_receipt_to_report_dict(receipt)
-        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+        assert report["failure_kind_detail"] == "queue_rejected"
 
     def test_radio_adapter_meshtastic_queue_error_detail(self) -> None:
         """target_adapter='radio' (config alias) with Meshtastic queue-full
-        error text produces failure_kind_detail='meshtastic_queue_rejected'.
+        error text produces failure_kind_detail='queue_rejected'.
 
         The error text is the authoritative source — adapter IDs like
         'radio' are common config aliases for Meshtastic adapters.
@@ -471,7 +470,7 @@ class TestDeriveFailureKindDetail:
             created_at=receipt.created_at,
         )
         report = delivery_receipt_to_report_dict(receipt)
-        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+        assert report["failure_kind_detail"] == "queue_rejected"
 
     def test_unrelated_error_preserves_failure_kind(self) -> None:
         """Error without queue/full or enqueue-rejected patterns preserves
@@ -507,7 +506,7 @@ class TestDeriveFailureKindDetail:
 
     def test_radio_adapter_queue_full_enqueue_rejected(self) -> None:
         """target_adapter='radio' with queue-full enqueue-rejected error
-        (no 'meshtastic' in text) → meshtastic_queue_rejected."""
+        (no 'meshtastic' in text) → queue_rejected."""
         receipt = _make_receipt(
             status="failed",
             failure_kind="adapter_transient",
@@ -527,11 +526,11 @@ class TestDeriveFailureKindDetail:
             created_at=receipt.created_at,
         )
         report = delivery_receipt_to_report_dict(receipt)
-        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+        assert report["failure_kind_detail"] == "queue_rejected"
 
     def test_radio_adapter_explicit_meshtastic_queue_error(self) -> None:
         """target_adapter='radio' with explicit Meshtastic queue-full error
-        → meshtastic_queue_rejected."""
+        → queue_rejected."""
         receipt = _make_receipt(
             status="failed",
             failure_kind="adapter_transient",
@@ -551,7 +550,7 @@ class TestDeriveFailureKindDetail:
             created_at=receipt.created_at,
         )
         report = delivery_receipt_to_report_dict(receipt)
-        assert report["failure_kind_detail"] == "meshtastic_queue_rejected"
+        assert report["failure_kind_detail"] == "queue_rejected"
 
     def test_unrelated_queue_depth_preserves_failure_kind(self) -> None:
         """Error 'queue depth warning' without queue+full or enqueue-rejected
@@ -1392,11 +1391,10 @@ class TestSuppressedIncidentSummary:
 def test_execution_evidence_rejects_mismatched_receipt_kinds() -> None:
     """The evidence value refuses receipts placed in the wrong kind slot."""
     import pytest
-    from msgspec.structs import force_setattr
-
     from medre.core.engine.pipeline.delivery_evidence import (
         DeliveryExecutionEvidence,
     )
+    from msgspec.structs import force_setattr
     from tests.lifecycle.conftest import _make_receipt
 
     attempt_in_authority_slot = _make_receipt(

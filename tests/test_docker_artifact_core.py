@@ -1,4 +1,4 @@
-"""Tests for medre.runtime.docker_bridge_artifacts — core functionality.
+"""Tests for scripts.ci.docker_bridge_artifacts — core functionality.
 
 Covers create_run_directory, redact_config_snapshot, build_summary,
 write_summary, _parse_pytest_output, _scenario_test_selectors,
@@ -12,8 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from medre.runtime.docker_bridge_artifacts import (
+from scripts.ci.docker_bridge_artifacts import (
     _LIMITATIONS,
     ARTIFACT_PLAN,
     SUPPORTED_SCENARIOS,

@@ -645,7 +645,7 @@ Lifecycle receipts do not represent additional transport sends. In the common gu
 Check these fields together:
 
 - `failure_kind` — the high-level category (e.g. `capability_suppressed`, `loop_suppressed`, `adapter_transient`)
-- `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `meshtastic_queue_rejected`)
+- `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `queue_rejected`)
 - `suppression_reason` — human-readable display reason (`capability_reason`
   when the receipt carries one; otherwise the sanitized suppression `error`)
 - `error` — the raw error message

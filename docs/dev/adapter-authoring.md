@@ -387,6 +387,9 @@ without recognizing your platform name.
 
 ## Step 7: Write Tests
 
+The [registration reference](adapter-registration.md) documents every field,
+hook signature, loading phase, public metadata helper, and conformance tool.
+
 ### Use the fake adapter pattern
 
 An adapter may declare a fake variant through `AdapterSpec.fake_adapter`,

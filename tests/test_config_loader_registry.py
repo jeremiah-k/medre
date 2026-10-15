@@ -14,7 +14,7 @@ from pathlib import Path
 
 import medre.config.loader as loader_mod
 import pytest
-from medre.adapter_registry import AdapterSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, SymbolRef
 from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.loader import load_config
 from medre.config.model import GenericAdapterRuntimeConfig

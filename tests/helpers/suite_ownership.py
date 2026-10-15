@@ -38,9 +38,14 @@ def external_imports(path: Path, root: Path, seen: set[Path] | None = None) -> s
         return {f"compatibility helper: {path.relative_to(root)}"}
     tree = ast.parse(text)
     imports = set()
+    bindings: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imports.update(alias.name for alias in node.names)
+            for alias in node.names:
+                bindings[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
         elif isinstance(node, ast.ImportFrom):
             package = list(path.relative_to(root).parts[:-1])
             prefix = package[: len(package) - node.level + 1] if node.level else []
@@ -48,6 +53,8 @@ def external_imports(path: Path, root: Path, seen: set[Path] | None = None) -> s
             if not module:
                 continue
             imports.add(module)
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = module + "." + alias.name
             if module in {
                 "medre.adapters",
                 "medre.adapters.fakes",
@@ -58,6 +65,25 @@ def external_imports(path: Path, root: Path, seen: set[Path] | None = None) -> s
                     for alias in node.names
                     if alias.name != "*"
                 )
+
+    def qualified_name(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return bindings.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            parent = qualified_name(node.value)
+            return parent + "." + node.attr if parent else ""
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            parent = qualified_name(node.args[0])
+            return parent + "." + node.args[1].value if parent else ""
+        return ""
+
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
@@ -65,13 +91,27 @@ def external_imports(path: Path, root: Path, seen: set[Path] | None = None) -> s
             and isinstance(node.args[0], ast.Constant)
             and isinstance(node.args[0].value, str)
         ):
-            function = (
-                node.func.attr
-                if isinstance(node.func, ast.Attribute)
-                else node.func.id if isinstance(node.func, ast.Name) else ""
-            )
-            if function in {"import_module", "__import__"}:
+            function = qualified_name(node.func).rsplit(".", 1)[-1]
+            if function in {"import_module", "__import__", "importorskip"}:
                 imports.add(node.args[0].value)
+        # Namespace attributes can couple a test without an import statement.
+        # Stop at real source modules: their class/function attributes are not
+        # additional module imports.
+        qualified = qualified_name(node)
+        for namespace in ("medre.adapters", "medre.config.adapters"):
+            if not qualified.startswith(namespace + "."):
+                continue
+            parts = qualified.split(".")
+            for length in range(len(namespace.split(".")) + 1, len(parts) + 1):
+                if parts[length - 1].startswith("__"):
+                    break
+                module = ".".join(parts[:length])
+                source = root / "src" / Path(*parts[:length])
+                if source.with_suffix(".py").is_file():
+                    break
+                if not (source / "__init__.py").is_file():
+                    imports.add(module)
+                    break
     external = set()
     for module in imports:
         if module.startswith("medre."):
@@ -94,7 +134,10 @@ def undeclared_dependencies(root: Path) -> dict[str, list[str]]:
     """Return accidental coupling that requires an explicit ownership decision."""
     return {
         path.relative_to(root).as_posix(): sorted(dependencies)
-        for path in sorted((root / "tests").rglob("test_*.py"))
+        for path in sorted(
+            set((root / "tests").rglob("test_*.py"))
+            | set((root / "tests").rglob("conftest.py"))
+        )
         if not is_compatibility(path, root)
         and (dependencies := external_imports(path, root))
     }

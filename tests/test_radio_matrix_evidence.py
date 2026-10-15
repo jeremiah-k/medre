@@ -15,10 +15,13 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "failure", ["first_send", "first_cancel", "send", "listener", "cancel", "receipt"],
+    "failure",
+    ["first_send", "first_cancel", "send", "listener", "cancel", "receipt"],
 )
 async def test_convergence_retains_peer_evidence_on_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure: str,
 ) -> None:
     # Preserve the helpers' endpoint snapshots; no physical endpoint is opened.
     importlib.import_module("tests.helpers.meshcore_live_peer")
@@ -56,9 +59,17 @@ async def test_convergence_retains_peer_evidence_on_failure(
     cancelled = failure in {"cancel", "first_cancel"}
     error = asyncio.CancelledError() if cancelled else RuntimeError("send failed")
     first_failed = failure in {"first_send", "first_cancel"}
-    mt_send = AsyncMock(side_effect=error) if first_failed else AsyncMock(return_value=accepted)
+    mt_send = (
+        AsyncMock(side_effect=error)
+        if first_failed
+        else AsyncMock(return_value=accepted)
+    )
     mc_accepted = [{"sent_text": "V-MC-0", "timestamp": 456}]
-    mc_send = AsyncMock(return_value=mc_accepted) if failure == "receipt" else AsyncMock(side_effect=error)
+    mc_send = (
+        AsyncMock(return_value=mc_accepted)
+        if failure == "receipt"
+        else AsyncMock(side_effect=error)
+    )
     stop = AsyncMock()
     for key, value in {
         "_launch": AsyncMock(return_value=SimpleNamespace(stop=stop)),
@@ -73,15 +84,18 @@ async def test_convergence_retains_peer_evidence_on_failure(
     }.items():
         monkeypatch.setitem(globals_, key, value)
 
-    expected_error = asyncio.CancelledError if cancelled else (
-        AssertionError if failure == "receipt" else RuntimeError
+    expected_error = (
+        asyncio.CancelledError
+        if cancelled
+        else (AssertionError if failure == "receipt" else RuntimeError)
     )
     with pytest.raises(expected_error):
         await case(tmp_path)
 
     evidence = json.loads((tmp_path / "peer-observations.json").read_text())
     assert evidence["meshtastic_source"] == {
-        "expected": ["V-MT-0"], "accepted": None if first_failed else accepted,
+        "expected": ["V-MT-0"],
+        "accepted": None if first_failed else accepted,
     }
     assert evidence["meshcore_source"]["accepted"] == (
         mc_accepted if failure == "receipt" else None

@@ -158,7 +158,7 @@ def test_provider_selection_skips_optional_fake(monkeypatch):
     "name", ["partial_degraded_startup", "all_adapters_start_fail"]
 )
 async def test_broken_fake_cannot_masquerade_as_forced_start_failure(name, monkeypatch):
-    from medre.adapter_registry import SymbolRef
+    from medre.adapter_spec import SymbolRef
     from tests.helpers.adapter_spec import make_adapter_spec
 
     spec = replace(

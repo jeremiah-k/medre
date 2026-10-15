@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+# The curated harness and Docker fixtures belong to this source checkout.
+# Use Bash builtins so a minimal macOS/test PATH needs no extra utilities.
+medre_script_dir="${BASH_SOURCE[0]%/*}"
+if [[ ${medre_script_dir} == "${BASH_SOURCE[0]}" ]]; then
+    medre_script_dir=.
+fi
+cd -- "${medre_script_dir}/../.."
+
 # =============================================================================
 # MEDRE Docker Bridge Artifact Collector
 # =============================================================================
@@ -130,7 +138,7 @@ set +e
 "${runner[@]}" -c "
 import sys
 import json
-from medre.runtime.docker_bridge_artifacts import collect_docker_bridge_artifacts
+from scripts.ci.docker_bridge_artifacts import collect_docker_bridge_artifacts
 
 summary = collect_docker_bridge_artifacts(
     scenario='${SCENARIO}',

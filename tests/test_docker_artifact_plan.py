@@ -1,4 +1,4 @@
-"""Tests for medre.runtime.docker_bridge_artifacts — artifact plans and manifest.
+"""Tests for scripts.ci.docker_bridge_artifacts — artifact plans and manifest.
 
 Covers TestArtifactPlan, TestGetArtifactPlan, TestCollectArtifactManifest,
 and TestCollectArtifactManifestScenarioAware.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from medre.runtime.docker_bridge_artifacts import (
+from scripts.ci.docker_bridge_artifacts import (
     ARTIFACT_PLAN,
     SUPPORTED_SCENARIOS,
     _collect_artifact_manifest,

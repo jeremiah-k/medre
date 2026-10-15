@@ -10,13 +10,12 @@ from pathlib import Path
 import pytest
 from medre.adapter_registry import (
     ADAPTER_REGISTRY,
-    AdapterSpec,
     AdapterTypeRegistry,
-    SymbolRef,
     adapter_sdk_packages,
     native_detection_specs,
     registered_transports,
 )
+from medre.adapter_spec import AdapterSpec, SymbolRef
 from medre.cli.transports import TRANSPORTS
 from medre.config.model import AdapterConfigSet
 from medre.runtime.architecture_report import SESSION_ALLOWED_SDKS
@@ -67,7 +66,9 @@ def test_registry_rejects_invalid_transport_name() -> None:
 
 def test_registry_rejects_negative_detection_priority() -> None:
     spec = replace(_synthetic_spec("sample"), native_detection_priority=-1)
-    with pytest.raises(ValueError, match="native_detection_priority must be >= 0"):
+    with pytest.raises(
+        ValueError, match="native_detection_priority must be an integer >= 0"
+    ):
         AdapterTypeRegistry((spec,))
 
 

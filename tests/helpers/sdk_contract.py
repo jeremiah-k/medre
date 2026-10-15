@@ -1,89 +1,43 @@
-"""Helpers for installed optional-SDK contract tests.
-
-Each installed adapter distribution is the authority for its SDK versions.
-SDK contract tests verify that CI installed those declared pins without copying
-version literals into a second place that Renovate must update by hand.
-"""
-
-from __future__ import annotations
+"""Compatibility SDK checks; installed providers own their dependency pins."""
 
 import json
-from dataclasses import dataclass
-from importlib import metadata
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Iterable
 
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
+from medre.testing.sdk_contract import assert_installed_sdk_pins, declared_sdk_pins
 
 
-@dataclass(frozen=True)
-class DeclaredSdkPin:
-    """One exact SDK pin declared by its adapter distribution."""
+def _provider(transport: str, sdk_extra: str | None) -> tuple[str, tuple[str, ...]]:
+    providers = [
+        ep for ep in entry_points(group="medre.adapters") if ep.name == transport
+    ]
+    if len(providers) != 1 or providers[0].dist is None:
+        raise LookupError(
+            f"expected exactly one installed adapter provider for {transport!r}"
+        )
+    if sdk_extra is None:
+        manifest = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / ".github/adapter-compatibility.json"
+            ).read_text(encoding="utf-8")
+        )
+        sdk_extra = next(
+            (entry["extras"] for entry in manifest if entry["transport"] == transport),
+            "",
+        )
+    return providers[0].dist.name, (sdk_extra,) if sdk_extra else ()
 
-    distribution: str
-    version: str
 
-
-def declared_extra_pins(extra: str) -> dict[str, DeclaredSdkPin]:
-    """Read authoritative SDK pins from the installed adapter's metadata.
-
-    Source provenance (PyPI, Git, or local checkout) is intentionally irrelevant.
-    MEDRE core does not declare transport SDK dependencies.
-    """
-    entries = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
-        ).read_text()
-    )
-    entry = next(entry for entry in entries if entry["transport"] == extra)
-    dist = metadata.distribution(entry["distribution"])
-    selected_extra = entry["extras"]
-    pins: dict[str, DeclaredSdkPin] = {}
-    for raw in dist.requires or ():
-        requirement = Requirement(raw)
-        if requirement.marker is not None and not requirement.marker.evaluate(
-            {"extra": selected_extra}
-        ):
-            continue
-        canonical = canonicalize_name(requirement.name)
-        if canonical == "medre":
-            continue
-        specifiers = list(requirement.specifier)
-        if (
-            requirement.url
-            or len(specifiers) != 1
-            or specifiers[0].operator != "=="
-            or "*" in specifiers[0].version
-        ):
-            raise AssertionError(f"{extra} SDK dependency is not exact-pinned: {raw}")
-        pin = DeclaredSdkPin(requirement.name, specifiers[0].version)
-        if canonical in pins and pins[canonical] != pin:
-            raise AssertionError(f"conflicting SDK requirement: {canonical}")
-        pins[canonical] = pin
-    if not pins:
-        raise AssertionError(f"{dist.metadata['Name']} declares no {extra} SDK pins")
-    return pins
+def declared_extra_pins(transport: str, *, sdk_extra: str | None = None):
+    """Read any installed provider; curated qualification supplies default extras."""
+    distribution, extras = _provider(transport, sdk_extra)
+    return declared_sdk_pins(distribution, extras=extras)
 
 
 def assert_installed_extra_matches_declared_pins(
-    extra: str,
-    distributions: Iterable[str],
+    transport: str, distributions: Iterable[str], *, sdk_extra: str | None = None
 ) -> None:
-    """Assert installed SDK distributions match their adapter's exact pins."""
-    pins = declared_extra_pins(extra)
-    requested = {canonicalize_name(name) for name in distributions}
-    missing = requested - pins.keys()
-    if missing:
-        raise AssertionError(
-            f"{extra} SDK contract distributions are not declared by the adapter: "
-            f"{sorted(missing)}"
-        )
-
-    for key in sorted(requested):
-        pin = pins[key]
-        installed = metadata.version(pin.distribution)
-        assert installed == pin.version, (
-            f"installed {pin.distribution} {installed} does not match "
-            f"adapter {extra} pin {pin.version}"
-        )
+    distribution, extras = _provider(transport, sdk_extra)
+    assert_installed_sdk_pins(distribution, distributions, extras=extras)

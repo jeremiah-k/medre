@@ -1,6 +1,6 @@
 """Minimal metadata declarations for provider-independent registry tests."""
 
-from medre.adapter_registry import AdapterSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, SymbolRef
 
 
 def make_adapter_spec(transport: str) -> AdapterSpec:

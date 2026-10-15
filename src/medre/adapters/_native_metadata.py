@@ -1,8 +1,8 @@
-"""Shared validation for built-in versioned native-metadata namespaces.
+"""Shared validation for registered versioned native-metadata namespaces.
 
 Adapter-local ``event_shape`` modules remain authoritative for transport
 namespace names and current schema-version constants. This module owns the
-common structural rule used by every built-in transport: a versioned namespace
+common structural rule used by every registered transport: a versioned namespace
 must be a mapping with a positive integer ``schema_version`` that is not a
 boolean.
 """

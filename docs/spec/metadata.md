@@ -41,23 +41,27 @@ those details would otherwise pollute the core model. Native metadata MUST NOT
 contain private key material, credential material, SDK objects, or opaque raw
 protocol payloads that cannot be serialized safely.
 
-## 3. Built-In Native Metadata
+## 3. Adapter-Owned Native Metadata
 
-Each built-in adapter has one persisted canonical native-metadata namespace.
+Each adapter owns its persisted native-metadata namespace and schema documents.
+Providers publish and validate schemas/examples in their own repositories; core
+does not carry copies or restrict the vocabulary to the first-party examples
+below. Community providers follow the same versioned namespace and reader
+contracts in the [registration reference](../dev/adapter-registration.md).
 The transport name is the top-level key inside `NativeMetadata.data`; the
 transport object carries its own positive integer `schema_version`.
 
-| Transport  | Canonical path                       | Current version | Machine schema                                                                                |
-| ---------- | ------------------------------------ | --------------: | --------------------------------------------------------------------------------------------- |
-| Matrix     | `metadata.native.data["matrix"]`     |             `1` | [`matrix-native-metadata.schema.json`](../schemas/matrix-native-metadata.schema.json)         |
-| Meshtastic | `metadata.native.data["meshtastic"]` |             `1` | [`meshtastic-native-metadata.schema.json`](../schemas/meshtastic-native-metadata.schema.json) |
-| MeshCore   | `metadata.native.data["meshcore"]`   |             `1` | [`meshcore-native-metadata.schema.json`](../schemas/meshcore-native-metadata.schema.json)     |
-| LXMF       | `metadata.native.data["lxmf"]`       |             `1` | [`lxmf-native-metadata.schema.json`](../schemas/lxmf-native-metadata.schema.json)             |
+| Transport  | Canonical path                       | Machine schema                                                                                                                                                   |
+| ---------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | `metadata.native.data["matrix"]`     | [`matrix-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-matrix/blob/main/docs/schemas/matrix-native-metadata.schema.json)             |
+| Meshtastic | `metadata.native.data["meshtastic"]` | [`meshtastic-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshtastic/blob/main/docs/schemas/meshtastic-native-metadata.schema.json) |
+| MeshCore   | `metadata.native.data["meshcore"]`   | [`meshcore-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshcore/blob/main/docs/schemas/meshcore-native-metadata.schema.json)       |
+| LXMF       | `metadata.native.data["lxmf"]`       | [`lxmf-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-lxmf/blob/main/docs/schemas/lxmf-native-metadata.schema.json)                   |
 
 A current-version projection helper MUST interpret only the schema version it
 implements. Platform detection MAY recognize a positively versioned future
 transport object without interpreting that future version's fields. Flat,
-dotted, or unversioned built-in native metadata is not an alternate canonical
+dotted, or unversioned native metadata is not an alternate canonical
 shape.
 
 Matrix has an additional detailed event-shape contract in

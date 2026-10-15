@@ -34,14 +34,15 @@ from typing import Any, Callable
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
-from medre.core.events.canonical import CanonicalEvent
 from medre.core.observability.sanitization import sanitize_error
+from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.reporting import delivery_receipt_to_report_dict
 from medre.runtime.smoke_ingress import (
     expected_smoke_deliveries,
     make_smoke_event,
     pick_source_adapter,
+    validate_fake_smoke,
 )
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 
@@ -255,6 +256,7 @@ async def run_bridge_session(
         # Env overrides share the config-error boundary: a rejected
         # identifier must become a sanitized failed report, not a crash.
         config = apply_env_overrides(config, paths)
+        validate_fake_smoke(config)
     except Exception as exc:
         _discard_unused_ephemeral_storage(paths_resolved)
         return {
@@ -413,12 +415,15 @@ async def run_bridge_session(
 
         # Collect evidence while runtime is still running (storage is open).
         # Stored event (primary)
-        stored_event: CanonicalEvent | None = None
+        stored_event_ids: set[str] = set()
         if storage is not None:
-            try:
-                stored_event = await storage.get(primary_event_id)
-            except Exception as exc:
-                collection_errors.append(f"Stored event lookup error: {exc}")
+            for eid in event_ids:
+                try:
+                    persisted = await storage.get(eid)
+                    if persisted is not None:
+                        stored_event_ids.add(eid)
+                except Exception as exc:
+                    collection_errors.append(f"Stored event lookup error: {exc}")
 
         # Native refs (must be collected before stop closes storage).
         all_native_refs: list[dict[str, object]] = []
@@ -440,10 +445,12 @@ async def run_bridge_session(
             await _cleanup_scenario(app, scenario)
         except Exception as exc:
             collection_errors.append(f"Scenario cleanup error: {exc}")
+        shutdown_error: str | None = None
         try:
             await app.stop()
         except Exception as exc:
-            _logger.warning("Session stop error (non-fatal): %s", exc)
+            shutdown_error = sanitize_error(f"{type(exc).__name__}: {exc}")
+            _logger.warning("Session shutdown failed: %s", shutdown_error)
 
         # -- Step 7: Build and save final snapshot ------------------------------
         snapshot_path: str | None = None
@@ -467,7 +474,7 @@ async def run_bridge_session(
             )
             snapshot_path = str(snap_file)
         except Exception as exc:
-            _logger.warning("Snapshot write error: %s", exc)
+            collection_errors.append(f"Snapshot write error: {exc}")
 
         # -- Step 8: Inspect (already collected before stop) --------------------
         # Accounting
@@ -522,7 +529,7 @@ async def run_bridge_session(
             }
 
         # -- Step 9: Build report -----------------------------------------------
-        event_stored = stored_event is not None
+        event_stored = len(stored_event_ids) == len(event_ids)
         has_sent_receipt = any(r.status == "sent" for r in all_receipts)
         has_success = (
             any(o.status == "success" for o in all_outcomes)
@@ -530,6 +537,7 @@ async def run_bridge_session(
             else has_sent_receipt
         )
         delivered_count = accounting.get("outbound_delivered", 0) if accounting else 0
+        required_deliveries = sum(len(pairs) for pairs in expected_by_event.values())
 
         if is_failure_scenario:
             # Failure scenarios: passed means the expected failure was observed.
@@ -593,7 +601,7 @@ async def run_bridge_session(
                 event_stored
                 and has_success
                 and has_sent_receipt
-                and delivered_count >= message_count
+                and delivered_count >= required_deliveries
                 and injection_error is None
                 and runtime_state == "stopped"
                 and not missing_deliveries
@@ -607,14 +615,33 @@ async def run_bridge_session(
                 fail_reasons.append("No successful delivery outcome")
             if not has_sent_receipt:
                 fail_reasons.append("No receipt with status 'sent'")
-            if delivered_count < message_count:
+            if delivered_count < required_deliveries:
                 fail_reasons.append(
-                    f"Accounting outbound_delivered {delivered_count} < {message_count}"
+                    f"Accounting outbound_delivered {delivered_count} < "
+                    f"configured delivery count {required_deliveries}"
                 )
             if runtime_state != "stopped":
                 fail_reasons.append(
                     f"Runtime state is '{runtime_state}', expected 'stopped'"
                 )
+
+        # A deliberately injected fault is not proof of a complete lifecycle.
+        # Apply evidence/cleanup requirements to every scenario.
+        integrity_failures = list(collection_errors)
+        if shutdown_error is not None:
+            integrity_failures.append(f"Runtime shutdown failed: {shutdown_error}")
+        if is_failure_scenario:
+            if injection_error is not None:
+                integrity_failures.append(f"Event injection failed: {injection_error}")
+            if not event_stored:
+                integrity_failures.append("One or more events not found in storage")
+            if runtime_state != "stopped":
+                integrity_failures.append(
+                    f"Runtime state is '{runtime_state}', expected 'stopped'"
+                )
+        if integrity_failures:
+            passed = False
+            fail_reasons.extend(integrity_failures)
 
         # Accounting printer uses the same 5 field names as run_commands.py.
         accounting_display: dict[str, int] | None = None
@@ -743,5 +770,13 @@ async def run_bridge_session(
         # when event creation fails, then close the runtime on cancellation too.
         try:
             await _cleanup_scenario(app, scenario)
+        except Exception as exc:
+            _logger.error("Final scenario cleanup failed: %s", sanitize_error(str(exc)))
         finally:
-            await app.stop()
+            if app.state != RuntimeState.STOPPED:
+                try:
+                    await app.stop()
+                except Exception as exc:
+                    _logger.error(
+                        "Final session shutdown failed: %s", sanitize_error(str(exc))
+                    )

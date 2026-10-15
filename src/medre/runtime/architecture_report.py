@@ -415,6 +415,8 @@ def _transport_for(module: str) -> str | None:
     as foreign-transport violations.
     """
     prefix = "medre.adapters."
+    if module == "medre.adapters.metadata":
+        return None
     if not module.startswith(prefix):
         for spec in iter_adapter_specs():
             owner = (

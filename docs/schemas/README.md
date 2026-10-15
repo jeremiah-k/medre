@@ -6,23 +6,19 @@ contract schemas mirror their projection helpers and normative specifications.
 
 ## Schema Files
 
-| Schema                                   | Source Type                                                     | Description                                                                 |
-| ---------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `canonical-event.schema.json`            | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
-| `canonical-event.schema.yaml`            | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
-| `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
-| `delivery-observation.schema.json`       | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
-| `delivery-result.schema.json`            | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
-| `lifecycle-drill-report.schema.json`     | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
-| `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
-| `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
-| `evidence-bundle.schema.json`            | Dict shape                                                      | `medre evidence` bundle structure                                           |
-| `adapter-config.schema.json`             | Per-transport configs                                           | Adapter configuration shapes                                                |
-| `routing-config.schema.json`             | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
-| `matrix-native-metadata.schema.json`     | Matrix native metadata                                          | Versioned Matrix native namespace                                           |
-| `meshtastic-native-metadata.schema.json` | Meshtastic native metadata                                      | Versioned Meshtastic native namespace                                       |
-| `meshcore-native-metadata.schema.json`   | MeshCore native metadata                                        | Versioned MeshCore native namespace                                         |
-| `lxmf-native-metadata.schema.json`       | LXMF native metadata                                            | Versioned LXMF native namespace                                             |
+| Schema                               | Source Type                                                     | Description                                                                 |
+| ------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `canonical-event.schema.json`        | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
+| `canonical-event.schema.yaml`        | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
+| `delivery-receipt.schema.json`       | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
+| `delivery-observation.schema.json`   | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
+| `delivery-result.schema.json`        | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
+| `lifecycle-drill-report.schema.json` | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
+| `runtime-snapshot.schema.json`       | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
+| `diagnostics.schema.json`            | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
+| `evidence-bundle.schema.json`        | Dict shape                                                      | `medre evidence` bundle structure                                           |
+| `adapter-config.schema.json`         | Per-transport configs                                           | Adapter configuration shapes                                                |
+| `routing-config.schema.json`         | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
 
 ## Examples
 
@@ -74,3 +70,5 @@ accept community transport and destination kind names. `medre config check`
 validates installed-provider availability and invokes adapter-owned native
 address validators. Static schema validation alone cannot verify which Python
 providers are installed in an operator's environment.
+
+Native metadata schemas and validated examples belong to their adapter repositories; see the [metadata ownership contract](../spec/metadata.md#3-adapter-owned-native-metadata).

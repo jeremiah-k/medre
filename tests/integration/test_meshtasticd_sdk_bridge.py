@@ -8,7 +8,7 @@ lifecycle, outbound send, and pipeline bridging paths.
 Running locally::
 
     # Prerequisites: Docker running, mtjk installed
-    pip install -e ".[meshtastic]"
+    pip install medre-adapter-meshtastic
     pytest tests/integration/test_meshtasticd_sdk_bridge.py -m docker -v
 
 To include in a broader integration run::
@@ -68,7 +68,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
@@ -104,7 +103,9 @@ pytestmark = pytest.mark.docker
 if not HAS_MESHTASTIC:
     pytestmark = [
         pytest.mark.docker,
-        pytest.mark.skip(reason="mtjk not installed; run: pip install '.[meshtastic]'"),
+        pytest.mark.skip(
+            reason="mtjk not installed; run: pip install 'medre-adapter-meshtastic'"
+        ),
     ]
 
 

@@ -1,7 +1,7 @@
-"""Shared registry-driven dispatch for built-in native metadata namespaces.
+"""Shared registry-driven dispatch for registered native metadata namespaces.
 
 Concrete adapter packages remain isolated from sibling adapter imports.  Cross-
-transport consumers resolve adapter-owned namespace readers through the built-in
+transport consumers resolve adapter-owned namespace readers through the registered
 adapter registry, keeping native schema interpretation inside each adapter.
 """
 

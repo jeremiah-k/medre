@@ -6,7 +6,7 @@ referenced in several places that must stay aligned:
 - ``docker-compose.integration.yaml`` — the source of truth (image@digest).
 - ``.github/workflows/docker-integration.yml`` — CI pinned image@digest.
 - ``tests/integration/conftest.py`` — tag-only fallback defaults.
-- ``src/medre/runtime/docker_bridge_artifacts.py`` — tag-only env-fallback
+- ``scripts/ci/docker_bridge_artifacts.py`` — tag-only env-fallback
   defaults.
 - ``scripts/ci/run-docker-integration.sh`` — documented defaults in comments.
 
@@ -23,8 +23,8 @@ silently diverging across CI / compose / local runs.
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -34,7 +34,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _COMPOSE = _REPO_ROOT / "docker-compose.integration.yaml"
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docker-integration.yml"
 _CONFTEST = _REPO_ROOT / "tests" / "integration" / "conftest.py"
-_ARTIFACTS = _REPO_ROOT / "src" / "medre" / "runtime" / "docker_bridge_artifacts.py"
+_ARTIFACTS = _REPO_ROOT / "scripts" / "ci" / "docker_bridge_artifacts.py"
 _RUN_SCRIPT = _REPO_ROOT / "scripts" / "ci" / "run-docker-integration.sh"
 _LIVE_STARTER = _REPO_ROOT / "tests" / "helpers" / "synapse_starter.py"
 
@@ -87,7 +87,8 @@ def test_renovate_tracks_live_synapse_tag_and_digest() -> None:
     """Dependency updates cover the live starter's split string literal."""
     config = json.loads(_read(_REPO_ROOT / "renovate.json"))
     manager = next(
-        item for item in config["customManagers"]
+        item
+        for item in config["customManagers"]
         if item.get("depNameTemplate") == "matrixdotorg/synapse"
     )
     assert any(
@@ -96,10 +97,9 @@ def test_renovate_tracks_live_synapse_tag_and_digest() -> None:
     ), "Renovate does not scan the physical-radio Matrix server"
     tag, digest = _compose_ref("matrixdotorg/synapse")
     matches = [
-        match for pattern in manager["matchStrings"]
-        for match in re.finditer(
-            pattern.replace("(?<", "(?P<"), _read(_LIVE_STARTER)
-        )
+        match
+        for pattern in manager["matchStrings"]
+        for match in re.finditer(pattern.replace("(?<", "(?P<"), _read(_LIVE_STARTER))
     ]
     assert any(
         match.groupdict().get("currentValue") == tag

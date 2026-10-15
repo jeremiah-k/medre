@@ -12,9 +12,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-
 from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
-from tests.helpers.lxmf_peer_timing import PEER_STARTUP_SECONDS, delivery_timeout_seconds
+from tests.helpers.lxmf_peer_timing import (
+    PEER_STARTUP_SECONDS,
+    delivery_timeout_seconds,
+)
 
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
 
@@ -34,7 +36,7 @@ def delivery_dest_hash(identity_path: str) -> str:
     return RNS.Destination.hash_from_name_and_identity("lxmf.delivery", identity).hex()
 
 
-_PEER_SCRIPT = r'''
+_PEER_SCRIPT = r"""
 import json, sys, time
 from tests.helpers.lxmf_peer_timing import (
     PEER_PACING_SECONDS, PEER_RECALL_SECONDS, wait_terminal,
@@ -163,7 +165,7 @@ elif MODE == "sendenv":
 else:
     print(json.dumps({"error": "unknown mode"}))
     sys.exit(2)
-'''
+"""
 
 
 def run_lxmf_peer(args: list[str], timeout: float) -> dict:

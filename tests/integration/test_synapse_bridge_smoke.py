@@ -20,7 +20,7 @@ and excluded from default runs.
 
 Running locally::
 
-    pip install -e ".[matrix]"
+    pip install medre-adapter-matrix
     pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 
 Evidence classification
@@ -61,7 +61,6 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
-
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
@@ -95,7 +94,7 @@ if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         ),
     ]
 

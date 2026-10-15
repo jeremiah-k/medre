@@ -101,6 +101,8 @@ async def _smoke(
         else:
             print("Fake bridge smoke: FAIL")
             reasons = report.get("fail_reasons", [])
+            if not reasons and report.get("fail_reason"):
+                reasons = [report["fail_reason"]]
             for r in reasons:
                 print(f"  \u2717 {r}")
 
