@@ -232,6 +232,29 @@ class RetryConfig:
     batch_size: int = 20
     max_attempts: int = 3
 
+    def validate(self) -> Self:
+        """Reject invalid retry scheduling values for all config entry paths."""
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError("retry.enabled must be a boolean")
+        for name in ("batch_size", "max_attempts"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ConfigValidationError(f"retry.{name} must be an integer >= 1")
+        interval = self.interval_seconds
+        if isinstance(interval, bool) or not isinstance(interval, (int, float)):
+            raise ConfigValidationError(
+                "retry.interval_seconds must be a positive finite number"
+            )
+        try:
+            finite = math.isfinite(interval)
+        except (OverflowError, ValueError):
+            finite = False
+        if not finite or interval <= 0:
+            raise ConfigValidationError(
+                "retry.interval_seconds must be a positive finite number"
+            )
+        return self
+
 
 @dataclass(frozen=True)
 class AttachmentConfig:

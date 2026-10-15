@@ -100,6 +100,12 @@ raise `ConfigValidationError` before runtime construction. The top-level
 | `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
+`retry.enabled` **MUST** be a boolean, `retry.batch_size` and
+`retry.max_attempts` **MUST** be positive integers, and
+`retry.interval_seconds` **MUST** be a positive, finite number. YAML,
+environment overrides, and programmatically constructed runtime configurations
+**MUST** enforce these same invariants before creating the retry worker.
+
 ### 2.6 AttachmentConfig
 
 `attachments` configures the generic durable-attachment relay: whether
@@ -325,7 +331,14 @@ Programmatically constructed `RouteConfig` values are subject to the same
 runtime-semantic invariants before expansion: both adapter sides MUST be
 non-empty, structured destinations MUST have exactly one destination adapter
 and no competing channel selector, and `context_map` MUST NOT be combined
-with competing source/destination selectors.
+with competing source/destination selectors. `enabled` **MUST** be a boolean
+(not the strings `"true"` or `"false"`); both adapter lists **MUST** contain
+non-empty, already-normalized strings without implicit type conversion.
+When present, `policy`, `retry`, and `context_map` **MUST** be mappings, not
+`null`. Policy allowlist members **MUST** be arrays of strings; explicit
+`null` MUST NOT mean an unrestricted allowlist. Route retry durations
+(`backoff_base` and `max_delay_seconds`) **MUST** be finite non-negative
+numbers in both parsed and programmatically constructed configurations.
 
 #### 3.4.1 context_map
 

@@ -455,7 +455,13 @@ Optional static allowlist policy. A policy denial produces a `status="suppressed
 | `room_allowlist`          | list of string | `[]`    | Permitted room identifiers. Empty = any room.       |
 | `channel_allowlist`       | list of string | `[]`    | Permitted channel identifiers. Empty = any channel. |
 
-Unknown keys are rejected at config load time. Allowlist values must be arrays of strings.
+Unknown keys are rejected at config load time. Allowlist values must be arrays
+of strings. Use `[]` for an explicitly unrestricted field; `null` is rejected.
+An explicitly declared `policy`, `retry`, or `context_map` section must be a
+mapping, not `null`, to prevent silently dropping configured controls.
+Route `enabled` is a YAML boolean (`true` or `false`), never a quoted string;
+adapter IDs must already be normalized strings. Retry intervals and per-route
+backoff delays must be finite numbers, not YAML `.nan`/`.inf` values.
 
 #### Route Retry (`routes.<route_id>.retry`)
 

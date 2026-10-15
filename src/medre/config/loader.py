@@ -12,6 +12,7 @@ Public API
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import replace
@@ -452,7 +453,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         interval_seconds=retry_data.get("interval_seconds", 10.0),
         batch_size=retry_data.get("batch_size", 20),
         max_attempts=retry_data.get("max_attempts", 3),
-    )
+    ).validate()
 
     # [adapters.*] sections — validate the type of the adapters section,
     # reject unknown transport group names (e.g. ``matrixx``), then parse
@@ -587,7 +588,16 @@ def _validate_retry_section(retry_data: dict) -> None:
                 f"{raw!r}",
                 section_path="retry",
             )
-        if float(raw) <= min_val:
+        try:
+            finite = math.isfinite(raw)
+        except (OverflowError, ValueError):
+            finite = False
+        if not finite:
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be a finite number, got {raw!r}",
+                section_path="retry",
+            )
+        if raw <= min_val:
             raise ConfigValidationError(
                 f"[retry] {field_name} must be > {min_val}, got {raw}",
                 section_path="retry",

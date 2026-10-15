@@ -27,6 +27,7 @@ Public symbols
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -175,9 +176,15 @@ class BridgePolicy:
 
         # Validate each allowlist field is a list or tuple of strings.
         for field_name, _label in cls._ALLOWLIST_FIELDS:
-            raw = data.get(field_name)
-            if raw is None:
+            if field_name not in data:
                 continue
+            raw = data[field_name]
+            if raw is None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: policy.{field_name} must be a list, "
+                    "not null",
+                    section_path=policy_path,
+                )
             if isinstance(raw, str):
                 raise ConfigValidationError(
                     f"Route {route_id!r}: policy.{field_name} must be a list, "
@@ -276,6 +283,29 @@ class RouteRetryConfig:
     max_delay_seconds: float = 60.0
     jitter: bool = False
 
+    def __post_init__(self) -> None:
+        """Keep programmatic retry policies as safe as YAML-loaded policies."""
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError("retry.enabled must be a boolean")
+        if type(self.jitter) is not bool:
+            raise ConfigValidationError("retry.jitter must be a boolean")
+        if type(self.max_attempts) is not int or self.max_attempts <= 0:
+            raise ConfigValidationError("retry.max_attempts must be an integer > 0")
+        for name in ("backoff_base", "max_delay_seconds"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigValidationError(
+                    f"retry.{name} must be a finite number >= 0"
+                )
+            try:
+                finite = math.isfinite(value)
+            except (OverflowError, ValueError):
+                finite = False
+            if not finite or value < 0:
+                raise ConfigValidationError(
+                    f"retry.{name} must be a finite number >= 0"
+                )
+
     @classmethod
     def from_dict(
         cls,
@@ -346,6 +376,16 @@ class RouteRetryConfig:
                 f"got {backoff_base!r}",
                 section_path=f"{section_path}.retry",
             )
+        try:
+            finite_backoff = math.isfinite(backoff_base)
+        except (OverflowError, ValueError):
+            finite_backoff = False
+        if not finite_backoff:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.backoff_base must be a finite "
+                f"number, got {backoff_base!r}",
+                section_path=f"{section_path}.retry",
+            )
         if backoff_base < 0:
             raise ConfigValidationError(
                 f"Route {route_id!r}: retry.backoff_base must be >= 0, "
@@ -358,6 +398,16 @@ class RouteRetryConfig:
             raise ConfigValidationError(
                 f"Route {route_id!r}: retry.max_delay_seconds must be a number, "
                 f"got {max_delay_seconds!r}",
+                section_path=f"{section_path}.retry",
+            )
+        try:
+            finite_max_delay = math.isfinite(max_delay_seconds)
+        except (OverflowError, ValueError):
+            finite_max_delay = False
+        if not finite_max_delay:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_delay_seconds must be a finite "
+                f"number, got {max_delay_seconds!r}",
                 section_path=f"{section_path}.retry",
             )
         if max_delay_seconds < 0:
@@ -1085,6 +1135,24 @@ class RouteConfig:
         only on the YAML path, so programmatic routes silently kept
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
+        section = f"routes.{self.route_id}"
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'enabled' must be a boolean, "
+                f"got {type(self.enabled).__name__}",
+                section_path=section,
+            )
+        for name in ("source_adapters", "dest_adapters"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(
+                not isinstance(item, str) or not item or item != item.strip()
+                for item in values
+            ):
+                raise ConfigValidationError(
+                    f"Route {self.route_id!r}: '{name}' must contain "
+                    "non-empty, normalized adapter ID strings",
+                    section_path=section,
+                )
         if not isinstance(self.priority, int) or isinstance(self.priority, bool):
             raise ConfigValidationError(
                 f"Route {self.route_id!r}: 'priority' must be an integer, "
@@ -1179,7 +1247,16 @@ class RouteConfig:
                 f"Route {route_id!r}: 'source_adapters' must be a list",
                 section_path=section_path,
             )
-        source_adapters = tuple(str(s) for s in raw_sources)
+        if any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in raw_sources
+        ):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'source_adapters' must contain "
+                "non-empty, normalized adapter ID strings",
+                section_path=section_path,
+            )
+        source_adapters = tuple(raw_sources)
         if not source_adapters:
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'source_adapters' must not be empty",
@@ -1198,7 +1275,16 @@ class RouteConfig:
                 f"Route {route_id!r}: 'dest_adapters' must be a list",
                 section_path=section_path,
             )
-        dest_adapters = tuple(str(d) for d in raw_dests)
+        if any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in raw_dests
+        ):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'dest_adapters' must contain "
+                "non-empty, normalized adapter ID strings",
+                section_path=section_path,
+            )
+        dest_adapters = tuple(raw_dests)
         if not dest_adapters:
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'dest_adapters' must not be empty",
@@ -1341,6 +1427,11 @@ class RouteConfig:
             dest_origin_label = raw_dest_label
 
         # --- context_map ---
+        if "context_map" in data and data["context_map"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'context_map' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_context_map = data.pop("context_map", None)
         context_map: dict[str, ContextMapEntry] | None = None
         if raw_context_map is not None:
@@ -1384,6 +1475,11 @@ class RouteConfig:
             context_map = normalized
 
         # --- policy ---
+        if "policy" in data and data["policy"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'policy' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_policy = data.pop("policy", None)
         policy: BridgePolicy | None = None
         if raw_policy is not None:
@@ -1404,6 +1500,11 @@ class RouteConfig:
             )
 
         # --- retry ---
+        if "retry" in data and data["retry"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'retry' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_retry = data.pop("retry", None)
         retry: RouteRetryConfig | None = None
         if raw_retry is not None:
