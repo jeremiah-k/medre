@@ -17,6 +17,12 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
+# Imported for import-order hermeticity: medre.cli.transports computes
+# TRANSPORTS from the adapter registry at import time, so tests that swap
+# ADAPTER_REGISTRY with synthetic specs must never be the process's first
+# importer. Computing the table here pins it against the real registry for
+# every invocation order.
+from medre.cli import transports  # noqa: F401
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -36,13 +42,6 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # ``pytest.mark.usefixtures`` markers.
 from tests.helpers.config_env import isolated_config_env  # noqa: F401
 from tests.helpers.storage_outbox import admit_default_event
-
-# Imported for import-order hermeticity: medre.cli.transports computes
-# TRANSPORTS from the adapter registry at import time, so tests that swap
-# ADAPTER_REGISTRY with synthetic specs must never be the process's first
-# importer. Computing the table here pins it against the real registry for
-# every invocation order.
-from medre.cli import transports  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Event fixtures
@@ -429,6 +428,48 @@ def pytest_addoption(parser):
         action="store_true",
         help="Run every declared adapter-free test module",
     )
+
+    parser.addoption(
+        "--core-shard",
+        type=int,
+        default=None,
+        help="Zero-based core-only shard index (requires --core-shards)",
+    )
+    parser.addoption(
+        "--core-shards",
+        type=int,
+        default=None,
+        help="Total core-only test shards (requires --core-shard)",
+    )
+
+
+def pytest_configure(config):
+    from tests.helpers.core_sharding import validate_core_shard
+
+    try:
+        validate_core_shard(
+            index=config.getoption("--core-shard"),
+            count=config.getoption("--core-shards"),
+            core_only=config.getoption("--core-only"),
+        )
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+
+
+def pytest_collection_modifyitems(config, items):
+    index = config.getoption("--core-shard")
+    if index is None:
+        return
+    from tests.helpers.core_sharding import partition_core_tests
+
+    count = config.getoption("--core-shards")
+    selected, deselected = partition_core_tests(items, index=index, count=count)
+    if not selected:
+        raise pytest.UsageError(
+            f"Core shard {index + 1}/{count} selected no tests; reduce --core-shards"
+        )
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
 
 
 def pytest_sessionstart(session):

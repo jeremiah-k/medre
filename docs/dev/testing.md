@@ -37,6 +37,35 @@ these dependencies cannot all be inferred from imports. The compatibility job
 still runs the complete suite with its resolved adapter snapshot. No tests are
 removed from that job.
 
+### Core-only CI sharding
+
+The Windows core-only job uses eight independent, zero-based test shards; Linux
+and macOS run one complete shard. The tests themselves are unchanged. Each job
+collects the adapter-free tier normally and then assigns complete test modules
+using largest-first balancing by collected test count. Tests are never selected
+by a hardcoded allowlist, and each collected test is assigned to exactly one
+shard. Platform-specific collection is handled per runner; an empty shard
+fails explicitly rather than silently passing.
+
+For local debugging or reproducing one Windows job:
+
+```bash
+uv run --no-sync python -m pytest tests/ --core-only \
+  --core-shard 3 --core-shards 8 -q -ra
+```
+
+`--core-shard` and `--core-shards` must be provided together and require
+`--core-only`; without them, the full suite runs as before. The compatibility
+matrix still runs unsharded with the exact pinned adapters. Only shard zero
+repeats the installed-wheel proof because its result is independent of which
+tests the other shards execute.
+
+This reduces **wall-clock latency** for Windows without removing tests or
+pretending that disk-backed SQLite setup is mocked. Long fixture setup on a
+particular runner should still be diagnosed using `--durations=20` and Windows
+filesystem/process profiling. The core-only job has a 10-minute safety limit;
+all shards must pass for the matrix to pass.
+
 The compatibility manifest owns distribution identity and SDK extras for core
 contracts, Docker integration, and standalone adapter SDK CI. Standalone adapter
 jobs report the exact core/adapter SHA pair they tested. Core CI's pinned pair

@@ -162,3 +162,43 @@ def test_wheel_proof_rejects_stale_or_missing_package_files(
             archive.writestr(entry, "")
     with pytest.raises(SystemExit):
         proof._resolve_wheel(str(wheel), tmp_path, "0.1.0", [])
+
+
+def test_proof_subprocess_decodes_invalid_windows_console_bytes(
+    tmp_path: Path,
+) -> None:
+    """Non-UTF-8 console output cannot kill a reader thread or hide a failure."""
+    import sys
+
+    proof = _load_proof_module()
+    result = proof._run(
+        [
+            sys.executable,
+            "-c",
+            "import os; os.write(1, b'\\x97'); os.write(2, b'\\xff')",
+        ],
+        cwd=tmp_path,
+        env=None,
+        timeout=10,
+        label="mixed-console-encoding",
+    )
+    assert result.returncode == 0
+    assert result.stdout == "\ufffd"
+    assert result.stderr == "\ufffd"
+
+
+def test_proof_subprocess_keeps_nonzero_status_with_invalid_bytes(
+    tmp_path: Path,
+) -> None:
+    import sys
+
+    proof = _load_proof_module()
+    result = proof._run(
+        [sys.executable, "-c", "import os, sys; os.write(2, b'\\x97'); sys.exit(7)"],
+        cwd=tmp_path,
+        env=None,
+        timeout=10,
+        label="mixed-console-encoding",
+    )
+    assert result.returncode == 7
+    assert result.stderr == "\ufffd"

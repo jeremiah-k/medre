@@ -209,14 +209,23 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     """Run *command*, capturing output; a timeout is a loud failure."""
     try:
-        return subprocess.run(
+        # Capture bytes before decoding. On Windows a child executable may
+        # emit CP1252 diagnostics even with PYTHONUTF8=1. text=True can crash
+        # a subprocess reader thread and silently return missing output while
+        # the child exit status remains zero, invalidating proof assertions.
+        result = subprocess.run(
             command,
             cwd=str(cwd),
             env=env,
             capture_output=True,
-            text=True,
             timeout=timeout,
             check=False,
+        )
+        return subprocess.CompletedProcess(
+            result.args,
+            result.returncode,
+            stdout=_as_text(result.stdout),
+            stderr=_as_text(result.stderr),
         )
     except subprocess.TimeoutExpired as exc:
         _fail(
