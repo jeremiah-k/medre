@@ -107,52 +107,27 @@ def test_routing_schema_keeps_context_map_structured_only() -> None:
     schema_path = _ROOT / "docs" / "schemas" / "routing-config.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
-    entry = schema.get("$defs", {}).get("ContextMapEntry")
-    assert isinstance(entry, dict)
-    assert entry.get("type") == "object"
-    assert entry.get("additionalProperties") is False
-    assert {"dest_context", "dest_destination"} <= set(entry.get("properties", {}))
+    from jsonschema import Draft202012Validator
 
-    occurrences: list[dict[str, Any]] = []
-
-    def walk(value: object) -> None:
-        if isinstance(value, dict):
-            context_map = value.get("context_map")
-            if isinstance(context_map, dict):
-                occurrences.append(context_map)
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-
-    walk(schema)
-    assert occurrences, "routing schema contains no context_map contract"
-
-    expected_ref = "#/$defs/ContextMapEntry"
-    for occurrence in occurrences:
-        # Conditional schema branches may narrow context_map to null when
-        # another addressing authority is active.  That is not a second
-        # mapping representation and must not be mistaken for one.
-        if occurrence in ({"type": "null"}, {"type": "object"}):
-            continue
-
-        variants = occurrence.get("oneOf")
-        assert isinstance(variants, list), (
-            "context_map must be the structured mapping contract or a "
-            "conditional type-only constraint"
-        )
-        object_variants = [
-            variant
-            for variant in variants
-            if isinstance(variant, dict) and variant.get("type") == "object"
-        ]
-        assert len(object_variants) == 1
-        assert object_variants[0].get("additionalProperties") == {"$ref": expected_ref}
-        assert not any(
-            isinstance(variant, dict) and variant.get("type") == "string"
-            for variant in variants
-        ), "bare-string context_map compatibility unexpectedly returned"
+    validator = Draft202012Validator(schema)
+    base_route = {
+        "route_id": "mapped",
+        "source_adapters": ["source"],
+        "dest_adapters": ["dest"],
+    }
+    for context_map, valid in (
+        ({"ctx": {"dest_context": "room"}}, True),
+        ({"ctx": "room"}, False),
+        ({"ctx": {"dest_context": "room", "unknown": True}}, False),
+        ("room", False),
+        (["room"], False),
+        (None, False),
+    ):
+        route = {**base_route, "context_map": context_map}
+        # Cover both public route forms without depending on how the schema
+        # expresses their constraints (refs, conditionals, or inline objects).
+        assert validator.is_valid(route) is valid
+        assert validator.is_valid({"routes": [route]}) is valid
 
 
 def test_routing_schema_enforces_context_map_route_boundaries() -> None:
