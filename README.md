@@ -8,59 +8,36 @@ a codec → renderer → session pipeline with a config-file-first runtime.
 First-party providers cover Matrix, Meshtastic, MeshCore, and LXMF; community
 providers use the same contracts and ordinary Python packaging.
 
-## First Steps
+## Getting Started
 
-From a source checkout, use [uv](https://docs.astral.sh/uv/getting-started/installation/)
-to install the committed core graph and the sample bridge providers. This
-fake-adapter smoke path needs no credentials, native SDKs, or Docker:
+Start with the **[Getting Started guide](docs/ops/getting-started.md)**. It walks
+through installing MEDRE and adapters directly from Git with uv, running an
+offline smoke, and building a real two-way route. It also explains adapter
+instances, contexts, prefixes, delivery evidence, and how to add more routes.
 
-```bash
-uv sync --locked          # core dependencies and an editable MEDRE install
-# Pre-release providers for the sample; pin reviewed commit refs for repeatability.
-uv pip install --no-deps \
-  'git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
-  'git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@main'
-source .venv/bin/activate
-
-medre version             # version, Python, platform
-medre paths               # resolved config/state/data/log directories
-medre adapters            # transport inventory; fake adapters need no SDKs
-
-medre config sample > /tmp/medre-sample.yaml
-medre config check --config /tmp/medre-sample.yaml
-medre smoke --config /tmp/medre-sample.yaml --json
-```
-
-`medre config check` validates a config file given by `--config` (or found
-via discovery); it does not read a config from stdin. The sample config uses
-fake contributions from installed providers only. With one provider it creates
-two instances; without contributions it emits installation guidance and empty
-adapter/route sections. A fake smoke proves pipeline and storage behavior.
-Expected output, the persistent-storage variant, and troubleshooting:
-[docs/ops/install.md](docs/ops/install.md).
-
-A normal smoke tests one source. Use `--source-adapter INSTANCE_ID` to select
-another eligible source, and inspect `source_candidates` in the JSON report.
-Eligible sources must have started and provide the fake event helper. A pass
-requires delivery for every matched configured route target, including targets
-that fail construction or startup. See
-[multi-source smoke coverage](docs/dev/testing.md#multi-source-fake-smoke-coverage).
-
-To verify a built artifact end to end — wheel build, clean core-only
-install, installed-package proof — run, from a source checkout:
+For a repeatable deployment, use one uv project containing core and your chosen
+providers, and keep its pyproject.toml and uv.lock. No PyPI release or source
+checkout is required. uvx works for trying the CLI; it uses a separate environment,
+so adapters need to be included explicitly.
 
 ```bash
-uv sync --locked --extra dev
-uv run --no-sync python scripts/check_installed_package.py
+uvx --from 'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction' medre version
 ```
 
-The script lives in the source repository and is not part of the installed
-wheel.
+The extraction currently lives on the branch above. The guide identifies the
+compatible sources; pin reviewed commits before deploying. Runtime startup
+discovers installed packages and never downloads adapters.
 
-Support level: Linux is the verified development host. CI is configured for
-adapter-free core checks on Linux, macOS, and Windows, plus cross-adapter and
-SDK contracts on CPython 3.11–3.14 on Ubuntu. Native service, hardware, and ARM
-qualification remain separate from those checks.
+Already have an environment? Use
+[installation and validation](docs/ops/install.md) for source, wheel, and pip
+workflows, or [adapter installation](docs/ops/adapter-installation.md) for mixed
+Git, index, and local sources. Developers should begin with
+[the development environment](docs/dev/environment.md).
+
+Support level: Linux is the verified development host. CI checks adapter-free
+core behavior on Linux, macOS, and Windows, plus cross-adapter and SDK contracts
+on CPython 3.11–3.14 on Ubuntu. Native service, hardware, and ARM qualification
+remain separate from those checks.
 
 ## Choosing and Installing Transports
 

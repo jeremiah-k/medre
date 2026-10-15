@@ -1,5 +1,8 @@
 # Installing external adapters: PyPI, Git, and local sources
 
+For a first installation directly from Git, follow [Getting Started](getting-started.md).
+This reference covers source choices, reproducibility, and provider ownership.
+
 **Adapter discovery is source-agnostic.** MEDRE loads installed Python
 `medre.adapters` entry points. An adapter does not need to be on PyPI, hosted
 on GitHub, or maintained by the MEDRE organization. Any trusted distribution

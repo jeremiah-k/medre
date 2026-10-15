@@ -3,16 +3,17 @@
 This directory contains practical documentation for running, validating, and
 troubleshooting MEDRE deployments.
 
-Begin with [installation](install.md). Operator commands assume an activated
-MEDRE environment; checkout setup uses uv, and built-package installs also
-support pip. A source checkout can use `uv run --no-sync` after selecting its
-extras instead of activating `.venv`.
+Begin with [Getting Started](getting-started.md): install from Git using uv, learn
+the core concepts, and build a two-way route. [Installation](install.md) covers
+other workflows. Within a deployment project, prefix commands with uv run
+--locked; the remaining operator guides show the medre command itself for
+brevity. Activated environments can invoke medre directly.
 
 ## Reading Order
 
 | Document                                                                   | Purpose                                                                     |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [install.md](install.md)                                                   | Installing MEDRE and setting up a development environment                   |
+| [getting-started.md](getting-started.md)                                   | First bridge, concepts, routes, and Git-based uv installation               | \n  | [install.md](install.md) | Installing MEDRE and setting up a development environment |
 | [configuration.md](configuration.md)                                       | YAML configuration reference, environment variables, XDG paths              |
 | [running-medre.md](running-medre.md)                                       | Starting, stopping, and monitoring the MEDRE runtime                        |
 | [operator-workflows.md](operator-workflows.md)                             | Day-to-day operational workflows: smoke tests, evidence, tracing            |

@@ -1,14 +1,18 @@
 # Installation and First-Run Validation
 
+New to MEDRE? Begin with [Getting Started](getting-started.md) for a verified
+Git-based uv installation, an offline smoke, and a first two-way route. This
+page covers alternative install paths and detailed validation.
+
 ## Prerequisites
 
-| Requirement | Details                                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified                     |
-| uv          | Recommended for source checkouts; see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
-| pip         | Supported for wheel/sdist installs and existing virtual environments                                                       |
-| git         | For source checkout only                                                                                                   |
-| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd                                   |
+| Requirement | Details                                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified                                     |
+| uv          | Recommended for deployments and source checkouts; see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
+| pip         | Supported for wheel/sdist installs and existing virtual environments                                                                       |
+| git         | For Git installs and source checkouts                                                                                                      |
+| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd                                                   |
 
 ## Project Metadata
 
@@ -18,10 +22,19 @@
 
 ## Install Paths
 
+### Git Deployment (Operators)
+
+Use a [locked uv project](getting-started.md#install-from-git-with-uv) containing
+MEDRE and all required providers. This is the recommended pre-release install
+path and does not require a published package. uv records Git commits in uv.lock;
+retain that file together with your deployment pyproject.toml. The
+[adapter installation guide](adapter-installation.md) covers exact revision
+pins and mixed sources.
+
 ### Source Checkout (Developers)
 
 ```bash
-git clone <repo-url> && cd medre
+git clone --branch build/external-adapter-extraction https://github.com/jeremiah-k/medre.git\ncd medre
 
 uv sync --locked --extra dev
 source .venv/bin/activate
@@ -135,7 +148,7 @@ medre paths
 
 # List adapter types and SDK availability
 medre adapters
-# Expected: all transports show "not installed" (core-only).
+# Expected: only installed providers are listed; core-only has no providers.
 # Fake adapters work regardless of SDK status.
 ```
 
@@ -221,7 +234,7 @@ medre config check --config examples/configs/fake-multi-adapter.yaml
 medre config check --config examples/configs/fake-bridge-smoke.yaml
 medre config check --config examples/configs/fake-retry-smoke.yaml
 
-# Real adapter configs (will show credential errors without env vars)
+# Real adapter configs (will show credential errors without credentials)
 medre config check --config examples/configs/matrix.yaml
 medre config check --config examples/configs/meshtastic-serial.yaml
 ```
