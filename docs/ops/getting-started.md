@@ -45,9 +45,17 @@ and retain both `pyproject.toml` and `uv.lock`. Core's
 adapter revisions tested together in CI.
 
 Here, uv manages Python, the virtual environment, and packages. Run commands
-with `uv run --locked` from this directory; there is no activation step. To
-restore the recorded environment later, use `uv sync --locked`. Keep credentials,
-state databases, and generated private configs out of version control.
+with `uv run --locked` from this directory; there is no activation step. If you
+prefer typing **`medre`** directly, run `uv sync --locked` and activate the
+project's environment (`source .venv/bin/activate` on Bash or
+`.\.venv\Scripts\Activate.ps1` in PowerShell). Alternatively invoke
+`.venv/bin/medre` directly from a service. Keep credentials, state databases,
+and generated private configs out of version control.
+
+For a persistent, globally available CLI without a project, see
+[uv tool install](install.md#persistent-command-without-uv-run). That is useful
+for trials, but unlike a project it does not give each bridge a reviewed lockfile
+and its own dependency environment.
 
 `MEDRE_HOME` keeps this bridge's state and credentials separate from other
 deployments. Set it to the same private directory in the service environment

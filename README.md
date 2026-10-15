@@ -16,17 +16,16 @@ offline smoke, and building a real two-way route. It also explains adapter
 instances, contexts, prefixes, delivery evidence, and how to add more routes.
 
 For a repeatable deployment, use one uv project containing core and your chosen
-providers, and keep its pyproject.toml and uv.lock. No PyPI release or source
-checkout is required. uvx works for trying the CLI; it uses a separate environment,
-so adapters need to be included explicitly.
+providers, and keep its `pyproject.toml` and `uv.lock`. No PyPI release or source
+checkout is required. From that project, `uv run --locked medre ...` runs the
+CLI, or activate `.venv` once and simply run `medre ...`. See
+[installation options](docs/ops/install.md) for a persistent `uv tool install`
+straight from Git and a one-off `uvx` alternative. Tool environments do not
+inherit providers installed in a different Python environment.
 
-```bash
-uvx --from 'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction' medre version
-```
-
-The extraction currently lives on the branch above. The guide identifies the
-compatible sources; pin reviewed commits before deploying. Runtime startup
-discovers installed packages and never downloads adapters.
+The extraction currently lives on `build/external-adapter-extraction`. Pin
+reviewed Git commits before deploying. Runtime startup discovers installed
+packages and never downloads adapters.
 
 Already have an environment? Use
 [installation and validation](docs/ops/install.md) for source, wheel, and pip
