@@ -76,9 +76,10 @@ instead:
 ## Source Audits
 
 Point-in-time audit notes are review evidence, not normative authority, and
-are not kept as standalone documents: Git history is the archive. Findings
-that remain current belong in the relevant spec/ops/dev page or a spec
-appendix; anything else should not be written down as if it were durable.
+are not committed as standalone documents. Keep temporary reports and logs
+outside the checkout, for example under `~/tmp/codex/`. Findings that remain
+current belong in the relevant spec/ops/dev page or a spec appendix; record the
+fix and its tests rather than a session transcript or validation ledger.
 
 ## Adding New Documentation
 
