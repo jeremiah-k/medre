@@ -1,2 +1,28 @@
-# Trunk and CI share the project's authoritative lint policy.
-extend = "../../pyproject.toml"
+# Trunk and CI share the project's authoritative lint policy. The values
+# below mirror [tool.ruff] in pyproject.toml; keep the two in sync.
+# (Trunk copies this file into its per-run scratch directories under /tmp,
+# where a relative `extend` cannot reach the repo root, so the settings
+# must be self-contained here.)
+line-length = 88
+
+[lint]
+select = ["F", "E4", "E7", "E9", "B", "ASYNC", "RUF100"]
+# RUF001-003: en-dashes in prose are intentional style.
+# SIM105: try/except-pass reads clearer than contextlib.suppress here.
+# ASYNC109: `timeout` parameter naming is the house convention.
+# ASYNC250: interactive CLI prompts block on the main thread on purpose —
+#   terminal SIGINT must interrupt input()/getpass() directly; a worker
+#   thread would survive cancellation and hold the tty.
+# ASYNC230/240: local-disk reads/writes in async CLI and evidence paths
+#   are deliberately synchronous (small files, thread-offloaded where it
+#   matters); revisit only if a path ever blocks on slow I/O.
+ignore = [
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  "SIM105",
+  "ASYNC109",
+  "ASYNC230",
+  "ASYNC240",
+  "ASYNC250",
+]
