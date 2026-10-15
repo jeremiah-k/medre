@@ -317,6 +317,9 @@ class RuntimeBuilder:
             self._config.runtime.validate()
             self._config.limits.validate()
             self._config.retry.validate()
+            self._config.attachments.validate()
+            self._config.adapters.validate()
+            self._config.routes.validate()
             self._config.routes.validate_destinations(
                 {
                     adapter_id: transport

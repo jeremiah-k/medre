@@ -121,8 +121,9 @@ explicit operator decision.
 | `max_concurrent_transfers` | `2`         | Maximum concurrent binary transfers (downloads and uploads combined) runtime-wide |
 | `transfer_timeout_seconds` | `60.0`      | Deadline in seconds for one binary transfer                                       |
 
-Validation rules (enforced by `AttachmentConfig.validate()` at load time and
-after environment overrides):
+Validation rules (enforced by `AttachmentConfig.validate()` at load time,
+after environment overrides, and by `RuntimeBuilder` for directly constructed
+`RuntimeConfig` values):
 
 - `max_attachment_bytes` and `max_retained_bytes` MUST be positive integers.
 - `transfer_timeout_seconds` MUST be a positive finite number.
@@ -139,6 +140,17 @@ and [storage.md §4.12](storage.md#412-attachment_blobs)). Raising or
 lowering `max_retained_bytes` is an operator action — the runtime adds no
 automatic binary retention, TTL, or GC (see
 [storage.md §4.12](storage.md#412-attachment_blobs)).
+
+### 2.7 Programmatic configuration validation
+
+`RuntimeBuilder` **MUST** validate adapter instance identities, boolean
+`enabled` flags, adapter kinds, duplicate route IDs, and attachment limits
+before constructing storage or adapter objects, even when callers bypass the
+YAML loader with a directly constructed `RuntimeConfig`. Adapter instance
+identifiers **MUST** be unique across transport groups. `adapter_kind` **MUST**
+be `real` or `fake`; `enabled` **MUST** be an actual boolean, not a truthy
+string or number. Invalid declarations **MUST** surface as
+`RuntimeConfigError` rather than silently changing runtime behavior.
 
 ## 3. YAML Schema
 

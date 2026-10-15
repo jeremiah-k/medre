@@ -614,8 +614,28 @@ class AdapterConfigSet:
         tokens: dict[str, tuple[str, str]] = {}
         for transport, group in self.groups():
             for instance_name, rtc in group.items():
-                aid = rtc.adapter_id
                 section = f"adapters.{transport}.{instance_name}"
+                if not isinstance(rtc, GenericAdapterRuntimeConfig):
+                    raise ConfigValidationError(
+                        f"{section}: expected an adapter runtime configuration",
+                        transport=transport,
+                        section_path=section,
+                    )
+                if type(rtc.enabled) is not bool:
+                    raise ConfigValidationError(
+                        f"{section}.enabled must be a boolean",
+                        transport=transport,
+                        adapter_id=rtc.adapter_id,
+                        section_path=section,
+                    )
+                if rtc.adapter_kind not in ("real", "fake"):
+                    raise ConfigValidationError(
+                        f"{section}.adapter_kind must be 'real' or 'fake'",
+                        transport=transport,
+                        adapter_id=rtc.adapter_id,
+                        section_path=section,
+                    )
+                aid = rtc.adapter_id
                 instance_problem = adapter_id_problem(instance_name)
                 if instance_problem is not None:
                     raise ConfigValidationError(
