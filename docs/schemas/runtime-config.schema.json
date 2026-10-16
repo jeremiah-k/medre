@@ -197,7 +197,7 @@
       "type": "object",
       "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / context_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
       "patternProperties": {
-        "^[A-Za-z0-9_-]+$": {
+        "^[A-Za-z0-9_-]+(?![\\s\\S])": {
           "$ref": "#/$defs/RouteEntry"
         }
       },
@@ -213,7 +213,7 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$",
+          "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])",
           "$comment": "When omitted, the route's mapping key is used as route_id; a route_id key inside the mapping value is ignored.",
           "description": "Optional explicit route_id. When omitted, the mapping key is used."
         },

@@ -68,7 +68,7 @@ def _validate_route_id(route_id: str, *, section_path: str) -> None:
             "Route ID must not be empty",
             section_path=section_path,
         )
-    if not _VALID_ROUTE_ID.match(route_id):
+    if not _VALID_ROUTE_ID.fullmatch(route_id):
         raise ConfigValidationError(
             f"Invalid route ID {route_id!r}: must contain only "
             f"alphanumeric characters, underscores, or hyphens",

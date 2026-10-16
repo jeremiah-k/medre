@@ -11,7 +11,7 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$",
+          "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])",
           "$comment": "When omitted, the route's mapping key is used as route_id; a route_id key inside the mapping value is ignored.",
           "description": "Unique identifier for this route (alphanumeric, underscores, hyphens)."
         },
@@ -351,7 +351,7 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$"
+          "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])"
         },
         "source_adapters": {
           "type": "array",
