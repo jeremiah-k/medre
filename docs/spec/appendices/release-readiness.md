@@ -4,7 +4,10 @@ Transport maturity and readiness checklist for MEDRE release.
 
 ## Pre-Release Status
 
-MEDRE is pre-first-release (package version `0.1.0`, Alpha). No public API is
+MEDRE is pre-first-release (package version `0.1.0`, Alpha). The capability
+matrix below is a historical planning snapshot; newer dated live-validation
+records can supersede individual rows. Check the exact tree and evidence tier
+before treating a row as a current qualification result. No public API is
 frozen or committed to. Breaking changes to the specification, CLI surface,
 schema shapes, and adapter contracts are permitted when they simplify the model.
 Schema version is frozen at `1` during prerelease and carries no compatibility

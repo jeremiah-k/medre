@@ -17,6 +17,8 @@ the relevant spec/ops/dev page.
 | [reference-repos.md](reference-repos.md)                       | External reference implementations and copy boundaries               |
 | [mmrelay-behavior-reference.md](mmrelay-behavior-reference.md) | Live mmrelay interop behavior reference                              |
 | [documentation-style.md](documentation-style.md)               | Conventions for writing MEDRE documentation                          |
+| [licensing.md](licensing.md)                                  | Own-source licensing, dependency obligations, publication checks      |
+| [release-priorities.md](release-priorities.md)                  | Ordered pre-release qualification and feature gates                  |
 | [change-process.md](change-process.md)                         | How to propose and track documentation changes                       |
 
 ## How to Add Documentation
