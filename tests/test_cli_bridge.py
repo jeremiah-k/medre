@@ -5,6 +5,7 @@ import json
 import os
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError
+from pathlib import Path
 
 import pytest
 
@@ -104,13 +105,25 @@ def test_failed_write_removes_only_its_incomplete_file(monkeypatch, tmp_path):
 def test_failed_write_preserves_a_concurrent_replacement(monkeypatch, tmp_path):
     args = flags(tmp_path)
     output = tmp_path / "bridge.yaml"
+    replacement = tmp_path / "replacement.yaml"
+    replacement.write_text("concurrent replacement")
+    original_stat = Path.stat
+    replaced = False
 
-    def replace_output(fd):
-        output.unlink()
-        output.write_text("concurrent replacement")
-        raise OSError("write interrupted")
+    def replace_before_cleanup(path, *args, **kwargs):
+        nonlocal replaced
+        if path == output and not replaced:
+            # Windows requires closing the descriptor before replacing a file.
+            # Inject precisely between write failure/close and cleanup's stat.
+            replacement.replace(output)
+            replaced = True
+        return original_stat(path, *args, **kwargs)
 
-    monkeypatch.setattr("medre.cli.bridge_commands.os.fsync", replace_output)
+    monkeypatch.setattr(Path, "stat", replace_before_cleanup)
+    monkeypatch.setattr(
+        "medre.cli.bridge_commands.os.fsync",
+        lambda fd: (_ for _ in ()).throw(OSError("write interrupted")),
+    )
     _, stderr, code = _run_cli_raw(*args)
     assert code == 2 and "write interrupted" in stderr
     assert output.read_text() == "concurrent replacement"
