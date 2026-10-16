@@ -217,7 +217,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to config file (default: examples/configs/fake-bridge-smoke.yaml)",
     )
     smoke_p.add_argument(
-        "--message", default="medre smoke test", help="Text for test message"
+        "--message",
+        default=None,
+        help="Text for the injected event (normal smoke only)",
     )
     smoke_p.add_argument(
         "--source-adapter",
@@ -231,13 +233,14 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="CONTEXT",
         help="Inject from this conversation address (normal smoke only)",
     )
-    smoke_p.add_argument(
+    smoke_modes = smoke_p.add_mutually_exclusive_group()
+    smoke_modes.add_argument(
         "--drill",
         default=None,
         metavar="NAME",
         help="Run named failure drill instead of normal smoke",
     )
-    smoke_p.add_argument(
+    smoke_modes.add_argument(
         "--run-session",
         action="store_true",
         default=False,
@@ -251,7 +254,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     smoke_p.add_argument(
         "--scenario",
-        default="happy_path",
+        default=None,
         choices=[
             "happy_path",
             "renderer_failure",
@@ -673,6 +676,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 
+        if args.message is not None and (args.drill or args.run_session):
+            parser.error("--message is supported only for normal smoke")
+        if args.snapshot_dir is not None and not args.run_session:
+            parser.error("--snapshot-dir requires --run-session")
+        if args.scenario is not None and not args.run_session:
+            parser.error("--scenario requires --run-session")
         if args.source_adapter is not None and (args.drill or args.run_session):
             parser.error("--source-adapter is supported only for normal smoke")
         if args.source_context is not None and (args.drill or args.run_session):
@@ -684,7 +693,9 @@ def main(argv: list[str] | None = None) -> None:
                     args.config,
                     snapshot_dir=getattr(args, "snapshot_dir", None),
                     json_output=args.json,
-                    scenario=getattr(args, "scenario", "happy_path"),
+                    scenario=(
+                        args.scenario if args.scenario is not None else "happy_path"
+                    ),
                     storage_path=getattr(args, "storage_path", None),
                 )
             )
@@ -692,7 +703,7 @@ def main(argv: list[str] | None = None) -> None:
             asyncio.run(
                 _smoke(
                     args.config,
-                    args.message,
+                    args.message if args.message is not None else "medre smoke test",
                     args.json,
                     drill_name=args.drill,
                     storage_path=getattr(args, "storage_path", None),

@@ -1087,6 +1087,14 @@ the originating adapter's identity. The normal smoke report's `source_context`
 records the actual injected conversation address. Drills and run sessions
 **MUST** reject this normal-smoke-only option rather than silently ignore it.
 
+The smoke CLI **MUST** select exactly one execution mode: normal smoke, a
+`--drill` failure simulation, or `--run-session`. The latter two options
+**MUST NOT** be combined. `--message`, `--source-adapter`, and
+`--source-context` apply only to normal smoke; `--scenario` and
+`--snapshot-dir` apply only to run-session. Explicit options for a different
+mode **MUST** fail during argument validation, before any runtime is built.
+`--config`, `--storage-path`, and `--json` are common to all three modes.
+
 A smoke pass **MUST** require successful delivery for every configured route
 and target pair matched by its injected event. Adapter construction or startup
 failure **MUST NOT** turn a missing target into a successful reduced fanout.
