@@ -16,3 +16,5 @@ normal smoke. Existing factories remain usable without the optional argument.
 
 Redact known configuration/environment secret values from guided setup errors,
 including provider-declared secret fields.
+Cover ordinary strings, Python repr, and JSON escaping so multiline values
+remain redacted when a provider formats them in an exception.

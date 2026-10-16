@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from dataclasses import replace
@@ -107,6 +108,14 @@ def _error_detail(exc: Exception, document: dict) -> str:
         ):
             if str(value):
                 secrets.add(str(value))
+                if isinstance(value, str):
+                    secrets.update(
+                        (
+                            repr(value),
+                            json.dumps(value),
+                            json.dumps(value, ensure_ascii=False),
+                        )
+                    )
 
     collect(document)
     for name, value in os.environ.items():
@@ -244,6 +253,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
             ),
             paths=paths,
         )
+        checked_transports: set[str] = set()
         for aid, (transport, rtc) in adapters.items():
             if args.config is None and aid not in (source, dest):
                 continue
@@ -254,6 +264,9 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 and spec
                 and spec.distribution
             ):
+                if transport in checked_transports:
+                    continue
+                checked_transports.add(transport)
                 try:
                     version(spec.distribution)
                 except PackageNotFoundError:

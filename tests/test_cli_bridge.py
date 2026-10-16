@@ -3,12 +3,14 @@
 import io
 import json
 import os
+from dataclasses import replace
+from importlib.metadata import PackageNotFoundError
 
 import pytest
 
 from medre import adapter_registry
 from medre.adapter_registry import AdapterTypeRegistry
-from medre.config._yaml import parse_yaml_config
+from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from tests.helpers.bridge_setup import CONFIG, ChatConfig, install_provider
 from tests.helpers.cli import _run_cli_raw
 
@@ -253,3 +255,59 @@ def test_provider_error_cannot_echo_environment_only_secrets(monkeypatch, tmp_pa
     assert secret not in stdout + stderr
     assert "Could not use" in stderr
     assert not (tmp_path / "bridge.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    "encode", [repr, json.dumps, lambda value: json.dumps(value, ensure_ascii=False)]
+)
+def test_escaped_multiline_secrets_are_also_redacted(encode, monkeypatch, tmp_path):
+    args = flags(tmp_path)
+    secret = "sensitive first line\nsecond line — 'private'"
+    document = parse_yaml_config(CONFIG)
+    document["adapters"]["independent_chat"]["left"]["unlock_phrase"] = secret
+    (tmp_path / "input.yaml").write_text(dump_yaml_config(document))
+
+    def reject(config):
+        raise ValueError(f"Could not use {encode(config.unlock_phrase)}")
+
+    monkeypatch.setattr(ChatConfig, "validate", reject)
+    stdout, stderr, code = _run_cli_raw(*args)
+    assert code == 2
+    assert "sensitive first line" not in stdout + stderr
+    assert "Could not use" in stderr
+
+
+def test_native_config_reports_missing_sdk_once_without_loading_implementations(
+    monkeypatch, tmp_path
+):
+    from medre.adapter_spec import SymbolRef
+
+    spec = replace(install_provider(monkeypatch), distribution="unavailable-sdk")
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((spec,))
+    )
+    args = flags(tmp_path)
+    document = parse_yaml_config(CONFIG)
+    for item in document["adapters"]["independent_chat"].values():
+        item["adapter_kind"] = "real"
+    (tmp_path / "input.yaml").write_text(dump_yaml_config(document))
+    original = SymbolRef.load
+
+    def guarded(ref):
+        assert not ref.module.startswith("medre.adapters."), ref
+        return original(ref)
+
+    calls = []
+
+    def missing(distribution):
+        calls.append(distribution)
+        raise PackageNotFoundError(distribution)
+
+    monkeypatch.setattr(SymbolRef, "load", guarded)
+    monkeypatch.setattr("medre.cli.bridge_commands.version", missing)
+    stdout, stderr, code = _run_cli_raw(*args, "--preview")
+    assert code == 0 and json.loads(stdout)["total_legs"] == 2, stderr
+    assert calls == ["unavailable-sdk"]
+    assert stderr.count("Prerequisite missing") == 1
+    assert not (tmp_path / "bridge.yaml").exists()
+    assert not (tmp_path / "home").exists()

@@ -677,6 +677,7 @@ parent-directory ACL. Configuration errors exit 2; EOF/interruption exits 1.
 Validation establishes configuration and routing consistency, not native SDK,
 authentication, address, or delivery readiness. Known raw/environment secrets
 and provider-declared secret fields MUST be redacted from authoring error details.
+This includes their ordinary string, Python repr, and JSON-escaped forms.
 
 ## 9. Configuration Error Hierarchy
 
