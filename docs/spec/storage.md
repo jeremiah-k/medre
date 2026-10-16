@@ -334,7 +334,7 @@ class StorageBackend(Protocol):
         *,
         allocate_new_generation: bool = False,
     ) -> OutboxItem:
-        """Create an outbox item. Idempotent create uses reclaim semantics;
+        """Create an outbox item. Idempotent create preserves existing work;
         replay can request atomic fresh-generation allocation (Section 9.3)."""
         ...
 
@@ -1428,7 +1428,7 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`. Plan IDs are not globally unique across events, so omitting `event_id` may neither reuse nor constrain another event's outbox row. For `NULL` channels the partial unique index enforces the same event-scoped key.
 
-- `create_outbox_item`: Creates or reclaims an outbox item; replay may request atomic fresh-generation allocation (Section 9.3).
+- `create_outbox_item`: Creates an outbox item or returns existing work unchanged; replay may request atomic fresh-generation allocation (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
 - `list_outbox_items_for_delivery`: Returns every durable outbox generation for one complete `DeliveryIdentity`, ordered by effective attempt generation. This is the mutable-history counterpart to `list_receipts_for_delivery`; incomplete identities are rejected.
 - `list_outbox_items`: Lists items, optionally filtered by status.
@@ -1528,11 +1528,12 @@ The outbox persists operational delivery work state. Outbox items are created af
 
 Receipt rows are append-only. For outbox-backed chains, the outbox `receipt_id` selects the current receipt and rejected late appends remain historical; receipt-only chains use latest append order. Outbox rows are mutable for non-terminal statuses only.
 
-### 9.3 Idempotent Create with Reclaim
+### 9.3 Idempotent Create and Recovery Ownership
 
 Creating an outbox item requires its initial status to be either `pending` (default durable work) or `in_progress` (pipeline claim path). All other statuses must be reached through the dedicated `mark_outbox_*` transition methods, never through `create_outbox_item()`.
 
-Normal creation is idempotent/reclaiming. Explicit replay uses
+Normal creation is idempotent and MUST NOT claim or mutate existing work.
+Explicit replay uses
 `allocate_new_generation=True`: SQLite holds `BEGIN IMMEDIATE`, computes one
 plus the maximum `COALESCE(active_attempt, attempt_number)` for the same
 `(event_id, delivery_plan_id, target_adapter, normalized target_channel)`
@@ -1540,11 +1541,20 @@ identity, and inserts that generation before releasing the write lock. Replay
 therefore never reclaims a prior retry generation and cannot reuse a generation
 that became reserved or finalized between a caller-side read and insertion.
 
-When normal creation targets the same key tuple `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`:
+For the same event-scoped delivery identity, normal creation MUST return the
+newest existing effective generation at or above the candidate attempt number,
+without changing its status, owner, lease, reservation, or retry schedule. This
+includes pending, retry_wait, active, and terminal rows. A live creator requesting
+attempt 1 MUST NOT insert another attempt 1 after a retry has advanced the original
+row to attempt 2 or beyond.
 
-- **Existing row reclaimable** (`pending` or `retry_wait`): the existing row is **reclaimed** — its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. `next_attempt_at` is cleared. The caller always receives a properly-claimed operational row suitable for finalization.
-- **Existing row active** (`in_progress` or `queued`): the existing row is returned **unchanged**. Active work is never stolen by a concurrent creator.
-- **Existing row terminal** (`sent`, `dead_lettered`, `cancelled`, `abandoned`): the existing row is returned **unchanged**. Terminal rows are immutable for lifecycle purposes; a new delivery after terminal state MUST use a new attempt identity (new `delivery_plan_id` and/or new `attempt_number`) and a new outbox row.
+Recovery ownership belongs to `claim_due_outbox_items()`, followed by lifecycle
+reconciliation and attempt reservation. Live ingress replanning MUST skip existing
+work and continue admitting missing fanout targets. It MUST NOT bypass backoff,
+reuse a finalized attempt, or repeat a target whose retry already succeeded.
+Explicit replay remains the operation for deliberately allocating a fresh delivery
+generation. A failure to re-read existing work MUST fail closed; storage MUST NOT
+return the unpersisted candidate as though the caller owned it.
 
 ### 9.4 Stale Queued Reclaim
 

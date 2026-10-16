@@ -114,7 +114,7 @@
     "attempt_number": {
       "type": "integer",
       "default": 1,
-      "description": "1-indexed attempt number for this receipt. The first delivery attempt is 1."
+      "description": "1-indexed attempt number for this receipt. The first delivery attempt is 1. Durable ingress replanning preserves existing outbox generations and does not restart this number after a retry."
     },
     "parent_receipt_id": {
       "type": ["string", "null"],

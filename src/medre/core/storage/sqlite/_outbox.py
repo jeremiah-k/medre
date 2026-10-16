@@ -1,7 +1,7 @@
 """Delivery outbox mixins for SQLiteStorage.
 
 Authority surface:
-  - create_outbox_item:         **create** / **claim** (reclaim pending/retry_wait).
+  - create_outbox_item:         **create** (preserve existing work).
   - get_outbox_item:            **list/get** (read-only).
   - list_outbox_items_for_delivery: **list/get** (read-only).
   - list_outbox_items:          **list/get** (read-only).
@@ -67,9 +67,9 @@ class _OutboxMixin:
         *,
         allocate_new_generation: bool = False,
     ) -> DeliveryOutboxItem:
-        """Create a new outbox item, or reclaim an existing pending/retry_wait row.
+        """Create a new outbox item, or return an existing generation unchanged.
 
-        Authority: **create** / **claim** (reclaim pending/retry_wait).
+        Authority: **create** (preserve existing work).
 
         When *allocate_new_generation* is true, this method allocates and
         inserts a fresh generation in one ``BEGIN IMMEDIATE`` transaction using
@@ -83,23 +83,13 @@ class _OutboxMixin:
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
             ``in_progress`` (pipeline claim path).
-          - Existing ``pending`` or ``retry_wait`` rows are reclaimed —
-            their ``status``, ``worker_id``, ``locked_at``, ``lease_until``,
-            and ``next_attempt_at`` are updated to match the new item's
-            values.  Reclaim may only transition the existing row to
-            ``pending`` or ``in_progress`` (per the initial-status
-            restriction above); the reclaim itself does not bypass the
-            ``allowed_from`` guards of dedicated transition methods
-            because the only statuses reachable here are pending and
-            in_progress, both of which the reclaim path already targets.
-          - Existing ``in_progress`` or ``queued`` rows are returned
-            unchanged — active work is never stolen.
-          - Existing terminal rows are returned unchanged — terminal
-            rows are immutable for lifecycle purposes; a new delivery
-            after terminal state must use a new attempt identity (new
-            ``delivery_plan_id`` and/or new ``attempt_number``).
+          - Existing rows at or above the requested effective attempt are
+            returned unchanged, regardless of status. Creation never claims
+            pending work or clears a retry schedule.
+          - Recovery claims belong to ``claim_due_outbox_items``. Explicit
+            replay uses the atomic fresh-generation allocator.
 
-        The entire SELECT + UPDATE/INSERT runs inside a single
+        The entire SELECT + INSERT runs inside a single
         ``BEGIN IMMEDIATE`` transaction so that two concurrent callers
         cannot both pass the existence check and race on INSERT.  If the
         INSERT still fails with a UNIQUE constraint violation
@@ -107,7 +97,6 @@ class _OutboxMixin:
         existing row; named replay-generation allocation re-raises so the
         caller fails closed instead of adopting a foreign claim.
         """
-        _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         effective_status = item.status if item.status is not None else "pending"
         dispatch_source = item.dispatch_source or (
             "replay" if allocate_new_generation else "live"
@@ -146,16 +135,15 @@ class _OutboxMixin:
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
-        # A live ``active_attempt`` already represents the next generation.
-        # Treat it as an existing generation during creation so a replay that
-        # computed N before a concurrent retry reserved N cannot insert a
-        # sibling row for the same generation.  This check runs inside the
-        # same BEGIN IMMEDIATE transaction as the eventual INSERT.
+        # Adopt equal or newer work atomically with creation. A live creator
+        # requests attempt 1 even when recovery has advanced the original row;
+        # neither finalized attempts nor active reservations may be rewound.
         select_sql = (
-            "SELECT outbox_id, status FROM delivery_outbox"
+            "SELECT outbox_id FROM delivery_outbox"
             " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
             " AND target_channel IS ?"
-            " AND (attempt_number = ? OR active_attempt = ?)"
+            " AND (attempt_number >= ? OR active_attempt >= ?)"
+            " ORDER BY COALESCE(active_attempt, attempt_number) DESC, outbox_id DESC LIMIT 1"
         )
         select_params = (
             item.event_id,
@@ -267,15 +255,12 @@ class _OutboxMixin:
                 select_params,
                 insert_sql,
                 insert_params,
-                _reclaimable,
-                reclaim_status=effective_status,
-                reclaim_worker_id=item.worker_id,
-                reclaim_locked_at=_ensure_iso(item.locked_at),
-                reclaim_lease_until=_ensure_iso(item.lease_until),
-                reclaim_now=now,
             )
             if existing_id is not None:
-                return await self.get_outbox_item(existing_id) or item
+                existing = await self.get_outbox_item(existing_id)
+                if existing is None:
+                    raise StorageError("Existing outbox row could not be re-read")
+                return existing
         except sqlite3.IntegrityError as exc:
             msg = str(exc)
             if "FOREIGN KEY" in msg:
@@ -284,10 +269,18 @@ class _OutboxMixin:
                 raise
             existing = await self._read_one(select_sql, select_params)
             if existing is not None:
-                return await self.get_outbox_item(existing["outbox_id"]) or item
+                adopted = await self.get_outbox_item(existing["outbox_id"])
+                if adopted is None:
+                    raise StorageError(
+                        "Existing outbox row could not be re-read"
+                    ) from exc
+                return adopted
             raise
 
-        return await self.get_outbox_item(item.outbox_id) or item
+        created = await self.get_outbox_item(item.outbox_id)
+        if created is None:
+            raise StorageError("Inserted outbox row could not be re-read")
+        return created
 
     def _sync_atomic_create_outbox_generation(
         self,
@@ -350,59 +343,15 @@ class _OutboxMixin:
         select_params: tuple[Any, ...],
         insert_sql: str,
         insert_params: tuple[Any, ...],
-        reclaimable: frozenset[str],
-        *,
-        reclaim_status: str = "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
-        reclaim_worker_id: str | None = None,
-        reclaim_locked_at: str | None = None,
-        reclaim_lease_until: str | None = None,
-        reclaim_now: str = "",
     ) -> str | None:
-        """Synchronous helper: BEGIN IMMEDIATE, SELECT, optional UPDATE, INSERT, COMMIT.
-
-        Returns the existing outbox_id when a reclaimable row was found
-        (idempotent — the row is reclaimed with new status/worker/lease),
-        or the existing outbox_id when a terminal or active row was found
-        (returned unchanged).  Returns None when a new row was inserted.
-        """
+        """Atomically adopt existing work or insert a row without reclaiming."""
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(select_sql, select_params).fetchone()
                 if row is not None:
-                    existing = dict(row)
-                    if existing["status"] in reclaimable:
-                        # Re-claim: update status, worker, and lease.
-                        # Clear next_attempt_at since the item is no
-                        # longer waiting for a scheduled retry.  A
-                        # reservation on a claimable row is stale by
-                        # invariant (finalization clears it before the
-                        # retry_wait transition); clear it so the next
-                        # dispatch can reserve cleanly.
-                        db.execute(
-                            """UPDATE delivery_outbox
-                               SET status = ?, worker_id = ?,
-                                   locked_at = ?, lease_until = ?,
-                                   updated_at = ?,
-                                   next_attempt_at = NULL,
-                                   active_attempt = NULL
-                               WHERE outbox_id = ?""",
-                            (
-                                reclaim_status,
-                                reclaim_worker_id,
-                                reclaim_locked_at,
-                                reclaim_lease_until,
-                                reclaim_now,
-                                existing["outbox_id"],
-                            ),
-                        )
-                        db.execute("COMMIT")
-                        return existing["outbox_id"]
-                    # Terminal or active (in_progress or queued) —
-                    # return unchanged.  Terminal rows are immutable for
-                    # lifecycle purposes; active rows must not be stolen.
                     db.execute("COMMIT")
-                    return existing["outbox_id"]
+                    return str(row["outbox_id"])
                 db.execute(insert_sql, insert_params)
                 db.execute("COMMIT")
                 return None

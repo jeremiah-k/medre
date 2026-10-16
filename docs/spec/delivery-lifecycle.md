@@ -488,6 +488,16 @@ a prior retry generation, and never mutates an existing live row. The same
 ownership check that applies to live delivery also applies to replay after the
 fresh row is created.
 
+### 5.1.2 Live Ingress Replanning
+
+Live ingress recovery does not allocate replay generations. If a fanout is
+partially admitted, rerouting the durable ingress event MUST preserve each
+target's existing outbox work, including retries that advanced or completed while
+another target awaited admission. Creation MUST NOT clear scheduled backoff or
+restart attempt numbering. The retry worker owns further dispatch of existing
+work; live replanning may admit only targets whose requested generation has no
+equal or newer existing row. See Storage Specification §9.3.
+
 ### 5.2 Replay Must Not Rewrite History
 
 Replay MUST NOT update, delete, or modify existing receipt rows. Replay MUST

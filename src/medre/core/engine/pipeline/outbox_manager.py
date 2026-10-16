@@ -102,7 +102,7 @@ class OutboxManager:
         a descriptive string:
 
         * ``"terminal:<status>"`` — row is in a terminal state.
-        * ``"active:queued"`` — row is queued (owned by another worker).
+        * ``"active:<status>"`` — existing pending, retry_wait, or queued work.
         * ``"active:other_worker:<id>"`` — row is in_progress but owned by
           another worker.
 
@@ -116,7 +116,9 @@ class OutboxManager:
         second execution of the same run reuses the existing row instead of
         allocating a sibling generation.  The run ID is durable execution
         provenance/idempotency metadata and is deliberately not part of
-        ``DeliveryIdentity``.  Empty run IDs remain repeatable.
+        ``DeliveryIdentity``.  Empty run IDs remain repeatable. Live replanning
+        preserves all existing equal or newer generations, including scheduled
+        retries, without claiming them or restarting attempt 1.
         """
         source, replay_run_id = normalize_delivery_provenance(source, replay_run_id)
         outbox_id: str | None = None
@@ -159,7 +161,7 @@ class OutboxManager:
             # Replay requires a fresh durable generation. The storage backend
             # allocates it atomically with insertion; the placeholder value is
             # ignored in replay mode. Live delivery retains normal idempotent
-            # attempt-1 creation/reclaim semantics.
+            # attempt-1 creation without claiming existing recovery work.
             attempt_number = 1
 
             outbox_item = DeliveryOutboxItem(
@@ -220,13 +222,15 @@ class OutboxManager:
                     created.outbox_id,
                     created.status,
                 )
-            elif created.status == "queued":
-                skip_reason = "active:queued"
+            elif created.status in {"pending", "retry_wait", "queued"}:
+                skip_reason = f"active:{created.status}"
                 self._log.info(
-                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=queued (active, not stealing)",
+                    "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s "
+                    "(existing work belongs to recovery, not live replanning)",
                     event.event_id,
                     adapter_name,
                     created.outbox_id,
+                    created.status,
                 )
             elif (
                 created.status == "in_progress" and created.worker_id != pipeline_worker
@@ -259,7 +263,7 @@ class OutboxManager:
                 event.event_id,
                 adapter_name,
             )
-            # Non-fatal: pipeline continues without outbox tracking.
+            # Fail closed: durable ingress defers this target for later admission.
             skip_reason = OUTBOX_CREATION_FAILED_REASON
         return OutboxContext(
             outbox_id=outbox_id,
