@@ -1,6 +1,6 @@
 """Tests for delivery_outbox atomic create semantics: idempotent key handling,
 terminal immutability, no-steal guarantees for in_progress/queued rows,
-idempotent reclaim for pending/retry_wait."""
+preservation of pending work and retry schedules."""
 
 from __future__ import annotations
 
@@ -145,16 +145,10 @@ class TestAtomicCreateOutboxItem:
         assert created2.attempt_number == created1.attempt_number
         assert created2.status == created1.status
 
-    async def test_idempotent_create_reclaims_pending_row(
+    async def test_idempotent_create_preserves_pending_row(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Re-creating with status=in_progress should reclaim a pending row.
-
-        The pipeline creates outbox items with status=in_progress.  If an
-        existing pending row is found by the idempotent key, create_outbox_item
-        must reclaim it — updating status, worker_id, locked_at, and
-        lease_until — so that finalize can transition in_progress → sent.
-        """
+        """Creation preserves pending work for the recovery claim path."""
         # First create: pending (default status, no worker/lease).
         item1 = _make_outbox_item(
             delivery_plan_id="plan-reclaim",
@@ -182,11 +176,7 @@ class TestAtomicCreateOutboxItem:
 
         # Same row (idempotent on key tuple).
         assert created2.outbox_id == created1.outbox_id
-        # But reclaimed with new status/worker/lease.
-        assert created2.status == "in_progress"
-        assert created2.worker_id == "pipeline:abc123"
-        assert created2.locked_at == "2026-01-01T00:00:00"
-        assert created2.lease_until == "2026-01-01T00:01:00"
+        assert created2 == created1
 
 
 # ===================================================================
@@ -196,8 +186,7 @@ class TestAtomicCreateOutboxItem:
 
 class TestCreateOutboxNoSteal:
     """create_outbox_item must not overwrite in_progress or queued rows.
-    It may only reclaim pending/retry_wait rows; terminal and active rows
-    are returned unchanged."""
+    All existing work is returned unchanged, including pending and retry_wait."""
 
     async def test_create_does_not_steal_in_progress(
         self, outbox_temp_storage: SQLiteStorage
@@ -280,10 +269,10 @@ class TestCreateOutboxNoSteal:
         assert created2.outbox_id == original_oid
         assert created2.status == "queued"
 
-    async def test_create_still_reclaims_pending(
+    async def test_create_preserves_pending(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Re-creating with same key tuple on a pending row still reclaims."""
+        """Re-creating a pending row preserves its state and owner."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-reclaim-pending",
             target_channel="ch-reclaim-p",
@@ -306,15 +295,14 @@ class TestCreateOutboxNoSteal:
         )
         created2 = await outbox_temp_storage.create_outbox_item(item2)
 
-        # Reclaimed — same outbox_id, new status/worker
+        # Preserve every field until an explicit recovery claim.
         assert created2.outbox_id == created1.outbox_id
-        assert created2.status == "in_progress"
-        assert created2.worker_id == "pipeline:abc"
+        assert created2 == created1
 
-    async def test_create_still_reclaims_retry_wait(
+    async def test_create_preserves_retry_wait_schedule(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Re-creating with same key tuple on a retry_wait row still reclaims."""
+        """Re-creating scheduled work preserves the backoff and attempt identity."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-reclaim-rw",
             target_channel="ch-reclaim-rw",
@@ -334,6 +322,8 @@ class TestCreateOutboxNoSteal:
             failure_kind="adapter_transient",
         )
 
+        before = await outbox_temp_storage.get_outbox_item(oid)
+
         # Create new item with same key
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
@@ -350,10 +340,4 @@ class TestCreateOutboxNoSteal:
         )
         created2 = await outbox_temp_storage.create_outbox_item(item2)
 
-        # Reclaimed
-        assert created2.outbox_id == oid
-        assert created2.status == "in_progress"
-        assert created2.worker_id == "pipeline:reclaim"
-        assert (
-            created2.next_attempt_at is None
-        ), "Reclaiming a retry_wait row must clear next_attempt_at"
+        assert created2 == before

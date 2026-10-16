@@ -17,7 +17,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.planning.delivery_plan import (
@@ -131,7 +130,7 @@ async def _seed_outbox(
         # Already in_progress — possibly with a different worker_id.
         pass
     elif status == "pending":
-        # pending rows are reclaimable; create_outbox_item will reclaim them.
+        # pending rows remain available to the explicit recovery claim path.
         pass
     elif status == "retry_wait":
         await storage.mark_outbox_retry_wait(
@@ -288,14 +287,14 @@ class TestPipelineSkipsOtherWorkerInProgress:
 
 
 # ===================================================================
-# Test: reclaimed pending row → pipeline proceeds with delivery
+# Test: existing pending work → pipeline defers to recovery
 # ===================================================================
 
 
-class TestPipelineProceedsForReclaimedPending:
-    """Pipeline must proceed when a pending row is reclaimed."""
+class TestPipelinePreservesPending:
+    """Pipeline leaves pending work to the recovery worker."""
 
-    async def test_proceeds_for_reclaimed_pending_row(
+    async def test_skips_existing_pending_row(
         self,
         temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
@@ -304,7 +303,7 @@ class TestPipelineProceedsForReclaimedPending:
         event_id = "evt-reclaim-pending-001"
         event = make_event(event_id=event_id, source_channel_id="ch-0")
         await temp_storage.append(event)
-        # Create a pending row that the pipeline will reclaim.
+        # Create pending work that only recovery may claim.
         plan_id = _compute_plan_id(event_id)
         item = DeliveryOutboxItem(
             outbox_id=f"obox-pending-{event_id[:12]}",
@@ -332,24 +331,27 @@ class TestPipelineProceedsForReclaimedPending:
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
-            # Successful delivery — not skipped.
-            assert outcome.status in ("success", "queued")
-            assert outcome.failure_kind is None
-            # Adapter must have been called.
-            assert len(fake_presentation.delivered_payloads) == 1
+            assert outcome.status == "skipped"
+            assert outcome.failure_kind is DeliveryFailureKind.OUTBOX_NOT_OWNED
+            assert outcome.failure_kind_detail == "active:pending"
+            assert outcome.receipt is None
+            assert fake_presentation.delivered_payloads == []
+            current = await temp_storage.get_outbox_item(item.outbox_id)
+            assert current is not None and current.status == "pending"
+            assert current.worker_id is None
         finally:
             await runner.stop()
 
 
 # ===================================================================
-# Test: reclaimed retry_wait row → pipeline proceeds with delivery
+# Test: scheduled retry → pipeline preserves the schedule
 # ===================================================================
 
 
-class TestPipelineProceedsForReclaimedRetryWait:
-    """Pipeline must proceed when a retry_wait row is reclaimed."""
+class TestPipelinePreservesRetryWait:
+    """Pipeline leaves scheduled retry work to the recovery worker."""
 
-    async def test_proceeds_for_reclaimed_retry_wait_row(
+    async def test_skips_existing_retry_wait_row(
         self,
         temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
@@ -374,9 +376,11 @@ class TestPipelineProceedsForReclaimedRetryWait:
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
-            assert outcome.status in ("success", "queued")
-            assert outcome.failure_kind is None
-            assert len(fake_presentation.delivered_payloads) == 1
+            assert outcome.status == "skipped"
+            assert outcome.failure_kind is DeliveryFailureKind.OUTBOX_NOT_OWNED
+            assert outcome.failure_kind_detail == "active:retry_wait"
+            assert outcome.receipt is None
+            assert fake_presentation.delivered_payloads == []
         finally:
             await runner.stop()
 

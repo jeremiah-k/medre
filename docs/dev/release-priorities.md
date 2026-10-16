@@ -10,14 +10,19 @@ capability status and test-evidence definitions.
 
 ## Sequence and acceptance gates
 
-| Priority | Work | Observable completion gate |
-| --- | --- | --- |
-| 0 | Complete copyright/provenance review and license transition | Each repository's LICENSE, wheel metadata and documentation agree; permissions and third-party notices checked; independent core install works without adapters |
-| 1 | Establish one reproducible cross-repository release candidate | Pin core and four adapter commits, build five wheels, test a locked deployment from outside source checkouts, run adapter-free Linux/macOS/Windows core suites and adapter SDK contracts |
-| 2 | Close live reliability/evidence gaps | Record current-tree evidence for restart, reconnect, duplicate ingress, target fanout and outbox recovery on Matrix, Meshtastic, MeshCore, LXMF; retain failures and limitations explicitly |
-| 3 | Qualify missing live scenarios | External Matrix E2EE and multi-room runs; Meshtastic/MeshCore delivery reliability under node resets and sustained traffic; LXMF propagation/multi-hop tests and identity recovery |
-| 4 | Harden the operator release path | Git-only locked deployment, adapter missing/conflict diagnostics, actionable transport health and recovery instructions, redacted support bundle, tested upgrade/reset procedure |
-| 5 | Publish the prerelease | Release checklist proves source/wheel/license alignment, documents unsupported scenarios and supported platforms, and links evidence to exact Git commits |
+| Priority | Work                                   | Observable completion gate                                                                                                                                                    |
+| -------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Licensing and pinned release candidate | Approved provenance; matching source, wheel and documented licenses; one core and four adapter commits; independent locked installation                                       |
+| P1       | Reliability and recovery               | Deterministic restart, reconnect, duplicate ingress, fanout and outbox recovery checks; no bypassed backoff, reset attempt identities or unexplained duplicate dispatch       |
+| P2       | Native transport qualification         | Current-candidate evidence for real Matrix services, Meshtastic/MeshCore devices and LXMF paths; correlate native receptions with durable evidence and retain failed attempts |
+| P3       | Operator experience                    | Repeatable Git installation, missing/broken adapter diagnostics, redacted evidence, recovery workflows and tested upgrade/reset instructions                                  |
+| P4       | First prerelease                       | Published support matrix matches proven capabilities, identifies exact revisions and records unsupported or unqualified scenarios                                             |
+
+With licensing and the pinned candidate established, prioritize P1. Use deterministic
+fault injection to close core ownership and recovery gaps before repeating live
+qualification. P2 then tests the resulting candidate against native services and
+hardware. P3 can progress alongside both where operator diagnostics are needed to
+explain a reproduced failure; it does not replace P1 or P2 evidence.
 
 The gating evidence must identify **the exact tree, environment, and evidence
 tier**. Historical successful hardware or Docker runs are useful regression
@@ -32,7 +37,7 @@ must have durable outbound/inbound correlation and report partial failures.
 - A new adapter API or compatibility mechanism merely to support an unshipped
   prerelease contract. Improve only contracts shown to be wrong by tests or
   cross-provider evidence.
-- A separate LXMF process *solely* as a purported license firewall. Consider
+- A separate LXMF process _solely_ as a purported license firewall. Consider
   it later for failure isolation or deployment needs; separately review the
   upstream Reticulum License before distributing that integration.
 

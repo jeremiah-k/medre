@@ -1428,9 +1428,9 @@ class StorageBackend(Protocol):
         *,
         allocate_new_generation: bool = False,
     ) -> DeliveryOutboxItem:
-        """Create a new outbox item or reclaim an existing pending/retry_wait row.
+        """Create a new outbox item or return an existing generation unchanged.
 
-        Authority: **create** / **claim** (reclaim pending/retry_wait).
+        Authority: **create** (preserve existing work).
 
         When *allocate_new_generation* is true, storage atomically ignores the
         candidate attempt number and inserts a new row at one greater than the
@@ -1447,20 +1447,12 @@ class StorageBackend(Protocol):
             through ``mark_outbox_*`` transition methods.
           - The effective generation is represented by finalized
             ``attempt_number`` or, while reserved, ``active_attempt``. If an
-            existing row already represents the requested generation, that row
-            is reused instead of inserting a sibling generation.
-          - If an existing row has a reclaimable status (``pending`` or
-            ``retry_wait``), it is reclaimed — its ``status``,
-            ``worker_id``, ``locked_at``, ``lease_until``, and
-            ``next_attempt_at`` are updated to match the new item's
-            values.
-          - If an existing row is active (``in_progress`` or ``queued``),
-            it is returned unchanged — active work is never stolen.
-          - If an existing row is terminal (``sent``, ``dead_lettered``,
-            ``cancelled``, ``abandoned``), it is returned unchanged —
-            terminal rows are immutable.  A new delivery after terminal
-            state must use a new ``delivery_plan_id`` and/or new
-            ``attempt_number``.
+            existing row represents the requested or a newer generation, the
+            newest row is returned unchanged instead of inserting an older one.
+          - Existing rows are never claimed or modified by creation, including
+            ``pending`` and ``retry_wait`` rows. Recovery uses
+            ``claim_due_outbox_items`` to respect scheduling, leases and attempt
+            reservation. Explicit replay uses fresh-generation allocation.
 
         Raises ``ValueError`` if ``item.status`` is not ``pending`` or
         ``in_progress``.

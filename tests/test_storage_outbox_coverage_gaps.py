@@ -6,7 +6,6 @@ import sqlite3
 import uuid
 
 import pytest
-
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
@@ -33,22 +32,22 @@ class TestCreateOutboxRejectsDisallowedStatus:
 
 
 # ===================================================================
-# Existing reclaimable rows
+# Existing recovery work
 # ===================================================================
 
 
-class TestExistingReclaimableRow:
-    """Existing pending/retry_wait rows are reclaimed in place."""
+class TestExistingRecoveryWork:
+    """Existing pending/retry_wait rows remain owned by recovery."""
 
-    async def test_existing_pending_row_reclaimed(
+    async def test_existing_pending_row_preserved(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Second create with status=in_progress reclaims a pending row."""
+        """Second create cannot claim existing pending work."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-135",
             target_channel="ch-cov-135",
         )
-        await outbox_temp_storage.create_outbox_item(item1)
+        before = await outbox_temp_storage.create_outbox_item(item1)
 
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
@@ -66,13 +65,12 @@ class TestExistingReclaimableRow:
         created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         assert created2.outbox_id == item1.outbox_id
-        assert created2.status == "in_progress"
-        assert created2.worker_id == "pipeline:cov135"
+        assert created2 == before
 
-    async def test_existing_retry_wait_row_reclaimed(
+    async def test_existing_retry_wait_row_preserved(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Second create reclaims a retry_wait row (claimable status)."""
+        """Second create cannot clear a scheduled retry or its evidence."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-135rw",
             target_channel="ch-cov-135rw",
@@ -91,6 +89,8 @@ class TestExistingReclaimableRow:
             failure_kind="adapter_transient",
         )
 
+        before = await outbox_temp_storage.get_outbox_item(claimed[0].outbox_id)
+
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
             event_id=item1.event_id,
@@ -107,9 +107,7 @@ class TestExistingReclaimableRow:
         created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         assert created2.outbox_id == claimed[0].outbox_id
-        assert created2.status == "in_progress"
-        assert created2.worker_id == "pipeline:cov135rw"
-        assert created2.next_attempt_at is None
+        assert created2 == before
 
 
 # ===================================================================

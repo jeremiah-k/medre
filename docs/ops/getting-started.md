@@ -16,9 +16,8 @@ A small deployment project keeps MEDRE and your chosen adapters in **one Python
 environment**, with their complete dependency graph recorded in a lockfile.
 You do not need a source checkout or a published PyPI release.
 
-The extraction is currently on the core branch shown below. After it merges,
-use the compatible core revision on main. Adapter repositories are independent;
-their main branches already contain the extracted implementations.
+Core and first-party adapter implementations are available on their respective
+main branches. Each adapter remains an independently installed package.
 
 ```bash
 uv init --bare --python 3.13 my-medre-bridge
@@ -28,7 +27,7 @@ chmod 700 .medre
 export MEDRE_HOME="$PWD/.medre"
 printf '.medre/\n' >> .gitignore
 uv add \
-  'medre @ git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction' \
+  'medre @ git+https://github.com/jeremiah-k/medre.git@main' \
   'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
   'medre-adapter-meshtastic @ git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@main'
 
@@ -77,7 +76,7 @@ Add-Content .gitignore ".medre/"
 environment. It is convenient for trying core help or version output:
 
 ```bash
-uvx --from 'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction' medre version
+uvx --from 'git+https://github.com/jeremiah-k/medre.git@main' medre version
 ```
 
 That environment does not inherit adapters from your deployment project. Any
