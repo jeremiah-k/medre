@@ -6,8 +6,16 @@ to recipients. Core handles routing, persistence, lifecycle, and delivery
 evidence; each adapter owns its platform's configuration, protocol, and SDK.
 
 Start with a local fake bridge to learn the commands, then connect real accounts
-or devices. MEDRE is pre-release: use reviewed revisions and keep your deployment
-lockfile.
+or devices. The first example uses **Matrix + Meshtastic**; other providers work
+through the same core. For a persistent deployment, use reviewed Git revisions
+and keep its `uv.lock`.
+
+> **Testing is welcome; schemas are still evolving.** MEDRE works with real
+> services and radios, but configuration, event, and SQLite schemas can change
+> before the first release. Stop the bridge and back up private state before
+> upgrading. Some revisions may require a new **disposable test database**;
+> deleting an existing database may lose evidence or pending outbound work.
+> Never remove a live database as a troubleshooting shortcut.
 
 ## Install from Git with uv
 
@@ -70,20 +78,58 @@ $env:MEDRE_HOME = Join-Path $PWD ".medre"
 Add-Content .gitignore ".medre/"
 ```
 
-### Where uvx fits
+For a one-off CLI trial, `uvx` is also supported. It runs in an isolated tool
+environment and does not inherit the adapters from your deployment. For details,
+see [installation options](install.md#persistent-command-without-uv-run).
 
-[uvx](https://docs.astral.sh/uv/guides/tools/) runs a command in an isolated tool
-environment. It is convenient for trying core help or version output:
+## Optional AI-assisted setup
+
+MEDRE has many configuration choices. If you get stuck on contexts, routes, or
+adapter settings, an AI coding assistant can help you turn a concrete goal into
+a draft configuration. [OpenCode](https://opencode.ai/) is one option:
 
 ```bash
-uvx --from 'git+https://github.com/jeremiah-k/medre.git@main' medre version
+curl -fsSL https://opencode.ai/v2/install | bash
+opencode
 ```
 
-That environment does not inherit adapters from your deployment project. Any
-adapters needed by a uvx invocation must be supplied with `--with`. Prefer the
-locked project above for a bridge you will run repeatedly. `uv tool install` is
-another option for a persistent CLI, but a deployment project makes the complete
-core-and-adapter environment easier to review and reproduce.
+The [download page](https://opencode.ai/download) lists every installation
+method (npm, Homebrew, and others), and the
+[official setup guide](https://opencode.ai/v2/docs/) covers first steps.
+
+OpenCode's model catalog changes over time: models rotate, but there is
+usually something free to use, and many free models work without creating an
+account. Two high-quality free options at the time of writing are **DeepSeek
+V4.1 Flash** (`deepseek-v4.1-flash-free`) and **GLM-5.3 Flash**
+(`glm-5.3-flash-free`); check
+[OpenCode's live model catalog](https://opencode.ai/v2/docs/console/models/)
+for what is currently available and its terms.
+
+You can ask an assistant in plain language. Two examples:
+
+Ask for a first two-way route between two transports:
+
+```text
+Using the MEDRE Getting Started guide and the Matrix and Meshtastic setup
+pages, help me write a minimal two-way route between my Matrix test room and
+Meshtastic channel 0. Explain each setting. Do not invent adapter fields; have
+me validate the YAML with `medre config check`, then run the offline smoke
+before suggesting a real connection.
+```
+
+Ask for a plan before writing any configuration:
+
+```text
+Using the MEDRE documentation, help me plan a bridge between my MeshCore node
+and my Matrix account. Ask me for whatever details you need, list the
+adapter instances and contexts you would create, explain each setting, and
+finish with the `medre config check` and `medre smoke` commands that validate
+the result offline.
+```
+
+Keep tokens, passwords, private keys, and unredacted databases **out of AI
+chats**. Review every proposed change. MEDRE does not need an AI service to
+operate.
 
 ## Prove the installation without connecting anything
 

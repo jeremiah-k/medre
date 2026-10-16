@@ -129,7 +129,6 @@ class TestAppendixFiles:
         "failure-taxonomy.md",
         "evidence-levels.md",
         "transport-limitations.md",
-        "release-readiness.md",
     ]
 
     @pytest.mark.parametrize(

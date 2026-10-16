@@ -401,8 +401,8 @@ map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` 
 
 All built-in adapters currently advertise `threads="fallback"`. Thread relations
 therefore exercise the production `fallback_text` path, but native thread
-emission has not yet been verified for any built-in transport. Live-service or
-hardware evidence for thread degradation remains a release-readiness gap.
+emission has not yet been verified for any built-in transport, and no
+live-service or hardware evidence for thread degradation has been recorded.
 
 #### 6.3.3 Event-Kind Mapping
 

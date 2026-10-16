@@ -54,3 +54,23 @@ def test_smoke_in_install_guide_persists_evidence_without_config_rewrite() -> No
     )
     assert "medre inspect event EVENT_ID --storage-path smoke.sqlite3" in install
     assert "not network or RF reception" in install
+
+
+def test_readme_has_a_runnable_git_first_path_and_data_warning() -> None:
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "uv tool install" in readme
+    assert "medre config check --config sample.yaml" in readme
+    assert "medre smoke --config sample.yaml" in readme
+    assert "not** remote delivery" in readme
+    assert "back up persistent state" in readme
+    assert "not production-ready" in readme
+    assert "docs/ops/getting-started.md" in readme
+
+
+def test_operator_index_is_a_valid_two_column_navigation_table() -> None:
+    index = _doc("README.md")
+    rows = [line for line in index.splitlines() if line.startswith("|")]
+    assert len(rows) >= 8
+    assert all(line.count("|") == 3 for line in rows)
+    assert "[Getting Started](getting-started.md)" in index
+    assert "[Recovery and replay](recovery-and-replay.md)" in index
