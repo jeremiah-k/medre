@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Self
@@ -1618,6 +1618,26 @@ class RouteConfigSet:
     """
 
     routes: tuple[RouteConfig, ...] = ()
+
+    def adapter_reference_errors(self, adapter_ids: Collection[str]) -> list[str]:
+        """Report unknown endpoints, including latent references in disabled routes.
+
+        Authoring and config check use this stricter preflight. Runtime planning
+        can still describe disabled routes without activating their references.
+        """
+        known = set(adapter_ids)
+        errors = []
+        for route in self.routes:
+            for side, endpoints in (
+                ("source", route.source_adapters),
+                ("dest", route.dest_adapters),
+            ):
+                errors.extend(
+                    f"route {route.route_id}: references unknown {side} adapter {aid!r}"
+                    for aid in endpoints
+                    if aid not in known
+                )
+        return errors
 
     def validate(self) -> None:
         """Validate the route set for consistency.

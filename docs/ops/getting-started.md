@@ -170,6 +170,23 @@ know whether a future provider uses a mesh, a decentralized chat system, or a
 hosted service. Community authors choose their own repositories, package names,
 and distribution methods.
 
+## Build a bridge with guidance
+
+Choose adapter instances, conversation contexts, direction, and attribution in
+one offline workflow:
+
+```bash
+uv run --locked medre config bridge --output bridge.yaml
+```
+
+Without an input file this starts from installed providers' fake samples. For
+native connections you already configured, add `--config connections.yaml`.
+The command previews actual route expansion and asks before saving a new file;
+it does not start adapters or install packages. See
+[guided configuration](guided-configuration.md) for examples, automation, and
+context-specific fake smoke checks. Continue below for the native connection
+settings and a hand-written route example.
+
 ## Build a real two-way route
 
 Save this as `bridge.yaml` in your deployment directory. Replace the homeserver,

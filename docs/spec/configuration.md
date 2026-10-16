@@ -641,9 +641,42 @@ at validation time.
 medre run [--config PATH]           # Start the MEDRE runtime
 medre config check [--config PATH]  # Validate config file
 medre config sample                 # Print a sample YAML config
+medre config bridge --output PATH   # Author and preview a bridge offline
 medre paths                         # Print resolved MEDRE paths
 medre version                       # Print MEDRE version
 ```
+
+### 8.1 Guided bridge authoring
+
+`medre config bridge` MUST validate authored YAML through the same typed models,
+environment override layer, and route compiler as ordinary configuration. It
+MUST NOT start adapters, contact native services/devices, or install packages.
+Without `--config`, it starts from installed providers' fake samples with no
+routes; with `--config`, it preserves the input's provider fields and existing
+routes. Environment values MUST NOT be serialized into the output.
+
+The workflow requires two distinct enabled adapter instances and at least one
+explicit source/destination context pair. It creates a text-message route using
+the existing `context_map`, directionality, policy, and origin-label fields;
+there are no new runtime configuration fields. Duplicate source contexts,
+ambiguous reverse mappings, existing route IDs, blocking plan errors, and
+duplicate explicit text bridge legs MUST prevent saving. Native context strings
+MUST remain opaque to core. Loop warnings MUST remain visible in the plan.
+Unknown adapter references in disabled routes MUST also prevent saving, matching
+`config check`. Duplicate detection includes an existing wildcard source that
+would deliver text to the same explicit target context.
+
+`--preview` MUST NOT write configuration. `--json` emits the existing route-plan
+shape; prompts and guidance go to stderr. Noninteractive authoring requires
+explicit endpoint IDs, direction, and context pairs. Interactive saving requires
+confirmation after preview. Output files MUST be exclusively created and MUST
+NOT overwrite existing files, directories, or symlinks. POSIX file permissions
+MUST restrict access to the owner; Windows deployments require an appropriate
+parent-directory ACL. Configuration errors exit 2; EOF/interruption exits 1.
+
+Validation establishes configuration and routing consistency, not native SDK,
+authentication, address, or delivery readiness. Known raw/environment secrets
+and provider-declared secret fields MUST be redacted from authoring error details.
 
 ## 9. Configuration Error Hierarchy
 

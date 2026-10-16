@@ -2,18 +2,9 @@
 
 from __future__ import annotations
 
-import yaml
-
 from medre.adapter_registry import iter_adapter_specs
 from medre.adapter_spec import AdapterSample
-
-
-class _SampleDumper(yaml.SafeDumper):
-    """Keep generated documents inside MEDRE's alias-free YAML subset."""
-
-    def ignore_aliases(self, data: object) -> bool:
-        return True
-
+from medre.config._yaml import dump_yaml_config
 
 _HEADER = """\
 # MEDRE Configuration - YAML format
@@ -115,8 +106,8 @@ def generate_sample_config() -> str:
     return (
         _HEADER
         + notice
-        + yaml.dump({"adapters": groups}, Dumper=_SampleDumper, sort_keys=False)
+        + dump_yaml_config({"adapters": groups})
         + "\n"
         + _ROUTE_HELP
-        + yaml.dump({"routes": routes}, Dumper=_SampleDumper, sort_keys=False)
+        + dump_yaml_config({"routes": routes})
     )

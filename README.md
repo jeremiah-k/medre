@@ -58,6 +58,11 @@ mixed-source deployments and community providers.
 ## Need help configuring a route?
 
 MEDRE is flexible, and the first configuration can be intimidating.
+Use `medre config bridge --output bridge.yaml` for
+[guided bridge configuration](docs/ops/guided-configuration.md): choose
+instances and contexts, preview both directions, and save a validated draft
+without starting adapters.
+
 The [Getting Started guide](docs/ops/getting-started.md#optional-ai-assisted-setup)
 explains how an AI coding assistant such as
 [OpenCode](https://opencode.ai/) can help you understand the example YAML,

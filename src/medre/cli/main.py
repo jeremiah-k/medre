@@ -107,6 +107,48 @@ def _build_parser() -> argparse.ArgumentParser:
     check_p = config_sub.add_parser("check", help="Validate config file")
     check_p.add_argument("--config", default=None, help="Path to config file")
     config_sub.add_parser("sample", help="Print sample config")
+    bridge_p = config_sub.add_parser(
+        "bridge", help="Guide bridge configuration and preview routes offline"
+    )
+    bridge_p.add_argument(
+        "--config", default=None, help="Existing YAML; omit for provider fake samples"
+    )
+    bridge_p.add_argument(
+        "--output", required=True, help="New .yaml/.yml path; never overwritten"
+    )
+    bridge_p.add_argument("--source", default=None, help="Source adapter instance ID")
+    bridge_p.add_argument(
+        "--dest", default=None, help="Destination adapter instance ID"
+    )
+    bridge_p.add_argument(
+        "--route-id", default="bridge", help="New route ID (default: bridge)"
+    )
+    bridge_p.add_argument(
+        "--map",
+        dest="contexts",
+        nargs=2,
+        action="append",
+        metavar=("SOURCE_CONTEXT", "DEST_CONTEXT"),
+        help="Conversation mapping; repeat for more contexts",
+    )
+    bridge_p.add_argument(
+        "--direction",
+        choices=("source_to_dest", "dest_to_source", "bidirectional"),
+        default=None,
+        help="Message flow relative to source and destination",
+    )
+    bridge_p.add_argument(
+        "--source-label", default=None, help="Source origin label; empty suppresses it"
+    )
+    bridge_p.add_argument(
+        "--dest-label", default=None, help="Reverse origin label; empty suppresses it"
+    )
+    bridge_p.add_argument(
+        "--preview", action="store_true", help="Validate and preview without writing"
+    )
+    bridge_p.add_argument(
+        "--json", action="store_true", help="Print the effective route plan as JSON"
+    )
 
     # paths
     sub.add_parser("paths", help="Print resolved MEDRE paths")
@@ -182,6 +224,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="ID",
         help="Inject from this route source (default: first eligible source; normal smoke only)",
+    )
+    smoke_p.add_argument(
+        "--source-context",
+        default=None,
+        metavar="CONTEXT",
+        help="Inject from this conversation address (normal smoke only)",
     )
     smoke_p.add_argument(
         "--drill",
@@ -582,6 +630,10 @@ def main(argv: list[str] | None = None) -> None:
             from medre.config.sample import generate_sample_config
 
             print(generate_sample_config())
+        elif args.config_command == "bridge":
+            from .bridge_commands import _config_bridge
+
+            _config_bridge(args)
     elif args.command == "paths":
         from .config_commands import _paths
 
@@ -623,6 +675,8 @@ def main(argv: list[str] | None = None) -> None:
 
         if args.source_adapter is not None and (args.drill or args.run_session):
             parser.error("--source-adapter is supported only for normal smoke")
+        if args.source_context is not None and (args.drill or args.run_session):
+            parser.error("--source-context is supported only for normal smoke")
 
         if getattr(args, "run_session", False):
             asyncio.run(
@@ -643,6 +697,7 @@ def main(argv: list[str] | None = None) -> None:
                     drill_name=args.drill,
                     storage_path=getattr(args, "storage_path", None),
                     source_adapter=args.source_adapter,
+                    source_context=args.source_context,
                 )
             )
     elif args.command == "inspect":

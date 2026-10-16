@@ -41,13 +41,26 @@ def expected_smoke_deliveries(
 def make_smoke_event(
     adapter: Any,
     text: str,
+    *,
+    source_context: str | None = None,
 ) -> CanonicalEvent:
     """Preserve native payload fields and ensure canonical text is present.
 
     Adapter event factories may use native payload keys. Ensure the canonical
     text renderer receives the injected text while retaining native fields.
     """
-    base = adapter.make_event(text=text, event_kind=EventKind.MESSAGE_TEXT)
+    kwargs = {"text": text, "event_kind": EventKind.MESSAGE_TEXT}
+    if source_context is not None:
+        if not isinstance(source_context, str) or not source_context.strip():
+            raise ValueError("Smoke source context must be a non-empty string")
+        kwargs["channel"] = source_context
+    base = adapter.make_event(**kwargs)
+    if base.source_adapter != adapter.adapter_id:
+        raise ValueError("Fake event factory did not preserve its adapter identity")
+    if source_context is not None and base.source_channel_id != source_context:
+        raise ValueError(
+            "Fake event factory did not preserve the requested source context"
+        )
     merged = dict(base.payload)
     merged["text"] = text
     return CanonicalEvent(

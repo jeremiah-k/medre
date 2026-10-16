@@ -1077,6 +1077,16 @@ helper returning a `CanonicalEvent` originating from that adapter. Normal smoke
 source selection **MUST** require successful startup and this helper. Missing
 helpers **MUST NOT** prevent a fake from participating as a delivery target.
 
+An explicit normal-smoke `--source-context` requests a conversation address
+through the fake factory's optional `channel` argument. The factory **MUST**
+return that exact `source_channel_id`; core **MUST NOT** rewrite native evidence
+to pretend a different context was exercised. A factory that rejects or ignores
+the argument **MUST** fail the smoke. Factories without this optional argument
+remain usable when no context is requested. Factory events **MUST** preserve
+the originating adapter's identity. The normal smoke report's `source_context`
+records the actual injected conversation address. Drills and run sessions
+**MUST** reject this normal-smoke-only option rather than silently ignore it.
+
 A smoke pass **MUST** require successful delivery for every configured route
 and target pair matched by its injected event. Adapter construction or startup
 failure **MUST NOT** turn a missing target into a successful reduced fanout.
