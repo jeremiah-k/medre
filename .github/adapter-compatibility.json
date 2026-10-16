@@ -10,7 +10,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "6477ef8b9304ec342d05b0b1461cc682a943741c",
+    "ref": "1b24e8c36c40f5408805ddb1dfb51c1ef2914c0c",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
