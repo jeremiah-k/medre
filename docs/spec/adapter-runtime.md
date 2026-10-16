@@ -190,6 +190,17 @@ class AdapterContext:
 
 ### 5.2 Adapter Restrictions
 
+Protocols that acknowledge events through durable stream checkpoints MUST admit
+eligible events received while `start()` is in progress, or explicitly defer them
+to their SDK's unaccepted-callback path. Lifecycle inactivity MUST NOT count as
+acceptance of an event that has not been retained. This includes cursor-resumed
+live/recovered events and initial history; history remains suppressed from routing
+by core admission. Inactive or stopping adapters MUST defer durable callbacks
+rather than allowing a checkpoint to advance without retaining the event.
+Intentional policy filtering and self/echo suppression remain valid acceptance
+outcomes. The ordinary non-durable `publish_inbound` startup filter remains
+independent of this requirement.
+
 Adapters **MUST NOT** import/call another adapter, bypass the pipeline, mutate
 published events, access internal routing/event-bus objects, write receipts or
 outbox state, or infer lifecycle decisions from feedback persistence.
