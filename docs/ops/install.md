@@ -49,7 +49,7 @@ installs core plus one provider into the **same tool environment**:
 ```bash
 uv tool install \
   --with 'git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
-  'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction'
+  'git+https://github.com/jeremiah-k/medre.git@main'
 medre version
 medre adapters
 ```
@@ -62,14 +62,14 @@ Git revisions or providers. Avoid mixing globally installed adapters with a
 project environment and expecting them to be discovered together. If `medre`
 is not on your `PATH`, follow uv's `uv tool update-shell` guidance.
 
-`uvx --from 'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction'
+`uvx --from 'git+https://github.com/jeremiah-k/medre.git@main'
 medre version` is fine for one-off commands, but a temporary uvx environment
 cannot see providers installed elsewhere. Prefer a project for live services.
 
 ## Source checkout (development)
 
 ```bash
-git clone --branch build/external-adapter-extraction https://github.com/jeremiah-k/medre.git
+git clone --branch main https://github.com/jeremiah-k/medre.git
 cd medre
 uv sync --locked --extra dev
 uv run --no-sync medre version
