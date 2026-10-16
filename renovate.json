@@ -58,6 +58,62 @@
       "datasourceTemplate": "docker",
       "depNameTemplate": "meshtastic/meshtasticd",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-matrix main in the adapter compatibility snapshot",
+      "managerFilePatterns": [
+        "/^\\.github/adapter-compatibility\\.json$/"
+      ],
+      "matchStrings": [
+        "\"transport\": \"matrix\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-matrix",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-matrix",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-meshtastic main in the adapter compatibility snapshot",
+      "managerFilePatterns": [
+        "/^\\.github/adapter-compatibility\\.json$/"
+      ],
+      "matchStrings": [
+        "\"transport\": \"meshtastic\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-meshtastic",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-meshtastic",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-meshcore main in the adapter compatibility snapshot",
+      "managerFilePatterns": [
+        "/^\\.github/adapter-compatibility\\.json$/"
+      ],
+      "matchStrings": [
+        "\"transport\": \"meshcore\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-meshcore",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-meshcore",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-lxmf main in the adapter compatibility snapshot",
+      "managerFilePatterns": [
+        "/^\\.github/adapter-compatibility\\.json$/"
+      ],
+      "matchStrings": [
+        "\"transport\": \"lxmf\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-lxmf",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-lxmf",
+      "currentValueTemplate": "main"
     }
   ],
   "packageRules": [
@@ -103,6 +159,12 @@
       "matchDepTypes": ["uses-with"],
       "matchDepNames": ["python"],
       "enabled": false
+    },
+    {
+      "description": "Adapter revision bumps automerge after the cross-adapter compatibility jobs qualify the core/adapter pair on the update PR",
+      "matchDepNames": ["medre-adapter-matrix", "medre-adapter-meshtastic", "medre-adapter-meshcore", "medre-adapter-lxmf"],
+      "matchUpdateTypes": ["pin", "digest", "pinDigest"],
+      "automerge": true
     }
   ]
 }
