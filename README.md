@@ -23,9 +23,8 @@ CLI, or activate `.venv` once and simply run `medre ...`. See
 straight from Git and a one-off `uvx` alternative. Tool environments do not
 inherit providers installed in a different Python environment.
 
-The extraction currently lives on `build/external-adapter-extraction`. Pin
-reviewed Git commits before deploying. Runtime startup discovers installed
-packages and never downloads adapters.
+Adapters are separate Git packages. Pin reviewed Git commits before deploying.
+Runtime startup discovers installed packages and never downloads adapters.
 
 Already have an environment? Use
 [installation and validation](docs/ops/install.md) for source, wheel, and pip
@@ -103,6 +102,14 @@ Credentials and identities stay private: Matrix tokens, native node keys,
 and Reticulum identity files are secrets. Sanitized examples live in
 `examples/configs/`.
 
+## Licensing
+
+MEDRE-owned core code is MIT-licensed. Adapter distributions have their own
+licenses, and their installed SDKs may impose additional obligations or use
+restrictions. The MIT core license does **not** relicense those dependencies.
+See [dependency licensing](docs/dev/licensing.md) before distributing a
+deployment containing third-party providers.
+
 ## Documentation
 
 - [docs/ops/](docs/ops/) — operating MEDRE: install, configuration,
@@ -112,4 +119,4 @@ and Reticulum identity files are secrets. Sanitized examples live in
 - [docs/dev/](docs/dev/) — contributing, testing, extending adapters
 - [docs/schemas/](docs/schemas/) — machine-readable JSON Schemas
 - [docs/changes/](docs/changes/) — change fragments and release notes
-- [LICENSE](LICENSE) — GPL-3.0-or-later
+- [LICENSE](LICENSE) — MIT (MEDRE-owned core source); [dependency licensing](docs/dev/licensing.md)

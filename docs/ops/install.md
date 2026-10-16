@@ -6,7 +6,7 @@ covers the **other installation methods** and how to verify them, without
 maintaining a second copy of the operator tutorial.
 
 MEDRE requires Python **3.11 or newer**, is **pre-release** (package classifier
-`Development Status :: 3 - Alpha`), and is licensed **GPL-3.0-or-later**. Its
+`Development Status :: 3 - Alpha`), and is licensed **MIT** (MEDRE-owned core source; adapters and SDKs have separate terms). Its
 console entry point is `medre.cli:main` (the command is `medre`). No transport
 SDK is included in core; adapters are separately installable distributions.
 
