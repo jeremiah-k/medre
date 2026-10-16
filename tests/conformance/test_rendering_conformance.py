@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Rendering and evidence conformance tests.
 
 Asserts that renderers produce correct native payloads and that

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for 'medre diagnostics', diagnostics --refresh-health, and secret redaction."""
 
 from __future__ import annotations

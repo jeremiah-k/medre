@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Standalone adapter reuse examples — API-boundary tests.
 
 These tests demonstrate that core adapter components (renderers, codecs,

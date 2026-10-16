@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Scenario cross-check tests — run_bridge_session per scenario.
 
 Every run-session scenario produces correct report fields.  Each scenario

@@ -9,13 +9,8 @@ factories in each test file.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from medre.adapters.lxmf.renderer import LxmfRenderer
-from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.adapters.meshcore.renderer import MeshCoreRenderer
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -25,6 +20,12 @@ from medre.core.rendering.renderer import (
     RenderingContext,
 )
 from medre.core.routing.models import RouteDestination
+
+if TYPE_CHECKING:
+    from medre.adapters.lxmf.renderer import LxmfRenderer
+    from medre.adapters.matrix.renderer import MatrixRenderer
+    from medre.adapters.meshcore.renderer import MeshCoreRenderer
+    from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 
 
 def make_event(
@@ -77,6 +78,9 @@ def make_meshtastic_renderer(
     adapter_id: str = "mesh-target",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
+    from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+    from medre.config.adapters.meshtastic import MeshtasticConfig
+
     config = MeshtasticConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
@@ -88,6 +92,9 @@ def make_meshcore_renderer(
     adapter_id: str = "mc-target",
     max_text_bytes: int = 512,
 ) -> MeshCoreRenderer:
+    from medre.adapters.meshcore.renderer import MeshCoreRenderer
+    from medre.config.adapters.meshcore import MeshCoreConfig
+
     config = MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
@@ -96,8 +103,12 @@ def make_meshcore_renderer(
 
 
 def make_lxmf_renderer() -> LxmfRenderer:
+    from medre.adapters.lxmf.renderer import LxmfRenderer
+
     return LxmfRenderer(metadata_embedding=True)
 
 
 def make_matrix_renderer() -> MatrixRenderer:
+    from medre.adapters.matrix.renderer import MatrixRenderer
+
     return MatrixRenderer(source_configs=None)

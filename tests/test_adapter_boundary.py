@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter boundary contract tests.
 
 Documents the uniform contract expectations for AdapterContract subclasses
@@ -1100,7 +1101,7 @@ class TestLxmfRequireGuard:
         original = compat.HAS_LXMF
         try:
             compat.HAS_LXMF = False
-            with pytest.raises(ImportError, match="medre\\[lxmf\\]") as exc_info:
+            with pytest.raises(ImportError, match="medre-adapter-lxmf") as exc_info:
                 compat._require_lxmf()
             assert "connection_type='fake'" in str(exc_info.value)
         finally:

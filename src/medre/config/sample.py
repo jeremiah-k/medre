@@ -1,316 +1,122 @@
-"""Sample configuration generator for MEDRE.
-
-Provides :func:`generate_sample_config` which returns a complete, documented
-YAML configuration string.  This is the output shown by ``medre config sample``.
-
-The generated sample uses ``adapter_kind: fake`` for all adapters, making it
-loadable and buildable without any optional SDKs or network access.  Operators
-can switch adapters to real by changing ``adapter_kind`` and filling in
-transport-specific credentials.
-
-Example configs for more advanced scenarios (Docker bridges, retry workers,
-mixed transports) live in ``examples/configs/`` in the source repository.
-They are reference documentation, not shipped as package data.  The generated
-sample config is the installed-package config access path.
-"""
+"""Generate installation-aware examples from SDK-free adapter contributions."""
 
 from __future__ import annotations
 
+import yaml
 
-def generate_sample_config() -> str:
-    """Return a complete YAML sample config with all sections documented."""
+from medre.adapter_registry import iter_adapter_specs
+from medre.adapter_spec import AdapterSample
 
-    return """\
+
+class _SampleDumper(yaml.SafeDumper):
+    """Keep generated documents inside MEDRE's alias-free YAML subset."""
+
+    def ignore_aliases(self, data: object) -> bool:
+        return True
+
+
+_HEADER = """\
 # MEDRE Configuration - YAML format
-# Copy this file to ~/.config/medre/config.yaml or $MEDRE_HOME/config.yaml
-# and adjust values for your deployment.
-#
-# This sample uses adapter_kind: fake for all adapters so it works
-# without any optional SDKs or network.  To use real adapters, change
-# adapter_kind to "real" and fill in transport-specific credentials.
-# For more example configs (Docker bridges, retry workers, mixed transports),
-# see examples/configs/ in the source repository.
-
+# Copy to ~/.config/medre/config.yaml or $MEDRE_HOME/config.yaml.
+# Installed providers supply their own native sample values. These are fake
+# adapters: no SDKs, credentials, hardware, or network are required.
+# To use real adapters, consult each provider's documentation and configure
+# adapter_kind: real with its connection settings and secret environment overrides.
+# See examples/configs/ in the source repository for deployment examples.
 runtime:
   name: medre
   shutdown_timeout_seconds: 10
-  # Resource limits for the runtime engine.
-  # These control concurrency and drain behaviour during shutdown.
   limits:
-    # Maximum number of deliveries that may be in-flight concurrently.
     max_inflight_deliveries: 100
-    # Maximum number of replay events that may be processed concurrently.
     max_inflight_replay_events: 100
-    # Maximum time (seconds) to wait for in-flight work to drain during shutdown.
     shutdown_drain_timeout_seconds: 10
-    # Timeout (seconds) for acquiring a delivery slot when the in-flight limit is reached.
     delivery_acquire_timeout_seconds: 1.0
-
 logging:
   level: INFO
   format: text
-
 storage:
   backend: sqlite
-  # {state} expands to XDG state dir or MEDRE_HOME/state
   path: '{state}/medre.sqlite'
-
-# --- Durable attachments (disabled by default) ---
-# Enable retaining and relaying file/media attachments between transports.
-# Limits are strict: positive integers, a positive finite timeout, and the
-# per-attachment cap cannot exceed the total retained budget.
+# Durable attachments are disabled until retention and transfer limits are set.
 attachments:
   enabled: false
-  # max_attachment_bytes: 10485760      # 10 MiB per attachment
-  # max_retained_bytes: 268435456       # 256 MiB total unique retained bytes
-  # max_concurrent_transfers: 2         # runtime-wide download/upload limit
-  # transfer_timeout_seconds: 60.0      # deadline for one binary transfer
-
-# --- Matrix adapter (fake by default) ---
-# To use a real Matrix homeserver, change adapter_kind to "real" and set:
-#   homeserver: https://your-homeserver.org
-#   user_id: '@bot:your-homeserver.org'
-#   access_token: ''  (or set MEDRE_ADAPTER__MAIN__ACCESS_TOKEN)
-adapters:
-  matrix:
-    main:
-      enabled: true
-      adapter_kind: fake
-      # adapter_id: main    # Defaults to the adapter instance key.  Only set
-      #                     # when you need an ID that differs from the key.
-      homeserver: https://matrix.example.com
-      user_id: '@bot:example.com'
-      # Prefer MEDRE_ADAPTER__MAIN__ACCESS_TOKEN over embedding tokens
-      access_token: fake_sample_token
-      room_allowlist: ['!room:example.com']
-      # device_id and store_path are derived internally (whoami + state dir).
-      # They should NOT be set by operators. Reserved for test harnesses.
-      # device_id: MEDREBOT                                      # internal/test only
-      # store_path is not configurable: the runtime derives it under
-      # {state}/adapters/<adapter_id>/matrix/store for this instance. Test
-      # harnesses that must override it pass an absolute path — there is no
-      # {adapter_id} path placeholder.
-      encryption_mode: plaintext
-      # sync_stale_timeout_seconds: 300.0  # 0 disables active stale-sync recovery
-      # megolm_key_request_rate_limit_per_minute: 30
-      # megolm_key_request_max_inflight: 4
-      # When using E2EE:
-      # encryption_mode: e2ee_required
-
-  # --- Meshtastic adapter (fake by default) ---
-  # To use a real Meshtastic radio, change adapter_kind to "real" and set:
-  #   connection_type: serial
-  #   serial_port: /dev/ttyACM0
-  meshtastic:
-    radio:
-      enabled: true
-      adapter_kind: fake
-      connection_type: fake
-      origin_label: MyMesh
-      # max_text_bytes: 227  # UTF-8 byte budget for final radio text (default 227)
-      # queue_max_size: 1024
-      # queue_warning_threshold_pct: 75.0
-      # queue_critical_threshold_pct: 90.0
-      # reconnect_backoff_initial_seconds: 1.0
-      # reconnect_backoff_max_seconds: 30.0
-      # tcp_liveness_interval_seconds: 60.0  # TCP only; 0 disables active probing
-      # tcp_liveness_timeout_seconds: 30.0
-      # outbound_mode: enabled   # "enabled" (send) or "listen_only" (suppress outbound radio)
-
-  # --- MeshCore adapter (fake, disabled by default) ---
-  # To use a real MeshCore radio, change adapter_kind to "real", enabled to
-  # true, and set connection_type and serial_port.
-  meshcore:
-    mc_node:
-      enabled: false
-      adapter_kind: fake
-      connection_type: fake
-
-  # --- LXMF adapter (fake, disabled by default) ---
-  # To use a real Reticulum/LXMF node, change adapter_kind to "real", enabled
-  # to true, and set identity_path and storage_path.
-  lxmf:
-    lxmf_node:
-      enabled: false
-      adapter_kind: fake
-      connection_type: fake
-      display_name: MEDRE
-      # storage_path: '{state}/lxmf/router'  # required for reticulum mode
-
-# ---------------------------------------------------------------------------
-# Routes - named bridge routes between adapters
-# ---------------------------------------------------------------------------
-# Each routes.<id> mapping defines a static route from one or more source
-# adapters to one or more destination adapters. Matching routes are ordered by
-# priority (lower first), then by expanded route ID for deterministic ties.
-#
-# Required fields:
-#   source_adapters  - list of adapter IDs that originate messages
-#   dest_adapters    - list of adapter IDs that receive messages
-#
-# Optional fields:
-#   directionality   - "source_to_dest" (default), "dest_to_source", or
-#                       "bidirectional"
-#   priority         - integer route matching/planning priority (default 100);
-#                       lower values run first. Not transport-native QoS.
-#   ownership        - "shared" (default) allows overlapping route sources;
-#                       "exclusive" rejects overlap with another enabled
-#                       exclusive route during preflight/startup.
-#   enabled          - true (default) or false
-#   source_room      - Matrix room ID on the source side (alias for
-#                       source_channel)
-#   source_channel   - channel/conversation ID on the source side
-#   dest_room        - Matrix room ID on the dest side (alias for
-#                       dest_channel)
-#   dest_channel     - channel/conversation ID on the dest side
-#   source_origin_label - source-side human-readable label for the forward
-#                         leg of this route (source→dest).  When set,
-#                         overrides the source adapter's origin_label in
-#                         relay-prefix attribution.  This is source-context
-#                         metadata, not a routing key or delivery evidence.
-#   dest_origin_label   - source-side human-readable label for the reverse
-#                         leg of this route (dest→source).  Same semantics
-#                         as source_origin_label but applied when direction
-#                         is swapped during expansion.
-#   context_map         - optional mapping of source-side opaque context
-#                         strings to structured entries carrying exactly one
-#                         of ``dest_context`` (an opaque context on the dest
-#                         side) or ``dest_destination`` (a structured
-#                         destination), plus optional per-entry
-#                         ``source_origin_label`` / ``dest_origin_label``.
-#                         When present, the route is expanded at the
-#                         configuration seam into per-context Route legs.
-#                         Mutually exclusive with
-#                         source_channel/dest_channel/source_room/dest_room.
-#                         Requires exactly one source and one dest adapter.
-#                         Contexts are opaque strings owned by their
-#                         adapters; generic config applies no transport
-#                         syntax validation.
-#
-#   Per-context origin labels are supported via the structured
-#   context_map entry shape (see the commented example below).
-#
-# Policy (routes.<id>.policy):
-#   allowed_event_types      - event kinds to permit (e.g. ["message.created",
-#                              "message.text"]). Enforced as structural
-#                              route-source matching.
-#   allowed_source_adapters  - source adapter names to permit. Empty = any.
-#   allowed_dest_adapters    - destination adapter names to permit. Empty = any.
-#   sender_allowlist         - permitted sender identities (source_transport_id).
-#                              Empty = any sender.
-#   room_allowlist           - permitted room identifiers (e.g. Matrix room IDs).
-#                              Checked against source_channel_id when present.
-#                              Applies only when room-like identifiers are
-#                              available. Empty = any room.
-#   channel_allowlist        - permitted channel identifiers. Checked against
-#                              target.channel first, falling back to
-#                              source_channel_id. Empty = any channel.
-#
-#   Policy fields other than allowed_event_types are config-file-only (not
-#   settable via environment variables). An empty/absent allowlist means "no
-#   restriction" (everything allowed). Policy checks run after route matching
-#   and before delivery side effects. A policy denial produces a
-#   status="suppressed" / failure_kind="policy_suppressed" receipt and is not
-#   retryable.
-
-routes:
-  # --- Active route: Matrix -> Meshtastic bridge ---
-  # Sends plain message events from the Matrix side to Meshtastic radio
-  # channel 1. For bidirectional (two-way) bridging, change directionality
-  # to "bidirectional". Pin a source room with source_room once you use a
-  # real homeserver (see the commented targeting example below).
-  matrix_radio_bridge:
-    source_adapters: [main]
-    dest_adapters: [radio]
-    directionality: source_to_dest
-    priority: 100
-    ownership: shared
-    enabled: true
-    dest_channel: '1'
-    # Only bridge plain message events (not reactions, edits, etc.).
-    # Both message.created and message.text are allowed so this sample
-    # works as-is as `medre smoke --config <this-file>` input.
-    policy:
-      allowed_event_types: [message.created, message.text]
-
-  # --- Disabled route example ---
-  # This route is defined but will not be activated at startup.
-  # Set enabled: true to activate it.
-  # radio_to_matrix:
-  #   source_adapters: [radio]
-  #   dest_adapters: [main]
-  #   directionality: source_to_dest
-  #   enabled: false
-  #   source_channel: '1'
-  #   dest_room: '!room:example.com'
-
-  # --- Hub fan-out example ---
-  # One Matrix room fanning out to two Meshtastic radios.
-  # Uncomment and adjust adapter IDs to match your setup.
-  # adapters:
-  #   meshtastic:
-  #     radio2:
-  #       enabled: true
-  #       connection_type: tcp
-  #       host: 192.168.1.50
-  #       port: 4403
-  #       origin_label: MyMeshFanout
-  #
-  # matrix_fanout:
-  #   source_adapters: [main]
-  #   dest_adapters: [radio, radio2]
-  #   directionality: source_to_dest
-  #   enabled: true
-  #   source_room: '!room:example.com'
-
-  # --- Route with channel/room targeting ---
-  # Demonstrates targeting specific channels and rooms.
-  # Uncomment and adjust to match your setup.
-  # targeted_bridge:
-  #   source_adapters: [main]
-  #   dest_adapters: [radio]
-  #   directionality: source_to_dest
-  #   enabled: true
-  #   source_room: '!specific:example.com'
-  #   dest_channel: '2'
-  #   policy:
-  #     allowed_event_types: [message.created]
-
-  # --- Route with structured context_map ---
-  # Maps source-side opaque contexts to dest-side contexts.  Each value is
-  # a structured table carrying exactly one of ``dest_context`` or
-  # ``dest_destination`` plus optional per-entry ``source_origin_label`` /
-  # ``dest_origin_label`` for fine-grained relay-prefix attribution per
-  # context.  Contexts are opaque strings owned by their adapters.
-  # This disabled route is parseable documentation; enable and adjust it
-  # when the referenced contexts exist in your transports.
-  context_mapped_bridge:
-    source_adapters: [radio]
-    dest_adapters: [main]
-    directionality: bidirectional
-    enabled: false
-    context_map:
-      "0":
-        dest_context: '!general:example.com'
-      "1":
-        dest_context: '!ops:example.com'
-        source_origin_label: Ops
-        dest_origin_label: Matrix-Ops
-  #
-  # --- Route with a structured destination (context_map entry) ---
-  # An entry may instead target a structured destination entity (e.g. an
-  # LXMF destination).  Structured-destination entries are forward-only:
-  # they require directionality "source_to_dest".
-  # Requires adapters.lxmf.lxmf_node to be enabled.
-  # lxmf_out:
-  #   source_adapters: [main]
-  #   dest_adapters: [lxmf_node]
-  #   directionality: source_to_dest
-  #   enabled: true
-  #   context_map:
-  #     '!room:example.com':
-  #       dest_destination:
-  #         kind: lxmf_destination
-  #         destination_hash: e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8
-  #         destination_name: bob
 """
+
+_ROUTE_HELP = """\
+# Routes connect adapter instances, regardless of their underlying platforms.
+# Required fields: source_adapters, dest_adapters (instance IDs).
+# directionality: source_to_dest, dest_to_source, or bidirectional.
+# priority: lower numbers match first; ownership: shared or exclusive.
+# source_channel and dest_channel are opaque conversation addresses. The
+# source_room/dest_room aliases refer to the same generic route fields.
+# context_map maps source contexts to dest_context or dest_destination;
+# Per-context source_origin_label and dest_origin_label control attribution.
+# Consult docs/spec/routing-delivery.md for structured targeting examples.
+# For fanout, add routes from the same source to further destinations.
+# Set enabled: false on a route to exclude it from startup.
+"""
+
+
+def generate_sample_config() -> str:
+    """Return loadable YAML containing only installed, opt-in fake providers.
+
+    With no contributions the config explains why no routing can be exercised.
+    A single contributing provider gets two distinct instances. Core assigns
+    IDs, so independent authors never need to coordinate sample instance names.
+    """
+    groups = {}
+    samples = []
+    for spec in iter_adapter_specs():
+        if spec.sample_config is None or spec.fake_adapter is None:
+            continue
+        sample = spec.sample_config.load()()
+        if not isinstance(sample, AdapterSample):
+            raise ValueError(
+                f"{spec.transport} sample callback must return AdapterSample"
+            )
+        if sample.channel is not None and not isinstance(sample.channel, str):
+            raise ValueError(
+                f"{spec.transport} sample channel must be an opaque string"
+            )
+        values = dict(sample.config)
+        forbidden = {"adapter_id", "adapter_kind", "enabled"} & values.keys()
+        if forbidden:
+            raise ValueError(
+                f"{spec.transport} sample overrides lifecycle fields: {sorted(forbidden)}"
+            )
+        instance_id = f"sample_{len(samples) + 1}"
+        groups[spec.transport] = {
+            instance_id: {"enabled": True, "adapter_kind": "fake", **values}
+        }
+        samples.append((instance_id, spec.transport, sample))
+    if len(samples) == 1:
+        source_id, transport, sample = samples[0]
+        groups[transport]["sample_2"] = dict(groups[transport][source_id])
+        samples.append(("sample_2", transport, sample))
+    routes = {}
+    if samples:
+        source_id = samples[0][0]
+        for index, (target_id, _, target) in enumerate(samples[1:]):
+            route = {
+                "source_adapters": [source_id],
+                "dest_adapters": [target_id],
+                "directionality": "source_to_dest",
+                "enabled": True,
+                "policy": {"allowed_event_types": ["message.created", "message.text"]},
+            }
+            if target.channel is not None:
+                route["dest_channel"] = target.channel
+            routes["sample_bridge" if index == 0 else f"sample_bridge_{index + 1}"] = (
+                route
+            )
+    notice = ""
+    if not samples:
+        notice = "# No installed provider declares an SDK-free sample. Install an adapter\n# with sample support, or configure one using its documentation.\n# See docs/ops/adapter-installation.md.\n"
+    return (
+        _HEADER
+        + notice
+        + yaml.dump({"adapters": groups}, Dumper=_SampleDumper, sort_keys=False)
+        + "\n"
+        + _ROUTE_HELP
+        + yaml.dump({"routes": routes}, Dumper=_SampleDumper, sort_keys=False)
+    )

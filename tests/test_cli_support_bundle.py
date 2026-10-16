@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI tests for ``medre support bundle``.
 
 Exercises the command through the real CLI entry point using

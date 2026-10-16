@@ -350,7 +350,7 @@ class TestCollectReplayState:
     async def test_empty_iterator(self) -> None:
         async def _empty() -> AsyncIterator[ReplayResult]:
             return
-            yield  # noqa: unreachable – makes this an async generator
+            yield  # Unreachable: marks this function as an async generator.
 
         state = await collect_replay_state(_empty())
         assert state.events_processed == 0

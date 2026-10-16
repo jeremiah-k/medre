@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fake adapter ingress equivalence tests.
 
 Proves that ``FakeMatrixAdapter.simulate_inbound`` and

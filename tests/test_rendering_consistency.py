@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-renderer consistency tests for all four transport renderers.
 
 Covers:

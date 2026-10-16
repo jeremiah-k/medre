@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shutdown-under-traffic tests proving MEDRE handles shutdown gracefully.
 
 Nine tests exercise deterministic shutdown behaviour while ingress events

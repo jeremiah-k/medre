@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Validation tests for docs/schemas/runtime-config.schema.json.
 
 The runtime-config schema is a FULL-CONFIG schema: it validates the root
@@ -154,17 +155,21 @@ def test_unknown_root_key_fails_validation() -> None:
     ), f"validation error should mention 'roues', got: {exc_info.value.message!r}"
 
 
-def test_unknown_transport_group_fails_validation() -> None:
-    """An unknown adapter transport group (e.g. ``matrixx``) must fail."""
-    if not _HAS_JSONSCHEMA:
-        pytest.skip("jsonschema not installed")
+def test_community_transport_group_validates_structure() -> None:
+    """Provider availability is validated by the loader, not a static schema."""
     import jsonschema
 
-    schema = _load_schema()
-    bad_config = {"adapters": {"matrixx": {"main": {}}}}
-    with pytest.raises(jsonschema.ValidationError) as exc_info:
-        jsonschema.validate(instance=bad_config, schema=schema)
-    assert "matrixx" in exc_info.value.message
+    jsonschema.validate(
+        {"adapters": {"community_radio": {"main": {"host": "localhost"}}}},
+        _load_schema(),
+    )
+
+
+def test_invalid_transport_group_name_fails_validation() -> None:
+    import jsonschema
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"adapters": {"Bad Transport": {}}}, _load_schema())
 
 
 def test_empty_config_validates() -> None:

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live Matrix<->radio bridge tests over the real MEDRE runtime (E2EE room).
 
 Opt-in ONLY: ``MEDRE_MX_BRIDGE=1`` plus explicit owned endpoints (Matrix
@@ -150,16 +151,16 @@ def _build_runtime(db_path: Path, lx_storage: Path):
     surfaces as a pytest-unraisable error in a *later* test.
     """
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.matrix import MatrixConfig
+    from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MatrixRuntimeConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,

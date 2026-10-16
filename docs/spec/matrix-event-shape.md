@@ -76,7 +76,7 @@ core relation vocabulary.
 
 `CanonicalEvent.metadata.native.data` MUST contain a `matrix` object conforming
 to
-[`matrix-native-metadata.schema.json`](../schemas/matrix-native-metadata.schema.json).
+[`matrix-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-matrix/blob/main/docs/schemas/matrix-native-metadata.schema.json).
 Version 1 has this top-level shape:
 
 ```json

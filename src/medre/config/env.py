@@ -1532,7 +1532,7 @@ def apply_retry_overrides(
         )
         kwargs[field_name] = coerced
 
-    new_retry = RetryConfig(**kwargs)
+    new_retry = RetryConfig(**kwargs).validate()
     return dataclasses.replace(config, retry=new_retry)
 
 

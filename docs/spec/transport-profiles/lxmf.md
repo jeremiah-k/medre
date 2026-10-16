@@ -45,7 +45,7 @@ Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabil
 | text                | `True`                              |
 | title               | `True`                              |
 | threads             | `"fallback"`                        |
-| replies             | `"unsupported"`                     |
+| replies             | `"fallback"`                        |
 | reactions           | `"unsupported"`                     |
 | edits               | `"unsupported"`                     |
 | deletes             | `"unsupported"`                     |
@@ -245,9 +245,9 @@ Inbound LXMF events persist one versioned object at
 message identity, timestamp/title descriptors, delivery method, field presence,
 and announce-derived display labels when available. The normative machine
 contract is
-[`lxmf-native-metadata.schema.json`](../../schemas/lxmf-native-metadata.schema.json),
+[`lxmf-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-lxmf/blob/main/docs/schemas/lxmf-native-metadata.schema.json),
 and the representative payload is
-[`lxmf-native-metadata-example.json`](../../schemas/examples/lxmf-native-metadata-example.json).
+[`lxmf-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-lxmf/blob/main/docs/schemas/examples/lxmf-native-metadata-example.json).
 The codec builder in `medre.adapters.lxmf.event_shape` is the source
 implementation authority. Flat LXMF event metadata is not an alternate shape.
 
@@ -444,15 +444,14 @@ Session also exposes `diagnostics()` and `delivery_state_counts()` with addition
 
 | Relation type | Capability level | Strategy        | Rendering path                                                                 |
 | ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
-| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Replies       | `"fallback"`     | `fallback_text` | Deterministic inline reply context; no native reply operation.                 |
 | Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
 | Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
 | Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
 | Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-LXMF has no verified native relation support beyond basic text delivery. Replies,
-reactions, edits, and deletes remain unsupported planning-time skips, while
-`threads="fallback"` selects deterministic inline thread context during normal
+LXMF has no verified native relation support beyond basic text delivery. Reactions, edits, and deletes remain unsupported planning-time skips, while
+`replies="fallback"` and `threads="fallback"` select deterministic inline context during normal
 live planning. Plain message kinds continue to deliver directly.
 
 When `fallback_text` is selected for a relation, the LXMF renderer produces its
@@ -522,7 +521,7 @@ fully local regression harness (no external network, hardware, or
 retained state):
 
 ```bash
-uv sync --extra lxmf
+uv sync --locked && uv pip install medre-adapter-lxmf
 uv run pytest "tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances" -m "local_integration or lxmf_sdk"
 ```
 
@@ -580,7 +579,7 @@ proof.
 
 | Library | Purpose                                                            | Optional                    |
 | ------- | ------------------------------------------------------------------ | --------------------------- |
-| `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre[lxmf]`)         |
+| `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre-adapter-lxmf`)  |
 | `RNS`   | Reticulum network stack (`Reticulum`, `Identity`, `Destination`)   | Yes (via `lxmf` dependency) |
 
 **Dependency-version authority:** `pyproject.toml` declares the exact LXMF/RNS

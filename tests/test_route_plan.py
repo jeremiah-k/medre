@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Model tests for :func:`medre.runtime.route_plan.build_route_plan`.
 
 Covers the plan model itself — adapter inventory, route expansion into
@@ -660,8 +661,8 @@ routes:
         dest_context: '!shared:fake.local'
       "c":
         dest_destination:
-          kind: lxmf_destination
-          destination_hash: 21c0c1b9aabbccddeeff001122334455
+          kind: matrix_room
+          destination_name: '!structured:fake.local'
 """
 
 

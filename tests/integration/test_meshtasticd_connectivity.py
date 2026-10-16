@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Meshtasticd connectivity integration tests for the MEDRE Meshtastic adapter.
 
 These tests start a real meshtasticd instance in Docker and exercise the
@@ -7,7 +8,7 @@ MEDRE MeshtasticAdapter lifecycle against it via TCP.  They are tagged
 Running locally::
 
     # Prerequisites: Docker running, MEDRE meshtastic extras installed
-    pip install -e ".[meshtastic]"
+    pip install medre-adapter-meshtastic
     pytest tests/integration/test_meshtasticd_connectivity.py -m docker -v
 
 To include in a broader integration run::
@@ -39,7 +40,9 @@ pytestmark = pytest.mark.docker
 if not HAS_MESHTASTIC:
     pytestmark = [
         pytest.mark.docker,
-        pytest.mark.skip(reason="mtjk not installed; run: pip install '.[meshtastic]'"),
+        pytest.mark.skip(
+            reason="mtjk not installed; run: pip install 'medre-adapter-meshtastic'"
+        ),
     ]
 
 

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for CLI operator-surface consistency fixes (F-3/F-4/F-5/F-6/F-7/F-8).
 
 Tests cover:

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from medre.config.paths import resolve
 
 from .exit_codes import EXIT_CONFIG
-from .transports import TRANSPORTS
+from .transports import TRANSPORTS, is_transport_installed
+
+if TYPE_CHECKING:
+    from .contrib import CliContributionFailure
 
 
 def _dir_status(p: object) -> str:
@@ -235,25 +238,24 @@ def _config_check(config_path: str | None) -> None:
         )
 
 
-def _adapters() -> None:
+def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
     """List available adapter types, SDK availability, and configured adapters."""
+    from medre.config.errors import (
+        ConfigFileError,
+        ConfigNotFoundError,
+        ConfigValidationError,
+    )
     from medre.config.loader import load_config
 
     print("Adapter types:")
+    _print_cli_failures(cli_failures)
 
     # Check SDK availability
     for transport, dist_name, import_names in TRANSPORTS:
         if not import_names:
             print(f"  {transport:14s} Python SDK: not required")
             continue
-        installed = False
-        for mod_name in import_names:
-            try:
-                importlib.import_module(mod_name)
-                installed = True
-                break
-            except ImportError:
-                pass
+        installed = is_transport_installed(transport)
         status = "installed" if installed else "not installed"
         label = dist_name or "external"
         print(f"  {transport:14s} SDK ({label}): {status}")
@@ -271,5 +273,55 @@ def _adapters() -> None:
             status = "enabled" if rtc.enabled else "disabled"
             kind = getattr(rtc, "adapter_kind", "real")
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
-    except Exception:
+    except ConfigNotFoundError:
         print("No config found — run 'medre config sample' to generate one.")
+    except (ConfigFileError, ConfigValidationError):
+        print("Config cannot be loaded — run 'medre config check' for details.")
+
+
+def _print_cli_failures(failures: tuple[CliContributionFailure, ...]) -> None:
+    for failure in failures:
+        print(f"  {failure.transport}: broken CLI contribution: {failure.reason}")
+
+
+def _adapters_check(
+    config_path: str | None, *, cli_failures: tuple[CliContributionFailure, ...] = ()
+) -> None:
+    """Preflight external adapter availability without installing any packages."""
+    from medre.adapter_installation import inspect_adapter_installation
+
+    try:
+        report = inspect_adapter_installation(config_path)
+    except Exception as exc:
+        print(f"Adapter preflight error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    print(f"Config file: {report.config_path}")
+    _print_cli_failures(cli_failures)
+    if not report.required:
+        print("No adapter types declared.")
+    for transport in report.required:
+        if any(f.transport == transport for f in report.broken):
+            continue
+        status = "missing" if transport in report.missing else "installed"
+        print(f"  {transport}: {status}")
+    for failure in report.broken:
+        print(
+            f"  {failure.transport}: broken ({failure.provider_distribution or 'unknown distribution'}, {failure.entry_point}): {failure.reason}"
+        )
+    if report.broken or cli_failures:
+        print(
+            "Repair or uninstall broken provider distributions, restart MEDRE, and re-run this check.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+    if report.missing:
+        print(
+            "Missing adapter distribution(s). Install packages registering the "
+            "medre.adapters entry points above, using PyPI, Git, or local paths. "
+            "Restart MEDRE and re-run this check. "
+            "See docs/ops/adapter-installation.md.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+    print("All declared adapter types are installed (configuration not yet validated).")

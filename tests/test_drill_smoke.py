@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for operator failure drills and smoke persistence.
 
 Proves that:
@@ -700,7 +701,7 @@ class TestBadRouteConfigDrill:
     @pytest.mark.asyncio
     async def test_known_adapter_ids(self) -> None:
         report = await run_drill("bad_route_config")
-        assert report["known_adapter_ids"] == ["fake_matrix"]
+        assert report["known_adapter_ids"] == ["source"]
 
     @pytest.mark.asyncio
     async def test_error_type_is_route_validation(self) -> None:
@@ -771,8 +772,10 @@ class TestAllAdaptersBuildFailDrill:
         adapter_ids = {f["adapter_id"] for f in failures}
         assert adapter_ids == {"broken1", "broken2"}
         transports = {f["transport"] for f in failures}
-        assert "matrix" in transports
-        assert "meshtastic" in transports
+        assert transports == set(report["adapter_transports"].values())
+        assert {f["adapter_id"]: f["transport"] for f in failures} == report[
+            "adapter_transports"
+        ]
 
     @pytest.mark.asyncio
     async def test_no_adapters_built(self) -> None:

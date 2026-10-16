@@ -20,6 +20,7 @@ from medre.config.routes import (
     RouteDestinationConfig,
     RouteDirectionality,
 )
+from tests.helpers.destination_config import registered_test_destination  # noqa: F401
 
 
 def _entry(dest_context: str, **labels: str | None) -> dict[str, object]:
@@ -31,7 +32,7 @@ def _structured_entry() -> dict[str, object]:
     """Build a structured-destination input entry (LXMF-shaped)."""
     return {
         "dest_destination": {
-            "kind": "lxmf_destination",
+            "kind": "test_address",
             "destination_hash": "21c0c1b9aabbccddeeff001122334455",
             "destination_name": "bob",
         }
@@ -695,7 +696,7 @@ class TestContextMapExpansion:
             context_map={
                 "!room:example.com": ContextMapEntry(
                     dest_destination=RouteDestinationConfig(
-                        kind="lxmf_destination",
+                        kind="test_address",
                         destination_hash="21c0c1b9aabbccddeeff001122334455",
                         destination_name="bob",
                     )
@@ -709,7 +710,7 @@ class TestContextMapExpansion:
         target = legs[0].route.targets[0]
         assert target.channel is None
         assert target.destination is not None
-        assert target.destination.kind == "lxmf_destination"
+        assert target.destination.kind == "test_address"
         assert target.destination.destination_hash == (
             "21c0c1b9aabbccddeeff001122334455"
         )
@@ -769,7 +770,7 @@ class TestContextMapExpansion:
                 context_map={
                     "k": ContextMapEntry(
                         dest_destination=RouteDestinationConfig(
-                            kind="lxmf_destination",
+                            kind="test_address",
                             destination_hash="21c0c1b9aabbccddeeff001122334455",
                         )
                     )
@@ -956,7 +957,7 @@ class TestExpansionBoundaries:
             dest_adapters=("b",),
             dest_channel="ch1",
             dest_destination=RouteDestinationConfig(
-                kind="lxmf_destination",
+                kind="test_address",
                 destination_hash="21c0c1b9aabbccddeeff001122334455",
             ),
         )
@@ -969,7 +970,7 @@ class TestExpansionBoundaries:
             source_adapters=("a",),
             dest_adapters=("b", "c"),
             dest_destination=RouteDestinationConfig(
-                kind="lxmf_destination",
+                kind="test_address",
                 destination_hash="21c0c1b9aabbccddeeff001122334455",
             ),
         )

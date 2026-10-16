@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Boundary hardening tests for MeshCore and LXMF adapters.
 
 Validates the three implemented hardening checks (G1–G3):

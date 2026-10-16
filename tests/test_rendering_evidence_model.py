@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """RenderingEvidence model, delivery receipt, text metrics normalization,
 evidence attachment boundary, serialization hardening, and capability-level
 tests.

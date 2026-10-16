@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay partial-failure tests: mixed outcomes during BEST_EFFORT replay.
 
 Tests verify that ReplayEngine handles render failures, adapter permanent/
@@ -23,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     StorageConfig,

@@ -1,8 +1,8 @@
+# medre-test-tier: compatibility
 """Tests for 'medre config check' routes integration, config sample, and config errors."""
 
 from __future__ import annotations
 
-import types
 from pathlib import Path
 
 import pytest
@@ -11,15 +11,12 @@ from medre.config._yaml import parse_yaml_config
 from medre.config.loader import load_config
 from medre.config.sample import generate_sample_config
 from medre.runtime.builder import RuntimeBuilder
-from tests.helpers.cli import (
+from tests.helpers.cli import CONFIG_MINIMAL, _run_cli, _run_cli_both, _run_cli_raw
+from tests.helpers.compatibility_configs import (
     CONFIG_BAD_LIMITS,
-    CONFIG_MINIMAL,
     CONFIG_NO_ROUTES,
     CONFIG_ROUTE_UNKNOWN_ADAPTERS,
     CONFIG_WITH_ROUTES,
-    _run_cli,
-    _run_cli_both,
-    _run_cli_raw,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")
@@ -118,7 +115,7 @@ class TestSampleConfig:
     def test_sample_includes_active_bridge_example(self) -> None:
         """Sample includes a clear Matrix -> Meshtastic bridge example."""
         output = _run_cli("config", "sample")
-        assert "matrix_radio_bridge" in output
+        assert "sample_bridge" in output
         assert "source_to_dest" in output or "bidirectional" in output
 
     def test_sample_includes_disabled_route_example(self) -> None:
@@ -261,7 +258,7 @@ class TestSampleConfigFakeBuildable:
         routes = config.routes
         assert len(routes.routes) >= 1
         route_ids = [r.route_id for r in routes.routes]
-        assert "matrix_radio_bridge" in route_ids
+        assert "sample_bridge" in route_ids
 
     def test_sample_config_check_passes(self, tmp_path: Path) -> None:
         """``medre config check`` on the sample config succeeds."""
@@ -517,25 +514,12 @@ class TestSampleConfigStructuredContextMap:
         assert "source_origin_label" in output
         assert "dest_origin_label" in output
 
-    def test_sample_structured_destination_uses_configured_adapter_id(self) -> None:
-        """Commented LXMF example names the adapter declared by the sample."""
-        output = _run_cli("config", "sample")
-        assert "Requires adapters.lxmf.lxmf_node to be enabled." in output
-        assert "#   dest_adapters: [lxmf_node]" in output
-
-    def test_sample_has_no_scalar_mapping_entries(self) -> None:
-        """The parseable sample uses only structured mapping entries."""
+    def test_sample_route_references_match_installed_contributions(self) -> None:
         output = _run_cli("config", "sample")
         parsed = parse_yaml_config(output)
-        route = parsed["routes"]["context_mapped_bridge"]
-        entry = route["context_map"]["1"]
-        assert entry == {
-            "dest_context": "!ops:example.com",
-            "source_origin_label": "Ops",
-            "dest_origin_label": "Matrix-Ops",
-        }
-        # Structured-destination documentation intentionally remains commented.
-        assert "dest_destination:" in output
+        ids = {aid for instances in parsed["adapters"].values() for aid in instances}
+        for route in parsed["routes"].values():
+            assert set(route["source_adapters"] + route["dest_adapters"]) <= ids
 
 
 def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:
@@ -570,11 +554,43 @@ def test_adapters_reports_sidecar_transport_without_probing(
         raise AssertionError(f"unexpected SDK probe: {name}")
 
     monkeypatch.setattr(config_commands, "TRANSPORTS", [("sidecar", None, ())])
-    monkeypatch.setattr(
-        config_commands, "importlib", types.SimpleNamespace(import_module=_no_probes)
-    )
+    monkeypatch.setattr(config_commands, "is_transport_installed", _no_probes)
 
     config_commands._adapters()
     out = capsys.readouterr().out
     assert "sidecar" in out
     assert "Python SDK: not required" in out
+
+
+def test_adapters_distinguishes_invalid_config_from_missing_config(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Never label a rejected config as absent or echo its secret values."""
+    import medre.cli.config_commands as commands
+    import medre.config.loader as loader
+    from medre.config.errors import ConfigValidationError
+
+    def bad_config(_path: object) -> None:
+        raise ConfigValidationError("unusable config: hidden-secret-value")
+
+    monkeypatch.setattr(loader, "load_config", bad_config)
+    commands._adapters()
+    output = capsys.readouterr().out
+    assert "Config cannot be loaded" in output
+    assert "No config found" not in output
+    assert "hidden-secret-value" not in output
+
+
+def test_adapters_reports_missing_config_separately(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import medre.cli.config_commands as commands
+    import medre.config.loader as loader
+    from medre.config.errors import ConfigNotFoundError
+
+    def missing_config(_path: object) -> None:
+        raise ConfigNotFoundError("no config")
+
+    monkeypatch.setattr(loader, "load_config", missing_config)
+    commands._adapters()
+    assert "No config found" in capsys.readouterr().out

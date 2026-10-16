@@ -168,7 +168,7 @@ async def _listen(self):
 The `decode` method sets at minimum:
 
 - `event_id`: UUIDv7 for time ordering
-- `event_kind`: e.g., `"message.text"`, `"telemetry"`
+- `event_kind`: e.g., `"message.created"`, `"telemetry.received"`
 - `schema_version`: currently `1`
 - `timestamp`: UTC datetime
 - `source_adapter`: your adapter instance name
@@ -301,7 +301,7 @@ Never call `asyncio.create_task()` from a non-loop thread.
 
 The renderer converts canonical events into transport-specific payloads.
 Transport renderers live inside their adapter packages and are registered with
-the shared rendering pipeline by the built-in adapter registry. The delivery
+the shared rendering pipeline by the installed adapter registry. The delivery
 planner selects them by target platform.
 
 The renderer produces a `RenderingResult`:
@@ -327,87 +327,80 @@ class MyRenderer:
 The adapter's `deliver()` method receives this `RenderingResult`, not the raw
 event. This separation means adapters never contain formatting logic.
 
-## Step 6: Register the Built-In Adapter Type
+## Step 6: Package and Register the Adapter
 
-MEDRE has one **declarative built-in adapter type registry** in
-`medre.adapter_registry`. It is assembly metadata, not a live adapter-instance
-container and not a third-party plugin loader. Generic config, environment,
-path, runtime, renderer, CLI-discovery, native-metadata dispatch, and
-architecture-report code consume this registry instead of maintaining their
-own transport lists.
+An adapter is an independent Python distribution with a `medre.adapters`
+entry point. Its zero-argument factory returns `AdapterSpec`. Use
+`dependencies = ["medre>=0.1.0,<0.2.0"]` to declare the core interface range
+supported by the adapter, and declare native SDK requirements in the adapter's
+own metadata. Repository, distribution, module, and transport names can differ.
+See [installation](../ops/adapter-installation.md#adapter-author-contract) for
+an example that uses a community distribution and top-level Python module.
 
-A built-in adapter normally contributes:
+The first-party repositories retain `medre.adapters.<transport>` and
+`medre.config.adapters.*` through standard namespace-path extension. Community
+adapters can use their own import packages; sharing MEDRE's namespace is optional.
 
-- a config dataclass under `medre.config.adapters.<transport>`;
-- `adapter.py`, `codec.py`, `renderer.py`, and `session.py` under
-  `medre.adapters.<transport>`;
-- a fake adapter under `medre.adapters.fakes`;
-- current/versioned native-metadata namespace readers;
-- an attribution projector with the shared projector signature;
-- a renderer factory that adapts generic runtime-config mappings to the
-  adapter's renderer constructor;
-- optionally, a pure runtime-config preparation hook when the transport needs
-  derived state or route-driven preparation;
-- optionally, adapter-owned CLI registration/dispatch hooks and support-bundle
-  endpoint/secret field metadata; and
-- one `AdapterSpec` entry in `BUILTIN_ADAPTER_REGISTRY`.
+The adapter owns its config dataclass, optional runtime wrapper, fake, session,
+codec, renderer factory, native-metadata readers, attribution projector, SDK
+requirements, and protocol tests. MEDRE owns the generic contracts, config
+orchestration, routing, storage, evidence, and runtime lifecycle.
 
-The spec stores `SymbolRef` values, so merely importing configuration or CLI
-discovery does **not** import optional SDK-backed adapter implementations. SDK
-ownership, package/distribution names, fake construction, renderer registration,
-CLI contribution hooks, support-bundle field classification, and native-metadata
-dispatch are all declared on the same spec. Adapter CLI contribution modules
-must remain SDK-free at import time; SDK-touching command implementations stay
-lazy behind their dispatch hook.
+`AdapterSpec` references implementation symbols through `SymbolRef`. The
+registration module and config validators stay SDK-free at import time. SDK
+imports belong behind the live session/compatibility implementation. Optional
+hooks support runtime preparation, directories, CLI contributions, and
+support-bundle field classification. SDK logger roots default to WARNING;
+`logger_levels=(("your_sdk.crypto", "ERROR"),)` declares more specific noise
+policy without importing the SDK. Operator overrides take precedence.
 
-Configuration is grouped by registered transport name and then adapter
-instance name. There is no `type` or arbitrary `class` field:
+An adapter with native structured addresses declares a `DestinationSpec` for
+each addressing kind it owns. Its lazy validator accepts a
+`RouteDestinationConfig`, returns `None` for a valid address, and raises
+`ValueError` for invalid input. It can validate opaque identifiers and custom
+`metadata` without extending core's parser. Validators are pure and SDK-free.
+Core owns the generic `channel` kind; duplicate native kind names are rejected.
+Use a distinctive transport-qualified kind to avoid clashes.
 
-```yaml
-adapters:
-  my_transport:
-    primary:
-      enabled: true
-      adapter_kind: real
-      host: "127.0.0.1"
-```
+Installed entry points are discovered once per process and ordered by name.
+Duplicate transport names, broken factories, and conflicting declarations
+are quarantined with diagnostics available through `medre adapters check`.
+Conflicting owners are all rejected; healthy providers remain usable. Discovery never fetches packages. Restart after changing
+installed providers. Config YAML selects `adapters.<transport>.<instance>`;
+it contains neither installer URLs nor arbitrary Python class paths.
 
-Registered built-ins use the shape `adapters.<transport>.<instance>`. The
-config loader rejects groups that are not registered built-ins, so typos remain
-fail-closed.
+Adding an adapter requires no core registration-list edit. Generic consumers
+use `iter_adapter_specs()` and `AdapterConfigSet.groups()`; loader, environment,
+runtime, renderer, CLI, and native-metadata dispatch share those declarations.
+Core's CI compatibility manifest is a curated test set, independent of runtime
+discovery and open third-party distribution.
 
-### Registration and assembly flow
+### Contribute an offline sample
 
-1. `BUILTIN_ADAPTER_REGISTRY` defines the built-in transport vocabulary and
-   lazy assembly hooks.
-2. The config loader resolves the registered config class and constructs a
-   transport-neutral runtime wrapper (existing adapters retain compatibility
-   wrapper subclasses).
-3. `RuntimeBuilder` looks up the `AdapterSpec`, runs its optional preparation
-   hook, and constructs either the registered fake or live adapter.
-4. The renderer factory and native-metadata/attribution readers are resolved
-   from that same spec; shared code contains no per-transport dispatch chain.
-5. `MedreApp` owns the resulting live adapter instances and their normal
-   `start()` / `stop()` lifecycle.
-
-Adding a built-in transport **must not** require adding another transport
-branch to the config loader, env layer, runtime builder, renderer dispatcher,
-native-metadata dispatcher, CLI transport inventory, or architecture SDK map.
-If a new adapter reveals a genuinely transport-specific behavior, keep that
-behavior adapter-owned behind a registered hook rather than expanding a
-shared `if transport == ...` chain.
-
-This mechanism is intentionally separate from `medre.plugins`. MEDRE does not
-currently support arbitrary third-party adapter class paths or runtime plugin
-discovery. Supporting that boundary would require an explicit trust and
-packaging model rather than overloading YAML config.
+Set `sample_config=SymbolRef("your_package.sample", "sample_config")` to a
+zero-argument callback returning `AdapterSample(native_values, channel="opaque-conversation")`. Core supplies distinct instance IDs,
+`enabled: true`, and `adapter_kind: fake`. Leave lifecycle fields out of
+`native_values`. This callback is optional and SDK-free. Providers without a
+fake or sample remain supported, but are omitted from `medre config sample`.
+The callback owns native config values and addressing; core generates routes
+without recognizing your platform name.
 
 ## Step 7: Write Tests
 
+The [registration reference](adapter-registration.md) documents every field,
+hook signature, loading phase, public metadata helper, and conformance tool.
+
 ### Use the fake adapter pattern
 
-Every adapter has a fake variant in `src/medre/adapters/fakes/` that exercises
-the full pipeline without network or hardware dependencies. See the
+An adapter may declare a fake variant through `AdapterSpec.fake_adapter`,
+implemented in that adapter's distribution. Its fake exercises the full
+pipeline without network or hardware dependencies. `fake_adapter=None` is valid;
+core does not fabricate fake support for that provider. Lifecycle drills choose
+only declared fake providers and report failure when none is available.
+Fake event factories may expose `make_event(text=..., event_kind=...)` for smoke
+injection. Run-session callback ingress uses the canonical
+`AdapterContract.publish_inbound(event)` seam; native packet simulation methods
+are adapter-specific and are not part of that generic interface. See the
 [testing guide](./testing.md) for tier definitions.
 
 The fake adapters (`FakeTransportAdapter`, `FakePresentationAdapter`) are the
@@ -416,18 +409,31 @@ reference implementation. They demonstrate the contract:
 - `start()` stores the context and marks started
 - `stop()` marks stopped
 - `deliver()` receives a `RenderingResult`, returns an `AdapterHandoffResult`
-- `simulate_inbound()` publishes events into the pipeline
+- `publish_inbound(event)` publishes canonical events into the pipeline
 - `health_check()` returns an `AdapterInfo` snapshot
+
+**Optional smoke-source contract:** if the fake participates in `medre smoke`,
+it provides a synchronous `make_event(*, text: str, event_kind: EventKind)`
+returning a `CanonicalEvent` with its own `source_adapter`. MEDRE uses this
+for deterministic smoke and run-session injection. The core does not ask real
+transport adapters to implement this testing helper. Adapter-owned unit tests
+should check the method's signature and originating adapter ID. A multi-route
+smoke selects only one source per run; use `--source-adapter` to exercise each
+configured source, and inspect `source_candidates` in the JSON evidence report.
+Only started fakes with this helper are eligible sources; a fake without it can
+still be a delivery target. A pass requires delivery for every configured route
+target matched by the event, including targets lost during construction/startup.
+Event-factory errors fail the smoke and trigger runtime cleanup.
 
 ### Test your adapter with these tiers
 
-| Tier | What to test                                                          |
-| ---- | --------------------------------------------------------------------- |
-| 1    | Pipeline processes your canonical events correctly                    |
-| 2    | `simulate_inbound()` produces the same results as direct injection    |
-| 3    | SDK callback wiring works with mocked SDK                             |
-| 4    | Real SDK works against containerized services (`@pytest.mark.docker`) |
-| 5    | Real adapter against real endpoint (`@pytest.mark.live`)              |
+| Tier | What to test                                                           |
+| ---- | ---------------------------------------------------------------------- |
+| 1    | Pipeline processes your canonical events correctly                     |
+| 2    | `publish_inbound(event)` produces the same results as direct injection |
+| 3    | SDK callback wiring works with mocked SDK                              |
+| 4    | Real SDK works against containerized services (`@pytest.mark.docker`)  |
+| 5    | Real adapter against real endpoint (`@pytest.mark.live`)               |
 
 ### Codec tests
 
@@ -547,11 +553,8 @@ The runtime handles all of it:
 The `src/medre/adapters/fakes/` directory contains working reference
 implementations:
 
-| File              | Purpose                                                   |
-| ----------------- | --------------------------------------------------------- |
-| `transport.py`    | `FakeTransportAdapter` -- minimal TRANSPORT adapter       |
-| `presentation.py` | `FakePresentationAdapter` -- minimal PRESENTATION adapter |
-| `meshcore.py`     | Fake MeshCore adapter with queue tracking                 |
-| `meshtastic.py`   | Fake Meshtastic adapter with outbound queue               |
-| `matrix.py`       | Fake Matrix adapter with session diagnostics              |
-| `lxmf.py`         | Fake LXMF adapter with delivery state tracking            |
+| File                     | Purpose                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| `transport.py`           | `FakeTransportAdapter` -- minimal TRANSPORT adapter       |
+| `presentation.py`        | `FakePresentationAdapter` -- minimal PRESENTATION adapter |
+| Transport-specific fakes | Live in their corresponding adapter distributions         |

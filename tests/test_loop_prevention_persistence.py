@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Hardened loop prevention including source==target, route-trace guard,
 native-ref cycle detection.
 

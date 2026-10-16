@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Evidence parity audit tests — operational diagnostics key presence and type consistency.
 
 Proves the highest-value evidence parity findings:

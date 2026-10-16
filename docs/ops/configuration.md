@@ -298,7 +298,7 @@ adapters:
       channel_mapping:
         "0": general
         "1": admin
-      message_delay_seconds: 0.5
+      message_delay_seconds: 2.2
       startup_backlog_suppress_seconds: 5.0
       sync_timeout_ms: 30000
       outbound_mode: enabled
@@ -317,7 +317,7 @@ adapters:
 | `origin_label`                     | string             | `""`          | Platform-neutral source label for relay prefixes.                                     |
 | `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                    |
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                         |
-| `message_delay_seconds`            | float              | `0.5`         | Minimum delay between outbound messages (pacing).                                     |
+| `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                     |
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                |
 | `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                          |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                       |
@@ -455,7 +455,13 @@ Optional static allowlist policy. A policy denial produces a `status="suppressed
 | `room_allowlist`          | list of string | `[]`    | Permitted room identifiers. Empty = any room.       |
 | `channel_allowlist`       | list of string | `[]`    | Permitted channel identifiers. Empty = any channel. |
 
-Unknown keys are rejected at config load time. Allowlist values must be arrays of strings.
+Unknown keys are rejected at config load time. Allowlist values must be arrays
+of strings. Use `[]` for an explicitly unrestricted field; `null` is rejected.
+An explicitly declared `policy`, `retry`, or `context_map` section must be a
+mapping, not `null`, to prevent silently dropping configured controls.
+Route `enabled` is a YAML boolean (`true` or `false`), never a quoted string;
+adapter IDs must already be normalized strings. Retry intervals and per-route
+backoff delays must be finite numbers, not YAML `.nan`/`.inf` values.
 
 #### Route Retry (`routes.<route_id>.retry`)
 
@@ -1267,11 +1273,20 @@ services:
 
 ### Recommended Docker Pattern
 
+Prepare a `wheelhouse/` build context containing MEDRE, the selected adapter
+wheels, and their locked Python dependencies for the container's Python version,
+OS, and architecture. Build adapters from reviewed Git revisions or local
+checkouts before assembling the image; this also works before index publication.
+See [adapter installation](adapter-installation.md) for dependency ownership
+and deployment locking. The example installs the plaintext Matrix and Meshtastic
+providers used by the Docker example configs.
+
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
-COPY . .
-RUN pip install ".[matrix,matrix-e2e,meshtastic]"
+COPY wheelhouse/ /wheels/
+RUN python -m pip install --no-index --find-links=/wheels \
+    medre medre-adapter-matrix medre-adapter-meshtastic
 ENV MEDRE_HOME=/opt/medre
 ENTRYPOINT ["medre"]
 CMD ["run"]

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """RenderingResult immutability and metadata serialization tests.
 
 Covers:

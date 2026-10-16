@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI error-path tests: no-traceback assertions on invalid inputs.
 
 Split from the original walkthrough CLI test monolith.

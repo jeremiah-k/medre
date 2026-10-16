@@ -15,10 +15,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

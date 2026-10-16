@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Durable isolation guards for mmrelay wire-format compatibility.
 
 Locks the architectural boundary that mmrelay external Matrix wire fields
@@ -48,6 +49,7 @@ from tests.helpers.ast_imports import all_imports, parse_python
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
+from tests.helpers.source_locations import source_file
 
 # ---------------------------------------------------------------------------
 # Structural isolation guard (AST-based)
@@ -84,11 +86,11 @@ _ALLOWED_MODULES: frozenset[str] = frozenset(
 )
 
 
-def _src_root() -> Path:
-    """Return the ``src/medre`` package root."""
+def _src_roots() -> tuple[Path, ...]:
+    """Return core and installed contributors to the MEDRE namespace."""
     import medre
 
-    return Path(medre.__file__).resolve().parent
+    return tuple(Path(path).resolve() for path in medre.__path__)
 
 
 def _module_dotted(path: Path, src_root: Path) -> str:
@@ -147,19 +149,19 @@ def test_mmrelay_wire_constants_isolated_to_matrix_surface() -> None:
     these symbols — doing so would leak an external Matrix wire-compat
     shape into the core model.
     """
-    src_root = _src_root()
     violations: list[str] = []
 
-    for path in sorted(src_root.rglob("*.py")):
-        module_name = _module_dotted(path, src_root)
-        if module_name in _ALLOWED_MODULES:
-            continue
-        found = _find_guarded_imports(path)
-        if found:
-            violations.append(
-                f"{module_name} ({path.name}) imports guarded mmrelay "
-                f"symbols: {sorted(found)}"
-            )
+    for src_root in _src_roots():
+        for path in sorted(src_root.rglob("*.py")):
+            module_name = _module_dotted(path, src_root)
+            if module_name in _ALLOWED_MODULES:
+                continue
+            found = _find_guarded_imports(path)
+            if found:
+                violations.append(
+                    f"{module_name} ({path.name}) imports guarded mmrelay "
+                    f"symbols: {sorted(found)}"
+                )
 
     assert not violations, (
         "mmrelay wire-field isolation violated — guarded symbols imported "
@@ -177,9 +179,9 @@ def test_allowed_matrix_modules_actively_use_guarded_surface() -> None:
     a Matrix module, this guard forces a conscious update rather than a
     silent widening of the allowlist.
     """
-    src_root = _src_root()
-    codec_path = src_root / "adapters" / "matrix" / "codec.py"
-    renderer_path = src_root / "adapters" / "matrix" / "renderer.py"
+    repo = Path(__file__).resolve().parents[1]
+    codec_path = source_file(repo, "src/medre/adapters/matrix/codec.py")
+    renderer_path = source_file(repo, "src/medre/adapters/matrix/renderer.py")
 
     codec_imports = _find_guarded_imports(codec_path)
     renderer_imports = _find_guarded_imports(renderer_path)

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime route-validation failures surface through operator fences.
 
 Operator-facing surfaces re-run the startup route compilation and must

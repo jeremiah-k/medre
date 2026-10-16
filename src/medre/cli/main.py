@@ -115,7 +115,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="Print MEDRE version")
 
     # adapters
-    sub.add_parser("adapters", help="List available and configured adapters")
+    adapters_p = sub.add_parser("adapters", help="List or preflight installed adapters")
+    adapters_p.add_argument("action", nargs="?", choices=("check",), default=None)
+    adapters_p.add_argument("--config", default=None, help="Path to bridge YAML config")
 
     # diagnostics
     diag_p = sub.add_parser(
@@ -174,6 +176,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     smoke_p.add_argument(
         "--message", default="medre smoke test", help="Text for test message"
+    )
+    smoke_p.add_argument(
+        "--source-adapter",
+        default=None,
+        metavar="ID",
+        help="Inject from this route source (default: first eligible source; normal smoke only)",
     )
     smoke_p.add_argument(
         "--drill",
@@ -519,9 +527,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
-    from .contrib import register_builtin_contributors
+    from .contrib import register_adapter_contributors
 
-    register_builtin_contributors(sub)
+    parser.set_defaults(_adapter_cli_failures=register_adapter_contributors(sub))
 
     # support (with sub-subcommands)
     support_p = sub.add_parser(
@@ -581,9 +589,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "version":
         _version()
     elif args.command == "adapters":
-        from .config_commands import _adapters
+        from .config_commands import _adapters, _adapters_check
 
-        _adapters()
+        if args.action == "check":
+            _adapters_check(args.config, cli_failures=args._adapter_cli_failures)
+        else:
+            _adapters(cli_failures=args._adapter_cli_failures)
     elif args.command == "diagnostics":
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 
@@ -610,6 +621,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 
+        if args.source_adapter is not None and (args.drill or args.run_session):
+            parser.error("--source-adapter is supported only for normal smoke")
+
         if getattr(args, "run_session", False):
             asyncio.run(
                 _run_session(
@@ -628,6 +642,7 @@ def main(argv: list[str] | None = None) -> None:
                     args.json,
                     drill_name=args.drill,
                     storage_path=getattr(args, "storage_path", None),
+                    source_adapter=args.source_adapter,
                 )
             )
     elif args.command == "inspect":

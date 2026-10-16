@@ -204,7 +204,7 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
   "limitations": [
     "Fake adapters only — no real transport connectivity proven",
     "In-memory storage — no persistence or crash-recovery proof",
-    "Fire-and-forget delivery model for radio transports"
+    "No live delivery acknowledgement or recipient receipt proven"
   ]
 }
 ```
@@ -382,6 +382,13 @@ medre smoke --scenario <name> --json
 
 ### Smoke Persistence Caveat
 
+Happy-path `medre smoke --run-session` checks every configured route/target pair
+for every injected event, in both ingress modes. A surviving fanout target or a
+later successful message cannot conceal a missing delivery. Failure reasons name
+the affected event, route, and adapter. Callback sessions wait for complete
+receipt evidence up to their polling deadline. Their fake receipts prove local
+pipeline handoff; they do not prove recipient delivery on a live platform.
+
 `medre smoke` uses in-memory storage by default. When the smoke process exits, all stored evidence is released. The JSON report printed to stdout is the only surviving record.
 
 To persist evidence to SQLite, pass a config file that sets `[storage] backend = "sqlite"` and `storage.path`:
@@ -406,11 +413,19 @@ To persist smoke evidence to SQLite without editing the config, use `--storage-p
 medre smoke --storage-path /tmp/medre-smoke.db --json
 ```
 
+A successful fake smoke requires evidence for **every** configured route/target
+pair matched by the single injected source event: successful outcomes,
+persisted `sent` receipts, consistent delivery accounting, and a stopped
+runtime confirmed by its final snapshot. If a receipt is missing, shutdown
+fails, or the snapshot cannot establish the final state, the report fails.
+This does not prove live SDK behavior or cover other route sources; run smoke
+separately for each eligible source as needed.
+
 ## Docker SDK-Boundary Tests
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra matrix --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -442,13 +457,13 @@ uv run --no-sync pytest -m "" -v
 
 ### Failure Interpretation
 
-| Symptom                                             | Likely cause                    | Action                                             |
-| --------------------------------------------------- | ------------------------------- | -------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                        |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                   |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                       |
-| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`               |
-| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section |
+| Symptom                                             | Likely cause                    | Action                                                                                         |
+| --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
+| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
 
 ## Diagnostics Commands
 
@@ -545,6 +560,15 @@ Run pre-runtime drills with:
 medre smoke --drill <drill_name> --config /tmp/medre-sqlite.yaml --json
 ```
 
+These four programmatic drills use synthetic instances of one installed fake
+provider. Their JSON includes `adapter_transports` (instance ID to actual
+transport) and `coverage_scope: synthetic_adapter_instances`. The bad-route
+fixture uses the neutral instance ID `source`. Startup totals count independent
+instances, so a three-instance drill can run with one provider installed; it
+proves generic lifecycle supervision. Cross-transport behavior has its own
+compatibility tests. With no provider installed, the drill fails with an
+installation reason and an empty assignment map.
+
 Each drill **exits 0** when the expected failure is correctly observed. The drill report documents what exit code and error the runtime would produce if run independently.
 
 ## Bug Report Artifacts
@@ -621,7 +645,7 @@ Lifecycle receipts do not represent additional transport sends. In the common gu
 Check these fields together:
 
 - `failure_kind` — the high-level category (e.g. `capability_suppressed`, `loop_suppressed`, `adapter_transient`)
-- `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `meshtastic_queue_rejected`)
+- `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `queue_rejected`)
 - `suppression_reason` — human-readable display reason (`capability_reason`
   when the receipt carries one; otherwise the sanitized suppression `error`)
 - `error` — the raw error message

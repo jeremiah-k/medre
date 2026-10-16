@@ -1,383 +1,154 @@
-# Installation and First-Run Validation
+# Installation Reference
 
-## Prerequisites
+For a first real bridge, use [Getting Started](getting-started.md). It includes
+Git installation, a local smoke, credentials, and a two-way route. This page
+covers the **other installation methods** and how to verify them, without
+maintaining a second copy of the operator tutorial.
 
-| Requirement | Details                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------ |
-| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified |
-| uv          | Recommended for source checkouts; see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
-| pip         | Supported for wheel/sdist installs and existing virtual environments                                   |
-| git         | For source checkout only                                                                               |
-| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd               |
+MEDRE requires Python **3.11 or newer**, is **pre-release** (package classifier
+`Development Status :: 3 - Alpha`), and is licensed **GPL-3.0-or-later**. Its
+console entry point is `medre.cli:main` (the command is `medre`). No transport
+SDK is included in core; adapters are separately installable distributions.
 
-## Project Metadata
+## Which installation method?
 
-- **License:** GPL-3.0-or-later
-- **Status:** Pre-release — Development Status :: 3 - Alpha
-- **Entry point:** `medre.cli:main` (console script: `medre`)
+| Goal                                           | Use                                                                         | Repeatability                                      |
+| ---------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
+| Operate a bridge                               | [Locked uv deployment project](getting-started.md#install-from-git-with-uv) | Pin Git commits and commit `uv.lock`               |
+| Keep a short `medre` command without a project | `uv tool install` below                                                     | Explicit Git revisions, but no deployment lockfile |
+| Try help or version once                       | `uvx --from ... medre version`                                              | Temporary isolated tool environment                |
+| Develop MEDRE                                  | Editable source checkout below                                              | Core `uv.lock`                                     |
+| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement                              | Depends on your requirements lock                  |
 
-## Install Paths
+Adapters install from **Git, local paths, or package indexes**; no PyPI
+publication is required. See [adapter installation](adapter-installation.md)
+for source syntax, private repositories, and pinning. Installing a distribution
+registers its `medre.adapters` entry point; MEDRE never downloads code during
+startup.
 
-### Source Checkout (Developers)
+## Persistent command without `uv run`
+
+A locked deployment project's `.venv` is the recommended way to keep the core
+and all adapters reproducible. After `uv sync --locked`, you can invoke plain
+`medre` by activating that environment:
 
 ```bash
-git clone <repo-url> && cd medre
+source .venv/bin/activate
+medre version
+medre adapters
+```
 
+For PowerShell use `.\.venv\Scripts\Activate.ps1`; for unattended services
+invoke the project's `.venv/bin/medre` (Windows: `.venv\Scripts\medre.exe`)
+with the same `MEDRE_HOME` and environment variables used during setup.
+
+If you prefer a globally available **isolated CLI** rather than a deployment
+project, uv also supports installing tools straight from Git. The following
+installs core plus one provider into the **same tool environment**:
+
+```bash
+uv tool install \
+  --with 'git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
+  'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction'
+medre version
+medre adapters
+```
+
+These branches are convenient for trials; replace them with reviewed commit
+SHAs for repeatability. `uv tool install` does **not** create a deployment
+`uv.lock`, and its environment is separate from your project's `.venv`. Use
+`uv tool list` to inspect installed tools; reinstall deliberately when changing
+Git revisions or providers. Avoid mixing globally installed adapters with a
+project environment and expecting them to be discovered together. If `medre`
+is not on your `PATH`, follow uv's `uv tool update-shell` guidance.
+
+`uvx --from 'git+https://github.com/jeremiah-k/medre.git@build/external-adapter-extraction'
+medre version` is fine for one-off commands, but a temporary uvx environment
+cannot see providers installed elsewhere. Prefer a project for live services.
+
+## Source checkout (development)
+
+```bash
+git clone --branch build/external-adapter-extraction https://github.com/jeremiah-k/medre.git
+cd medre
 uv sync --locked --extra dev
-source .venv/bin/activate
+uv run --no-sync medre version
 ```
 
-`uv sync --locked` gives you an editable MEDRE install and the core dependencies
-(`msgspec` and `PyYAML`). Adding `--extra dev` installs pytest and build tools;
-transport SDKs require their own extras. Commands in this guide assume an
-activated environment. Without activation, use `uv run --no-sync medre ...`
-after syncing. Example configs are in `examples/configs/`.
+This creates `.venv`, installs core in editable mode, and installs test/build
+tools via the `dev` extra. For adapter work, use sibling checkouts and install
+providers after the core sync, or create a separate locked deployment project
+with local editable sources. A later core `uv sync` can remove separately
+installed providers. See [development environment](../dev/environment.md).
 
-Each sync selects the complete extra set, so include every transport and tool
-extra needed by the environment. The `dev` extra is not a uv dependency group.
-See [the development environment guide](../dev/environment.md) for dependency
-updates, environment reuse, and CI behavior.
-
-### Existing pip Source Workflow
-
-pip installation remains supported without uv. In a separate or existing
-virtual environment:
+Standard pip remains supported in a standalone virtualenv:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .           # core runtime only
-# For developer tools:
+python -m pip install -e .
 python -m pip install -e ".[dev]"
-# Include transport extras as needed:
-python -m pip install -e ".[dev,matrix,meshtastic]"
+python -m pip install -e ../medre-adapter-matrix
 ```
 
-pip respects the declared requirements but does not read `uv.lock`; transitive
-versions can differ from the locked checkout and CI environment.
+For an existing environment or CI artifact, use
+`python -m pip install ./dist/medre-0.1.0-py3-none-any.whl`, or a Git direct URL
+requirement as documented in [adapter installation](adapter-installation.md).
+Pip does not consume `uv.lock`; use a separate pinned requirements/constraints
+workflow if you need reproducibility with pip.
 
-### Installed Package (Operators)
+## Verify the installation
 
-From a wheel or sdist:
+Run in whichever environment contains **both core and your providers**:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install medre-0.1.0-py3-none-any.whl
-# or
-pip install medre-0.1.0.tar.gz
+medre version
+medre paths
+medre adapters
+medre config sample > sample.yaml
+medre adapters check --config sample.yaml
+medre config check --config sample.yaml
+medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 ```
 
-This gives you the `medre` console script. You can also invoke via `python -m medre` or `python -m medre.cli` — all three are equivalent.
+A sample contributing provider creates fake instances and a route without
+connecting to a service or radio. If none of your installed providers
+contributes a sample, the generated config is empty: install a provider before
+expecting smoke delivery. The smoke result reports a source, receipts and an
+event ID. Inspect durable evidence with:
 
-Installed packages do not include the `examples/` directory. Use `medre config sample` to generate an equivalent config.
+```bash
+medre inspect event EVENT_ID --storage-path smoke.sqlite3
+medre inspect receipts --event EVENT_ID --storage-path smoke.sqlite3
+```
 
-### Verify a Built Artifact (source checkout)
+The CLI's `--storage-path` flag temporarily selects SQLite for smoke, even if
+the sample config uses in-memory storage. A fake `sent` receipt proves local
+pipeline and adapter-fake behavior, **not network or RF reception**. For live
+credentials and native confirmation, follow the [transport setup
+pages](getting-started.md#choose-another-platform) and [operator
+workflows](operator-workflows.md).
 
-From a source checkout, one command builds a wheel (via the pinned
-`build` tooling), installs it into a clean proof environment together with
-its core dependencies, and runs the installed-package proof. It fails
-loudly on any mismatch — no skips, no fallbacks:
+## Package and test validation
+
+From a development checkout with its `dev` extra installed:
 
 ```bash
 uv run --no-sync python scripts/check_installed_package.py
-
-# To re-verify a wheel you already built instead of building a new one:
-uv run --no-sync python scripts/check_installed_package.py --wheel dist/medre-0.1.0-py3-none-any.whl
+uv run --no-sync python -m pytest tests/ --core-only -q
 ```
 
-The script lives in the source repository — it is not part of the installed
-wheel — and is wired into the existing CI test job, so every push checks the
-installed-package path, not just the source tree. It deliberately installs the
-wheel with pip to verify consumer compatibility independently of uv. The proof
-environment installs the core dependencies (msgspec, PyYAML) from PyPI, so it needs
-network access.
-
-## Transport Extras
-
-Optional transport SDKs add real connectivity. Without them, only fake adapters are available.
-
-| Extra        | Install command                  | Notes                                                                |
-| ------------ | -------------------------------- | -------------------------------------------------------------------- |
-| `matrix`     | `uv sync --locked --extra matrix`     | Matrix plaintext via `mindroom-nio`                                  |
-| `matrix-e2e` | `uv sync --locked --extra matrix-e2e` | Matrix E2EE (adds `vodozemac`; needs Rust toolchain on Alpine/ARM)   |
-| `meshtastic` | `uv sync --locked --extra meshtastic` | Meshtastic LoRa via `mtjk`; serial requires `dialout` group on Linux |
-| `meshcore`   | `uv sync --locked --extra meshcore`   | MeshCore radio; serial requires `dialout` group                      |
-| `lxmf`       | `uv sync --locked --extra lxmf`       | LXMF / Reticulum; Reticulum uses a non-OSI license                   |
-
-Combine as needed: `uv sync --locked --extra dev --extra matrix --extra meshtastic`.
-For an installed wheel, select extras with pip, for example
-`python -m pip install "./medre-0.1.0-py3-none-any.whl[matrix,meshtastic]"`.
-
-### Transport-Specific Setup
-
-#### Matrix (Plaintext)
-
-```bash
-uv sync --locked --extra matrix
-```
-
-Binary wheels available for Linux (x86_64, aarch64), macOS, Windows. No compilation required on standard platforms.
-
-#### Matrix (E2EE)
-
-```bash
-uv sync --locked --extra matrix-e2e
-```
-
-- `vodozemac` requires a Rust toolchain if binary wheels are unavailable.
-  - Pre-built wheels: Linux x86_64, macOS x86_64/ARM, Windows x86_64.
-  - Alpine: `apk add musl-dev gcc cargo`.
-  - ARM (Raspberry Pi): may require source compilation.
-- Crypto store is SQLite, derived automatically — no operator configuration.
-- Device ID discovered automatically via `whoami()` on startup.
-- First-run key upload takes several seconds.
-
-#### Meshtastic
-
-```bash
-uv sync --locked --extra meshtastic
-```
-
-- Distribution name is `mtjk`, import name is `meshtastic` (fork maintains import compatibility).
-- Serial access requires Linux `dialout` group:
-  ```bash
-  sudo usermod -aG dialout $USER
-  # Log out and back in
-  ```
-- Radio firmware matters — tested with firmware 2.7.19.
-- TCP mode is synchronous in the SDK; MEDRE wraps in `asyncio.to_thread()`.
-
-#### MeshCore
-
-```bash
-uv sync --locked --extra meshcore
-```
-
-- Async-native SDK — clean fit for MEDRE's async architecture.
-- Serial permissions same as Meshtastic (`dialout` group).
-- Default TCP port is 4000.
-- Current evidence: synthetic/conformance tiers plus a deterministic
-  local-integration tier (pinned real SDK against a local companion
-  endpoint, run in CI). A live BLE bridge against real hardware was
-  recorded in June 2026 — preserved as dated history in
-  [live-validation/meshcore.md](live-validation/meshcore.md), not as proof
-  for the current tree.
-
-#### LXMF / Reticulum
-
-```bash
-uv sync --locked --extra lxmf
-```
-
-- Reticulum config at `~/.reticulum/config` may need adjustment for transport interfaces.
-- Identity file is a 64-byte private key — protect with `chmod 600`.
-- `RNS.Identity.from_file()` returns `None` on failure (not an exception) — callers check for `None`.
-- SDK provenance: the `lxmf` extra declares exact LXMF/RNS pins in
-  `pyproject.toml`; `uv.lock` records the resolved artifact graph. Install the
-  SDKs only through the extra; an unpinned `pip install lxmf` or `rnspure`
-  alongside MEDRE is not a supported install path and can drift from the
-  tested SDK surface.
-- Reticulum is designed for long-running daemons; short-lived processes may not establish stable connectivity.
-- Non-standard license (not OSI-approved).
-- Current evidence: synthetic/conformance tiers plus a deterministic
-  local-integration tier — a two-process loopback probe at the pinned
-  SDK versions proving real-router lifecycle, cross-process relations,
-  and local health (see [live-validation/lxmf.md](live-validation/lxmf.md)).
-  Adapter health covers the local session/router; peer reachability is
-  unknown and no external mesh claim is made.
-
-## Verify the Install
-
-Run these in order. Every one should succeed without errors.
-
-```bash
-# Version check (three equivalent invocations)
-medre version
-# Expected: medre 0.1.0, Python version, platform info
-
-# Show resolved paths
-medre paths
-# Expected: config, state, data, cache, log directory paths
-
-# List adapter types and SDK availability
-medre adapters
-# Expected: all transports show "not installed" (core-only).
-# Fake adapters work regardless of SDK status.
-```
-
-## Generate and Validate a Config
-
-`medre config sample` generates a complete YAML config using fake adapters. It works out of the box without any optional SDKs or network access.
-
-```bash
-# Print the sample config
-medre config sample
-
-# Save and validate
-medre config sample > /tmp/medre-alpha.yaml
-medre config check --config /tmp/medre-alpha.yaml
-# Expected: "Config valid", 2 enabled fake adapters,
-# route inventory showing matrix_radio_bridge as active.
-```
-
-The sample config uses `adapter_kind: fake` for all adapters. To switch to real adapters, change `adapter_kind` to `real` and fill in transport-specific credentials.
-
-For live Matrix setups, use the auth CLI:
-
-```bash
-medre adapter matrix auth login \
-  --homeserver https://matrix.example.com \
-  --user @bot:example.com
-```
-
-This performs an interactive login and saves credentials to the Matrix sidecar JSON file. Accepted flags: `--homeserver`, `--user`, `--password`, `--password-stdin`. For non-interactive automation, prefer `--password-stdin` (supplying the password via a file or pipe) over `--password`, which is visible in shell history and process listings. See [configuration.md](configuration.md) for credential handling details.
-
-Config file locations:
-
-- Default: `~/.config/medre/config.yaml` (XDG)
-- Override: set `MEDRE_HOME` environment variable
-- Explicit: pass `--config /path/to/config.yaml` to any command
-
-## Run a Smoke Test
-
-`medre smoke` builds a runtime from a config, injects a test message through the full pipeline, and reports results.
-
-**Source checkout (has `examples/` directory):**
-
-```bash
-medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
-# Expected: JSON with "status": "passed", event_id, delivery receipts.
-# For persistent evidence, edit the config to set storage.backend: sqlite
-# with a storage.path, then re-run.
-```
-
-**Installed package (use generated config):**
-
-```bash
-medre config sample > /tmp/medre-alpha.yaml
-medre smoke --config /tmp/medre-alpha.yaml --json
-# Expected: same as above.
-```
-
-Storage backend is determined by the config file. The default shipped config uses `storage.backend: memory` (ephemeral). For persistent evidence, set `storage.backend: sqlite` with a `path` in the config.
-
-Without `--config`, `medre smoke` looks for `examples/configs/fake-bridge-smoke.yaml` relative to the source tree — works in development checkouts only.
-
-## Inspect Results
-
-After a smoke test, use inspect commands to examine what happened. These are read-only and need only `--storage-path`.
-
-```bash
-medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
-medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
-```
-
-See [operator-workflows.md](operator-workflows.md) for the full investigation workflow.
-
-## Validate Example Configs (Source Checkout Only)
-
-The `examples/configs/` directory exists only in the source repository. If you installed from a wheel, skip this — use `medre config sample` instead.
-
-```bash
-medre config check --config examples/configs/fake-multi-adapter.yaml
-medre config check --config examples/configs/fake-bridge-smoke.yaml
-medre config check --config examples/configs/fake-retry-smoke.yaml
-
-# Real adapter configs (will show credential errors without env vars)
-medre config check --config examples/configs/matrix.yaml
-medre config check --config examples/configs/meshtastic-serial.yaml
-```
-
-Available example configs:
-
-| Config                          | Purpose                            | Requires SDKs?   |
-| ------------------------------- | ---------------------------------- | ---------------- |
-| `fake-multi-adapter.yaml`       | All four fake adapters with routes | No               |
-| `fake-bridge-smoke.yaml`        | Cross-adapter bridge patterns      | No               |
-| `fake-retry-smoke.yaml`         | Retry worker with fake adapters    | No               |
-| `matrix.yaml`                   | Real Matrix adapter                | Yes (matrix)     |
-| `meshtastic-serial.yaml`        | Real Meshtastic serial adapter     | Yes (meshtastic) |
-| `docker-matrix-bridge.yaml`     | Docker Synapse + Meshtastic        | Yes + Docker     |
-| `docker-meshtastic-bridge.yaml` | Docker meshtasticd + Matrix        | Yes + Docker     |
-| `docker-bridge-smoke.yaml`      | Docker integration smoke test      | Yes + Docker     |
-
-## Docker Validation (Optional)
-
-Some example configs reference Docker services (Synapse, meshtasticd). These require Docker Compose.
-
-```bash
-docker compose -f docker-compose.integration.yaml up -d
-source examples/env/docker.env.example  # edit with real values first
-medre config check --config examples/configs/docker-bridge-smoke.yaml
-docker compose -f docker-compose.integration.yaml down
-```
-
-Docker is not required for the basic install or fake-only smoke path.
-
-## Run the Test Suite (Source Checkout Only)
-
-```bash
-uv sync --locked --extra dev
-uv run --no-sync pytest -q
-# Expected: default-selected tests pass; gated tiers are deselected.
-
-uv run --no-sync python -m compileall -q src tests
-# Expected: no output (clean compilation)
-```
-
-Default selection excludes live, Docker, hardware, optional SDK, local
-integration, and soak tiers. The marker policy is defined in `pyproject.toml`.
-Select a gated tier explicitly after installing its extras and preparing its
-service or hardware prerequisites; see [testing](../dev/testing.md).
-
-To run live tests (requires real credentials and hardware):
-
-```bash
-uv run --no-sync pytest -m live -v
-```
-
-## Common Issues
-
-| Issue                                               | Cause                                     | Resolution                                                                                                             |
-| --------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `uv sync --locked --extra matrix`                                                                                           |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `uv sync --locked --extra meshtastic`                                                                                       |
-| `ListenerMismatchError`                             | Missing `pubsub` package                  | `uv sync --locked --extra meshtastic` (includes PyPubSub)                                                                   |
-| `Permission denied: /dev/ttyACM0`                   | Serial permissions                        | `sudo usermod -aG dialout $USER`, re-login                                                                             |
-| `OlmUnverifiedDeviceError`                          | Matrix peer-device trust check            | E2EE sends intentionally use `ignore_unverified_devices=True`; update to current MEDRE if this surfaces                |
-| Cross-signing diagnostics require reset             | Local/server own-device identity mismatch | Back up Matrix state; restore matching state or run authenticated `auth login --adapter-id <id> --reset-cross-signing` |
-| `vodozemac` build failure                           | No Rust toolchain                         | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`                                        |
-| `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted      | Check path, verify file is 64 bytes, check permissions                                                                 |
-| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `uv sync --locked --extra matrix-e2e`                                                                                       |
-| `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease      | Back up and remove the database: `medre storage reset`, then rerun                                                     |
-
-## Quick Reference
-
-```bash
-# Prepare a source checkout (wheel installation is covered above)
-uv sync --locked --extra dev
-source .venv/bin/activate
-
-# Verify
-medre version && medre paths && medre adapters
-
-# Generate config
-medre config sample > /tmp/medre-alpha.yaml
-medre config check --config /tmp/medre-alpha.yaml
-
-# Smoke test (config controls storage backend)
-medre smoke --config /tmp/medre-alpha.yaml --json
-
-# The smoke report includes event_id and storage_path (or use the
-# config's storage path setting).  Use --storage-path to persist:
-#   medre smoke --config /tmp/medre-alpha.yaml --storage-path /tmp/medre-alpha.db --json
-
-# Inspect (use the storage path from the smoke report or config)
-medre inspect event <event_id> --storage-path /tmp/medre-alpha.db
-medre inspect receipts --event <event_id> --storage-path /tmp/medre-alpha.db
-
-# Test suite (source checkout)
-uv run --no-sync pytest -q
-uv run --no-sync python -m compileall -q src tests
-```
+The wheel proof builds/installs the core wheel into an isolated environment.
+Adapter SDK tests and live hardware experiments belong to their owning
+repositories; the core-only suite requires none of them. Full instructions,
+markers and locked dependency updates belong to [testing](../dev/testing.md)
+and [development environment](../dev/environment.md), respectively.
+
+## Troubleshooting
+
+Missing provider? `medre adapters check --config bridge.yaml` distinguishes
+missing/broken entry points; then run `medre config check` for full validation.
+An installed provider may still lack its optional SDK. Check `medre adapters`
+and the provider's setup guide. Environment or permissions errors with devices,
+Matrix crypto or native identity files need native verification rather than a
+fake smoke. See [troubleshooting](troubleshooting.md).

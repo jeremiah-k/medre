@@ -102,7 +102,7 @@ async def _collect_storage_data_from_backend(
         if _list_pressure is not None:
             try:
                 data["inbound_pressure"] = await _list_pressure(limit=500)
-            except Exception as exc:  # noqa: BLE001 -- evidence must not fail
+            except Exception as exc:
                 data["inbound_pressure"] = {"error": f"pressure read failed: {exc}"}
                 _pressure_error = f"pressure read failed: {exc}"
 

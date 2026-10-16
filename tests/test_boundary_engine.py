@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Engine and pipeline boundary tests.
 
 Enforce that core engine modules (replay, route, pipeline) and the

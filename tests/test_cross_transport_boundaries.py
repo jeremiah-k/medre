@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-transport boundary enforcement tests.
 
 These tests verify architectural boundaries across all registered built-in

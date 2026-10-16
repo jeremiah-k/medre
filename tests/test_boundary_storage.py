@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Comprehensive boundary and storage surface tests.
 
 These tests protect structural invariants of the MEDRE framework — ensuring
@@ -19,6 +20,7 @@ from tests.helpers.import_scanner import (
     scan_multiple_dirs_for_plain_imports,
     scan_multiple_dirs_for_prefixes,
 )
+from tests.helpers.source_locations import source_file
 
 # ---------------------------------------------------------------------------
 # Local helpers wrapping ImportRecord-based API for violation checking
@@ -304,6 +306,7 @@ class TestReusableAdapterModuleBoundary:
                         other_transport != transport
                         and other_transport != ""
                         and not other_transport.startswith("_")
+                        and other_transport != "metadata"
                     ):
                         violations.append(
                             f"{rel}:{r.lineno}: imports {r.module} "
@@ -329,10 +332,8 @@ class TestReusableAdapterModuleBoundary:
         violations: list[str] = []
 
         for path_suffix, transport in self._MODULE_SPECS:
-            py_file = repo_root / path_suffix
-            if not py_file.exists():
-                continue
-            rel = str(py_file.relative_to(repo_root))
+            py_file = source_file(repo_root, path_suffix)
+            rel = path_suffix
             violations.extend(self._check_module(py_file, rel, transport))
 
         assert (

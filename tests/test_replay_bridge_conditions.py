@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay bridge-condition tests: live delivery vs replay delivery traceability.
 
 Tests verify that BEST_EFFORT replay of events previously delivered via a
@@ -26,12 +27,8 @@ from typing import Any
 
 import pytest
 
-from medre.config.model import (
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    RuntimeConfig,
-    StorageConfig,
-)
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths
 from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.engine.replay.engine import ReplayEngine

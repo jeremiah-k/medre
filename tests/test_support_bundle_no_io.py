@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """No-I/O verification for the operator support bundle.
 
 The support bundle is contractually offline: it must not import any

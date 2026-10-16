@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Synapse connectivity integration tests for the MEDRE Matrix adapter.
 
 These tests start a real Synapse homeserver in Docker, register a bot
@@ -8,7 +9,7 @@ default runs.
 Running locally::
 
     # Prerequisites: Docker running, MEDRE matrix extras installed
-    pip install -e ".[matrix]"
+    pip install medre-adapter-matrix
     pytest tests/integration/test_synapse_connectivity.py -m docker -v
 
 To include in a broader integration run::
@@ -44,7 +45,7 @@ if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         ),
     ]
 

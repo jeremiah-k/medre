@@ -12,25 +12,25 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 ## Configuration Fields
 
-| Field                                      | Type                                                   | Default       | Description                                                                     |
-| ------------------------------------------ | ------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------- |
-| `adapter_id`                               | `str`                                                  | _(required)_  | Unique adapter instance identifier                                              |
-| `homeserver`                               | `str`                                                  | _(required)_  | Matrix homeserver URL (`https://…` or `http://…`)                               |
-| `user_id`                                  | `str`                                                  | _(required)_  | Fully-qualified Matrix user ID (must start with `@`)                            |
-| `device_id`                                | `str \| None`                                          | `None`        | Internal — discovered via `whoami()` when needed                                |
-| `access_token`                             | `str`                                                  | `""`          | Access token for authentication; sidecar fallback supported                     |
-| `room_allowlist`                           | `set[str] \| None`                                     | `None`        | Optional set of room IDs to accept; `None` = all rooms                          |
-| `metadata_embedding_mode`                  | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                            |
-| `store_path`                               | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                   |
-| `sync_timeout_ms`                          | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                       |
-| `sync_stale_timeout_seconds`               | `float`                                                | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog      |
-| `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                      |
-| `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                         |
-| `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
-| `require_encrypted_rooms`                  | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
+| Field                                      | Type                                                   | Default       | Description                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------- |
+| `adapter_id`                               | `str`                                                  | _(required)_  | Unique adapter instance identifier                                                                      |
+| `homeserver`                               | `str`                                                  | _(required)_  | Matrix homeserver URL (`https://…` or `http://…`)                                                       |
+| `user_id`                                  | `str`                                                  | _(required)_  | Fully-qualified Matrix user ID (must start with `@`)                                                    |
+| `device_id`                                | `str \| None`                                          | `None`        | Internal — discovered via `whoami()` when needed                                                        |
+| `access_token`                             | `str`                                                  | `""`          | Access token for authentication; sidecar fallback supported                                             |
+| `room_allowlist`                           | `set[str] \| None`                                     | `None`        | Optional set of room IDs to accept; `None` = all rooms                                                  |
+| `metadata_embedding_mode`                  | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                                                    |
+| `store_path`                               | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                                           |
+| `sync_timeout_ms`                          | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                                               |
+| `sync_stale_timeout_seconds`               | `float`                                                | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog                              |
+| `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                                              |
+| `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                                                 |
+| `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                                             |
+| `require_encrypted_rooms`                  | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`                           |
 | `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`          | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite |
-| `origin_label`                             | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
-| `relay_prefix`                             | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
+| `origin_label`                             | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes                                       |
+| `relay_prefix`                             | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)                          |
 
 ---
 
@@ -325,6 +325,13 @@ per concern:
 - MEDRE storage owns canonical admission, deduplication, pending ingress work, and
   the committed Classic cursor; and
 - MEDRE's core pipeline owns routing, outbox creation, and delivery retries.
+
+A fresh SDK client MUST request full room state on its first successful sync,
+even when resuming MEDRE's saved cursor. The cursor resumes event delivery; it
+does not restore the client's in-memory membership and encryption state.
+Subsequent syncs on the initialized client remain incremental. A process restart
+MUST preserve display-name attribution and encrypted-room detection without
+replaying previously admitted messages.
 
 When storage is unavailable, the runtime MUST omit all three durable callbacks
 (admission, checkpoint load, and checkpoint commit). In that non-durable mode,
@@ -647,7 +654,7 @@ so a hostile or broken value cannot park delivery indefinitely.
 
 ## Reference Libraries
 
-| Library             | Purpose                                | Optional                  |
-| ------------------- | -------------------------------------- | ------------------------- |
-| `mindroom-nio`      | Async Matrix client (sync, send, E2EE) | Yes (`medre[matrix]`)     |
-| `mindroom-nio[e2e]` | E2EE crypto (vodozemac + Olm)          | Yes (`medre[matrix-e2e]`) |
+| Library             | Purpose                                | Optional                          |
+| ------------------- | -------------------------------------- | --------------------------------- |
+| `mindroom-nio`      | Async Matrix client (sync, send, E2EE) | Yes (`medre-adapter-matrix`)      |
+| `mindroom-nio[e2e]` | E2EE crypto (vodozemac + Olm)          | Yes (`medre-adapter-matrix[e2e]`) |

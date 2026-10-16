@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Registry-specific runtime builder contract tests."""
 
 from __future__ import annotations
@@ -8,12 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from medre.config.adapters.matrix import MatrixConfig
-from medre.config.model import (
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    RuntimeConfig,
-    StorageConfig,
-)
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths, resolve
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.runtime import builder as builder_mod

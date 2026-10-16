@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Queue boundary and invariant tests.
 
 Verifies that:
@@ -20,10 +21,10 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,

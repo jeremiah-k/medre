@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Architecture boundary tests: no public API commitment yet.
 
 Ensures that importing top-level packages does not pull in heavy
@@ -95,7 +96,7 @@ class TestObservabilityFacadeRemoved:
 
     def test_from_medre_observability_import_fails(self) -> None:
         """medre.observability should not be importable as a facade."""
-        import medre.core.observability.sanitization  # noqa: F401
+        import medre.core.observability.sanitization
 
         with pytest.raises(ImportError):
             import medre.observability.sanitize_error  # type: ignore[import-not-found,unused-import]  # noqa: F401
@@ -328,9 +329,9 @@ class TestPackageRootsSystematic:
     ]
 
     def _read_py_file(self, rel_path: str) -> tuple[Path, str]:
-        src_dir = Path(__file__).resolve().parents[1] / "src"
-        py_file = src_dir / rel_path
-        assert py_file.exists(), f"File not found: {py_file}"
+        from tests.helpers.source_locations import source_file
+
+        py_file = source_file(Path(__file__).resolve().parents[1], "src/" + rel_path)
         return py_file, py_file.read_text(encoding="utf-8")
 
     def test_all_roots_have_no_all(self) -> None:

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Synapse SDK-boundary bridge smoke tests for the MEDRE Matrix adapter.
 
 These tests start a real Synapse homeserver in Docker, register two users
@@ -19,7 +20,7 @@ and excluded from default runs.
 
 Running locally::
 
-    pip install -e ".[matrix]"
+    pip install medre-adapter-matrix
     pytest tests/integration/test_synapse_bridge_smoke.py -m docker -v
 
 Evidence classification
@@ -94,7 +95,7 @@ if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         ),
     ]
 

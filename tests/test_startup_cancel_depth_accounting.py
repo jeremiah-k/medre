@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cancellation depth accounting, drain helper, and catastrophic CE tests.
 
 Split from ``test_startup_cleanup_stop_supervision.py``.  Covers:

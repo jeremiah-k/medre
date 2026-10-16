@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """No-I/O verification for :mod:`medre.runtime.route_plan`.
 
 Confirms the route-plan builder performs **no network or hardware I/O**:

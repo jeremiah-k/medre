@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: Matrix store_path derivation
 and _ensure_dirs directory creation."""
 
@@ -10,13 +11,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from medre.config.adapters.matrix import MatrixConfig
-from medre.config.model import (
-    AdapterConfigSet,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
-    RuntimeConfig,
-    StorageConfig,
-)
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
+from medre.config.model import AdapterConfigSet, RuntimeConfig, StorageConfig
 from medre.config.paths import MedrePaths, resolve
 from medre.core.contracts.adapter import AdapterContract
 from medre.runtime.builder import RuntimeBuilder

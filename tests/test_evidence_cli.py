@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre evidence CLI and evidence bundle collection.
 
 Proves that :func:`medre.runtime.evidence.collect_evidence_bundle` produces

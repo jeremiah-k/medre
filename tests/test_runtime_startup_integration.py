@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for runtime startup and storage integration: storage schema validation, startup semantics,
 boot summary integration in the app lifecycle, CLI diagnostics command.
 

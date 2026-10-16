@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Import side-effect tests for reusable adapter modules.
 
 Verify that importing codec, renderer, and interop modules does not:

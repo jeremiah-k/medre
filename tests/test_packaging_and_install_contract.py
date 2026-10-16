@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Packaging, install, and import-boundary contract tests.
 
 Tracks 2 & 10 — validates:
@@ -27,6 +28,7 @@ from typing import Any
 import pytest
 
 from medre.config.paths import MedrePaths
+from tests.helpers.source_locations import source_file
 
 # ---------------------------------------------------------------------------
 # Path to pyproject.toml (repo root)
@@ -111,70 +113,43 @@ class TestPackageMetadata:
 # ===================================================================
 
 
-# The set of extras that **must** exist in pyproject.toml.
-# Dev/test extras are optional (may exist); transport extras are required.
-_REQUIRED_EXTRAS = frozenset({"matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"})
-_OPTIONAL_EXTRAS = frozenset({"dev", "test"})
-_ALL_KNOWN_EXTRAS = _REQUIRED_EXTRAS | _OPTIONAL_EXTRAS
+# SDK dependency ownership belongs in the independently installed adapters.
+_ADAPTER_DISTRIBUTIONS = {
+    "matrix": "medre-adapter-matrix",
+    "meshtastic": "medre-adapter-meshtastic",
+    "meshcore": "medre-adapter-meshcore",
+    "lxmf": "medre-adapter-lxmf",
+}
 
 
 class TestOptionalExtras:
-    """Verify optional-dependencies match the packaging contract."""
+    """Core stays SDK-free; adapter distributions own their requirements."""
 
-    @pytest.fixture(autouse=True)
-    def _load(self) -> None:
-        self._opt = _load_pyproject()["project"].get("optional-dependencies", {})
+    def test_core_extras_are_dev_only(self) -> None:
+        extras = _load_pyproject()["project"].get("optional-dependencies", {})
+        assert set(extras) <= {"dev"}
 
-    def test_required_extras_present(self) -> None:
-        missing = _REQUIRED_EXTRAS - set(self._opt.keys())
-        assert not missing, f"missing required extras: {sorted(missing)}"
+    def test_core_dependencies_exclude_transport_sdks(self) -> None:
+        dependencies = _load_pyproject()["project"]["dependencies"]
+        assert not any(
+            sdk in requirement.lower()
+            for requirement in dependencies
+            for sdk in ("mindroom-nio", "mtjk", "meshcore", "lxmf", "rns")
+        )
 
-    def test_extras_are_lists_of_strings(self) -> None:
-        for name, deps in self._opt.items():
-            assert isinstance(deps, list), f"extra {name!r} is not a list"
-            for dep in deps:
-                assert isinstance(
-                    dep, str
-                ), f"extra {name!r} contains non-string: {dep!r}"
+    @pytest.mark.parametrize("transport", tuple(_ADAPTER_DISTRIBUTIONS))
+    def test_adapter_distribution_owns_sdk(self, transport: str) -> None:
+        from importlib.metadata import distribution
 
-    def test_extras_do_not_overlap_base_deps(self) -> None:
-        base = set(_load_pyproject()["project"].get("dependencies", []))
-        for name, deps in self._opt.items():
-            overlap = set(deps) & base
-            assert not overlap, f"extra {name!r} shares deps with base: {overlap}"
-
-    def test_matrix_extra_contains_nio(self) -> None:
-        deps = self._opt.get("matrix", [])
-        assert any(
-            "mindroom-nio" in d or "nio" in d for d in deps
-        ), f"matrix extra missing mindroom-nio: {deps}"
-
-    def test_meshtastic_extra_contains_mtjk(self) -> None:
-        deps = self._opt.get("meshtastic", [])
-        assert any("mtjk" in d for d in deps), f"meshtastic extra missing mtjk: {deps}"
-
-    def test_meshcore_extra_contains_meshcore(self) -> None:
-        deps = self._opt.get("meshcore", [])
-        assert any(
-            "meshcore" in d for d in deps
-        ), f"meshcore extra missing meshcore: {deps}"
-
-    def test_lxmf_extra_contains_lxmf(self) -> None:
-        deps = self._opt.get("lxmf", [])
-        assert any("lxmf" in d for d in deps), f"lxmf extra missing lxmf: {deps}"
-
-    def test_matrix_e2e_contains_e2e_marker(self) -> None:
-        deps = self._opt.get("matrix-e2e", [])
-        assert any(
-            "e2e" in d for d in deps
-        ), f"matrix-e2e extra missing e2e marker: {deps}"
-
-    def test_no_unknown_transport_extras(self) -> None:
-        """All extras in pyproject should be known to this test."""
-        unknown = set(self._opt.keys()) - _ALL_KNOWN_EXTRAS
-        assert (
-            not unknown
-        ), f"unknown extras in pyproject.toml (add to this test): {sorted(unknown)}"
+        dist = distribution(_ADAPTER_DISTRIBUTIONS[transport])
+        requirements = " ".join(dist.requires or []).lower()
+        sdk = {
+            "matrix": "mindroom-nio",
+            "meshtastic": "mtjk",
+            "meshcore": "meshcore",
+            "lxmf": "lxmf",
+        }[transport]
+        assert sdk in requirements
 
 
 # ===================================================================
@@ -360,13 +335,13 @@ class TestRuntimeBuilderWithFakeMultiAdapter:
 
     def test_build_all_four_transport_fakes(self, tmp_paths: MedrePaths) -> None:
         """Build a runtime with all four transports in fake mode."""
+        from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+        from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
+        from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
-            LxmfRuntimeConfig,
-            MatrixRuntimeConfig,
-            MeshCoreRuntimeConfig,
-            MeshtasticRuntimeConfig,
             RuntimeConfig,
             RuntimeLimits,
             RuntimeOptions,
@@ -464,7 +439,7 @@ class TestDocsContractConsistency:
     def test_contract_doc_mentions_all_extras(self) -> None:
         contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"
         content = contract_path.read_text()
-        for extra_name in _REQUIRED_EXTRAS:
+        for extra_name in ("dev",):
             assert (
                 extra_name in content
             ), f"Contract doc does not mention extra {extra_name!r}"
@@ -675,6 +650,7 @@ class TestCLIHelpWithoutSDKs:
         leaked = after - before
         assert not leaked, f"optional SDK modules leaked by version: {sorted(leaked)}"
 
+
 # ===================================================================
 # 11. Fake adapters do not transitively import optional SDKs
 # ===================================================================
@@ -734,49 +710,49 @@ class TestMissingSDKErrorMessages:
     """Error messages for missing optional SDKs must mention the install extra."""
 
     def _get_source(self, relative_path: str) -> str:
-        return (_REPO_ROOT / relative_path).read_text()
+        return source_file(_REPO_ROOT, relative_path).read_text()
 
     def test_matrix_adapter_mentions_medre_matrix(self) -> None:
         src = self._get_source("src/medre/adapters/matrix/adapter.py")
         assert (
-            "medre[matrix]" in src
-        ), "Matrix adapter error message should mention pip install 'medre[matrix]'"
+            "medre-adapter-matrix" in src
+        ), "Matrix adapter error message should mention pip install 'medre-adapter-matrix'"
 
     def test_matrix_session_e2ee_mentions_medre_matrix_e2e(self) -> None:
         src = self._get_source("src/medre/adapters/matrix/session.py")
         assert (
-            "medre[matrix-e2e]" in src
-        ), "Matrix session E2EE error should mention pip install 'medre[matrix-e2e]'"
+            "medre-adapter-matrix[e2e]" in src
+        ), "Matrix session E2EE error should mention pip install 'medre-adapter-matrix[e2e]'"
 
     def test_meshtastic_session_mentions_medre_meshtastic(self) -> None:
         src = self._get_source("src/medre/adapters/meshtastic/session.py")
         assert (
-            "medre[meshtastic]" in src
-        ), "Meshtastic session error should mention pip install 'medre[meshtastic]'"
+            "medre-adapter-meshtastic" in src
+        ), "Meshtastic session error should mention pip install 'medre-adapter-meshtastic'"
 
     def test_meshcore_session_mentions_medre_meshcore(self) -> None:
         src = self._get_source("src/medre/adapters/meshcore/session.py")
         assert (
-            "medre[meshcore]" in src
-        ), "MeshCore session error should mention pip install 'medre[meshcore]'"
+            "medre-adapter-meshcore" in src
+        ), "MeshCore session error should mention pip install 'medre-adapter-meshcore'"
 
     def test_lxmf_adapter_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/adapter.py")
         assert (
-            "medre[lxmf]" in src
-        ), "LXMF adapter error should mention pip install 'medre[lxmf]'"
+            "medre-adapter-lxmf" in src
+        ), "LXMF adapter error should mention pip install 'medre-adapter-lxmf'"
 
     def test_lxmf_session_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/session.py")
         assert (
-            "medre[lxmf]" in src
-        ), "LXMF session error should mention pip install 'medre[lxmf]'"
+            "medre-adapter-lxmf" in src
+        ), "LXMF session error should mention pip install 'medre-adapter-lxmf'"
 
     def test_lxmf_compat_mentions_medre_lxmf(self) -> None:
         src = self._get_source("src/medre/adapters/lxmf/compat.py")
         assert (
-            "medre[lxmf]" in src
-        ), "LXMF compat error should mention pip install 'medre[lxmf]'"
+            "medre-adapter-lxmf" in src
+        ), "LXMF compat error should mention pip install 'medre-adapter-lxmf'"
 
     def test_smoke_fake_path_no_sdk_import(self) -> None:
         """Smoke with a fake-only config must not import optional SDKs.

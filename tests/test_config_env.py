@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.config.env: env var parsing, type coercion,
 instance-scoped adapter overrides, token normalization, secrets redaction."""
 
@@ -6,9 +7,13 @@ from __future__ import annotations
 import pytest
 
 from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import (
     MedreEnvConfig,
     _coerce_bool,
@@ -23,10 +28,6 @@ from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

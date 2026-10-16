@@ -348,7 +348,7 @@ class TestAdapterTransportStateDir:
         assert tempfile.gettempdir() not in str(result)
 
 
-@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "con", "CON"])
 def test_adapter_transport_state_dir_rejects_unsupported_transport(
     transport: str,
 ) -> None:
@@ -406,3 +406,11 @@ class TestImmutability:
         paths = resolve()
         with pytest.raises(AttributeError):
             paths.state_dir = Path("/hacked")  # type: ignore[misc]
+
+
+def test_uninstalled_community_transport_has_a_portable_state_path():
+    paths = resolve()
+    assert (
+        paths.adapter_transport_state_dir("node", "private_chat")
+        == paths.adapter_state_dir("node") / "private_chat"
+    )

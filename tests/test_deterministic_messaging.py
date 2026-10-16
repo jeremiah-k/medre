@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Deterministic messaging and no-traceback assertion tests.
 
 Validates that every error path an operator might encounter produces

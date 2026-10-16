@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Replay cancellation and shutdown tests: CancelledError and capacity release.
 
 Deterministic tests verifying that CancelledError propagates correctly
@@ -21,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     StorageConfig,

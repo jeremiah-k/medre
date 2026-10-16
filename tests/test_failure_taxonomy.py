@@ -445,7 +445,7 @@ class TestRepresentativeDetails:
         detail = derive_failure_kind_detail(
             "adapter_transient", "outbound queue is full"
         )
-        assert detail == "meshtastic_queue_rejected"
+        assert detail == "queue_rejected"
         taxon = resolve_taxon("adapter_transient", "outbound queue is full", "failed")
         assert taxon == FailureTaxon.UNAVAILABLE
 
@@ -454,7 +454,7 @@ class TestRepresentativeDetails:
             "capability_suppressed",
             "outbound suppressed: device in listen_only mode",
         )
-        assert detail == "meshtastic_outbound_suppressed"
+        assert detail == "outbound_suppressed"
         taxon = resolve_taxon(
             "capability_suppressed",
             "outbound suppressed: device in listen_only mode",

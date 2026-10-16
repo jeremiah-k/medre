@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Contract tests for shared built-in native-metadata namespace dispatch."""
 
 from __future__ import annotations

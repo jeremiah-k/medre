@@ -147,10 +147,8 @@ def derive_failure_kind_detail(
 ) -> str | None:
     """Derive a conservative *failure_kind_detail* from error context.
 
-    This is a pure re-implementation of
-    :func:`medre.runtime.reporting._derive_failure_kind_detail` so that
-    evidence-layer consumers can classify receipts without importing the
-    runtime package.
+    This is the shared pure implementation used by runtime reporting and
+    evidence consumers. No provider-specific names or SDK vocabulary are inferred.
 
     Patterns
     --------
@@ -158,10 +156,10 @@ def derive_failure_kind_detail(
       pipeline shutdown drain.
     * ``"policy_suppressed"`` — route policy denial (from error text or
       failure kind).
-    * ``"e2ee_blocked"`` — Matrix E2EE decryption / blocking errors.
-    * ``"meshtastic_queue_rejected"`` — queue-full or enqueue-rejected.
-    * ``"meshtastic_outbound_suppressed"`` — listen-only mode suppression.
-    * ``"meshtastic_queue_drain_cancelled"`` — queue drain cancelled during
+    * ``"e2ee_blocked"`` — E2EE decryption / blocking errors.
+    * ``"queue_rejected"`` — queue-full or enqueue-rejected.
+    * ``"outbound_suppressed"`` — listen-only mode suppression.
+    * ``"queue_drain_cancelled"`` — queue drain cancelled during
       shutdown.
     * Otherwise — the original ``failure_kind`` is returned as-is.
     """
@@ -176,29 +174,25 @@ def derive_failure_kind_detail(
         return "policy_suppressed"
     if failure_kind == "policy_suppressed":
         return "policy_suppressed"
-    # E2EE / encrypted blocking (Matrix adapters).
+    # E2EE / encrypted blocking (any provider).
     if any(
         s in err
         for s in (
             "e2ee",
-            "megolm",
-            "olm session",
             "unable to decrypt",
             "crypto is not active",
-            "matrix room is encrypted",
-            "room is encrypted but e2ee",
         )
     ):
         return "e2ee_blocked"
-    # Meshtastic queue-full / rejection.
+    # Adapter queue-full / rejection.
     if ("queue" in err and "full" in err) or "enqueue rejected" in err:
-        return "meshtastic_queue_rejected"
-    # Meshtastic outbound gate suppression — listen_only mode.
+        return "queue_rejected"
+    # Adapter outbound gate suppression — listen_only mode.
     if "outbound suppressed" in err and "listen_only" in err:
-        return "meshtastic_outbound_suppressed"
-    # Meshtastic queue drain cancelled.
+        return "outbound_suppressed"
+    # Adapter queue drain cancelled.
     if "queue drain cancelled" in err or "queue abandoned" in err:
-        return "meshtastic_queue_drain_cancelled"
+        return "queue_drain_cancelled"
     # Default: preserve the original failure_kind.
     return failure_kind
 
@@ -215,8 +209,7 @@ def compute_retryable(
 ) -> bool:
     """Determine whether a receipt represents a retryable delivery state.
 
-    This is a pure re-implementation of
-    :func:`medre.runtime.reporting._compute_retryable`.
+    Runtime reporting delegates to this same implementation.
 
     Rules (evaluated in order; first match wins):
 
@@ -246,10 +239,10 @@ def compute_retryable(
 # Mapping from detail strings to refined FailureTaxon members.
 _DETAIL_TO_TAXON: dict[str, FailureTaxon] = {
     "shutdown_drain_timeout": FailureTaxon.SHUTDOWN_PENDING,
-    "meshtastic_outbound_suppressed": FailureTaxon.ROUTE_LISTEN_ONLY,
-    "meshtastic_queue_drain_cancelled": FailureTaxon.CANCELLED,
+    "outbound_suppressed": FailureTaxon.ROUTE_LISTEN_ONLY,
+    "queue_drain_cancelled": FailureTaxon.CANCELLED,
     "e2ee_blocked": FailureTaxon.DELIVERY_FAILED,
-    "meshtastic_queue_rejected": FailureTaxon.UNAVAILABLE,
+    "queue_rejected": FailureTaxon.UNAVAILABLE,
 }
 
 

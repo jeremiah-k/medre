@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI replay-flow tests: dry_run, best_effort, full walkthrough.
 
 Split from the original walkthrough CLI test monolith.
@@ -18,11 +19,11 @@ import pytest
 
 from medre.cli import main
 from medre.cli.replay_commands import _drain_inflight_deliveries
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

@@ -8,14 +8,14 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 
 ## Prerequisites
 
-| Requirement         | Details                                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                                |
-| LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                            |
-| Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                                 |
-| Python              | 3.11 or later                                                                                                                    |
-| Package install     | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked --extra lxmf` (exact LXMF/RNS pins from project metadata). |
-| Network access      | At least one Reticulum transport interface configured                                                                            |
+| Requirement         | Details                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                                                             |
+| LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                                                         |
+| Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                                                              |
+| Python              | 3.11 or later                                                                                                                                                 |
+| Package install     | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install medre-adapter-lxmf` (exact LXMF/RNS pins from project metadata). |
+| Network access      | At least one Reticulum transport interface configured                                                                                                         |
 
 Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
 
@@ -74,12 +74,12 @@ MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The ad
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward.
 
-| Method        | Code   | Behavior                                                        | Reliability                                                    | Latency                |
-| ------------- | ------ | --------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------- |
-| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | Bounded SDK retries; asynchronous delivery receipts.          | Seconds to minutes     |
-| OPPORTUNISTIC | `0x01` | Single RNS packet without a link when the packed payload fits. | SDK retry scheduling and packet delivery receipts when available. | Depends on path and medium |
-| PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later. | Minutes to hours       |
-| PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                  | N/A                    |
+| Method        | Code   | Behavior                                                        | Reliability                                                       | Latency                    |
+| ------------- | ------ | --------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------- |
+| DIRECT        | `0x02` | Establishes `RNS.Link`, sends via link packet or `RNS.Resource` | Bounded SDK retries; asynchronous delivery receipts.              | Seconds to minutes         |
+| OPPORTUNISTIC | `0x01` | Single RNS packet without a link when the packed payload fits.  | SDK retry scheduling and packet delivery receipts when available. | Depends on path and medium |
+| PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later.    | Minutes to hours           |
+| PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                     | N/A                        |
 
 ### MEDRE Config — Delivery Method
 

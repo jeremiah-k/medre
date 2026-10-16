@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Concurrent ingress stress tests for the MEDRE bridge pipeline.
 
 Proves that the pipeline handles concurrent inbound traffic

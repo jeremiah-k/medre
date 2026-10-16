@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shared helpers for walkthrough CLI test modules.
 
 Extracted from the original walkthrough CLI test monolith.

@@ -8,3 +8,7 @@ Import directly from concrete modules:
   from medre.config.env import MedreEnvConfig
   from medre.config.routes import RouteConfig
 """
+
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)

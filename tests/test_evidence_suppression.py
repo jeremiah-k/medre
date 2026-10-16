@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Suppression-evidence integration tests for delivery evidence.
 
 Moved from test_delivery_evidence_unification.py to keep the main file under

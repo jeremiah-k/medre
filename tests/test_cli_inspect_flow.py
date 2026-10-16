@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI inspect-flow tests: receipts, timeline, evidence, recovery.
 
 Split from the original walkthrough CLI test monolith.

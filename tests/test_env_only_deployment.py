@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """End-to-end test proving env-only fake deployment works.
 
 Demonstrates that a complete MEDRE runtime — config loading, adapter creation,

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime Event Flow Validation.
 
 Tests that events flow correctly through the runtime pipeline:
@@ -17,11 +18,11 @@ import pytest
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

@@ -19,8 +19,9 @@ The configuration system lives under `medre.config`:
 | `model.py`       | Typed frozen-dataclass configuration models                                                          |
 | `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
-Per-transport config dataclasses live in `medre.config.adapters.*`. The
-allowed built-in transport vocabulary and lazy config-class references come
+Per-transport config dataclasses are owned by adapter distributions. First-party
+adapters use `medre.config.adapters.*`; community providers may use any package. The
+installed transport vocabulary and lazy config-class references come
 from `medre.adapter_registry`; the config package does not maintain a second
 transport list.
 
@@ -43,9 +44,9 @@ class RuntimeConfig:
 ```
 
 `AdapterConfigSet` stores transport groups in a registry-keyed mapping rather
-than one field per built-in transport. Existing attribute access such as
+than one field per transport. Existing attribute access such as
 `config.adapters.matrix` remains available, while generic consumers iterate
-`config.adapters.groups()`. This allows a new registered built-in transport to
+`config.adapters.groups()`. This allows a new installed transport to
 flow through loading, env overrides, validation, and runtime assembly without
 changing the root config model.
 
@@ -82,6 +83,14 @@ changing the root config model.
 | `max_inflight_inbound_admissions`   | `100`   | Max concurrent inbound admissions    |
 | `inbound_admission_timeout_seconds` | `5.0`   | Inbound admission wait before reject |
 
+The YAML loader **MUST** accept and forward all six fields to the same
+`RuntimeLimits` value consumed by the capacity controller. Concurrent-work
+limits **MUST** be strictly positive integers (not booleans); timeouts **MUST**
+be strictly positive, finite numbers (not booleans). Invalid values **MUST**
+raise `ConfigValidationError` before runtime construction. The top-level
+`runtime.shutdown_timeout_seconds` **MUST** be a positive integer and
+`runtime.name` **MUST** be a non-empty, non-whitespace string.
+
 ### 2.5 RetryConfig
 
 | Field              | Default | Description                                    |
@@ -90,6 +99,12 @@ changing the root config model.
 | `interval_seconds` | `10.0`  | Polling interval for due outbox work           |
 | `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
+
+`retry.enabled` **MUST** be a boolean, `retry.batch_size` and
+`retry.max_attempts` **MUST** be positive integers, and
+`retry.interval_seconds` **MUST** be a positive, finite number. YAML,
+environment overrides, and programmatically constructed runtime configurations
+**MUST** enforce these same invariants before creating the retry worker.
 
 ### 2.6 AttachmentConfig
 
@@ -106,8 +121,9 @@ explicit operator decision.
 | `max_concurrent_transfers` | `2`         | Maximum concurrent binary transfers (downloads and uploads combined) runtime-wide |
 | `transfer_timeout_seconds` | `60.0`      | Deadline in seconds for one binary transfer                                       |
 
-Validation rules (enforced by `AttachmentConfig.validate()` at load time and
-after environment overrides):
+Validation rules (enforced by `AttachmentConfig.validate()` at load time,
+after environment overrides, and by `RuntimeBuilder` for directly constructed
+`RuntimeConfig` values):
 
 - `max_attachment_bytes` and `max_retained_bytes` MUST be positive integers.
 - `transfer_timeout_seconds` MUST be a positive finite number.
@@ -124,6 +140,17 @@ and [storage.md §4.12](storage.md#412-attachment_blobs)). Raising or
 lowering `max_retained_bytes` is an operator action — the runtime adds no
 automatic binary retention, TTL, or GC (see
 [storage.md §4.12](storage.md#412-attachment_blobs)).
+
+### 2.7 Programmatic configuration validation
+
+`RuntimeBuilder` **MUST** validate adapter instance identities, boolean
+`enabled` flags, adapter kinds, duplicate route IDs, and attachment limits
+before constructing storage or adapter objects, even when callers bypass the
+YAML loader with a directly constructed `RuntimeConfig`. Adapter instance
+identifiers **MUST** be unique across transport groups. `adapter_kind` **MUST**
+be `real` or `fake`; `enabled` **MUST** be an actual boolean, not a truthy
+string or number. Invalid declarations **MUST** surface as
+`RuntimeConfigError` rather than silently changing runtime behavior.
 
 ## 3. YAML Schema
 
@@ -186,10 +213,13 @@ Each transport has its own sub-table under
 - `adapters.lxmf.<name>` → `LxmfConfig`
 
 Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
-the fallback for registered built-ins that do not declare a specialized wrapper.
-`MatrixRuntimeConfig`, `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and
-`LxmfRuntimeConfig` are compatibility subclasses for the current built-ins. The
-wrapper consumes three wrapper-level fields before constructing the adapter
+the fallback for installed providers that do not declare a specialized wrapper.
+Specialized wrappers, including the first-party transport wrappers, are owned
+by their adapter distributions and imported directly from those packages. Core
+validates the structural `AdapterRuntimeConfig` interface (`adapter_id`,
+`enabled`, `adapter_kind`, and `config`); inheritance from the generic fallback
+**MUST NOT** be required. Independent wrappers use the same field validation as
+subclasses. The wrapper consumes three lifecycle fields before constructing the adapter
 dataclass:
 
 | Wrapper field  | Type   | Default       | Description                                                                                                                                                                       |
@@ -316,7 +346,18 @@ Programmatically constructed `RouteConfig` values are subject to the same
 runtime-semantic invariants before expansion: both adapter sides MUST be
 non-empty, structured destinations MUST have exactly one destination adapter
 and no competing channel selector, and `context_map` MUST NOT be combined
-with competing source/destination selectors.
+with competing source/destination selectors. `enabled` **MUST** be a boolean
+(not the strings `"true"` or `"false"`); both adapter lists **MUST** contain
+non-empty, already-normalized strings without implicit type conversion.
+When present, `policy`, `retry`, and `context_map` **MUST** be mappings, not
+`null`. Policy allowlist members **MUST** be arrays of strings; explicit
+`null` MUST NOT mean an unrestricted allowlist. Route retry durations
+(`backoff_base` and `max_delay_seconds`) **MUST** be finite non-negative
+numbers in both parsed and programmatically constructed configurations.
+
+Direct `BridgePolicy` construction **MUST** enforce the same allowlist element
+types as parsed configuration. Caller-owned list inputs **MUST** be copied into
+immutable tuples so later mutation cannot remove a routing guard.
 
 #### 3.4.1 context_map
 
@@ -440,6 +481,11 @@ files to avoid false editor errors:
   (`runtime`, `logging`, `adapters`, `routes`, ...) are not recognized
   at the component level. Use these only when editing a single adapter
   table or route definition in isolation.
+
+The full-config schema MUST accept structurally valid community transport
+names. Installed-provider availability and native destination rules MUST be
+validated by `medre config check`, using adapter-owned models and validators.
+Static schemas describe structure rather than snapshotting installed packages.
 
 For a full config file, point the YAML language server at
 `runtime-config.schema.json`. A `# yaml-language-server: $schema=`
@@ -568,13 +614,16 @@ Path placeholders `{config}`, `{state}`, `{data}`, `{cache}`, `{logs}` are
 expanded via `MedrePaths.expand_placeholder()`. Directories are never created
 by pure path resolution — only during runtime startup.
 
+Programmatic callers may supply `resolve(environ=mapping)` to resolve an isolated
+layout. The supplied mapping replaces MEDRE/XDG environment lookup; resolution
+**MUST NOT** modify either mapping or process environment.
+
 ## 7. Adapter Config Wrapping
 
 Every registered adapter type is wrapped in an `AdapterRuntimeConfig`-compatible
 object. `GenericAdapterRuntimeConfig` is the default fallback when the registry
-does not declare a specialized runtime wrapper. `MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and `LxmfRuntimeConfig` are
-compatibility subclasses retained for the current built-ins. Each wrapper:
+does not declare a specialized runtime wrapper. Specialized wrappers live in
+the owning adapter distribution; core provides no transport-named aliases. Each wrapper:
 
 1. Parses the YAML mapping for the instance
 2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields

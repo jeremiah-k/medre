@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-transport mesh interop pipeline tests (Meshtastic / MeshCore / LXMF).
 
 Device-free fast regression for the user-facing core: MT, MC, and LX
@@ -29,7 +30,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
-
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
@@ -413,8 +413,11 @@ async def test_oversize_body_truncated_to_target_limit(
         mc_texts = [t for t in harness.delivered_bodies(MC_ADAPTER) if "OOO" in t]
         assert len(mc_texts) == 1, f"expected one MC delivery, got {mc_texts!r}"
         text = mc_texts[0]
-        assert len(text.encode("utf-8")) == MC_MAX_BYTES, (
-            f"MC delivery must respect max_text_bytes={MC_MAX_BYTES}, "
+        # Before a device name is known, reserve the firmware's maximum
+        # sender-name prefix (31 bytes plus ': ') from its 160-byte frame.
+        expected_budget = MC_MAX_BYTES - 31 - 2
+        assert len(text.encode("utf-8")) == expected_budget, (
+            f"MC delivery must respect the safe budget={expected_budget}, "
             f"got {len(text.encode('utf-8'))} bytes"
         )
         assert text.startswith(_EXPECTED_PREFIX[MT_ADAPTER])

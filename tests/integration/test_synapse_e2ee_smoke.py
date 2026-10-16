@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Synapse E2EE smoke tests — Docker SDK-boundary encrypted room proof.
 
 These tests extend the Docker Synapse integration infrastructure with
@@ -45,7 +46,7 @@ Tests are gated behind ``pytest.mark.docker`` and ``HAS_E2EE`` (requires
 
 Running locally::
 
-    pip install -e ".[matrix-e2e]"
+    pip install "medre-adapter-matrix[e2e]"
     pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
 
 Evidence classification
@@ -105,7 +106,7 @@ pytestmark: list[Any] = [
     pytest.mark.docker,
     pytest.mark.skipif(
         not HAS_E2EE,
-        reason='mindroom-nio[e2e] not installed; pip install -e ".[matrix-e2e]"',
+        reason='mindroom-nio[e2e] not installed; pip install "medre-adapter-matrix[e2e]"',
     ),
 ]
 

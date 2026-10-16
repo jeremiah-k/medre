@@ -147,9 +147,12 @@ class TestSQLiteFailureClose:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ResourceWarning)
 
-            with patch(
-                "medre.core.storage.sqlite.connection._SCHEMA", "INVALID SQL !!@@##"
-            ), pytest.raises(sqlite3.OperationalError):
+            with (
+                patch(
+                    "medre.core.storage.sqlite.connection._SCHEMA", "INVALID SQL !!@@##"
+                ),
+                pytest.raises(sqlite3.OperationalError),
+            ):
                 await storage.initialize()
 
             del storage
@@ -250,11 +253,14 @@ class TestOpenReadonlyRowFactoryFailure:
 
         mock_conn = _FailingRowFactoryConnection()
 
-        with patch(
-            "medre.core.storage.sqlite.connection.sqlite3.connect",
-            return_value=mock_conn,
-        ), pytest.raises(
-            RuntimeError, match="simulated row_factory assignment failure"
+        with (
+            patch(
+                "medre.core.storage.sqlite.connection.sqlite3.connect",
+                return_value=mock_conn,
+            ),
+            pytest.raises(
+                RuntimeError, match="simulated row_factory assignment failure"
+            ),
         ):
             await SQLiteStorage.open_readonly(db_path)
 

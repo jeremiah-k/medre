@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Pipeline-level dedup: duplicate native refs suppressed, echo suppressed.
 
 Proves that:

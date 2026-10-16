@@ -2,7 +2,7 @@
 #
 # Single Matrix adapter. Plaintext by default.
 # For E2EE, change encryption_mode to "e2ee_required" and
-# install the matrix-e2e extra: pip install "medre[matrix-e2e]"
+# install the Matrix adapter with encryption support: pip install "medre-adapter-matrix[e2e]"
 # MEDRE derives device_id (via whoami) and store_path
 # ({state}/adapters/<adapter_id>/matrix/store) internally — no operator
 # configuration needed for either.

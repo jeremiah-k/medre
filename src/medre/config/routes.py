@@ -27,11 +27,14 @@ Public symbols
 
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Self
 
+from medre.adapter_registry import get_adapter_spec, get_destination_spec
 from medre.config.errors import ConfigValidationError
 
 # ---------------------------------------------------------------------------
@@ -131,6 +134,18 @@ class BridgePolicy:
         ("allowed_event_types", "event types"),
     )
 
+    def __post_init__(self) -> None:
+        """Validate direct policies and freeze caller-owned allowlist sequences."""
+        for name, _ in self._ALLOWLIST_FIELDS:
+            values = getattr(self, name)
+            if not isinstance(values, (list, tuple)) or any(
+                not isinstance(value, str) for value in values
+            ):
+                raise ConfigValidationError(
+                    f"policy.{name} must be a list or tuple of strings"
+                )
+            object.__setattr__(self, name, tuple(values))
+
     @classmethod
     def from_dict(
         cls,
@@ -173,9 +188,15 @@ class BridgePolicy:
 
         # Validate each allowlist field is a list or tuple of strings.
         for field_name, _label in cls._ALLOWLIST_FIELDS:
-            raw = data.get(field_name)
-            if raw is None:
+            if field_name not in data:
                 continue
+            raw = data[field_name]
+            if raw is None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: policy.{field_name} must be a list, "
+                    "not null",
+                    section_path=policy_path,
+                )
             if isinstance(raw, str):
                 raise ConfigValidationError(
                     f"Route {route_id!r}: policy.{field_name} must be a list, "
@@ -229,7 +250,7 @@ def _validate_policy(
     """
     # Intentionally empty: structural validation (unknown keys, type
     # checking, per-element string checks) is performed in
-    # BridgePolicy.from_dict before this function is called.
+    # BridgePolicy construction, including from_dict, before this function is called.
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +294,29 @@ class RouteRetryConfig:
     backoff_base: float = 2.0
     max_delay_seconds: float = 60.0
     jitter: bool = False
+
+    def __post_init__(self) -> None:
+        """Keep programmatic retry policies as safe as YAML-loaded policies."""
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError("retry.enabled must be a boolean")
+        if type(self.jitter) is not bool:
+            raise ConfigValidationError("retry.jitter must be a boolean")
+        if type(self.max_attempts) is not int or self.max_attempts <= 0:
+            raise ConfigValidationError("retry.max_attempts must be an integer > 0")
+        for name in ("backoff_base", "max_delay_seconds"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigValidationError(
+                    f"retry.{name} must be a finite number >= 0"
+                )
+            try:
+                finite = math.isfinite(value)
+            except (OverflowError, ValueError):
+                finite = False
+            if not finite or value < 0:
+                raise ConfigValidationError(
+                    f"retry.{name} must be a finite number >= 0"
+                )
 
     @classmethod
     def from_dict(
@@ -344,6 +388,16 @@ class RouteRetryConfig:
                 f"got {backoff_base!r}",
                 section_path=f"{section_path}.retry",
             )
+        try:
+            finite_backoff = math.isfinite(backoff_base)
+        except (OverflowError, ValueError):
+            finite_backoff = False
+        if not finite_backoff:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.backoff_base must be a finite "
+                f"number, got {backoff_base!r}",
+                section_path=f"{section_path}.retry",
+            )
         if backoff_base < 0:
             raise ConfigValidationError(
                 f"Route {route_id!r}: retry.backoff_base must be >= 0, "
@@ -356,6 +410,16 @@ class RouteRetryConfig:
             raise ConfigValidationError(
                 f"Route {route_id!r}: retry.max_delay_seconds must be a number, "
                 f"got {max_delay_seconds!r}",
+                section_path=f"{section_path}.retry",
+            )
+        try:
+            finite_max_delay = math.isfinite(max_delay_seconds)
+        except (OverflowError, ValueError):
+            finite_max_delay = False
+        if not finite_max_delay:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: retry.max_delay_seconds must be a finite "
+                f"number, got {max_delay_seconds!r}",
                 section_path=f"{section_path}.retry",
             )
         if max_delay_seconds < 0:
@@ -806,19 +870,6 @@ def _validate_context_map_route(rc: RouteConfig) -> None:
 # Route config
 # ---------------------------------------------------------------------------
 
-#: Destination ``kind`` values and their addressing model (routing-delivery
-#: spec §2.3).  ``channel``/``matrix_room`` address a logical channel or room
-#: by name; ``lxmf_destination``/``meshcore_contact`` address a specific
-#: entity by hash and/or name.
-_ROUTE_DESTINATION_KINDS: frozenset[str] = frozenset(
-    {"channel", "lxmf_destination", "meshcore_contact", "matrix_room"}
-)
-
-#: LXMF destination hashes are 16-byte Reticulum hashes written as 32
-#: hexadecimal characters — the same convention as the LXMF adapter's
-#: ``propagation_node_destination`` schema field.
-_LXMF_DESTINATION_HASH_RE = re.compile(r"^[0-9a-fA-F]{32}$")
-
 
 @dataclass(frozen=True)
 class RouteDestinationConfig:
@@ -832,8 +883,8 @@ class RouteDestinationConfig:
     Attributes
     ----------
     kind:
-        Addressing scheme: ``"channel"``, ``"lxmf_destination"``,
-        ``"meshcore_contact"``, or ``"matrix_room"``.
+        The generic ``"channel"`` scheme or a native addressing kind declared
+        by an installed adapter.
     destination_hash:
         Hash-based identifier (e.g. a 32-hex-character LXMF destination
         hash), when applicable for *kind*.
@@ -876,18 +927,20 @@ class RouteDestinationConfig:
 
         dest_path = f"{section_path}.{field_name}"
         raw_kind = data.get("kind")
-        if not isinstance(raw_kind, str) or not raw_kind:
+        if not isinstance(raw_kind, str) or not re.fullmatch(
+            r"[a-z][a-z0-9_-]*", raw_kind
+        ):
             raise ConfigValidationError(
                 f"Route {route_id!r}: '{field_name}.kind' must be a "
-                f"non-empty string (one of {sorted(_ROUTE_DESTINATION_KINDS)})",
+                f"non-empty string",
                 section_path=dest_path,
             )
         kind = raw_kind
-        if kind not in _ROUTE_DESTINATION_KINDS:
+        destination_spec = get_destination_spec(kind) if kind != "channel" else None
+        if kind != "channel" and destination_spec is None:
             raise ConfigValidationError(
-                f"Route {route_id!r}: '{field_name}.kind' {kind!r} is not a "
-                f"known destination kind (one of "
-                f"{sorted(_ROUTE_DESTINATION_KINDS)})",
+                f"Route {route_id!r}: '{field_name}.kind' {kind!r} is not a known destination kind; "
+                "install a provider declaring this addressing kind",
                 section_path=dest_path,
             )
 
@@ -932,52 +985,34 @@ class RouteDestinationConfig:
         destination_name = raw_name
         metadata: dict[str, Any] = dict(raw_metadata) if raw_metadata else {}
 
-        # Per-kind requirements (routing-delivery §2.3 kind table).
-        if kind == "lxmf_destination":
-            if destination_hash is None:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' is "
-                    f"required for kind 'lxmf_destination' and must be a "
-                    f"32-hex-character LXMF destination hash",
-                    section_path=dest_path,
-                )
-            if not _LXMF_DESTINATION_HASH_RE.fullmatch(destination_hash):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' "
-                    f"must be a 32-hex-character LXMF destination hash "
-                    f"(16 bytes), got {destination_hash!r}",
-                    section_path=dest_path,
-                )
-        elif kind == "meshcore_contact":
-            if destination_hash is None and destination_name is None:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}' requires "
-                    f"'destination_hash' or 'destination_name' for kind "
-                    f"'meshcore_contact'",
-                    section_path=dest_path,
-                )
-        else:  # "channel" / "matrix_room" address by name, never by hash.
+        # Named channels are generic. Native address rules belong to providers.
+        if kind == "channel":
             if destination_name is None:
                 raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_name' is "
-                    f"required for kind {kind!r}",
+                    f"Route {route_id!r}: '{field_name}.destination_name' is required for kind {kind!r}",
                     section_path=dest_path,
                 )
             if destination_hash is not None:
                 raise ConfigValidationError(
-                    f"Route {route_id!r}: '{field_name}.destination_hash' "
-                    f"must not be set for kind {kind!r}; name-based "
-                    f"addressing resolves the native address via the "
-                    f"adapter",
+                    f"Route {route_id!r}: '{field_name}.destination_hash' must not be set for kind {kind!r}; "
+                    "name-based addressing resolves the native address via the adapter",
                     section_path=dest_path,
                 )
-
-        return cls(
+        destination = cls(
             kind=kind,
             destination_hash=destination_hash,
             destination_name=destination_name,
             metadata=metadata,
         )
+        if destination_spec is not None:
+            validator = destination_spec.validator.load()
+            try:
+                validator(destination)
+            except ValueError as exc:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}': {exc}", section_path=dest_path
+                ) from exc
+        return destination
 
 
 # Canonical field names accepted in a ``[routes.<id>]`` section.  Every
@@ -1112,6 +1147,24 @@ class RouteConfig:
         only on the YAML path, so programmatic routes silently kept
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
+        section = f"routes.{self.route_id}"
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'enabled' must be a boolean, "
+                f"got {type(self.enabled).__name__}",
+                section_path=section,
+            )
+        for name in ("source_adapters", "dest_adapters"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(
+                not isinstance(item, str) or not item or item != item.strip()
+                for item in values
+            ):
+                raise ConfigValidationError(
+                    f"Route {self.route_id!r}: '{name}' must contain "
+                    "non-empty, normalized adapter ID strings",
+                    section_path=section,
+                )
         if not isinstance(self.priority, int) or isinstance(self.priority, bool):
             raise ConfigValidationError(
                 f"Route {self.route_id!r}: 'priority' must be an integer, "
@@ -1206,7 +1259,16 @@ class RouteConfig:
                 f"Route {route_id!r}: 'source_adapters' must be a list",
                 section_path=section_path,
             )
-        source_adapters = tuple(str(s) for s in raw_sources)
+        if any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in raw_sources
+        ):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'source_adapters' must contain "
+                "non-empty, normalized adapter ID strings",
+                section_path=section_path,
+            )
+        source_adapters = tuple(raw_sources)
         if not source_adapters:
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'source_adapters' must not be empty",
@@ -1225,7 +1287,16 @@ class RouteConfig:
                 f"Route {route_id!r}: 'dest_adapters' must be a list",
                 section_path=section_path,
             )
-        dest_adapters = tuple(str(d) for d in raw_dests)
+        if any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in raw_dests
+        ):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'dest_adapters' must contain "
+                "non-empty, normalized adapter ID strings",
+                section_path=section_path,
+            )
+        dest_adapters = tuple(raw_dests)
         if not dest_adapters:
             raise ConfigValidationError(
                 f"Route {route_id!r}: 'dest_adapters' must not be empty",
@@ -1368,6 +1439,11 @@ class RouteConfig:
             dest_origin_label = raw_dest_label
 
         # --- context_map ---
+        if "context_map" in data and data["context_map"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'context_map' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_context_map = data.pop("context_map", None)
         context_map: dict[str, ContextMapEntry] | None = None
         if raw_context_map is not None:
@@ -1411,6 +1487,11 @@ class RouteConfig:
             context_map = normalized
 
         # --- policy ---
+        if "policy" in data and data["policy"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'policy' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_policy = data.pop("policy", None)
         policy: BridgePolicy | None = None
         if raw_policy is not None:
@@ -1431,6 +1512,11 @@ class RouteConfig:
             )
 
         # --- retry ---
+        if "retry" in data and data["retry"] is None:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: 'retry' must be a mapping, not null",
+                section_path=section_path,
+            )
         raw_retry = data.pop("retry", None)
         retry: RouteRetryConfig | None = None
         if raw_retry is not None:
@@ -1555,6 +1641,40 @@ class RouteConfigSet:
                     section_path=f"routes.{route.route_id}",
                 )
             seen[route.route_id] = f"routes.{route.route_id}"
+
+    def validate_destinations(self, adapter_transports: Mapping[str, str]) -> None:
+        """Reject native addresses unsupported by their configured target.
+
+        Unknown target IDs remain the route engine's reference-validation
+        concern. Native kind validation must happen before adapter construction.
+        """
+        for route in self.routes:
+            destinations = [
+                (route.dest_destination, f"routes.{route.route_id}.dest_destination")
+            ]
+            destinations.extend(
+                (
+                    entry.dest_destination,
+                    f"routes.{route.route_id}.context_map.{key}.dest_destination",
+                )
+                for key, entry in (route.context_map or {}).items()
+            )
+            for destination, section_path in destinations:
+                if destination is None or destination.kind == "channel":
+                    continue
+                for adapter_id in route.dest_adapters:
+                    transport = adapter_transports.get(adapter_id)
+                    if transport is None:
+                        continue
+                    spec = get_adapter_spec(transport)
+                    if spec is None or not any(
+                        item.kind == destination.kind for item in spec.destinations
+                    ):
+                        raise ConfigValidationError(
+                            f"Route {route.route_id!r}: destination kind {destination.kind!r} "
+                            f"is not supported by adapter {adapter_id!r} ({transport})",
+                            section_path=section_path,
+                        )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:

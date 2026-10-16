@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shared fixtures for Docker-based integration tests.
 
 Manages the lifecycle of Synapse and meshtasticd containers used by

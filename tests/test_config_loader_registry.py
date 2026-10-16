@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Loader handling of registered adapters without a dedicated wrapper class.
 
 Built-ins that ship a ``runtime_config`` reference keep their compatibility
@@ -14,9 +15,10 @@ from pathlib import Path
 import pytest
 
 import medre.config.loader as loader_mod
-from medre.adapter_registry import AdapterSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, SymbolRef
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.loader import load_config
-from medre.config.model import GenericAdapterRuntimeConfig, MatrixRuntimeConfig
+from medre.config.model import GenericAdapterRuntimeConfig
 
 
 def _wrapper_free_matrix_spec() -> AdapterSpec:

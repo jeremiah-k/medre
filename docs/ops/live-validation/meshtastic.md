@@ -5,14 +5,14 @@ Live smoke test procedures for the Meshtastic adapter against a real radio node.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev --extra meshtastic
+uv sync --locked --extra dev && uv pip install medre-adapter-meshtastic
 source .venv/bin/activate
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
 export MESHTASTIC_HOST="meshtastic.local"
 export MESHTASTIC_CHANNEL_INDEX="0"
 
-pytest tests/test_meshtastic_live.py -m live -v
+pytest ../medre-adapter-meshtastic/tests/test_meshtastic_live.py -m live -v
 ```
 
 ## Docker SDK-Boundary Tests
@@ -74,7 +74,7 @@ export MESHTASTIC_CONNECTION_TYPE="serial"
 export MESHTASTIC_SERIAL_PORT="/dev/serial/by-id/<medre-node>"
 export MESHTASTIC_PEER_SERIAL_PORT="/dev/serial/by-id/<independent-peer>"
 export MESHTASTIC_LIVE_SEND="1"
-pytest tests/test_meshtastic_pair_live.py -m "live and hardware" -v
+pytest ../medre-adapter-meshtastic/tests/test_meshtastic_pair_live.py -m "live and hardware" -v
 ```
 
 One node runs under a real in-process MEDRE runtime (real adapter, storage,
@@ -92,7 +92,7 @@ mesh (US, LONG_TURBO, private primary channel, tx power 10):
 ### Manual negative-control evidence
 
 N6 is separate bench evidence, not a case implemented by
-`tests/test_meshtastic_pair_live.py`: wrong PSK on the owned peer produced a
+`../medre-adapter-meshtastic/tests/test_meshtastic_pair_live.py`: wrong PSK on the owned peer produced a
 firmware-level drop with no canonical event; the receiver remained usable, the
 PSK was restored byte-exact, and a subsequent positive delivery was admitted.
 
@@ -128,9 +128,9 @@ Physical-radio lifecycle endurance is opt-in and never runs in the default
 suite. Configure the same connection variables as the live smoke tests, then:
 
 ```bash
-uv sync --locked --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-meshtastic
 export MESHTASTIC_SOAK_CYCLES=10
-pytest tests/test_meshtastic_hardware_soak.py \
+pytest ../medre-adapter-meshtastic/tests/test_meshtastic_hardware_soak.py \
   -m "hardware and live and soak and meshtastic_sdk" -v
 ```
 

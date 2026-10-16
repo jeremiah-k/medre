@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Matrix <-> Meshtastic loop prevention and dedup operational tests.
 
 Tests exercising the PipelineRunner self-loop guard, route-trace loop

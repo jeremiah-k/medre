@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://medre.dev/schemas/runtime-config.schema.json",
   "title": "RuntimeConfig",
-  "description": "Full MEDRE runtime configuration document — the root YAML file operators write and pass to `medre run --config`. Models the STRUCTURE of the root config (root keys, section shapes, transport groups, route entries). Per-field constraints (adapter field validation, route policy shapes) are enforced by the typed config dataclasses at load time and by the component schemas (adapter-config.schema.json, routing-config.schema.json). The authoritative runtime validator is `medre config check`.",
+  "description": "Full MEDRE runtime configuration structure. Adapter transport names are extensible; installed adapter configuration models validate their fields. medre config check is the authoritative validator, including installed-provider availability, cross-adapter identifiers, and route semantics.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -14,12 +14,15 @@
         "name": {
           "type": "string",
           "default": "medre",
-          "description": "Runtime name."
+          "description": "Runtime name.",
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "shutdown_timeout_seconds": {
           "type": "integer",
           "default": 10,
-          "description": "Graceful shutdown timeout in seconds."
+          "description": "Graceful shutdown timeout in seconds.",
+          "minimum": 1
         },
         "limits": {
           "type": "object",
@@ -29,22 +32,26 @@
             "max_inflight_deliveries": {
               "type": "integer",
               "default": 100,
-              "description": "Maximum concurrently in-flight deliveries."
+              "description": "Maximum concurrently in-flight deliveries.",
+              "minimum": 1
             },
             "max_inflight_replay_events": {
               "type": "integer",
               "default": 100,
-              "description": "Maximum concurrently processed replay events."
+              "description": "Maximum concurrently processed replay events.",
+              "minimum": 1
             },
             "shutdown_drain_timeout_seconds": {
-              "type": "integer",
+              "type": "number",
               "default": 10,
-              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown."
+              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown.",
+              "exclusiveMinimum": 0
             },
             "delivery_acquire_timeout_seconds": {
               "type": "number",
               "default": 1.0,
-              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached."
+              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached.",
+              "exclusiveMinimum": 0
             },
             "max_inflight_inbound_admissions": {
               "type": "integer",
@@ -55,7 +62,6 @@
             "inbound_admission_timeout_seconds": {
               "type": "number",
               "default": 5.0,
-              "minimum": 0,
               "exclusiveMinimum": 0,
               "description": "Seconds an inbound arrival may wait for an admission slot before rejection."
             }
@@ -72,7 +78,7 @@
           "type": "string",
           "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
           "default": "INFO",
-          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time — uppercase enum matches the canonical level names enforced by the loader."
+          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time \u2014 uppercase enum matches the canonical level names enforced by the loader."
         },
         "format": {
           "type": "string",
@@ -82,7 +88,9 @@
         },
         "overrides": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Per-logger namespace level overrides keyed by logger name (e.g. nio: WARNING)."
         }
       }
@@ -152,7 +160,7 @@
           "type": "integer",
           "minimum": 1,
           "default": 268435456,
-          "description": "Maximum total of unique retained attachment bytes in bytes (default 256 MiB). Reaching the quota rejects new content explicitly; nothing is evicted — no retention, TTL, or GC. Raising capacity is an operator action."
+          "description": "Maximum total of unique retained attachment bytes in bytes (default 256 MiB). Reaching the quota rejects new content explicitly; nothing is evicted \u2014 no retention, TTL, or GC. Raising capacity is an operator action."
         },
         "max_concurrent_transfers": {
           "type": "integer",
@@ -170,44 +178,18 @@
     },
     "adapters": {
       "type": "object",
-      "description": "Adapter instances grouped by registered built-in transport. This schema snapshots the current built-in registry and remains fail-closed: unknown transport groups are rejected. A registry contract test requires these property names to match medre.adapter_registry.registered_transports(). Per-instance field validation is performed by adapter-config.schema.json and the registered typed adapter config dataclass at load time.",
-      "additionalProperties": false,
-      "properties": {
-        "matrix": {
-          "type": "object",
-          "description": "Matrix adapter instances: mapping of instance name to MatrixConfig table. Instance names are configured adapter identifiers: they must start with a letter or digit and contain only letters, digits, dots, hyphens, and underscores (max 255 chars); Windows-reserved device names and trailing periods are rejected. Cross-transport uniqueness and environment-token collisions are enforced by the loader/runtime, not by this schema.",
-          "propertyNames": {
-            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "maxLength": 255
-          },
-          "additionalProperties": { "type": "object" }
+      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255
         },
-        "meshtastic": {
-          "type": "object",
-          "description": "Meshtastic adapter instances: mapping of instance name to MeshtasticConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
-          "propertyNames": {
-            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "maxLength": 255
-          },
-          "additionalProperties": { "type": "object" }
-        },
-        "meshcore": {
-          "type": "object",
-          "description": "MeshCore adapter instances: mapping of instance name to MeshCoreConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
-          "propertyNames": {
-            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "maxLength": 255
-          },
-          "additionalProperties": { "type": "object" }
-        },
-        "lxmf": {
-          "type": "object",
-          "description": "LXMF adapter instances: mapping of instance name to LxmfConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
-          "propertyNames": {
-            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
-            "maxLength": 255
-          },
-          "additionalProperties": { "type": "object" }
+        "additionalProperties": {
+          "type": "object"
         }
       }
     },
@@ -215,7 +197,9 @@
       "type": "object",
       "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / context_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
       "patternProperties": {
-        "^[A-Za-z0-9_-]+$": { "$ref": "#/$defs/RouteEntry" }
+        "^[A-Za-z0-9_-]+$": {
+          "$ref": "#/$defs/RouteEntry"
+        }
       },
       "additionalProperties": false
     }
@@ -235,13 +219,17 @@
         },
         "source_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 1,
           "description": "Source adapter IDs for this route."
         },
         "dest_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 1,
           "description": "Destination adapter IDs for this route."
         },
@@ -293,18 +281,15 @@
           "description": "Optional structured destination addressing (identity/hash form). Shape validated by routing-config.schema.json RouteDestination. Mutually exclusive with dest_channel and dest_room."
         },
         "policy": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional static bridge policy. Shape validated by routing-config.schema.json BridgePolicy."
         },
         "retry": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional per-route retry policy. Shape validated by routing-config.schema.json RouteRetryConfig."
         },
         "context_map": {
-          "type": ["object", "null"],
-          "default": null,
+          "type": "object",
           "description": "Optional mapping of source-side opaque context strings to dest contexts or structured destinations. Shape validated by routing-config.schema.json. Contexts are opaque strings owned by their adapters."
         },
         "source_origin_label": {
@@ -320,5 +305,17 @@
       },
       "required": ["source_adapters", "dest_adapters"]
     }
-  }
+  },
+  "examples": [
+    {
+      "runtime": {
+        "name": "core-only"
+      },
+      "storage": {
+        "backend": "memory"
+      },
+      "adapters": {},
+      "routes": {}
+    }
+  ]
 }

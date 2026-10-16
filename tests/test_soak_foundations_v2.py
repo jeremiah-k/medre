@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Soak foundations v2: extended stability verification.
 
 Builds on the harness from ``test_soak_harness.py`` with deeper patterns:
@@ -27,11 +28,11 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeLimits,
     RuntimeOptions,

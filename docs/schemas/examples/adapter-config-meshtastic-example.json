@@ -11,7 +11,7 @@
     "0": "LongFast",
     "1": "Ops"
   },
-  "message_delay_seconds": 0.5,
+  "message_delay_seconds": 2.2,
   "startup_backlog_suppress_seconds": 5.0,
   "sync_timeout_ms": 30000,
   "radio_relay_prefix": "{sender_short}: ",

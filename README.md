@@ -3,75 +3,79 @@
 **Pre-release. No stable public API. Not production-ready.** Everything is
 subject to change without notice.
 
-MEDRE routes events between transport adapters (Matrix, Meshtastic,
-MeshCore, LXMF) through a codec → renderer → session pipeline with a
-config-file-first runtime.
+MEDRE routes events between independently installed platform adapters through
+a codec → renderer → session pipeline with a config-file-first runtime.
+First-party providers cover Matrix, Meshtastic, MeshCore, and LXMF; community
+providers use the same contracts and ordinary Python packaging.
 
-## First Steps
+## Getting Started
 
-From a source checkout, use [uv](https://docs.astral.sh/uv/getting-started/installation/)
-to install the committed dependency graph. This core smoke path needs no
-credentials, optional SDKs, or Docker:
+Start with the **[Getting Started guide](docs/ops/getting-started.md)**. It walks
+through installing MEDRE and adapters directly from Git with uv, running an
+offline smoke, and building a real two-way route. It also explains adapter
+instances, contexts, prefixes, delivery evidence, and how to add more routes.
+
+For a repeatable deployment, use one uv project containing core and your chosen
+providers, and keep its `pyproject.toml` and `uv.lock`. No PyPI release or source
+checkout is required. From that project, `uv run --locked medre ...` runs the
+CLI, or activate `.venv` once and simply run `medre ...`. See
+[installation options](docs/ops/install.md) for a persistent `uv tool install`
+straight from Git and a one-off `uvx` alternative. Tool environments do not
+inherit providers installed in a different Python environment.
+
+The extraction currently lives on `build/external-adapter-extraction`. Pin
+reviewed Git commits before deploying. Runtime startup discovers installed
+packages and never downloads adapters.
+
+Already have an environment? Use
+[installation and validation](docs/ops/install.md) for source, wheel, and pip
+workflows, or [adapter installation](docs/ops/adapter-installation.md) for mixed
+Git, index, and local sources. Developers should begin with
+[the development environment](docs/dev/environment.md).
+
+Support level: Linux is the verified development host. CI checks adapter-free
+core behavior on Linux, macOS, and Windows, plus cross-adapter and SDK contracts
+on CPython 3.11–3.14 on Ubuntu. Native service, hardware, and ARM qualification
+remain separate from those checks.
+
+## Choosing and Installing Transports
+
+Transport adapters are **independent Python distributions**. They can be
+installed from a package index (if published), a Git repository, or a local
+checkout. MEDRE discovers installed `medre.adapters` entry points, regardless
+of where the distribution came from. Runtime startup never downloads packages.
+
+| Transport  | Distribution (when published)          | Source repository                                             | Prerequisites                         |
+| ---------- | -------------------------------------- | ------------------------------------------------------------- | ------------------------------------- |
+| Matrix     | `medre-adapter-matrix` (E2EE: `[e2e]`) | [Git](https://github.com/jeremiah-k/medre-adapter-matrix)     | Homeserver, bot account, access token |
+| Meshtastic | `medre-adapter-meshtastic`             | [Git](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Serial/TCP node                       |
+| MeshCore   | `medre-adapter-meshcore`               | [Git](https://github.com/jeremiah-k/medre-adapter-meshcore)   | TCP/serial/BLE companion              |
+| LXMF       | `medre-adapter-lxmf`                   | [Git](https://github.com/jeremiah-k/medre-adapter-lxmf)       | Reticulum and identity file           |
+
+Create a deployment project with dependencies and pinned Git/registry sources,
+then resolve/lock it with `uv` (or use pip direct Git URL requirements). See
+**[adapter installation: PyPI, Git, and local
+sources](docs/ops/adapter-installation.md)** for complete examples and
+reproducible deployment guidance. For a checked-out package, `python -m pip
+install -e ../medre-adapter-matrix` is also supported in an existing MEDRE
+environment.
 
 ```bash
-uv sync --locked          # core dependencies and an editable MEDRE install
-source .venv/bin/activate
-
-medre version             # version, Python, platform
-medre paths               # resolved config/state/data/log directories
-medre adapters            # transport inventory; fake adapters need no SDKs
-
-medre config sample > /tmp/medre-sample.yaml
-medre config check --config /tmp/medre-sample.yaml
-medre smoke --config /tmp/medre-sample.yaml --json
+medre adapters check --config my-bridge.yaml  # requires only package metadata
+medre config check --config my-bridge.yaml    # validates adapter configuration
+medre run --config my-bridge.yaml
 ```
 
-`medre config check` validates a config file given by `--config` (or found
-via discovery); it does not read a config from stdin. The sample config uses
-fake adapters only — it proves the pipeline and storage, not any transport.
-Expected output, the persistent-storage variant, and troubleshooting:
-[docs/ops/install.md](docs/ops/install.md).
+Core's only optional extra is `dev`. Adapter distributions own their SDK
+requirements and SDK-free fakes; install the providers your configuration
+references in the same Python environment as MEDRE. Matrix encryption uses
+the adapter's `[e2e]` extra. See the
+[development environment guide](docs/dev/environment.md) and
+[external adapter ownership and CI](docs/dev/external-adapters.md).
 
-To verify a built artifact end to end — wheel build, clean core-only
-install, installed-package proof — run, from a source checkout:
-
-```bash
-uv sync --locked --extra dev
-uv run --no-sync python scripts/check_installed_package.py
-```
-
-The script lives in the source repository and is not part of the installed
-wheel.
-
-Support level: MEDRE is developed and tested on Linux. CI runs the test
-suite on CPython 3.11–3.14 on Ubuntu runners. Other hosts (Windows, macOS, ARM)
-are unverified — not excluded. CI checks the pipeline against pinned SDK
-contracts; it is not radio interoperability testing.
-
-## Choosing a Transport
-
-Optional extras add real connectivity. Exact SDK pins live in
-`pyproject.toml`; install SDKs only through these extras — an unpinned
-`pip install` of a transport SDK is not a supported install path and can
-drift from the versions MEDRE is tested against. The transports differ in
-prerequisites and guarantees; there is no feature parity between them.
-
-The commands below apply to source checkouts. Each sync selects the complete
-extra set for `.venv`; repeat every transport needed by a bridge, and add
-`--extra dev` for tests. Built-package and existing pip environments remain
-supported; see [installation](docs/ops/install.md) and the
-[development environment guide](docs/dev/environment.md).
-
-| Transport  | Install (source checkout)                            | You need                                    | Setup guide                                                                      |
-| ---------- | ---------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| Matrix     | `uv sync --locked --extra matrix` (E2EE: `--extra matrix-e2e`) | Homeserver, bot account, access token       | [docs/ops/transport-setup/matrix.md](docs/ops/transport-setup/matrix.md)         |
-| Meshtastic | `uv sync --locked --extra meshtastic`                     | Radio node over serial or TCP               | [docs/ops/transport-setup/meshtastic.md](docs/ops/transport-setup/meshtastic.md) |
-| MeshCore   | `uv sync --locked --extra meshcore`                       | Companion node over TCP, serial, or BLE     | [docs/ops/transport-setup/meshcore.md](docs/ops/transport-setup/meshcore.md)     |
-| LXMF       | `uv sync --locked --extra lxmf`                           | Reticulum instance and a node identity file | [docs/ops/transport-setup/lxmf.md](docs/ops/transport-setup/lxmf.md)             |
-
-For example, a Matrix/Meshtastic bridge uses
-`uv sync --locked --extra matrix --extra meshtastic`. Activate `.venv` as above
-or prefix commands with `uv run --no-sync` after syncing.
+Adapter authors can use the [registration reference](docs/dev/adapter-registration.md)
+for every hook signature, the public metadata API, and optional fake/SDK
+conformance tools. Native schemas and examples belong to the adapter repositories.
 
 What a `sent` receipt means per transport is in
 [docs/ops/running-medre.md](docs/ops/running-medre.md); per-transport

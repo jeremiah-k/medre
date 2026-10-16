@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Bidirectional bridge safety tests.
 
 Proves that bidirectional routes (Matrix ↔ Meshtastic) do not loop:

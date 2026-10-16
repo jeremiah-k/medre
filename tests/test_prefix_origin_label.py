@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for source-only origin_label across all transports.
 
 Verifies:

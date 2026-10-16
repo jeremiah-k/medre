@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI config and smoke tests: config check, routes validate, smoke,
 subprocess, config sample, SDK boundaries, first-run walkthrough, and
 E2E product path.

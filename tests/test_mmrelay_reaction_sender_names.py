@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """mmrelay reaction sender-name resolution via namespaced keys.
 
 Focused tests for Meshtastic-originated reaction rendering where

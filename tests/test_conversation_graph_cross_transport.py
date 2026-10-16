@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Cross-transport conversation-graph integration tests.
 
 End-to-end tests verifying conversation identity assignment (``root_event_id``,

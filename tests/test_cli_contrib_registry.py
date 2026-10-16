@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for CLI contribution registry and namespace restrictions."""
 
 from __future__ import annotations
@@ -8,20 +9,19 @@ import types
 from unittest import mock
 
 import pytest
-
 from medre.cli.contrib import (
     ALLOWED_NAMESPACES,
     DISALLOWED_TOPLEVEL,
     dispatch_contribution,
-    register_builtin_contributors,
+    register_adapter_contributors,
 )
 
 
-def test_register_builtin_contributors_creates_auth_parser() -> None:
-    """register_builtin_contributors adds adapter/matrix/auth/login subparser."""
+def test_register_adapter_contributors_creates_auth_parser() -> None:
+    """register_adapter_contributors adds adapter/matrix/auth/login subparser."""
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
-    register_builtin_contributors(subparsers)
+    register_adapter_contributors(subparsers)
 
     args = parser.parse_args(
         [
@@ -65,11 +65,11 @@ def test_dispatch_contribution_routes_auth_login() -> None:
 
 
 def test_contributors_deterministic_order() -> None:
-    """register_builtin_contributors is callable and returns without error."""
+    """register_adapter_contributors is callable and returns without error."""
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
-    result = register_builtin_contributors(subparsers)
-    assert result is None
+    result = register_adapter_contributors(subparsers)
+    assert result == ()
 
 
 def test_no_sdk_import_during_parser_build() -> None:
@@ -204,12 +204,12 @@ def test_dispatch_contribution_rejects_unhandled_command() -> None:
             )
 
 
-def test_register_builtin_contributors_without_contributors(
+def test_register_adapter_contributors_without_contributors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No registered CLI contributors means no adapter namespace at all."""
     monkeypatch.setattr("medre.cli.contrib.iter_adapter_specs", lambda: ())
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
-    register_builtin_contributors(subparsers)
+    register_adapter_contributors(subparsers)
     assert "adapter" not in subparsers.choices

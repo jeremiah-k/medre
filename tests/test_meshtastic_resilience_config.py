@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Validation for Meshtastic runtime resilience configuration."""
 
 from __future__ import annotations
@@ -8,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from medre.config.adapters.errors import MeshtasticConfigError
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 from medre.config.sample import generate_sample_config
 
 
@@ -53,7 +54,7 @@ def test_resilience_defaults_match_schema_example_and_sample() -> None:
         assert getattr(config, field_name) == expected
         assert properties[field_name]["default"] == expected
         assert example[field_name] == expected
-        assert f"# {field_name}: {expected}" in sample
+        assert field_name not in sample  # Sample inherits adapter-owned defaults.
 
 
 def test_resilience_defaults_are_safe_and_bounded() -> None:

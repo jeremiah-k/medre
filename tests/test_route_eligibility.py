@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for route eligibility/readiness metadata.
 
 Covers:
@@ -728,10 +729,10 @@ class TestBuilderIntegration:
         monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
         from medre.config.adapters.meshtastic import MeshtasticConfig
+        from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
-            MeshtasticRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,

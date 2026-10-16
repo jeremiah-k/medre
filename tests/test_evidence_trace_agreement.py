@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Agreement tests: trace, evidence, and inspect commands agree on event IDs, native refs, and receipts.
 
 Seeds a SQLite DB with a canonical event, a delivery receipt, and an outbound

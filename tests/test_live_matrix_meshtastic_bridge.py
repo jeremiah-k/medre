@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live Matrix↔Meshtastic bridge smoke tests.
 
 These tests exercise the **adapter boundary** (start, health, diagnostics,

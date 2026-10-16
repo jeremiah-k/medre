@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Adapter config round-trip tests.
 
 Verifies each transport's adapter config survives the full load path:
@@ -29,7 +30,6 @@ from typing import Any
 
 import pytest
 import yaml
-
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
@@ -129,7 +129,7 @@ def test_meshcore_minimal_round_trip(tmp_path: Path) -> None:
     assert isinstance(cfg, MeshCoreConfig)
     assert cfg.adapter_id == "meshcore_a"
     assert cfg.connection_type == "fake"
-    assert cfg.max_text_bytes == 512
+    assert cfg.max_text_bytes == 160
     assert cfg.node_config == {}
 
 

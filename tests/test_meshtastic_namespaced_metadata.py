@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Meshtastic versioned native-metadata contract tests.
 
 The codec emits one ``native.meshtastic`` v1 object. Relation metadata keeps

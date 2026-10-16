@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real MeshtasticAdapter wrapper callback ingress tests.
 
 Proves that the real ``MeshtasticAdapter.simulate_inbound`` decodes packets,

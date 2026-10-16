@@ -12,17 +12,15 @@ Public API
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
-from medre.adapter_registry import (
-    AdapterSpec,
-    iter_adapter_specs,
-    registered_transports,
-)
+from medre.adapter_registry import iter_adapter_specs, registered_transports
+from medre.adapter_spec import AdapterSpec
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.errors import (
     ConfigFileError,
@@ -106,6 +104,8 @@ _RUNTIME_LIMITS_KNOWN_KEYS: frozenset[str] = frozenset(
         "max_inflight_replay_events",
         "shutdown_drain_timeout_seconds",
         "delivery_acquire_timeout_seconds",
+        "max_inflight_inbound_admissions",
+        "inbound_admission_timeout_seconds",
     }
 )
 
@@ -382,7 +382,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     runtime = RuntimeOptions(
         name=runtime_data.get("name", "medre"),
         shutdown_timeout_seconds=runtime_data.get("shutdown_timeout_seconds", 10),
-    )
+    ).validate()
 
     # [runtime.limits] section (nested under [runtime]) — same pattern.
     limits_data = _get_section_dict(
@@ -399,6 +399,12 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         ),
         delivery_acquire_timeout_seconds=limits_data.get(
             "delivery_acquire_timeout_seconds", 1.0
+        ),
+        max_inflight_inbound_admissions=limits_data.get(
+            "max_inflight_inbound_admissions", 100
+        ),
+        inbound_admission_timeout_seconds=limits_data.get(
+            "inbound_admission_timeout_seconds", 5.0
         ),
     ).validate()
 
@@ -447,7 +453,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         interval_seconds=retry_data.get("interval_seconds", 10.0),
         batch_size=retry_data.get("batch_size", 20),
         max_attempts=retry_data.get("max_attempts", 3),
-    )
+    ).validate()
 
     # [adapters.*] sections — validate the type of the adapters section,
     # reject unknown transport group names (e.g. ``matrixx``), then parse
@@ -455,6 +461,18 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     adapters_data = _get_section_dict(data, "adapters")
     unknown_transports = set(adapters_data) - _KNOWN_TRANSPORTS
     if unknown_transports:
+        from medre.adapter_registry import adapter_discovery_failures
+
+        broken = [
+            f for f in adapter_discovery_failures() if f.transport in unknown_transports
+        ]
+        if broken:
+            raise ConfigValidationError(
+                "Broken adapter provider(s): "
+                + "; ".join(f"{f.transport}: {f.reason}" for f in broken)
+                + ". Run medre adapters check to diagnose installation.",
+                section_path="adapters",
+            )
         msg = (
             f"adapters: unknown transport group(s): "
             f"{sorted(unknown_transports, key=lambda k: repr(k))}. "
@@ -475,6 +493,9 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     # ConfigValidationError instead of a raw AttributeError on ``.items()``.
     _get_section_dict(data, "routes")
     routes = RouteConfigSet.from_dict(data)
+    routes.validate_destinations(
+        {adapter_id: transport for transport, adapter_id, _ in adapters.all_configs()}
+    )
 
     # [attachments] section — generic durable-attachment policy.
     attachments_data = _get_section_dict(data, "attachments")
@@ -567,7 +588,16 @@ def _validate_retry_section(retry_data: dict) -> None:
                 f"{raw!r}",
                 section_path="retry",
             )
-        if float(raw) <= min_val:
+        try:
+            finite = math.isfinite(raw)
+        except (OverflowError, ValueError):
+            finite = False
+        if not finite:
+            raise ConfigValidationError(
+                f"[retry] {field_name} must be a finite number, got {raw!r}",
+                section_path="retry",
+            )
+        if raw <= min_val:
             raise ConfigValidationError(
                 f"[retry] {field_name} must be > {min_val}, got {raw}",
                 section_path="retry",

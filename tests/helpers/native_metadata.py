@@ -5,11 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
-from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
-from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
-from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
-
 
 def _native_data(
     namespace: str,
@@ -36,6 +31,8 @@ def matrix_native_data(
     **overrides: Any,
 ) -> dict[str, object]:
     """Return a schema-complete Matrix v1 native-metadata fixture."""
+    from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
+
     return _native_data(
         "matrix",
         MATRIX_NATIVE_SCHEMA_VERSION,
@@ -60,6 +57,8 @@ def meshtastic_native_data(
     **overrides: Any,
 ) -> dict[str, object]:
     """Return a schema-complete Meshtastic v1 native-metadata fixture."""
+    from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
+
     return _native_data(
         "meshtastic",
         MESHTASTIC_NATIVE_SCHEMA_VERSION,
@@ -101,6 +100,8 @@ def meshcore_native_data(
     **overrides: Any,
 ) -> dict[str, object]:
     """Return a schema-complete MeshCore v1 native-metadata fixture."""
+    from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
+
     return _native_data(
         "meshcore",
         MESHCORE_NATIVE_SCHEMA_VERSION,
@@ -132,6 +133,8 @@ def lxmf_native_data(
     **overrides: Any,
 ) -> dict[str, object]:
     """Return a schema-complete LXMF v1 native-metadata fixture."""
+    from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
+
     return _native_data(
         "lxmf",
         LXMF_NATIVE_SCHEMA_VERSION,

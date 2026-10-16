@@ -28,6 +28,7 @@ import asyncio
 import hashlib
 import io
 import json
+import shlex
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -992,7 +993,10 @@ def test_human_output_shows_valid_next_actions(tmp_path: Path) -> None:
     assert "meshtastic.radio" in stdout
     assert "live" in stdout
     # Valid inspection step (reconstructable from the page).
-    assert f"medre inspect event evt-1 --recovery --storage-path {db}" in stdout
+    assert (
+        f"medre inspect event evt-1 --recovery --storage-path "
+        f"{shlex.quote(str(db))}"
+    ) in stdout
     # Replay guidance references the real replay surface, never a
     # fabricated "replay --storage-path".
     assert "medre replay --mode dry_run --event <event_id> --config" in stdout
@@ -1035,3 +1039,28 @@ def test_json_page_shape_is_stable(tmp_path: Path) -> None:
     for typed_field in ("receipt_sequence", "attempt_number"):
         assert isinstance(row[typed_field], int)
     assert isinstance(row["target_channel"], (str, type(None)))
+
+
+def test_scan_warns_from_unresolved_evidence_without_platform_assumptions(tmp_path):
+    db = tmp_path / "private-chat.sqlite"
+    _seed(
+        db,
+        [_event("evt-private", at=_T0)],
+        [
+            _receipt(
+                "evt-private",
+                receipt_id="r-private",
+                status="failed",
+                adapter="independent-chat",
+            )
+        ],
+    )
+    report = _run_cli_json("recover", "--json", "--storage-path", str(db))
+    assert any("duplicate sends" in warning for warning in report["warnings"])
+    assert all("radio" not in warning.lower() for warning in report["warnings"])
+    empty = tmp_path / "empty.sqlite"
+    _seed(empty, [], [])
+    assert (
+        _run_cli_json("recover", "--json", "--storage-path", str(empty))["warnings"]
+        == []
+    )

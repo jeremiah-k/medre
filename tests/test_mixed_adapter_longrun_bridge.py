@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Deterministic long-run bridge test exercising all four fake adapters
 simultaneously.
 

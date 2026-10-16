@@ -8,15 +8,15 @@ Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-r
 
 ## Prerequisites
 
-| Requirement       | Details                                                                                                                       |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                       |
-| Bot account       | A dedicated Matrix user, not your personal account                                                                            |
-| Python            | 3.11 or later                                                                                                                 |
-| Package install   | `uv sync --locked --extra matrix` (plaintext). `uv sync --locked --extra matrix-e2e` (adds Olm/Megolm crypto libs for encrypted rooms). |
-| Access token      | Obtained via login API or Element UI                                                                                          |
-| A test room       | Unencrypted, bot has joined it                                                                                                |
-| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                          |
+| Requirement       | Details                                                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                                                    |
+| Bot account       | A dedicated Matrix user, not your personal account                                                                                                                                         |
+| Python            | 3.11 or later                                                                                                                                                                              |
+| Package install   | `uv sync --locked && uv pip install medre-adapter-matrix` (plaintext). `uv sync --locked && uv pip install 'medre-adapter-matrix[e2e]'` (adds Olm/Megolm crypto libs for encrypted rooms). |
+| Access token      | Obtained via login API or Element UI                                                                                                                                                       |
+| A test room       | Unencrypted, bot has joined it                                                                                                                                                             |
+| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                       |
 
 You do not need Docker, a domain name, or federation. A local homeserver on localhost is sufficient.
 
@@ -262,7 +262,7 @@ Immediately after authentication, health remains `degraded` until the first succ
 
 ## E2EE text validation
 
-The `.[matrix-e2e]` extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
+The `medre-adapter-matrix[e2e]` distribution extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
 
 The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. The store persists Olm/Megolm session keys and device keys across restarts.
 
@@ -341,10 +341,10 @@ export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 export MATRIX_ROOM_ID="!test:localhost"
 export MATRIX_INBOUND_SENDER="@alice:localhost"  # second account
 
-pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+pytest ../medre-adapter-matrix/tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
 ```
 
-While the test waits (30 s window), send a message from the second account. If no second account is available, the test will xfail — deterministic unit tests in `tests/test_matrix_adapter.py` cover the same logic paths.
+While the test waits (30 s window), send a message from the second account. If no second account is available, the test will xfail — deterministic unit tests in `../medre-adapter-matrix/tests/test_matrix_adapter.py` cover the same logic paths.
 
 ### Self-message Suppression Validation
 
@@ -413,7 +413,7 @@ adapter treats the room as unencrypted (fail-closed).
 | `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
 | `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                                                                                         | `uv sync --locked --extra matrix-e2e`                                                                                                                                                                                                                                                                 |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | `uv sync --locked && uv pip install 'medre-adapter-matrix[e2e]'`                                                                                                                                                                                                                                 |
 
 ## Classic Sync durability and recovery
 

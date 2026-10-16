@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Attachment configuration: model validation, YAML loading, env overrides.
 
 Run narrowly::

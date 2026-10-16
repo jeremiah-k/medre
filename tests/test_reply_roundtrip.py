@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Bidirectional Matrix↔Meshtastic reply roundtrip tests.
 
 End-to-end tests verifying that replies resolve through the full pipeline

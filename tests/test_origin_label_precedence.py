@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for route/context origin_label precedence, generic variables
 across transports, exception guards, and mmrelay interop isolation.
 

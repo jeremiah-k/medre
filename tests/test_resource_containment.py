@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Narrow resource containment tests for transport sessions.
 
 These tests verify resource management properties that are not covered

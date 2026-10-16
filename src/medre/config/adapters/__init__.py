@@ -1,7 +1,5 @@
-"""Per-transport adapter configuration dataclasses and errors.
+"""Adapter-owned configuration modules share this namespace."""
 
-This package does not expose a stable public API.
-Import directly from concrete modules:
-  from medre.config.adapters.matrix import MatrixConfig
-  from medre.config.adapters.errors import MatrixConfigError
-"""
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)

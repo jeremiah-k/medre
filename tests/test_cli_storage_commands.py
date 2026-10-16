@@ -24,7 +24,6 @@ import shutil
 import sqlite3
 from contextlib import redirect_stderr, redirect_stdout, suppress
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -789,16 +788,3 @@ def test_cli_storage_reset_refuses_non_sqlite(tmp_path: Path) -> None:
     assert code == EXIT_BUILD
     assert "magic bytes" in stderr.lower() or "not appear to contain" in stderr.lower()
     assert fake_file.exists()  # file must NOT be deleted
-
-
-def test_main_adapter_command_dispatches() -> None:
-    """`medre adapter ...` dispatches through contributed command routing."""
-    with patch("medre.cli.contrib.dispatch_contribution") as dispatch:
-        _run_cli("adapter", "matrix", "auth", "status")
-
-    dispatch.assert_called_once()
-    args = dispatch.call_args.args[0]
-    assert args.command == "adapter"
-    assert args.adapter_command == "matrix"
-    assert args.adapter_matrix_command == "auth"
-    assert args.adapter_matrix_auth_command == "status"

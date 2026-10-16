@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for relation/native-target evidence visibility.
 
 Covers:

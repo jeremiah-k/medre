@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MeshtasticRenderer: comprehensive cross-platform reactions,
 no-mapping fallbacks, native reaction preservation, display-name enrichment,
 byte-budget truncation, config validation, adapter capabilities, target-aware
@@ -620,21 +621,21 @@ class TestMeshtasticConfigMaxTextBytes:
         assert config.max_text_bytes == 227
 
     def test_rejects_negative_max_text_bytes(self) -> None:
-        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=-1)
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 
     def test_rejects_bool_max_text_bytes(self) -> None:
-        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=True)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
             config.validate()
 
     def test_rejects_float_max_text_bytes(self) -> None:
-        from medre.config.adapters.errors import MeshtasticConfigError
+        from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
         config = MeshtasticConfig(adapter_id="test", max_text_bytes=227.5)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):

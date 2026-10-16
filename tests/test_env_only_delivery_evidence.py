@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Agreement tests: evidence/trace agree on delivery reliability metadata.
 
 Seeds a SQLite DB with env-style adapter IDs (radio-a → matrix-fake) and

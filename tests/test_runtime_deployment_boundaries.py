@@ -376,7 +376,7 @@ class TestRuntimeCoreNoAdapterRuntime:
             allowed_lines.append(line)
         # The old config import should NOT be filtered out
         assert len(allowed_lines) == 1
-        banned = _banned_imports(allowed_lines, _ADAPTER_PREFIXES)
+        banned = _banned_imports(allowed_lines, ("medre.adapters.matrix",))
         assert banned == [source.strip()]
 
 

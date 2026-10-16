@@ -8,14 +8,14 @@ Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre
 
 ## Prerequisites
 
-| Requirement          | Details                                                                                                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                        |
-| Python               | 3.11 or later                                                                                                             |
-| Package install      | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked --extra meshcore` (exact pin from project metadata) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                 |
-| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                           |
-| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                        |
+| Requirement          | Details                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                                                     |
+| Python               | 3.11 or later                                                                                                                                          |
+| Package install      | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install medre-adapter-meshcore` (exact pin from project metadata) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                                              |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                                                        |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                                                     |
 
 Fake mode is the default and recommended path for all development and testing. Real connectivity modes are opt-in for live validation only.
 
@@ -87,7 +87,7 @@ sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
 # Install the meshcore SDK (includes bleak)
-uv sync --locked --extra meshcore
+uv sync --locked && uv pip install medre-adapter-meshcore
 ```
 
 #### Pair the device first
@@ -193,7 +193,7 @@ The `meshcore` package depends on `bleak`, but if you installed MEDRE without
 the SDK:
 
 ```bash
-uv sync --locked --extra meshcore
+uv sync --locked && uv pip install medre-adapter-meshcore
 ```
 
 ##### `bluetoothctl scan on` does not show the node

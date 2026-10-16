@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Projected sender-metadata enrichment tests for :class:`RelationEnricher`.
 
 These tests lock the layering contract that core relation enrichment

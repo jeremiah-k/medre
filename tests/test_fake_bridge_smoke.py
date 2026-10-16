@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Fake cross-adapter bridge smoke tests.
 
 Proves that the MEDRE runtime bridges events between fake adapters
@@ -38,12 +39,12 @@ import pytest
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

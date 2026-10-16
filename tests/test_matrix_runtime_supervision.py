@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused contracts for Matrix stale-sync and Megolm recovery supervision."""
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from medre.adapters.matrix.session import (
     _StaleSyncError,
     _SyncRecycleFailed,
 )
-from medre.config.adapters.errors import MatrixConfigError
+from medre.config.adapters.matrix_errors import MatrixConfigError
 from medre.config.sample import generate_sample_config
 from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import make_matrix_config
@@ -48,7 +49,7 @@ def test_runtime_supervision_defaults_match_schema_example_and_sample() -> None:
         assert getattr(config, field_name) == expected
         assert properties[field_name]["default"] == expected
         assert example[field_name] == expected
-        assert f"# {field_name}: {expected}" in sample
+        assert field_name not in sample  # Sample inherits adapter-owned defaults.
 
 
 def test_runtime_supervision_defaults_validate() -> None:

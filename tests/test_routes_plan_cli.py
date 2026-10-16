@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CLI tests for ``medre routes plan``.
 
 Exercises the ``_routes_plan`` command through :func:`tests.helpers.cli._run_cli_raw`,
@@ -645,15 +646,11 @@ runtime:
 storage:
   backend: memory
 adapters:
-  matrix:
-    main:
+  lxmf:
+    peer:
       enabled: true
       adapter_kind: fake
-      homeserver: https://fake.local
-      user_id: '@bot:fake.local'
-      access_token: tok_main
-      room_allowlist: ['!shared:fake.local']
-      encryption_mode: plaintext
+      connection_type: fake
   meshtastic:
     radio:
       enabled: true
@@ -662,7 +659,7 @@ adapters:
 routes:
   mapped:
     source_adapters: [radio]
-    dest_adapters: [main]
+    dest_adapters: [peer]
     directionality: source_to_dest
     context_map:
       "0":

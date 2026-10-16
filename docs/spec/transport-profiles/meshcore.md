@@ -30,7 +30,7 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 | `identity`              | `str \| None`                          | `None`       | Optional node identity string                                                                                                                                      |
 | `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                                                                                                                                   |
 | `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys                                                                                                                 |
-| `max_text_bytes`        | `int`                                  | `512`        | UTF-8 byte budget for rendered radio text                                                                                                                          |
+| `max_text_bytes`        | `int`                                  | `160`        | UTF-8 byte budget for rendered radio text                                                                                                                          |
 | `meshcore_relay_prefix` | `str`                                  | `""`         | Relay prefix template for outbound text (empty = no prefix; see §Relay Attribution Prefix)                                                                         |
 
 ---
@@ -43,28 +43,34 @@ Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 
-| Capability        | Value                                    |
-| ----------------- | ---------------------------------------- |
-| text              | `True`                                   |
-| title             | `False`                                  |
-| threads           | `"fallback"`                             |
-| replies           | `"unsupported"`                          |
-| reactions         | `"unsupported"`                          |
-| edits             | `"unsupported"`                          |
-| deletes           | `"unsupported"`                          |
-| attachments       | `False`                                  |
-| metadata_fields   | `False`                                  |
-| store_and_forward | `False`                                  |
-| direct_messages   | `False` (outbound; inbound PRIV relayed) |
-| channels          | `True`                                   |
-| mesh_routing      | `True`                                   |
-| max_text_bytes    | Configurable (default 512)               |
+| Capability        | Value                                      |
+| ----------------- | ------------------------------------------ |
+| text              | `True`                                     |
+| title             | `False`                                    |
+| threads           | `"fallback"`                               |
+| replies           | `"fallback"`                               |
+| reactions         | `"unsupported"`                            |
+| edits             | `"unsupported"`                            |
+| deletes           | `"unsupported"`                            |
+| attachments       | `False`                                    |
+| metadata_fields   | `False`                                    |
+| store_and_forward | `False`                                    |
+| direct_messages   | `False` (outbound; inbound PRIV relayed)   |
+| channels          | `True`                                     |
+| mesh_routing      | `True`                                     |
+| max_text_bytes    | Prefix-aware (127 before device handshake) |
 
-`max_text_bytes` is the adapter's advertised end-to-end text budget, not a
-single MeshCore packet payload cap. MeshCore per-packet payload constraints are
-lower (approximately 184 bytes depending on SDK framing). MEDRE does not
-implement fragmentation or reassembly — outbound text exceeding the budget is
-truncated by the renderer before delivery.
+`max_text_bytes` is an operator upper bound (default 160). MeshCore firmware
+limits the complete group text to 160 UTF-8 bytes, including its own advertised
+name and `": "` prefix. The adapter MUST reserve that space: 127 bytes before the
+device name is known, then `min(configured limit, 160 - name bytes - 2)` using
+live device information. A later name change MUST update the planning budget.
+
+Rendering MUST truncate at UTF-8 boundaries and record the effective budget and
+truncation in delivery evidence. The session MUST reject oversized native sends
+permanently before SDK I/O; it MUST NOT let firmware silently clip text or retry
+an intrinsically oversized companion frame. MEDRE does not fragment or reassemble
+MeshCore messages.
 
 ---
 
@@ -126,7 +132,7 @@ locally-known contact whose advertised name enriches those fields (see
 §Sender Identity Projection). Operators SHOULD prefer `{origin_label}` or
 `{sender_id}` for MeshCore-bound prefixes that need a stable value.
 
-**Truncation:** The prefix is prepended before UTF-8 byte-budget truncation (`max_text_bytes`, default 512). The rendered prefix counts toward the byte budget. Multi-byte UTF-8 codepoints are never split.
+**Truncation:** The prefix is prepended before UTF-8 byte-budget truncation (the effective firmware-clamped `max_text_bytes` budget). The rendered prefix counts toward the byte budget. Multi-byte UTF-8 codepoints are never split.
 
 **Metadata keys** (conditional, only when prefix is configured):
 
@@ -197,9 +203,9 @@ for the cross-transport policy.
 
 Inbound MeshCore events persist one versioned object at
 `metadata.native.data["meshcore"]`. The normative machine contract is
-[`meshcore-native-metadata.schema.json`](../../schemas/meshcore-native-metadata.schema.json),
+[`meshcore-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshcore/blob/main/docs/schemas/meshcore-native-metadata.schema.json),
 and the representative payload is
-[`meshcore-native-metadata-example.json`](../../schemas/examples/meshcore-native-metadata-example.json).
+[`meshcore-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-meshcore/blob/main/docs/schemas/examples/meshcore-native-metadata-example.json).
 The codec builder in `medre.adapters.meshcore.event_shape` is the source
 implementation authority.
 
@@ -326,15 +332,14 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 
 | Relation type | Capability level | Strategy        | Rendering path                                                                 |
 | ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
-| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Replies       | `"fallback"`     | `fallback_text` | Deterministic inline reply context; no native reply operation.                 |
 | Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
 | Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
 | Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
 | Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-MeshCore has no verified native relation support. Replies, reactions, edits, and
-deletes remain unsupported planning-time skips, while `threads="fallback"`
-selects deterministic inline thread context during normal live planning. Plain
+MeshCore has no verified native relation support. Reactions, edits, and deletes remain unsupported planning-time skips, while
+`replies="fallback"` and `threads="fallback"` select deterministic inline context during normal live planning. Plain
 message kinds continue to deliver directly.
 
 When `fallback_text` is supplied for a relation, the MeshCore renderer produces its
@@ -382,6 +387,6 @@ are deterministically degraded to inline fallback text.
 
 ## Reference Libraries
 
-| Library    | Purpose                                                           | Optional                |
-| ---------- | ----------------------------------------------------------------- | ----------------------- |
-| `meshcore` | MeshCore Python SDK (`MeshCore` factory, `EventType`, `commands`) | Yes (`medre[meshcore]`) |
+| Library    | Purpose                                                           | Optional                       |
+| ---------- | ----------------------------------------------------------------- | ------------------------------ |
+| `meshcore` | MeshCore Python SDK (`MeshCore` factory, `EventType`, `commands`) | Yes (`medre-adapter-meshcore`) |

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Regression tests for the configured adapter identifier contract.
 
 One contract (``medre.config.identifiers``) governs the four configuration
@@ -30,13 +31,11 @@ from pathlib import Path
 import pytest
 
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.config.model import (
-    AdapterConfigSet,
-    MeshtasticRuntimeConfig,
-)
+from medre.config.model import AdapterConfigSet
 from medre.config.paths import MedrePaths, MedrePathsError
 from medre.config.sample import generate_sample_config
 from tests.helpers.cli import _run_cli_raw
@@ -520,10 +519,10 @@ def test_generated_sample_config_round_trips(tmp_path: Path) -> None:
     config, _source, _paths = load_config(str(config_file))
 
     ids = {aid for _t, aid, _rtc in config.adapters.all_configs()}
-    assert {"main", "radio", "mc_node", "lxmf_node"} <= ids
+    assert ids == {"sample_1", "sample_2", "sample_3", "sample_4"}
     # The runtime derives the Matrix crypto store; the sample must not set
     # or suggest setting it with a {adapter_id} placeholder.
-    assert config.adapters.matrix["main"].config.store_path is None
+    assert next(iter(config.adapters.matrix.values())).config.store_path is None
 
 
 def test_json_schema_identifier_patterns_match_runtime_authority() -> None:
@@ -543,7 +542,5 @@ def test_json_schema_identifier_patterns_match_runtime_authority() -> None:
     runtime_schema = json.loads(
         (root / "docs/schemas/runtime-config.schema.json").read_text()
     )
-    groups = runtime_schema["properties"]["adapters"]["properties"]
-    assert {group["propertyNames"]["pattern"] for group in groups.values()} == {
-        expected
-    }
+    groups = runtime_schema["properties"]["adapters"]["additionalProperties"]
+    assert groups["propertyNames"]["pattern"] == expected

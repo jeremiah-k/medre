@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real Matrix/Meshtastic adapter wrapper callbacks with multiple messages.
 
 Proves that:
@@ -32,8 +33,9 @@ from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,
     make_nio_room,
-    to_event_dict,
 )
+from tests.helpers.matrix import mock_nio as mock_nio
+from tests.helpers.matrix import to_event_dict
 
 
 class TestMatrixWrapperMultiCallback:

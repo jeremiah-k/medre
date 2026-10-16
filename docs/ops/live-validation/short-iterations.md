@@ -8,12 +8,18 @@ separate final check.
 
 ## Prepare the Bench
 
-Install the locked environment with all extras needed for the campaign. Every
-subsequent sync needs the same extras; uv removes extras omitted from a sync.
+Run from a MEDRE source checkout with the four adapter repositories beside it.
+Native protocol and pair tests live in their owning adapter repositories;
+cross-adapter and Docker tests remain in core. Install matching revisions from
+the [compatibility manifest](../../../.github/adapter-compatibility.json).
+A later core sync removes separately installed packages; reinstall the adapters
+after it. For a deployment without source checkouts, start with
+[Getting Started](../getting-started.md).
 
 ```bash
-uv sync --locked --extra dev --extra meshtastic --extra meshcore \
-  --extra lxmf --extra matrix-e2e
+uv sync --locked --extra dev
+uv pip install -e ../medre-adapter-meshtastic -e ../medre-adapter-meshcore \
+  -e ../medre-adapter-lxmf -e '../medre-adapter-matrix[e2e]'
 uv run --no-sync medre smoke --json
 ```
 
@@ -44,6 +50,13 @@ export MEDRE_MC_BRIDGE=1
 export MEDRE_LX_BRIDGE=1
 export MEDRE_RADIO_MATRIX=1
 ```
+
+For a US fixed-frequency LoRa bench, use a device-authorized operating profile
+with 500 kHz bandwidth and center frequencies well inside 902–928 MHz.
+[FCC §15.247](https://www.ecfr.gov/current/title-47/section-15.247) specifies
+the digital-modulation bandwidth, power, antenna, and emission conditions.
+A region label or low power setting alone does not establish compliance.
+Power settings here are in dBm: 4 dBm is about 2.5 mW, not 4 W.
 
 Check these prerequisites before sending:
 
@@ -126,7 +139,7 @@ cases below so boundaries, deduplication, and negative controls execute.
 
 ```bash
 unset MEDRE_LIVE_QUICK
-run_stage mt-pair tests/test_meshtastic_pair_live.py -m 'live and hardware'
+run_stage mt-pair ../medre-adapter-meshtastic/tests/test_meshtastic_pair_live.py -m 'live and hardware'
 run_stage mc-pair tests/test_meshcore_pair_live.py -m 'live and hardware'
 run_stage lx-pair tests/test_lxmf_pair_live.py -m 'live and hardware'
 
@@ -147,15 +160,15 @@ module. The floor remains 90%; reducing it after a failure hides the evidence.
 Retain a failing run, then compare it with a native-only control using the same
 radio preset, payload shape, pacing, and fresh receiver window.
 
-| Stage | Main assertions |
-| --- | --- |
-| Meshtastic pair | Native IDs, RF egress, Unicode/newlines, UTF-8 byte boundaries, distinct-message admission. |
-| MeshCore pair | Clock-sensitive ingress, timestamp deduplication, wrong-key rejection and restored positive, peer egress, text boundaries. |
-| LXMF pair | Native hash/source correlation, multi-frame payloads, distinct hashes for identical text, relation envelope reconstruction. |
-| Radio bridge | Both directed routes, isolation, bounded echoes, scoped MeshCore stop/restart with Meshtastic remaining usable. |
-| LXMF bridges | Four directed routes and fanout through real native peers. |
-| Matrix Docker | Lifecycle, plaintext routing, encrypted text, crypto-store restart, attachment transfer and replay. |
-| Radio matrix | Rendering, provenance, route isolation, paced convergence, and Docker Matrix relays through the three radio transports. |
+| Stage           | Main assertions                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Meshtastic pair | Native IDs, RF egress, Unicode/newlines, UTF-8 byte boundaries, distinct-message admission.                                 |
+| MeshCore pair   | Clock-sensitive ingress, timestamp deduplication, wrong-key rejection and restored positive, peer egress, text boundaries.  |
+| LXMF pair       | Native hash/source correlation, multi-frame payloads, distinct hashes for identical text, relation envelope reconstruction. |
+| Radio bridge    | Both directed routes, isolation, bounded echoes, scoped MeshCore stop/restart with Meshtastic remaining usable.             |
+| LXMF bridges    | Four directed routes and fanout through real native peers.                                                                  |
+| Matrix Docker   | Lifecycle, plaintext routing, encrypted text, crypto-store restart, attachment transfer and replay.                         |
+| Radio matrix    | Rendering, provenance, route isolation, paced convergence, and Docker Matrix relays through the three radio transports.     |
 
 After these pass, reverse the A/B endpoint assignments and rerun the relevant
 pair cases to distinguish adapter behavior from a particular board. Change
@@ -184,7 +197,7 @@ Begin with short lifecycle cycles rather than an hours-long soak:
 
 ```bash
 export MESHTASTIC_SOAK_CYCLES=5
-run_stage mt-lifecycle tests/test_meshtastic_hardware_soak.py \
+run_stage mt-lifecycle ../medre-adapter-meshtastic/tests/test_meshtastic_hardware_soak.py \
   -m 'live and hardware'
 ```
 

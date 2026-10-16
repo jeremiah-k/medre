@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for env-created adapters building through RuntimeBuilder.
 
 Verifies that adapters created via MEDRE_ADAPTER__<TOKEN>__TRANSPORT=meshcore/lxmf

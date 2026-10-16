@@ -52,7 +52,7 @@ keep the behavioral requirement stable even if either repository is later refact
 | Self-message suppression       | `on_room_message()` drops events from the relay account                                                                                                                                                                        | Matrix events from MEDRE's configured user ID are dropped before canonical publication                                                                                                                                                                                    | Adopted                                                                |
 | Native Matrix replies          | MMRelay preserves `m.in_reply_to` and reconstructs Matrix reply relations                                                                                                                                                      | Matrix native IDs are represented by `NativeRef`; codec and renderer preserve `m.in_reply_to` without leaking Matrix semantics into core                                                                                                                                  | Adopted in MEDRE shape                                                 |
 
-Executable requirements live in `tests/test_matrix_behavior_reference.py`, alongside
+Executable requirements live in `../medre-adapter-matrix/tests/test_matrix_behavior_reference.py`, alongside
 specialized Matrix contract, recovery, codec, renderer, and integration tests.
 
 ## Meshtastic Behavior Crosswalk
@@ -67,7 +67,7 @@ specialized Matrix contract, recovery, codec, renderer, and integration tests.
 | Shutdown                     | MMRelay tears down subscriptions/client work so late callbacks cannot re-enter the relay             | MEDRE unsubscribes before client close, rejects post-stop callbacks, cancels reconnect work, and drains adapter-owned inbound/background work      | Adopted                                                            |
 | Native Meshtastic replies    | MMRelay sends structured replies using the radio packet ID                                           | MEDRE renders a Meshtastic `NativeRef.native_message_id` as `reply_id` while keeping the canonical relation transport-neutral                      | Adopted in MEDRE shape                                             |
 
-Executable requirements live in `tests/test_meshtastic_behavior_reference.py`, alongside
+Executable requirements live in `../medre-adapter-meshtastic/tests/test_meshtastic_behavior_reference.py`, alongside
 SDK-contract, session, queue, renderer, relation, and recovery tests.
 
 ## Intentionally Not Copied

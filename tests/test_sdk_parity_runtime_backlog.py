@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """SDK parity runtime backlog characterization tests.
 
 Tests that document and guard the current state of the SDK parity gaps

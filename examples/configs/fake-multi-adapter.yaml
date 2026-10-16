@@ -73,11 +73,9 @@ routes:
       - fake_meshtastic
     directionality: bidirectional
     enabled: true
-    source_room: "!fake-room:fake.local"
-    dest_channel: "1"
     policy:
       allowed_event_types:
-        - message
+        - message.text
 
   # Fan-out from Matrix to MeshCore and LXMF.
   matrix_fanout:
@@ -90,4 +88,4 @@ routes:
     enabled: true
     policy:
       allowed_event_types:
-        - message
+        - message.text

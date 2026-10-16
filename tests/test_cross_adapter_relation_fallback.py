@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """W6 cross-adapter relation fallback integration tests.
 
 End-to-end tests verifying that native relations degrade correctly when
@@ -50,10 +51,7 @@ from datetime import datetime, timezone
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
-from medre.adapters.lxmf.fields import (
-    FIELD_MEDRE_ENVELOPE,
-    LXMF_NAMESPACE,
-)
+from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
@@ -65,12 +63,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events import (
-    CanonicalEvent,
-    EventMetadata,
-    NativeMessageRef,
-    NativeRef,
-)
+from medre.core.events import CanonicalEvent, EventMetadata, NativeMessageRef, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
@@ -210,8 +203,7 @@ class TestMatrixToMeshCoreReplyFallback:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """End-to-end: Matrix reply event flows through pipeline to
-        MeshCore adapter.  Because MeshCore replies='unsupported', the
-        capability decision yields 'skip'.  We verify the renderer
+        MeshCore adapter.  MeshCore advertises reply fallback. This test verifies the renderer
         fallback_text path directly: inline '[reply to: …]' text, no
         reply_id or relation-specific fields in the MeshCore payload."""
         _MX = "mx-w6-1"
@@ -441,20 +433,10 @@ class TestMeshtasticToLxmfReactionFallback:
 
 
 class TestMissingNativeRefCrossAdapterDegradation:
-    """Pipeline crash-resistance and renderer robustness with fake default
-    capabilities.
+    """Unresolved references preserve reply text and suppress unsupported reactions.
 
-    These tests route events whose relation targets have **no stored native
-    ref** through the full pipeline using ``FakeMeshCoreAdapter`` /
-    ``FakeLxmfAdapter`` (which expose default ``AdapterCapabilities`` with
-    replies/reactions="native").  They verify that the pipeline delivers
-    without crashing and that no malformed native relation fields leak into
-    the outbound payload.
-
-    The explicit ``fallback_text`` degradation path (where the target
-    adapter declares ``replies="unsupported"``) is covered by Tests 1–2
-    above.  These tests complement those by exercising the *unresolved-ref*
-    code path where the storage lookup returns nothing.
+    Provider fakes enforce their declared capabilities during planning; these
+    tests must not rely on permissive generic defaults to bypass that gate.
     """
 
     async def test_missing_ref_to_meshcore_graceful(
@@ -526,10 +508,7 @@ class TestMissingNativeRefCrossAdapterDegradation:
             outcomes = await runner.handle_ingress(reply_event)
 
             # Pipeline does not crash — delivery succeeds.
-            # NOTE: FakeMeshCoreAdapter does not expose _capabilities
-            # to the pipeline, so the default AdapterCapabilities()
-            # (replies="native") is used.  The event is delivered
-            # with delivery_strategy='direct', not suppressed.
+            # The real and fake provider both advertise inline reply fallback.
             assert len(outcomes) >= 1
             assert outcomes[0].status == "success"
 
@@ -540,7 +519,12 @@ class TestMissingNativeRefCrossAdapterDegradation:
             # No native relation fields in MeshCore payload.
             assert "reply_id" not in payload
 
-            # Text is the reply body.
+            assert (
+                mc_adapter.delivered_payloads[0].fallback_applied
+                == "strategy_fallback_text"
+            )
+
+            # Text preserves the reply body.
             assert "Orphan reply" in str(payload["text"])
 
             # Stored relation has unresolved target_event_id.
@@ -554,11 +538,7 @@ class TestMissingNativeRefCrossAdapterDegradation:
     async def test_missing_ref_to_lxmf_graceful(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """Pipeline delivers a reaction event whose target has no stored
-        native ref for LXMF.  The event is delivered to the adapter with
-        the relation unresolved (target_event_id=None).  The LXMF payload
-        contains the emoji content and a fields envelope, but no malformed
-        native relation fields.  The pipeline does not crash."""
+        """An unmapped reaction cannot bypass LXMF's unsupported capability."""
         _RADIO = "radio-w6-3b"
         _LXMF = "lxmf-w6-3b"
 
@@ -608,37 +588,16 @@ class TestMissingNativeRefCrossAdapterDegradation:
         try:
             outcomes = await runner.handle_ingress(reaction_event)
 
-            # Pipeline does not crash — delivery succeeds.
-            # NOTE: FakeLxmfAdapter does not expose _capabilities
-            # to the pipeline, so the default AdapterCapabilities()
-            # (reactions="native") is used.  The event is delivered
-            # with delivery_strategy='direct', not suppressed.
-            assert len(outcomes) >= 1
-            assert outcomes[0].status == "success"
-
-            # LXMF adapter received the payload.
-            assert len(lx_adapter.delivered_payloads) == 1
-            payload = lx_adapter.delivered_payloads[0].payload
-
-            # Content is the reaction emoji text.
-            content = str(payload["content"])
-            assert "🎉" in content
-
-            # Fields envelope exists but has unresolved relation
-            # (target_event_id=None) — not malformed, just unresolved.
-            fields = payload.get("fields")
-            assert isinstance(fields, dict)
-            envelope_raw = fields.get(FIELD_MEDRE_ENVELOPE)
-            assert envelope_raw is not None
-            envelope = envelope_raw.get(LXMF_NAMESPACE)
-            assert isinstance(envelope, dict)
-            envelope_relations = envelope.get("relations", [])
-            assert isinstance(envelope_relations, list)
-            assert len(envelope_relations) == 1
-            assert envelope_relations[0]["target_event_id"] is None
-
-            # No native LXMF FIELD_THREAD (0x08) key.
-            assert 0x08 not in fields
+            assert len(outcomes) == 1
+            assert outcomes[0].status == "skipped"
+            assert not lx_adapter.delivered_payloads
+            receipts = await temp_storage.list_receipts_for_event(
+                reaction_event.event_id
+            )
+            assert len(receipts) == 1
+            assert receipts[0].status == "suppressed"
+            assert receipts[0].failure_kind == "capability_suppressed"
+            assert "reactions unsupported" in receipts[0].error
 
             # Stored relation has unresolved target_event_id.
             stored = await temp_storage.get(reaction_event.event_id)

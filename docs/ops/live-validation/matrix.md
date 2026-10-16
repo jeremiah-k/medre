@@ -5,7 +5,7 @@ Live smoke test procedures for the Matrix adapter against a real homeserver.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev --extra matrix
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix
 source .venv/bin/activate
 
 export MATRIX_HOMESERVER=http://localhost:8008
@@ -13,7 +13,7 @@ export MATRIX_USER_ID=@bot:localhost
 export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
 export MATRIX_ROOM_ID="!abc123:localhost"
 
-pytest tests/test_matrix_live.py -m live -v
+pytest ../medre-adapter-matrix/tests/test_matrix_live.py -m live -v
 ```
 
 Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
@@ -23,7 +23,7 @@ Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 No external homeserver needed. Uses a local Docker Synapse container.
 
 ```bash
-uv sync --locked --extra dev --extra matrix --extra meshtastic
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -42,7 +42,7 @@ Expected: 15 passed, 1 xfailed (third-party inbound requires second user during 
 ## E2EE Live Validation
 
 ```bash
-uv sync --locked --extra dev --extra matrix-e2e
+uv sync --locked --extra dev && uv pip install 'medre-adapter-matrix[e2e]'
 
 # Docker E2EE harness
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
@@ -60,24 +60,24 @@ Requires a second Matrix account sending during the test window:
 ```bash
 export MATRIX_INBOUND_SENDER="@alice:localhost"
 
-pytest tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
+pytest ../medre-adapter-matrix/tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
 ```
 
-While the test waits (30 s window), send a message from `@alice:localhost` into `MATRIX_ROOM_ID`. If no second account sends, the test xfails — acceptable. Deterministic unit tests in `tests/test_matrix_adapter.py` cover the same logic paths.
+While the test waits (30 s window), send a message from `@alice:localhost` into `MATRIX_ROOM_ID`. If no second account sends, the test xfails — acceptable. Deterministic unit tests in `../medre-adapter-matrix/tests/test_matrix_adapter.py` cover the same logic paths.
 
 ## Test File Reference
 
-| Test file                                         | Marker       | What it validates                                  |
-| ------------------------------------------------- | ------------ | -------------------------------------------------- |
-| `tests/test_matrix_live.py`                       | `live`       | Adapter lifecycle, send/receive, health, reconnect |
-| `tests/integration/test_synapse_connectivity.py`  | `docker`     | SDK connectivity against Docker Synapse            |
-| `tests/integration/test_synapse_bridge_smoke.py`  | `docker`     | Full pipeline with real Matrix SDK                 |
-| `tests/integration/test_synapse_e2ee_smoke.py`    | `docker`     | E2EE encrypted room lifecycle                      |
-| `tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
-| `tests/test_live_matrix_radio_bridge.py`          | `live`       | Matrix↔radio bridge, loopback suppression, restart |
-| `tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
-| `tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
-| `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
+| Test file                                                                 | Marker       | What it validates                                  |
+| ------------------------------------------------------------------------- | ------------ | -------------------------------------------------- |
+| `../medre-adapter-matrix/tests/test_matrix_live.py`                       | `live`       | Adapter lifecycle, send/receive, health, reconnect |
+| `tests/integration/test_synapse_connectivity.py`                          | `docker`     | SDK connectivity against Docker Synapse            |
+| `tests/integration/test_synapse_bridge_smoke.py`                          | `docker`     | Full pipeline with real Matrix SDK                 |
+| `tests/integration/test_synapse_e2ee_smoke.py`                            | `docker`     | E2EE encrypted room lifecycle                      |
+| `../medre-adapter-matrix/tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
+| `tests/test_live_matrix_radio_bridge.py`                                  | `live`       | Matrix↔radio bridge, loopback suppression, restart |
+| `../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
+| `../medre-adapter-matrix/tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
+| `../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
 
 ## Evidence Tiers Achieved
 
@@ -138,9 +138,9 @@ The Phase 2 durable-ingress contract has three validation layers:
 pytest -q tests/test_durable_ingress_storage.py \
   tests/test_durable_ingress_worker.py \
   tests/test_durable_ingress_crash_recovery.py
-pytest -q tests/test_matrix_sync_checkpoint_ownership.py \
-  tests/test_matrix_durable_admission_boundary.py
-pytest -q tests/test_matrix_sync_recovery_sdk_contract.py -m matrix_sdk
+pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py \
+  ../medre-adapter-matrix/tests/test_matrix_durable_admission_boundary.py
+pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py -m matrix_sdk
 ```
 
 With the Matrix extra installed, the SDK-contract test verifies the pinned

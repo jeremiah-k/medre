@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Live cross-transport bridge tests over the real MEDRE runtime with LXMF.
 
 Opt-in ONLY: ``MEDRE_LX_BRIDGE=1`` with the explicit owned endpoints of the
@@ -33,13 +34,13 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
+from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
+from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.lxmf_peer_timing import (
     delivery_timeout_seconds,
     send_timeout_seconds,
 )
-from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
-from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
-from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
 from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
@@ -93,7 +94,10 @@ pytestmark = [
             # Runtime start, health polling including its last three checks,
             # stop, listener startup (including MT's lock retry), route waits,
             # two peer teardowns, and a scheduling margin.
-            150.0 + 30.0 + 3 * 15.0 + 30.0
+            150.0
+            + 30.0
+            + 3 * 15.0
+            + 30.0
             + max(
                 _LxListener._READY_TIMEOUT + _McListener._READY_TIMEOUT,
                 2 * _MtListener._READY_TIMEOUT + 15.0,
@@ -101,10 +105,14 @@ pytestmark = [
             + max(
                 _RECALL_TIMEOUT + 90.0 + _RECEIPT_TIMEOUT + _LX_DELIVERY_TIMEOUT,
                 send_timeout_seconds() + _RECEIPT_TIMEOUT + 75.0,
-                _RECALL_TIMEOUT + 60.0 + _FANOUT_RECEIPT_TIMEOUT
-                + _LX_DELIVERY_TIMEOUT + 75.0,
+                _RECALL_TIMEOUT
+                + 60.0
+                + _FANOUT_RECEIPT_TIMEOUT
+                + _LX_DELIVERY_TIMEOUT
+                + 75.0,
             )
-            + 20.0 + _LISTENER_MARGIN,
+            + 20.0
+            + _LISTENER_MARGIN,
         )
     ),
     pytest.mark.filterwarnings(
@@ -144,14 +152,14 @@ def _fresh_rns_state():
 
 def _build_runtime(db_path: Path, *, routes: tuple[str, ...]):
     from medre.config.adapters.lxmf import LxmfConfig
+    from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
-        LxmfRuntimeConfig,
-        MeshCoreRuntimeConfig,
-        MeshtasticRuntimeConfig,
         RuntimeConfig,
         RuntimeOptions,
         StorageConfig,
@@ -280,7 +288,9 @@ async def _launch(db_path: Path, routes: tuple[str, ...]):
     raise RuntimeError(f"bridge runtime never reached healthy ({last})")
 
 
-async def _await_peer_recall(app, dest_hex: str, timeout: float = _RECALL_TIMEOUT) -> bool:
+async def _await_peer_recall(
+    app, dest_hex: str, timeout: float = _RECALL_TIMEOUT
+) -> bool:
     import RNS
 
     deadline = time.monotonic() + timeout
@@ -322,8 +332,11 @@ class TestBridgeToLxmf:
         try:
             nonce = _nonce("MT2LX")
             with _LxListener(
-                _RECALL_TIMEOUT + 60.0 + _RECEIPT_TIMEOUT
-                + _LX_DELIVERY_TIMEOUT + _LISTENER_MARGIN
+                _RECALL_TIMEOUT
+                + 60.0
+                + _RECEIPT_TIMEOUT
+                + _LX_DELIVERY_TIMEOUT
+                + _LISTENER_MARGIN
             ) as peer:
                 assert await _await_peer_recall(
                     app, _peer_dest()
@@ -360,8 +373,11 @@ class TestBridgeToLxmf:
         try:
             nonce = _nonce("MC2LX")
             with _LxListener(
-                _RECALL_TIMEOUT + 90.0 + _RECEIPT_TIMEOUT
-                + _LX_DELIVERY_TIMEOUT + _LISTENER_MARGIN
+                _RECALL_TIMEOUT
+                + 90.0
+                + _RECEIPT_TIMEOUT
+                + _LX_DELIVERY_TIMEOUT
+                + _LISTENER_MARGIN
             ) as peer:
                 assert await _await_peer_recall(
                     app, _peer_dest()
@@ -479,13 +495,18 @@ class TestBridgeFanOut:
             nonce = _nonce("FAN")
             # LX collection starts before the second peer's ready handshake.
             fanout_window = (
-                _McListener._READY_TIMEOUT + _RECALL_TIMEOUT + 60.0
-                + _FANOUT_RECEIPT_TIMEOUT + _LX_DELIVERY_TIMEOUT + 75.0
+                _McListener._READY_TIMEOUT
+                + _RECALL_TIMEOUT
+                + 60.0
+                + _FANOUT_RECEIPT_TIMEOUT
+                + _LX_DELIVERY_TIMEOUT
+                + 75.0
                 + _LISTENER_MARGIN
             )
-            with _LxListener(fanout_window) as lx_peer, _McListener(
-                fanout_window
-            ) as mc_listener:
+            with (
+                _LxListener(fanout_window) as lx_peer,
+                _McListener(fanout_window) as mc_listener,
+            ):
                 assert await _await_peer_recall(
                     app, _peer_dest()
                 ), "runtime cannot recall the LX peer identity (no announce)"

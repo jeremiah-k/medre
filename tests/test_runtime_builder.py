@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.runtime.builder: multi-adapter construction,
 disabled adapters, error handling."""
 
@@ -10,15 +11,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from medre.config.adapters.lxmf import LxmfConfig
+from medre.config.adapters.lxmf_runtime import LxmfRuntimeConfig
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
+from medre.config.adapters.meshcore_runtime import MeshCoreRuntimeConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

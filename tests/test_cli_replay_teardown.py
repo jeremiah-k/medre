@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """``best_effort`` replay teardown: one drain deadline, preserved primary
 errors, and the shared diagnostics-key observation seam.
 

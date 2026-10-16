@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Docker-gated run-session integration test for the MEDRE Matrix bridge.
 
 This test exercises the real MEDRE runtime (adapters + pipeline + storage)
@@ -9,7 +10,7 @@ The test is tagged ``pytest.mark.docker`` and excluded from default runs.
 
 Running locally::
 
-    pip install -e ".[matrix]"
+    pip install medre-adapter-matrix
     pytest tests/integration/test_synapse_run_session.py -m docker -v
 
 Evidence classification
@@ -75,7 +76,7 @@ if not HAS_NIO:
     pytestmark = [
         pytest.mark.docker,
         pytest.mark.skip(
-            reason="mindroom-nio not installed; run: pip install '.[matrix]'"
+            reason="mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
         ),
     ]
 

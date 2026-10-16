@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Long-run evidence integrity test — 100+ deterministic messages.
 
 Proves the evidence bundle (canonical events, delivery receipts, native refs,

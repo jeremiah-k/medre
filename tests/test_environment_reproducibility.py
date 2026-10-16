@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Environment reproducibility validation tests.
 
 Validates that MEDRE produces a **deterministic, reproducible** environment
@@ -43,11 +44,11 @@ from typing import Any
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

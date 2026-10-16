@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Lifecycle authority compliance tests for MEDRE adapters.
 
 Proves the documented lifecycle authority without requiring live
@@ -28,10 +29,10 @@ from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
@@ -58,6 +59,7 @@ from medre.core.supervision.health import (
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import AdapterBuildFailure, RuntimeBuilder
 from medre.runtime.errors import RuntimeStartupError
+from tests.helpers.source_locations import source_file
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -483,10 +485,10 @@ class TestAdaptersReportHealthNotState:
     def test_real_adapters_do_not_import_adapter_state(self) -> None:
         """No real adapter module mentions AdapterState."""
         adapter_files = [
-            REPO_ROOT / "src/medre/adapters/matrix/adapter.py",
-            REPO_ROOT / "src/medre/adapters/meshtastic/adapter.py",
-            REPO_ROOT / "src/medre/adapters/meshcore/adapter.py",
-            REPO_ROOT / "src/medre/adapters/lxmf/adapter.py",
+            source_file(REPO_ROOT, "src/medre/adapters/matrix/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/meshtastic/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/meshcore/adapter.py"),
+            source_file(REPO_ROOT, "src/medre/adapters/lxmf/adapter.py"),
         ]
         for path in adapter_files:
             content = path.read_text()

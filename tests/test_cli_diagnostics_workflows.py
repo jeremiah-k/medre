@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Diagnostics CLI workflows — JSON validation, schema, and secret redaction.
 
 Operators run ``medre diagnostics`` for pre-flight snapshots and verify the

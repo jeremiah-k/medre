@@ -4,7 +4,7 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-Every transport has a fake adapter that exercises the full pipeline. The
+Providers may supply a fake adapter that exercises the full pipeline. The
 default marker policy excludes live, Docker, hardware, optional SDK, local
 integration, and soak tiers. The full default suite can exceed ten minutes;
 use affected files during development and CI for broad verification. Collection
@@ -17,6 +17,68 @@ commands.
 For real devices, follow the [short hardware iteration sequence](../ops/live-validation/short-iterations.md).
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
+
+Native provider suites live in their independent repositories. Commands using
+a path such as ../medre-adapter-meshtastic/tests assume the corresponding
+checkout sits beside MEDRE and is installed in the test environment. Core
+retains cross-adapter, lifecycle, routing, and Docker integration suites.
+See [adapter installation](../ops/adapter-installation.md) for matching sources
+and [short hardware iterations](../ops/live-validation/short-iterations.md)
+for coordinated bench setup.
+
+## Adapter-free and compatibility ownership
+
+`uv run --no-sync pytest tests/ --core-only -q` runs all adapter-free modules.
+CI uses a core-only environment for this tier on Linux, macOS, and Windows.
+There is no positive file allowlist: new modules belong to this tier by default.
+A module requiring installed providers declares
+`# medre-test-tier: compatibility` within its first ten lines. A containing
+`conftest.py` can declare an entire provider-dependent suite before pytest
+imports that conftest. Mixed modules should be split when practical so generic
+contracts can run in the core tier.
+
+A static import walk follows local test helpers and rejects undeclared imports
+of adapter-owned MEDRE modules before collection. It also recognizes relative helper imports and literal
+dynamic imports. Provider fixtures, native source audits, metadata assertions,
+and source-example smoke sessions require explicit compatibility ownership;
+these dependencies cannot all be inferred from imports. The compatibility job
+still runs the complete suite with its resolved adapter snapshot. No tests are
+removed from that job.
+
+### Core-only CI sharding
+
+The Windows core-only job uses eight independent, zero-based test shards; Linux
+and macOS run one complete shard. The tests themselves are unchanged. Each job
+collects the adapter-free tier normally and then assigns complete test modules
+using largest-first balancing by collected test count. Tests are never selected
+by a hardcoded allowlist, and each collected test is assigned to exactly one
+shard. Platform-specific collection is handled per runner; an empty shard
+fails explicitly rather than silently passing.
+
+For local debugging or reproducing one Windows job:
+
+```bash
+uv run --no-sync python -m pytest tests/ --core-only \
+  --core-shard 3 --core-shards 8 -q -ra
+```
+
+`--core-shard` and `--core-shards` must be provided together and require
+`--core-only`; without them, the full suite runs as before. The compatibility
+matrix still runs unsharded with the exact pinned adapters. Only shard zero
+repeats the installed-wheel proof because its result is independent of which
+tests the other shards execute.
+
+This reduces **wall-clock latency** for Windows without removing tests or
+pretending that disk-backed SQLite setup is mocked. Long fixture setup on a
+particular runner should still be diagnosed using `--durations=20` and Windows
+filesystem/process profiling. The core-only job has a 10-minute safety limit;
+all shards must pass for the matrix to pass.
+
+The compatibility manifest owns distribution identity and SDK extras for core
+contracts, Docker integration, and standalone adapter SDK CI. Standalone adapter
+jobs report the exact core/adapter SHA pair they tested. Core CI's pinned pair
+is authoritative; an adapter's green test against a moving core baseline does
+not qualify a different pair.
 
 ## File Size Limits
 
@@ -215,7 +277,7 @@ overclaim the evidence level of a test. If a test uses fake adapters, call it
 | Tier | Label                   | What it proves                                                                         | How to test                                                                           |
 | ---- | ----------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | 1    | `fake_pipeline`         | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection         | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly        |
-| 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection             | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
+| 2    | `fake_adapter_callback` | `adapter.publish_inbound()` produces the same results as direct injection              | Use canonical callback injection; compare output with direct injection                |
 | 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target            | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
 | 4    | `sdk_contract`          | Exact pinned optional SDK exposes the constructors, enums and callbacks MEDRE consumes | Dedicated `*_sdk` marker/job with the adapter extra installed                         |
 | 5    | `local_integration`     | Real pinned SDK and MEDRE session run together against a deterministic local endpoint  | `@pytest.mark.local_integration` plus the adapter's `*_sdk` marker                    |
@@ -513,11 +575,11 @@ raising the constant.
   so development runs cannot transmit accidentally:
 
   - `MESHTASTIC_LIVE_SEND=1` — Meshtastic RF transmission (see
-    `tests/test_meshtastic_live.py`).
+    `../medre-adapter-meshtastic/tests/test_meshtastic_live.py`).
   - `MESHCORE_LIVE_SEND=1` — MeshCore node send (see
-    `tests/test_meshcore_live.py`).
+    `../medre-adapter-meshcore/tests/test_meshcore_live.py`).
   - `LXMF_LIVE_SEND=1` — LXMF / Reticulum outbound send (see
-    `tests/test_lxmf_live.py`).
+    `../medre-adapter-lxmf/tests/test_lxmf_live.py`).
 
   Without the corresponding flag, live-send tests in that module are
   skipped. Other live and hardware opt-ins (e.g. the `docker` marker,
@@ -575,7 +637,7 @@ The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra matrix --extra meshtastic --extra dev
+uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -678,7 +740,7 @@ uv run --no-sync pytest -m live -v --tb=short
 uv run --no-sync pytest tests/test_pipeline_delivery.py -v
 
 # Files matching a prefix
-uv run --no-sync pytest tests/test_matrix_session*.py -v
+(cd ../medre-adapter-matrix && ../medre/.venv/bin/python -m pytest tests/test_matrix_session*.py -v)
 
 # Keyword match
 uv run --no-sync pytest -k "test_delivery" -v
@@ -912,14 +974,14 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 
 ### Failure interpretation
 
-| Symptom                                             | Likely cause                          | Action                                                                        |
-| --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                              |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev --extra matrix --extra meshtastic`                                                  |
-| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                            |
-| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
-| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
+| Symptom                                             | Likely cause                          | Action                                                                                         |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                                  |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                                             |
+| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                                          |
+| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules))                  |
 
 ## See also
 
@@ -927,3 +989,49 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 - [Adapter SDK parity](adapter-sdk-parity.md) -- installed-SDK contract tiers and open parity gaps
 - [Resource lifecycle](resource-lifecycle.md) -- runtime resource ownership and shutdown sequence
 - [Operator workflows](../ops/operator-workflows.md) -- operator commands for bridge testing
+
+## External adapter suites
+
+Single-transport protocol tests, pinned SDK contracts, and deterministic local
+integration live in their owning adapter repositories. MEDRE retains the
+cross-adapter compatibility suite. The adapter-free core job runs separately
+on Linux, macOS, and Windows. The compatibility manifest and resolved CI
+snapshot are documented in [external adapters](external-adapters.md).
+
+## Multi-source fake smoke coverage
+
+`medre smoke` is **one event from one source**, not a proof that every
+configured route works. The JSON report now lists `source_candidates` and
+`coverage_scope: single_source`. When checking a multi-adapter deployment,
+run each listed source separately, with a separate SQLite evidence path:
+
+```bash
+medre smoke --config bridge.yaml --source-adapter matrix --storage-path matrix-smoke.sqlite --json
+medre smoke --config bridge.yaml --source-adapter meshtastic --storage-path meshtastic-smoke.sqlite --json
+```
+
+`--source-adapter` rejects unknown, disabled or unrouted sources instead of
+silently injecting through a different adapter. Smoke now fails when **any**
+selected source's fanout target returns a non-success outcome, even if a different
+target succeeds. Targets lost during construction or startup also fail the smoke;
+the report compares delivery evidence with the configured routes. Eligible
+sources must have started and provide the optional `make_event` helper. This remains fake direct-pipeline evidence, not live transport
+or SDK callback coverage. Use separate hardware/live tests for those contracts.
+
+With sibling source repos, run `python scripts/ci/adapter_matrix.py --check-local`
+before treating local cross-adapter tests as evidence for the pinned CI snapshot.
+
+## Synthetic lifecycle drill coverage
+
+`bad_route_config`, `all_adapters_build_fail`, `partial_degraded_startup`, and
+`all_adapters_start_fail` construct neutral instance IDs using one installed fake
+provider. Their explicit `adapter_transports` map and
+`coverage_scope: synthetic_adapter_instances` disclose the scope of the proof.
+The three-instance startup drill still constructs three different objects with
+one provider; adapter-instance counts do not imply a count of transport types.
+Cross-transport coverage belongs to the compatibility suite. No installed
+provider produces a failed report with an installation reason.
+
+The bounded regressions live in `tests/test_drill_transport_assignments.py` and
+validate `docs/schemas/lifecycle-drill-report.schema.json` alongside the actual
+startup and cleanup results.

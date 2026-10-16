@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shutdown/restart, signal safety, snapshot-on-shutdown, run output, and stale shutdown state.
 
 Shutdown lifecycle tests use ``_trigger_shutdown_after_startup()`` which waits
@@ -17,12 +18,8 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.async_utils import wait_until
-from tests.helpers.cli import (
-    CONFIG_FAKE_MULTI,
-    CONFIG_SINGLE_ADAPTER,
-    _run_cli,
-    _run_cli_raw,
-)
+from tests.helpers.cli import _run_cli, _run_cli_raw
+from tests.helpers.compatibility_configs import CONFIG_FAKE_MULTI, CONFIG_SINGLE_ADAPTER
 
 
 async def _trigger_shutdown_after_startup(

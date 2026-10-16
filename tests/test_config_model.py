@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for medre.config.model helper functions.
 
 Covers:

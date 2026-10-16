@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for queue terminal outcome reporting and outbox_id correlation.
 
 Exercises:

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Real MatrixAdapter wrapper callback ingress tests.
 
 Proves that the real ``MatrixAdapter._on_room_message`` callback decodes nio
@@ -25,8 +26,9 @@ from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,
     make_nio_room,
-    to_event_dict,
 )
+from tests.helpers.matrix import mock_nio as mock_nio
+from tests.helpers.matrix import to_event_dict
 
 
 class TestMatrixWrapperCallbackPath:

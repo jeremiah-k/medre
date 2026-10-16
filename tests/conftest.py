@@ -9,16 +9,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 import tempfile
 from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator
-from unittest.mock import patch
 
 import pytest
 
+# Imported for import-order hermeticity: medre.cli.transports computes
+# TRANSPORTS from the adapter registry at import time, so tests that swap
+# ADAPTER_REGISTRY with synthetic specs must never be the process's first
+# importer. Computing the table here pins it against the real registry for
+# every invocation order.
+from medre.cli import transports  # noqa: F401
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -37,7 +41,6 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # `isolated_config_env` directly or activate it with module-level
 # ``pytest.mark.usefixtures`` markers.
 from tests.helpers.config_env import isolated_config_env  # noqa: F401
-from tests.helpers.matrix import build_mock_nio_module
 from tests.helpers.storage_outbox import admit_default_event
 
 # ---------------------------------------------------------------------------
@@ -419,26 +422,74 @@ def rendering_pipeline() -> RenderingPipeline:
     return pipeline
 
 
-# ---------------------------------------------------------------------------
-# Matrix mock fixtures (shared across test_wrapper_multi_callback.py)
-# ---------------------------------------------------------------------------
+def pytest_addoption(parser):
+    parser.addoption(
+        "--core-only",
+        action="store_true",
+        help="Run every declared adapter-free test module",
+    )
+
+    parser.addoption(
+        "--core-shard",
+        type=int,
+        default=None,
+        help="Zero-based core-only shard index (requires --core-shards)",
+    )
+    parser.addoption(
+        "--core-shards",
+        type=int,
+        default=None,
+        help="Total core-only test shards (requires --core-shard)",
+    )
 
 
-@pytest.fixture
-def mock_nio() -> Any:
-    """Inject a mock nio module into sys.modules and patch HAS_NIO."""
-    mock = build_mock_nio_module()
-    saved_nio = sys.modules.get("nio")
-    saved_nio_events = sys.modules.get("nio.events")
-    sys.modules["nio"] = mock
-    sys.modules["nio.events"] = mock.events
-    with patch("medre.adapters.matrix.adapter.HAS_NIO", True):
-        yield mock
-    if saved_nio is None:
-        sys.modules.pop("nio", None)
-    else:
-        sys.modules["nio"] = saved_nio
-    if saved_nio_events is None:
-        sys.modules.pop("nio.events", None)
-    else:
-        sys.modules["nio.events"] = saved_nio_events
+def pytest_configure(config):
+    from tests.helpers.core_sharding import validate_core_shard
+
+    try:
+        validate_core_shard(
+            index=config.getoption("--core-shard"),
+            count=config.getoption("--core-shards"),
+            core_only=config.getoption("--core-only"),
+        )
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+
+
+def pytest_collection_modifyitems(config, items):
+    index = config.getoption("--core-shard")
+    if index is None:
+        return
+    from tests.helpers.core_sharding import partition_core_tests
+
+    count = config.getoption("--core-shards")
+    selected, deselected = partition_core_tests(items, index=index, count=count)
+    if not selected:
+        raise pytest.UsageError(
+            f"Core shard {index + 1}/{count} selected no tests; reduce --core-shards"
+        )
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
+
+
+def pytest_sessionstart(session):
+    if not session.config.getoption("--core-only"):
+        return
+    from tests.helpers.suite_ownership import undeclared_dependencies
+
+    problems = undeclared_dependencies(Path(__file__).resolve().parents[1])
+    if problems:
+        raise pytest.UsageError(
+            "Undeclared adapter-dependent tests; remove the coupling or declare '# medre-test-tier: compatibility': "
+            + repr(problems)
+        )
+
+
+def pytest_ignore_collect(collection_path, config):
+    if not config.getoption("--core-only"):
+        return None
+    from tests.helpers.suite_ownership import is_compatibility
+
+    if is_compatibility(collection_path, Path(__file__).resolve().parents[1]):
+        return True
+    return None

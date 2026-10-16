@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Contract tests for the data-driven built-in adapter registry."""
 
 from __future__ import annotations
@@ -9,15 +10,13 @@ from pathlib import Path
 import pytest
 
 from medre.adapter_registry import (
-    BUILTIN_ADAPTER_REGISTRY,
-    AdapterSpec,
+    ADAPTER_REGISTRY,
     AdapterTypeRegistry,
-    SymbolRef,
     adapter_sdk_packages,
     native_detection_specs,
     registered_transports,
 )
-from medre.cli.transport_constants import RADIO_TRANSPORTS
+from medre.adapter_spec import AdapterSpec, SymbolRef
 from medre.cli.transports import TRANSPORTS
 from medre.config.model import AdapterConfigSet
 from medre.runtime.architecture_report import SESSION_ALLOWED_SDKS
@@ -49,7 +48,7 @@ def _synthetic_spec(transport: str) -> AdapterSpec:
 
 def test_registry_is_ordered_unique_and_matches_config_groups() -> None:
     transports = registered_transports()
-    assert transports == tuple(spec.transport for spec in BUILTIN_ADAPTER_REGISTRY)
+    assert transports == tuple(spec.transport for spec in ADAPTER_REGISTRY)
     assert len(transports) == len(set(transports))
     assert tuple(name for name, _group in AdapterConfigSet().groups()) == transports
 
@@ -68,7 +67,9 @@ def test_registry_rejects_invalid_transport_name() -> None:
 
 def test_registry_rejects_negative_detection_priority() -> None:
     spec = replace(_synthetic_spec("sample"), native_detection_priority=-1)
-    with pytest.raises(ValueError, match="native_detection_priority must be >= 0"):
+    with pytest.raises(
+        ValueError, match="native_detection_priority must be an integer >= 0"
+    ):
         AdapterTypeRegistry((spec,))
 
 
@@ -86,7 +87,7 @@ def test_registry_rejects_duplicate_secret_support_field() -> None:
 
 def test_require_unknown_transport_names_known_transports() -> None:
     with pytest.raises(KeyError, match="unknown adapter transport 'nope'"):
-        BUILTIN_ADAPTER_REGISTRY.require("nope")
+        ADAPTER_REGISTRY.require("nope")
 
 
 def test_registered_transport_is_accepted_without_core_model_change(
@@ -98,7 +99,6 @@ def test_registered_transport_is_accepted_without_core_model_change(
     config = AdapterConfigSet(sample={})
 
     assert registry.transports() == ("sample",)
-    assert registry.require("sample").install_extra == "sample"
     assert config.groups() == (("sample", {}),)
 
 
@@ -130,7 +130,7 @@ def test_registry_rejects_overlapping_support_fields() -> None:
 
 
 def test_matrix_cli_contribution_is_adapter_owned() -> None:
-    matrix = BUILTIN_ADAPTER_REGISTRY.require("matrix")
+    matrix = ADAPTER_REGISTRY.require("matrix")
     assert matrix.cli_register is not None
     assert matrix.cli_register.module == "medre.adapters.matrix.cli_contrib"
     assert matrix.cli_dispatch is not None
@@ -138,8 +138,8 @@ def test_matrix_cli_contribution_is_adapter_owned() -> None:
 
 
 def test_support_bundle_field_metadata_is_registry_owned() -> None:
-    matrix = BUILTIN_ADAPTER_REGISTRY.require("matrix")
-    meshcore = BUILTIN_ADAPTER_REGISTRY.require("meshcore")
+    matrix = ADAPTER_REGISTRY.require("matrix")
+    meshcore = ADAPTER_REGISTRY.require("meshcore")
     assert matrix.support_endpoint_fields == (
         "homeserver",
         "user_id",
@@ -161,25 +161,22 @@ def test_native_detection_priority_preserves_existing_precedence() -> None:
 def test_cli_transport_inventory_derives_from_registry() -> None:
     expected = [
         (spec.transport, spec.distribution, spec.import_names)
-        for spec in BUILTIN_ADAPTER_REGISTRY
+        for spec in ADAPTER_REGISTRY
     ]
     assert TRANSPORTS == expected
-    assert RADIO_TRANSPORTS == frozenset(
-        spec.transport for spec in BUILTIN_ADAPTER_REGISTRY.with_trait("radio")
-    )
 
 
 def test_architecture_sdk_allowances_derive_from_registry() -> None:
     assert SESSION_ALLOWED_SDKS == {
-        spec.transport: spec.sdk_import_roots for spec in BUILTIN_ADAPTER_REGISTRY
+        spec.transport: spec.sdk_import_roots for spec in ADAPTER_REGISTRY
     }
     assert set(adapter_sdk_packages()) == {
-        sdk for spec in BUILTIN_ADAPTER_REGISTRY for sdk in spec.sdk_import_roots
+        sdk for spec in ADAPTER_REGISTRY for sdk in spec.sdk_import_roots
     }
 
 
 def test_registered_symbols_resolve() -> None:
-    for spec in BUILTIN_ADAPTER_REGISTRY:
+    for spec in ADAPTER_REGISTRY:
         assert spec.config.load() is not None
         assert spec.adapter.load() is not None
         assert spec.fake_adapter.load() is not None
@@ -201,11 +198,12 @@ def test_registered_symbols_resolve() -> None:
                 assert ref.load() is not None
 
 
-def test_runtime_schema_transport_groups_match_registry() -> None:
+def test_runtime_schema_accepts_community_transport_structure() -> None:
+    import jsonschema
+
     schema = json.loads(
-        (_ROOT / "docs" / "schemas" / "runtime-config.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (_ROOT / "docs/schemas/runtime-config.schema.json").read_text(encoding="utf-8")
     )
-    groups = schema["properties"]["adapters"]["properties"]
-    assert tuple(groups) == registered_transports()
+    jsonschema.validate(
+        {"adapters": {"community_radio": {"main": {"host": "local"}}}}, schema
+    )

@@ -29,11 +29,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
-from medre.adapter_registry import (
-    AdapterSpec,
-    get_adapter_spec,
-    iter_adapter_specs,
-)
+from medre.adapter_registry import get_adapter_spec, iter_adapter_specs
+from medre.adapter_spec import AdapterSpec
 from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     RuntimeConfig,
@@ -195,6 +192,10 @@ def _dependency_available(spec: AdapterSpec) -> bool:
 
 def _build_fake_adapter(spec: AdapterSpec, adapter_id: str) -> AdapterContract:
     """Construct the registered fake adapter without importing live SDKs."""
+    if spec.fake_adapter is None:
+        raise RuntimeConfigError(
+            f"Adapter provider {spec.transport!r} does not declare a fake implementation"
+        )
     try:
         fake_cls = spec.fake_adapter.load()
         return cast(AdapterContract, fake_cls(adapter_id=adapter_id))
@@ -309,6 +310,25 @@ class RuntimeBuilder:
         RuntimeConfigError
             If the configuration is invalid or inconsistent.
         """
+        try:
+            # Programmatically constructed RuntimeConfig instances bypass the
+            # YAML loader. Enforce the same resource contracts before creating
+            # any runtime components or scheduling work.
+            self._config.runtime.validate()
+            self._config.limits.validate()
+            self._config.retry.validate()
+            self._config.attachments.validate()
+            self._config.adapters.validate()
+            self._config.routes.validate()
+            self._config.routes.validate_destinations(
+                {
+                    adapter_id: transport
+                    for transport, adapter_id, _ in self._config.adapters.all_configs()
+                }
+            )
+        except ConfigValidationError as exc:
+            raise RuntimeConfigError(str(exc)) from exc
+
         # 1. EventBus
         event_bus = EventBus()
 
@@ -723,6 +743,7 @@ class RuntimeBuilder:
             raise RuntimeConfigError(
                 f"Adapter {adapter_id!r} ({transport}) is enabled but could "
                 f"not be built: the optional SDK dependency is not installed. "
-                f"Install it with: pip install medre[{spec.install_extra}]"
+                f"Reinstall the distribution providing {spec.transport!r} "
+                "with its declared SDK dependencies."
             )
         return adapter

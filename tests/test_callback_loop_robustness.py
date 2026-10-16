@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Callback loop robustness tests.
 
 Proves that malformed inbound payloads, callback exceptions, and

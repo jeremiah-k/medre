@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for runtime transport capability metadata.
 
 Covers:
@@ -454,11 +455,11 @@ class TestFakeMeshCoreCapabilities:
 
         caps = _FAKE_MESHCORE_CAPABILITIES
         assert caps.text is True
-        assert caps.replies == "unsupported"
+        assert caps.replies == "fallback"
         assert caps.direct_messages is False
         assert caps.channels is True
         assert caps.mesh_routing is True
-        assert caps.max_text_bytes == 512
+        assert caps.max_text_bytes == 127
         assert caps.max_text_chars is None
 
     def test_capability_serialization_matches(self) -> None:
@@ -467,13 +468,13 @@ class TestFakeMeshCoreCapabilities:
         result = serialize_adapter_capabilities(_FAKE_MESHCORE_CAPABILITIES)
         assert is_capability_summary(result)
         assert result["supports_mesh_routing"] is True
-        assert result["max_text_bytes"] == 512
+        assert result["max_text_bytes"] == 127
 
-    def test_fake_capabilities_remain_at_default_512(self) -> None:
-        """Fake adapter constant stays at 512 regardless of config."""
+    def test_fake_capabilities_reserve_unknown_sender_name(self) -> None:
+        """The default budget reserves the longest firmware sender-name prefix."""
         from medre.adapters.fakes.meshcore import _FAKE_MESHCORE_CAPABILITIES
 
-        assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 512
+        assert _FAKE_MESHCORE_CAPABILITIES.max_text_bytes == 127
 
     def test_real_adapter_default_capabilities_match_fake(self) -> None:
         """Real adapter with default config has same max_text_bytes as fake."""
@@ -488,14 +489,14 @@ class TestFakeMeshCoreCapabilities:
             == _FAKE_MESHCORE_CAPABILITIES.max_text_bytes
         )
 
-    def test_real_adapter_custom_config_overrides_max_text_bytes(self) -> None:
-        """Real adapter with custom max_text_bytes config overrides capabilities."""
+    def test_real_adapter_custom_config_cannot_exceed_wire_budget(self) -> None:
+        """An operator upper bound cannot override firmware capacity."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
         config = MeshCoreConfig(adapter_id="caps-test", max_text_bytes=2048)
         adapter = MeshCoreAdapter(config)
-        assert adapter._capabilities.max_text_bytes == 2048
+        assert adapter._capabilities.max_text_bytes == 127
         assert adapter._capabilities.max_text_chars is None
 
     @pytest.mark.asyncio

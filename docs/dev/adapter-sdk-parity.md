@@ -237,9 +237,9 @@ remain point-in-time evidence for the original parity review.
 The `adapter-sdk-contract` job installs one optional adapter extra at a time and
 runs only its contract marker across Python 3.11, 3.12, 3.13, and 3.14:
 
-- `lxmf_sdk` with `medre[lxmf]`
-- `meshtastic_sdk` with `medre[meshtastic]`
-- `meshcore_sdk` with `medre[meshcore]`
+- `lxmf_sdk` with `medre-adapter-lxmf`
+- `meshtastic_sdk` with `medre-adapter-meshtastic`
+- `meshcore_sdk` with `medre-adapter-meshcore`
 
 The default suite explicitly excludes all three markers, just as it excludes
 `matrix_sdk`, `live`, `docker`, and `hardware`. This keeps optional dependency

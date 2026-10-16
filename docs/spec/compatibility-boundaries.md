@@ -107,7 +107,7 @@ fallback semantics.
 | LXMF/Reticulum text, bytes, and state normalization  | third-party SDK/protocol            | `medre.adapters.lxmf.session`, `medre.adapters.lxmf.codec`               | Normalize values emitted by the supported external libraries.                                         |
 | Replay stub `plan_delivery` / `deliver` path         | deterministic test seam             | `medre.core.engine.replay.planning`, `medre.core.engine.replay.delivery` | Exercise replay stages with structural test pipelines; real runtime replay uses `deliver_to_targets`. |
 | Fake-adapter renderer configuration synthesis        | deterministic test/integration seam | `medre.runtime.builder`                                                  | Build current fake-adapter scenarios without inventing serialized compatibility formats.              |
-| Docker stdout evidence derivation                    | bounded operational degradation     | `medre.runtime.docker_bridge_artifacts`                                  | Produce explicitly lower-confidence evidence when structured `run-metadata.json` is unavailable.      |
+| Docker stdout evidence derivation                    | bounded operational degradation     | `scripts.ci.docker_bridge_artifacts`                                     | Produce explicitly lower-confidence evidence when structured `run-metadata.json` is unavailable.      |
 
 Capability levels named `fallback` (for example thread/reaction rendering) are
 not compatibility exceptions. They are ordinary current delivery semantics and

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for LxmfRenderer: name, can_render dispatch, rendering output,
 title, fields envelope, relay prefix, target-aware configs, and edge cases.
 """

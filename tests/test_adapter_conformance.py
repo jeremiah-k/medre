@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Parameterized adapter conformance tests.
 
 Verifies that every adapter (real and fake) conforms to the §3.1 adapter

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """CancelledError deferral in MedreApp.stop() pipeline/storage cleanup.
 
 Covers four ``except asyncio.CancelledError`` blocks that defer cancellation

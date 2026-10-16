@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for Blocker 1 (build failures in startup outcome),
 Blocker 2 (total startup failure resource cleanup), and
 Blocker 1 PC Fix (catastrophic adapter-loop failure cleanup).
@@ -34,10 +35,10 @@ from unittest.mock import patch
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

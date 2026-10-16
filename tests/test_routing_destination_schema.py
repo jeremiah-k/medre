@@ -25,24 +25,8 @@ def _route(destination: dict, *, dest_adapters: list[str] | None = None) -> dict
     }
 
 
-def test_lxmf_destination_requires_32_hex_hash() -> None:
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(
-            instance=_route({"kind": "lxmf_destination"}), schema=_SCHEMA
-        )
-    jsonschema.validate(
-        instance=_route(
-            {
-                "kind": "lxmf_destination",
-                "destination_hash": "0123456789abcdef0123456789abcdef",
-            }
-        ),
-        schema=_SCHEMA,
-    )
-
-
 def test_name_destinations_require_name_and_reject_hash() -> None:
-    for kind in ("channel", "matrix_room"):
+    for kind in ("channel",):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance=_route({"kind": kind}), schema=_SCHEMA)
         with pytest.raises(jsonschema.ValidationError):
@@ -56,16 +40,6 @@ def test_name_destinations_require_name_and_reject_hash() -> None:
                 ),
                 schema=_SCHEMA,
             )
-
-
-def test_meshcore_contact_requires_nonempty_hash_or_name() -> None:
-    for destination in (
-        {"kind": "meshcore_contact"},
-        {"kind": "meshcore_contact", "destination_hash": None},
-        {"kind": "meshcore_contact", "destination_name": None},
-    ):
-        with pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate(instance=_route(destination), schema=_SCHEMA)
 
 
 def test_structured_destination_rejects_selectors_and_multiple_adapters() -> None:
@@ -101,3 +75,10 @@ def test_route_config_ref_requires_nonempty_adapter_arrays() -> None:
         route[field] = []
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(instance={"routes": [route]}, schema=_SCHEMA)
+
+
+def test_schema_accepts_community_addressing_kind() -> None:
+    jsonschema.validate(
+        _route({"kind": "community_device", "metadata": {"device_id": "sensor-1"}}),
+        _SCHEMA,
+    )

@@ -29,10 +29,11 @@ update only the relevant `docs/dev/` file.
 
 ## Source-Audit Notes
 
-Source audit notes document the results of code review. They are evidence of
-review, not normative authority. If an audit reveals a spec inconsistency, the
-spec page must be updated separately — the audit note alone does not change
-semantics.
+Keep temporary audit reports, review ledgers, inventories, and validation logs
+outside the repository, for example under `~/tmp/codex/`. Do not commit them.
+Record lasting findings as targeted fixes, tests, and updates to the relevant
+spec/ops/dev page. A changelog fragment describes the resulting behavior change,
+not the review session or its validation history.
 
 ## Pre-Release Breaking Changes
 

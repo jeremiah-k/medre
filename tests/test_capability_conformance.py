@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Capability conformance tests: validates that machine-readable capability
 JSON files match the actual AdapterCapabilities declared in adapter source code.
 

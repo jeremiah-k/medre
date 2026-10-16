@@ -33,16 +33,35 @@ from medre.core.observability.sanitization import sanitize_error, sanitize_for_l
 # Sensible levels for noisy third-party loggers.  Applied by setup_logging()
 # before user overrides so that overrides take precedence.
 _DEPENDENCY_DEFAULTS: dict[str, int] = {
-    "nio": logging.WARNING,
-    "nio.crypto.log": logging.ERROR,
     "aiohttp": logging.WARNING,
-    "meshtastic": logging.WARNING,
-    "peewee": logging.WARNING,
     "urllib3": logging.WARNING,
-    "serial": logging.WARNING,
-    "serial_asyncio": logging.WARNING,
     "asyncio": logging.WARNING,
 }
+
+
+def dependency_logger_defaults() -> dict[str, int]:
+    """Merge installed SDK defaults and adapter-owned noise policies.
+
+    Shared declarations use the most restrictive level, independently of
+    discovery order. Explicit operator overrides still take precedence.
+    """
+    from medre.adapter_registry import iter_adapter_specs
+
+    defaults = dict(_DEPENDENCY_DEFAULTS)
+    declared: dict[str, int] = {}
+    for spec in iter_adapter_specs():
+        defaults.update(
+            (name, logging.WARNING)
+            for name in spec.sdk_import_roots
+            if name not in {"root", "medre"} and not name.startswith("medre.")
+        )
+        for name, level in spec.logger_levels:
+            declared[name] = max(
+                declared.get(name, logging.NOTSET), getattr(logging, level)
+            )
+    defaults.update(declared)
+    return defaults
+
 
 # Private attribute used to mark the MEDRE-managed console handler on the
 # root logger so it can be identified and updated across repeated calls.
@@ -258,7 +277,7 @@ def setup_logging(
             medre_logger.removeHandler(h)
 
     # 5. Apply dependency defaults.
-    for logger_name, default_level in _DEPENDENCY_DEFAULTS.items():
+    for logger_name, default_level in dependency_logger_defaults().items():
         logging.getLogger(logger_name).setLevel(default_level)
 
     # 6. Apply user overrides on top of defaults.

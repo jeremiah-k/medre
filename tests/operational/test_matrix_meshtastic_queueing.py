@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Matrix <-> Meshtastic queueing, receipt, and correlation operational tests.
 
 Tests covering:

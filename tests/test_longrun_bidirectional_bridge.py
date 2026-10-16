@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Bidirectional fake_matrix <-> fake_meshtastic bridge handling N messages
 without loops, with exact accounting and clean shutdown.
 

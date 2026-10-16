@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Retry worker outcome, backoff, uncancel, and abandonment visibility tests."""
 
 from __future__ import annotations
@@ -563,10 +564,10 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
 
     @staticmethod
     def _build_app(paths: MedrePaths) -> MedreApp:
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
-            MatrixRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,

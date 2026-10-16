@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Storage durability tests for SQLite operational correctness.
 
 Covers gaps not addressed by test_storage.py or test_runtime_recovery.py:
@@ -527,9 +528,9 @@ class TestStorageCloseOnStartupFailure:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """When pipeline_runner.start() fails, storage is closed."""
+        from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
         from medre.config.model import (
             AdapterConfigSet,
-            MatrixRuntimeConfig,
             RuntimeConfig,
             RuntimeOptions,
             StorageConfig,

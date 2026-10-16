@@ -16,13 +16,9 @@ import logging
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Self, get_args, get_type_hints
+from typing import Any, Protocol, Self, get_args, get_type_hints, runtime_checkable
 
 from medre.adapter_registry import registered_transports
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.routes import RouteConfigSet
@@ -177,6 +173,17 @@ class RuntimeOptions:
     name: str = "medre"
     shutdown_timeout_seconds: int = 10
 
+    def validate(self) -> Self:
+        """Validate operator-supplied options before runtime construction."""
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ConfigValidationError("runtime.name must be a non-empty string")
+        timeout = self.shutdown_timeout_seconds
+        if type(timeout) is not int or timeout <= 0:
+            raise ConfigValidationError(
+                "runtime.shutdown_timeout_seconds must be a positive integer"
+            )
+        return self
+
 
 @dataclass(frozen=True)
 class LoggingConfig:
@@ -224,6 +231,29 @@ class RetryConfig:
     interval_seconds: float = 10.0
     batch_size: int = 20
     max_attempts: int = 3
+
+    def validate(self) -> Self:
+        """Reject invalid retry scheduling values for all config entry paths."""
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError("retry.enabled must be a boolean")
+        for name in ("batch_size", "max_attempts"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ConfigValidationError(f"retry.{name} must be an integer >= 1")
+        interval = self.interval_seconds
+        if isinstance(interval, bool) or not isinstance(interval, (int, float)):
+            raise ConfigValidationError(
+                "retry.interval_seconds must be a positive finite number"
+            )
+        try:
+            finite = math.isfinite(interval)
+        except (OverflowError, ValueError):
+            finite = False
+        if not finite or interval <= 0:
+            raise ConfigValidationError(
+                "retry.interval_seconds must be a positive finite number"
+            )
+        return self
 
 
 @dataclass(frozen=True)
@@ -343,49 +373,50 @@ class RuntimeLimits:
 
     max_inflight_deliveries: int = 100
     max_inflight_replay_events: int = 100
-    shutdown_drain_timeout_seconds: int = 10
+    shutdown_drain_timeout_seconds: float = 10.0
     delivery_acquire_timeout_seconds: float = 1.0
     max_inflight_inbound_admissions: int = 100
     inbound_admission_timeout_seconds: float = 5.0
 
     def validate(self) -> Self:
-        """Validate runtime limits.
+        """Reject invalid limits before they reach asyncio capacity controls.
 
-        Raises
-        ------
-        ConfigValidationError
-            If any limit is non-positive.
+        Concurrent-work limits are positive integers; timeouts are positive,
+        finite real numbers. In particular, ``bool`` is not an integer limit.
         """
-        if self.max_inflight_deliveries <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_deliveries must be > 0, got {self.max_inflight_deliveries}"
-            )
-        if self.max_inflight_replay_events <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_replay_events must be > 0, got {self.max_inflight_replay_events}"
-            )
-        if self.shutdown_drain_timeout_seconds <= 0:
-            raise ConfigValidationError(
-                f"shutdown_drain_timeout_seconds must be > 0, "
-                f"got {self.shutdown_drain_timeout_seconds}"
-            )
-        if self.delivery_acquire_timeout_seconds <= 0:
-            raise ConfigValidationError(
-                f"delivery_acquire_timeout_seconds must be > 0, "
-                f"got {self.delivery_acquire_timeout_seconds}"
-            )
-        if self.max_inflight_inbound_admissions <= 0:
-            raise ConfigValidationError(
-                f"max_inflight_inbound_admissions must be > 0, "
-                f"got {self.max_inflight_inbound_admissions}"
-            )
-        if not math.isfinite(self.inbound_admission_timeout_seconds) or (
-            self.inbound_admission_timeout_seconds <= 0
+        for name in (
+            "max_inflight_deliveries",
+            "max_inflight_replay_events",
+            "max_inflight_inbound_admissions",
         ):
-            raise ConfigValidationError(
-                f"inbound_admission_timeout_seconds must be a positive finite "
-                f"number, got {self.inbound_admission_timeout_seconds!r}"
-            )
+            value = getattr(self, name)
+            if type(value) is not int:
+                raise ConfigValidationError(
+                    f"{name} must be a positive integer, got {type(value).__name__}"
+                )
+            if value <= 0:
+                raise ConfigValidationError(f"{name} must be > 0, got {value!r}")
+
+        for name in (
+            "shutdown_drain_timeout_seconds",
+            "delivery_acquire_timeout_seconds",
+            "inbound_admission_timeout_seconds",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ConfigValidationError(
+                    f"{name} must be a positive finite number, got {type(value).__name__}"
+                )
+            try:
+                finite = math.isfinite(value)
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise ConfigValidationError(
+                    f"{name} must be a positive finite number, got {type(value).__name__}"
+                )
+            if value <= 0:
+                raise ConfigValidationError(f"{name} must be > 0, got {value!r}")
         # Reasonable upper-bound warnings (not hard failures).
         _UPPER_BOUND = 10_000
         if self.max_inflight_deliveries > _UPPER_BOUND:
@@ -421,11 +452,8 @@ class RuntimeLimits:
 class GenericAdapterRuntimeConfig:
     """Transport-neutral wrapper for one configured adapter instance.
 
-    Concrete built-ins retain thin compatibility subclasses below, but the
-    loader can use this class directly for registered adapters without a
-    compatibility wrapper.  That keeps the
-    runtime wrapper shape stable without requiring :mod:`medre.config.model`
-    changes whenever a new transport is registered.
+    Adapters may provide independent validated wrappers. Core never needs to
+    import transport-specific configuration types.
     """
 
     adapter_id: str
@@ -453,6 +481,13 @@ class GenericAdapterRuntimeConfig:
         adapter_id: str = data.pop("adapter_id", instance_name)
         adapter_kind: str = data.pop("adapter_kind", "real")
         section_path = f"adapters.{transport}.{instance_name}"
+        if not isinstance(enabled, bool):
+            raise ConfigValidationError(
+                f"{section_path}.enabled must be a boolean",
+                transport=transport,
+                adapter_id=adapter_id,
+                section_path=section_path,
+            )
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
                 f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
@@ -477,61 +512,21 @@ class GenericAdapterRuntimeConfig:
         )
 
 
-@dataclass(frozen=True)
-class MatrixRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single Matrix adapter instance."""
+@runtime_checkable
+class AdapterRuntimeConfig(Protocol):
+    """Structural lifecycle fields owned wrappers expose to core consumers."""
 
-    config: MatrixConfig | None = None
+    @property
+    def adapter_id(self) -> str: ...
 
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="matrix", config_cls=MatrixConfig
-        )
+    @property
+    def enabled(self) -> bool: ...
 
+    @property
+    def adapter_kind(self) -> str: ...
 
-@dataclass(frozen=True)
-class MeshtasticRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single Meshtastic adapter instance."""
-
-    config: MeshtasticConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="meshtastic", config_cls=MeshtasticConfig
-        )
-
-
-@dataclass(frozen=True)
-class MeshCoreRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single MeshCore adapter instance."""
-
-    config: MeshCoreConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="meshcore", config_cls=MeshCoreConfig
-        )
-
-
-@dataclass(frozen=True)
-class LxmfRuntimeConfig(GenericAdapterRuntimeConfig):
-    """Compatibility wrapper for a single LXMF adapter instance."""
-
-    config: LxmfConfig | None = None
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        return cls.from_transport_dict(
-            instance_name, data, transport="lxmf", config_cls=LxmfConfig
-        )
-
-
-# Registered adapters without a dedicated compatibility wrapper use the
-# transport-neutral runtime config directly.
-AdapterRuntimeConfig = GenericAdapterRuntimeConfig
+    @property
+    def config(self) -> Any | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -543,11 +538,9 @@ AdapterRuntimeConfig = GenericAdapterRuntimeConfig
 class AdapterConfigSet:
     """Adapter configs grouped by registered transport name.
 
-    The authoritative storage is a transport-keyed mapping rather than one
-    field per built-in adapter.  The custom constructor intentionally accepts
-    the historical ``AdapterConfigSet(matrix=..., meshtastic=...)`` spelling
-    so existing callers keep working, while a newly registered transport can
-    be supplied without editing this class.
+    The authoritative storage is a transport-keyed mapping. Transport groups
+    can be passed through ``groups`` or keyword arguments, so newly installed
+    providers require no changes to this model.
 
     Note that the private ``_groups`` field is the only dataclass field, so
     ``dataclasses.asdict()`` on this type (or on a root :class:`RuntimeConfig`
@@ -575,7 +568,8 @@ class AdapterConfigSet:
         if unknown:
             raise TypeError(
                 f"unknown adapter transport group(s): {sorted(unknown)}; "
-                f"known transports: {sorted(known_set)}"
+                f"known installed transports: {sorted(known_set)}. "
+                "Install a distribution providing the matching medre.adapters entry point."
             )
         object.__setattr__(
             self,
@@ -584,7 +578,7 @@ class AdapterConfigSet:
         )
 
     def __getattr__(self, name: str) -> dict[str, AdapterRuntimeConfig]:
-        """Expose registered transport groups as compatibility attributes."""
+        """Expose installed transport groups by name."""
         groups = object.__getattribute__(self, "_groups")
         if name in groups:
             return groups[name]
@@ -632,8 +626,28 @@ class AdapterConfigSet:
         tokens: dict[str, tuple[str, str]] = {}
         for transport, group in self.groups():
             for instance_name, rtc in group.items():
-                aid = rtc.adapter_id
                 section = f"adapters.{transport}.{instance_name}"
+                if not isinstance(rtc, AdapterRuntimeConfig):
+                    raise ConfigValidationError(
+                        f"{section}: expected an adapter runtime configuration",
+                        transport=transport,
+                        section_path=section,
+                    )
+                if type(rtc.enabled) is not bool:
+                    raise ConfigValidationError(
+                        f"{section}.enabled must be a boolean",
+                        transport=transport,
+                        adapter_id=rtc.adapter_id,
+                        section_path=section,
+                    )
+                if rtc.adapter_kind not in ("real", "fake"):
+                    raise ConfigValidationError(
+                        f"{section}.adapter_kind must be 'real' or 'fake'",
+                        transport=transport,
+                        adapter_id=rtc.adapter_id,
+                        section_path=section,
+                    )
+                aid = rtc.adapter_id
                 instance_problem = adapter_id_problem(instance_name)
                 if instance_problem is not None:
                     raise ConfigValidationError(

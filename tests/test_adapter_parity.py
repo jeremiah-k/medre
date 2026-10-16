@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Parity tests: verify fake and real adapters share consistent contracts.
 
 These tests verify that:

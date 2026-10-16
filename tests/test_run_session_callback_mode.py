@@ -1,8 +1,9 @@
+# medre-test-tier: compatibility
 """Adapter-callback mode reporting tests.
 
 Verifies that ``run_bridge_session(ingress_mode="adapter_callback")``
 produces correct, non-empty report fields even though
-``adapter.simulate_inbound()`` does not return ``DeliveryOutcome``
+``adapter.publish_inbound()`` does not return ``DeliveryOutcome``
 objects.  The report must derive ``target_adapters``, ``route_ids``,
 ``native_refs``, ``has_success``, and ``observed_failure_kind`` from
 storage receipts when outcomes are unavailable.

@@ -18,7 +18,7 @@ _LIMITATIONS: list[str] = [
     "Persistent storage (SQLite) but no crash-recovery proof",
     "Configurable message count (default single-event) — no sustained throughput or load evidence",
     "No reconnection resilience or retry-against-live proof",
-    "Fire-and-forget delivery model for radio transports",
+    "No live delivery acknowledgement or recipient receipt proven",
     (
         "Native refs are derived from actual stored receipts; adapters "
         "that return native_message_id=None (e.g. local enqueue) produce "

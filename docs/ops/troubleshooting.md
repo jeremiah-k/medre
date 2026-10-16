@@ -133,7 +133,7 @@ medre diagnostics --config /tmp/missing-sdk.yaml
 
 Expected: if **all** adapters fail to build: exit code **3**. If **some** succeed: exit code **0** with `startup_health == "degraded"`.
 
-Fix: install the missing SDK (`uv sync --locked --extra matrix`), then re-run `medre diagnostics`.
+Fix: install the missing SDK (`uv sync --locked && uv pip install medre-adapter-matrix`), then re-run `medre diagnostics`.
 
 **Caveat:** A single adapter failing to build with others succeeding results in degraded health (exit 0), not a build failure exit code.
 

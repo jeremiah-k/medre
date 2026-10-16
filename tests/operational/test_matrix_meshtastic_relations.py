@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Matrix <-> Meshtastic relation, reaction, capability, failure classification,
 adapter lifecycle, and rendering evidence operational tests.
 

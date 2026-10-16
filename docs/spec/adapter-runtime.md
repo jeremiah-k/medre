@@ -86,6 +86,12 @@ The runtime calls `stop()` once during graceful shutdown. The adapter **MUST**:
 
 No orphaned asyncio tasks **MUST** remain after `stop()` returns. Leaked tasks after `stop()` returns are a bug.
 
+The runtime **MUST** invoke and await the stop hook inside its supervised
+deadline task. Call-time errors, including argument-binding errors, **MUST NOT**
+bypass cleanup of other adapters, the pipeline, or storage. A hook may return a
+coroutine or another awaitable such as a Future. Stop implementations **MUST**
+remain non-blocking and cooperate with cancellation.
+
 ### 3.4 `deliver(result)`
 
 ```python
@@ -843,36 +849,85 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 
 ---
 
-## 20. Built-In Adapter Type Registry
+## 20. Installed Adapter Type Registry
 
-MEDRE has one process-static registry of **built-in adapter types** in
-`medre.adapter_registry`. It is declarative assembly metadata. It is not a
-container for running adapter instances, and it is not a third-party plugin
-loader.
+MEDRE discovers installed Python distributions through the `medre.adapters`
+entry-point group and stores their declarative `AdapterSpec` values in the
+process-static `ADAPTER_REGISTRY`. Each entry point **MUST** resolve to a
+zero-argument factory returning an `AdapterSpec`. A broken provider **MUST**
+be retained as a discovery failure rather than silently skipped. Conflicting
+transport or native-kind owners **MUST** all be quarantined; discovery **MUST
+NOT** choose a winner by installation order. Unrelated healthy providers remain
+usable. Basic CLI help **MUST** remain available, and `medre adapters check`
+**MUST** report broken providers distinctly from missing distributions and exit
+with a configuration error. Configuring a broken provider **MUST** fail with an
+actionable configuration error.
+
+Distribution names, import packages, repository hosts, and transport names are
+independent. Providers **MAY** be installed from a package index, Git, a wheel,
+or a local path using ordinary Python tooling. Runtime discovery **MUST NOT**
+install, download, or update packages. Changing installed providers requires
+a process restart.
 
 ### 20.1 Registry Model
 
+Providers **MUST** import declaration types from `medre.adapter_spec`. Importing
+that module **MUST NOT** start entry-point discovery. This keeps direct factory
+imports independent of registry initialization order.
+
 Each `AdapterSpec` identifies one transport and the lazy symbols generic
-assembly needs: config type, optional compatibility runtime wrapper, live and
-fake adapter classes, renderer factory, dependency probe/package metadata,
+assembly needs: config type, optional adapter-owned runtime wrapper, live and
+optional fake adapter class, renderer factory, dependency probe/package metadata,
 native-metadata readers, attribution projector, optional runtime-config
 preparation/state-directory hooks, optional adapter-owned CLI contribution
-hooks, and support-bundle field classification metadata.
+hooks, support-bundle field classification metadata, dependency logger levels, and optional native
+addressing kinds with pure `DestinationSpec` validators.
 
 All implementation references **MUST** remain lazy `SymbolRef` values. Importing
 `medre.adapter_registry`, configuration modules, or basic CLI discovery **MUST
 NOT** import an optional transport SDK.
 
-The registry is immutable after import. Built-in transport names **MUST** be
+The registry is immutable after import. Installed transport names **MUST** be
 unique. Runtime code **MUST** reject an enabled adapter whose transport is not
 registered.
+
+Core **MUST** own the `medre adapter <transport>` command namespace. Optional
+`cli_register` hooks receive that provider's `argparse.ArgumentParser` and
+configure only its arguments and descendants. They **MUST NOT** use the core
+dispatch destinations/defaults `command`, `adapter_command`, or
+`_adapter_cli_failures`, including in nested parsers. Both CLI hooks **MUST**
+resolve to callables without importing optional SDKs.
+
+CLI contribution failures **MUST** remain isolated from healthy command trees
+and runtime registration. Basic help and version **MUST** remain available;
+adapter preflight **MUST** diagnose the broken contribution and exit 2. Exception
+details **MUST** be sanitized before display. A partially configured failing
+parser **MUST NOT** be exposed.
+
+A provider **MAY** declare `sample_config: SymbolRef`, an SDK-free zero-argument
+callback returning `AdapterSample(config, channel=None)`. Native
+values and the opaque conversation address are adapter-owned. `config` **MUST
+NOT** override `adapter_id`, `adapter_kind`, or `enabled`. The sample generator
+**MUST** include only installed providers declaring both a fake and a sample;
+it supplies unique instance IDs, fake lifecycle fields, and generic routes. With one contribution it
+creates two distinct instances; with none it emits an empty, loadable config
+and installation guidance. Sample callbacks **MUST NOT** include real secrets,
+perform I/O, or import SDKs.
+
+External SDK import roots receive a warning-level logging default; the root
+logger and MEDRE namespace remain controlled by core/operator settings. Providers **MAY**
+declare `logger_levels`, a tuple of dependency logger name / canonical level
+name pairs. Names **MUST NOT** target the root logger or MEDRE's own logger namespace. Shared
+provider declarations use the most restrictive level; explicit operator
+logging overrides **MUST** take precedence. Logger policy is metadata-only and
+**MUST NOT** import SDKs.
 
 ### 20.2 Assembly Flow
 
 1. The config loader obtains the allowed `adapters.<transport>` vocabulary from
-   `BUILTIN_ADAPTER_REGISTRY`.
+   `ADAPTER_REGISTRY`.
 2. For each configured instance, the loader resolves the registered config
-   class and constructs an `AdapterRuntimeConfig`-compatible wrapper.
+   class and constructs the adapter-owned wrapper or `GenericAdapterRuntimeConfig`.
 3. `RuntimeBuilder` resolves that transport's `AdapterSpec`.
 4. Before constructing any adapter, the builder runs every registered
    runtime-config preparation hook for enabled instances that have adapter
@@ -891,7 +946,7 @@ registered.
    degradation policy.
 6. The adapter-owned renderer factory is resolved from the same spec and
    registers the transport renderer with the shared rendering pipeline. Renderer
-   factories are MEDRE-owned assembly code and **MUST NOT** import optional
+   factories are adapter-owned assembly code and **MUST NOT** import optional
    transport SDKs at import time. Import or construction failures from a
    registered renderer factory **MUST** fail startup rather than silently falling
    back to the generic text renderer.
@@ -902,7 +957,7 @@ registered.
 
 Generic config, env, path, runtime assembly, CLI transport discovery and
 contribution dispatch, support-bundle field classification, metadata dispatch,
-and architecture-policy code **MUST NOT** maintain parallel built-in transport
+and architecture-policy code **MUST NOT** maintain parallel hardcoded transport
 enumerations.
 
 ### 20.3 Configuration Shape
@@ -930,16 +985,26 @@ adapters:
 Transport-specific fields are validated by that transport's registered config
 class. Unknown transport groups are rejected.
 
-### 20.4 Extending Built-In Adapters
+### 20.4 Adding an Independent Adapter
 
-Adding a built-in transport normally requires adapter-owned implementation and
-config modules plus one `AdapterSpec` entry. It **MUST NOT** require another
-transport branch in generic assembly or dispatch code. The static config
-schemas/documentation and packaging extras remain explicit release artifacts
-and **MUST** be updated for a new built-in transport.
+An adapter distribution owns its implementation, config models, optional runtime
+wrappers, fakes, native addressing, SDK requirements, and protocol tests. Its
+registration factory **MUST** return an `AdapterSpec` through the installed
+entry-point group. Generic core assembly and dispatch **MUST NOT** need a
+transport-specific branch, a package-name convention, or a registry edit.
 
-`medre.plugins` is a separate extension boundary. Arbitrary third-party adapter
-class paths and runtime adapter discovery are not part of the current contract.
+The four first-party distributions extend MEDRE's namespace with
+`pkgutil.extend_path`. Community adapters **MAY** use their own top-level Python
+package. Config schemas accept community transport and addressing names;
+installed-provider checks and adapter-owned validators enforce their fields.
+Native destination kinds **MUST** be supported by their configured target,
+including destinations nested in context-map entries. Generic `channel`
+addressing remains core-owned.
+
+Core's compatibility manifest selects a reviewed CI test set. Runtime discovery
+**MUST NOT** consult it, and community providers need no manifest entry.
+`medre.plugins` remains a separate event-plugin protocol; adapter discovery
+uses installed entry points rather than arbitrary class paths in runtime YAML.
 
 ---
 
@@ -983,6 +1048,86 @@ Fake adapters **MUST NOT**:
 3. Bypass the rendering boundary by accepting `CanonicalEvent` directly.
 4. Produce non-deterministic output (random IDs, varying timestamps).
 5. Depend on external state (files, environment variables beyond test configuration).
+
+### 22.3 Fake smoke evidence
+
+A declared fake **MUST** be constructible with `adapter_id=` as its only required
+argument, implement `AdapterContract`, and require no native SDK, credentials,
+network, or hardware. Additional optional constructor arguments are permitted.
+The [registration reference](../dev/adapter-registration.md) defines every
+`AdapterSpec` field and hook signature, including the public metadata helpers.
+
+Fake smoke, run sessions, and configured failure drills **MUST** reject any
+enabled real adapter before constructing or starting the runtime. Their fake evidence classification does
+not authorize live transport connections or failure injection into real adapters.
+
+A fake adapter **MAY** provide a synchronous `make_event(text=..., event_kind=...)`
+helper returning a `CanonicalEvent` originating from that adapter. Normal smoke
+source selection **MUST** require successful startup and this helper. Missing
+helpers **MUST NOT** prevent a fake from participating as a delivery target.
+
+A smoke pass **MUST** require successful delivery for every configured route
+and target pair matched by its injected event. Adapter construction or startup
+failure **MUST NOT** turn a missing target into a successful reduced fanout.
+A target that did not start cannot prove delivery even if its fake returns a
+successful handoff. Every configured route/target pair **MUST** have a
+persisted `sent` receipt for the injected event; a successful adapter outcome
+alone is insufficient. Process-local `outbound_delivered` accounting **MUST**
+cover at least the number of expected deliveries. Event-factory errors
+**MUST** produce a failed report and trigger runtime cleanup. A smoke pass
+**MUST** also observe a completed runtime shutdown and a readable final
+snapshot with `runtime_state="stopped"`. The report **MUST** fail when these
+checks cannot be established, even if delivery previously succeeded.
+
+Happy-path run sessions **MUST** apply the same configured-fanout check to each
+injected event in both direct-pipeline and adapter-callback ingress modes.
+Successful delivery of a later event **MUST NOT** hide an earlier event's missing
+target. Callback evidence polling **MUST** wait for all available configured
+route/target pairs or its bounded deadline, rather than stop at the first receipt.
+Missing or failed deliveries **MUST** identify the event, route, and target in
+the report's existing `fail_reasons` field. Failure scenarios continue to judge
+their deliberately injected fault instead of requiring successful delivery.
+
+Every run-session scenario **MUST** also require persisted events, successfully
+collected required evidence and snapshot artifacts, and error-free stopped
+shutdown. A matching injected fault **MUST NOT** override lifecycle failure.
+Happy-path accounting **MUST** cover the total configured event/route/target
+pairs. Smoke cancellation or unexpected post-start exceptions **MUST** trigger
+cleanup; cleanup errors **MUST NOT** replace a structured failure report.
+
+Adapter failure drills **MUST** select targets through the runtime router's
+matching and target-resolution rules for the injected event, including channel
+and event-kind filters.
+
+Every drill evidence check **MUST** succeed for the report to pass. Missing
+receipts, unreadable native-reference evidence, unsuccessful manual recovery,
+and failed cleanup checks **MUST NOT** be overridden by the expected injected
+failure. Drills that start a runtime **MUST** close it on cancellation and
+unexpected exceptions, report `shutdown_status`, and require error-free shutdown
+with status `stopped`. Cleanup errors **MUST NOT** replace the original report.
+
+### 22.4 Synthetic lifecycle drill coverage
+
+The programmatic `bad_route_config`, `all_adapters_build_fail`,
+`partial_degraded_startup`, and `all_adapters_start_fail` drills select one
+installed fake provider and configure explicitly named adapter instances.
+Instance identifiers **MUST NOT** imply an unrelated transport. Config assembly
+**MUST** preserve the declared instance-to-transport mapping without positional
+cycling or inferred platform names.
+
+Their reports **MUST** include `adapter_transports` and
+`coverage_scope: synthetic_adapter_instances`, with a limitation stating that
+cross-transport coverage is not proven. Counts such as `adapters_total` describe
+adapter instances, not distinct transport types. Three instances of one provider
+remain three independently constructed adapters for startup supervision.
+
+With no installed fake provider, these drills **MUST** return a failed report
+with an empty assignment map and an installation reason. The report shape is
+specified in `docs/schemas/lifecycle-drill-report.schema.json`.
+
+Synthetic drill paths **MUST** be isolated from operator paths without changing
+the process environment. Their temporary state root **MUST** be removed after
+completion, including cancellation and failure.
 
 ---
 

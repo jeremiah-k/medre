@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Shutdown invariants for the rebuildable conversation projection."""
 
 from __future__ import annotations
@@ -7,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

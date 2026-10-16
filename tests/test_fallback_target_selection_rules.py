@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Target-selection rule tests for fallback-only transports (MeshCore, LXMF).
 
 Locks the current target-selection contracts for transports that do not

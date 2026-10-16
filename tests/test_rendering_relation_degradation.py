@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Relation fallback degradation, multi-relation determinism, and thread
 relation capability tests for renderers.
 

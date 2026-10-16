@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Startup containment tests for conversation projection rebuild failures."""
 
 from __future__ import annotations
@@ -8,10 +9,10 @@ from typing import NoReturn
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Route and runtime topology boundary enforcement tests.
 
 These tests verify architectural boundaries for the routing and runtime

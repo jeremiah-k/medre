@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Suppression-path integration tests proving adapter send is never called.
 
 Verifies that every suppression gate (capability skip, plan skip, listen-only,

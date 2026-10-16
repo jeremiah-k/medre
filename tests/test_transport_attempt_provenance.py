@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Transport-boundary tests for immutable delivery attempt provenance."""
 
 from __future__ import annotations

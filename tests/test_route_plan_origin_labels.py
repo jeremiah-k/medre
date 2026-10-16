@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Origin-label provenance tests for the route-plan model.
 
 Verifies how :func:`medre.runtime.route_plan.build_route_plan` resolves

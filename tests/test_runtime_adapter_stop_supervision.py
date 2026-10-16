@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime adapter-stop supervision and cleanup continuation tests.
 
 Focused split from ``test_runtime_cancellation.py`` so runtime cancellation

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Exercise radio-matrix collection gates without opening physical devices."""
 
 from __future__ import annotations
@@ -27,7 +28,8 @@ _REQUIRED_ENV = (
 
 @pytest.mark.parametrize("missing", [*_REQUIRED_ENV, None])
 def test_lxmf_matrix_requires_opt_in_and_every_endpoint(
-    monkeypatch: pytest.MonkeyPatch, missing: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    missing: str | None,
 ) -> None:
     """An installed SDK must not bypass any owned-endpoint collection gate."""
     # Peer helpers capture endpoint settings at import. Load them before the
@@ -35,7 +37,9 @@ def test_lxmf_matrix_requires_opt_in_and_every_endpoint(
     importlib.import_module("tests.helpers.meshcore_live_peer")
     importlib.import_module("tests.helpers.meshtastic_live_peer")
     for name in _REQUIRED_ENV:
-        monkeypatch.setenv(name, "1" if name == "MEDRE_RADIO_MATRIX" else "test-endpoint")
+        monkeypatch.setenv(
+            name, "1" if name == "MEDRE_RADIO_MATRIX" else "test-endpoint"
+        )
     if missing is not None:
         monkeypatch.delenv(missing)
     monkeypatch.setenv("LXMF_PEER_DELIVERY_TIMEOUT_SECONDS", "90")
@@ -45,7 +49,5 @@ def test_lxmf_matrix_requires_opt_in_and_every_endpoint(
 
     namespace = runpy.run_path(str(_MATRIX_TEST))
     test = namespace["test_lxmf_fourth_transport_relay"]
-    skipped = any(
-        mark.args[0] for mark in test.pytestmark if mark.name == "skipif"
-    )
+    skipped = any(mark.args[0] for mark in test.pytestmark if mark.name == "skipif")
     assert skipped is (missing is not None), f"collection gate failed for {missing}"

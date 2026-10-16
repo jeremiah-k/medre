@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for ``medre.runtime.support_bundle.create_support_bundle``.
 
 Covers the bundle model: ZIP structure, per-member shape, valid and

@@ -87,7 +87,9 @@ def _find_stale_references(
             continue
         for md_file in sorted(base.rglob("*.md")):
             rel = str(md_file.relative_to(repo_root))
-            for i, line in enumerate(md_file.read_text().splitlines(), start=1):
+            for i, line in enumerate(
+                md_file.read_text(encoding="utf-8").splitlines(), start=1
+            ):
                 stripped = line.strip()
                 if not stripped:
                     continue

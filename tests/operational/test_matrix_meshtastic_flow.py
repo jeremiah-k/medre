@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Matrix <-> Meshtastic runtime-path operational tests.
 
 Deterministic tests exercising the full PipelineRunner ingress-to-delivery

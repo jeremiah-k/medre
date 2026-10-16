@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Runtime-level multi-adapter integration test.
 
 Builds a runtime from YAML config with three fake adapters (two Meshtastic,

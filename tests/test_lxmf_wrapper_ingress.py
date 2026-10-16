@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """LXMF wrapper callback bridge ingress tests.
 
 Proves that ``LxmfAdapter._on_packet`` and ``simulate_inbound`` can receive an

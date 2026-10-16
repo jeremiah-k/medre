@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Storage / Path Validation.
 
 Tests that the storage and path model behaves correctly:
@@ -13,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
-    MatrixRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RuntimeConfig,
     RuntimeOptions,
     StorageConfig,
@@ -125,14 +126,28 @@ def _make_mixed_config() -> RuntimeConfig:
 # ===================================================================
 
 
-@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+@pytest.mark.parametrize("transport", ["", "mat/rix", ".."])
 def test_adapter_transport_state_dir_rejects_unsupported_transport(
     tmp_paths: MedrePaths,
     transport: str,
 ) -> None:
-    """Only supported transport path components are accepted."""
+    """Malformed or traversing transport components are rejected.
+
+    Well-formed transport tokens are accepted without consulting the
+    installed-provider registry: path resolution stays independent of which
+    adapter distributions are installed, so community transports get state
+    directories too.
+    """
     with pytest.raises(MedrePathsError, match="unsupported transport"):
         tmp_paths.adapter_transport_state_dir("main", transport)
+
+
+def test_adapter_transport_state_dir_accepts_unregistered_transport_name(
+    tmp_paths: MedrePaths,
+) -> None:
+    """Well-formed community transport names resolve without registry lookup."""
+    state = tmp_paths.adapter_transport_state_dir("main", "custom")
+    assert state == tmp_paths.adapter_state_dir("main") / "custom"
 
 
 class TestMultipleMatrixStoresIsolated:

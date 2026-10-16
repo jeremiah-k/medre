@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Tests for MatrixRenderer: name, can_render dispatch, rendering output,
 relation handling, envelope embedding, and long body handling.
 """
@@ -16,10 +17,7 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from tests.helpers.matrix import matrix_payload_content as _payload_content
-from tests.helpers.matrix_events import (
-    make_matrix_event,
-    make_meshtastic_event,
-)
+from tests.helpers.matrix_events import make_matrix_event, make_meshtastic_event
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
@@ -300,7 +298,11 @@ class TestMatrixRendererForeignRefs:
 
     async def test_mmrelay_reply_id_preserved_in_fallback(self) -> None:
         """MMRelay meshtastic_replyId from relation metadata preserves KEY_REPLY_ID in fallback."""
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(mmrelay_compatibility=True)
+            }
+        )
         foreign_ref = NativeRef(
             adapter="mesh-1", native_channel_id="0", native_message_id="99"
         )
@@ -455,7 +457,11 @@ class TestMatrixRendererReplySender:
 
     async def test_reply_with_mmrelay_id_includes_key_reply_id(self) -> None:
         """Meshtastic->Matrix reply payload still includes KEY_REPLY_ID."""
-        renderer = MatrixRenderer()
+        renderer = MatrixRenderer(
+            source_configs={
+                "transport": _StubMeshtasticConfig(mmrelay_compatibility=True)
+            }
+        )
         relation = EventRelation(
             relation_type="reply",
             target_event_id="orig-001",
@@ -718,8 +724,11 @@ class TestMultiRadioSourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        # KEY_MESHNET sourced from origin_label in source_attribution
-        assert _payload_content(result)["meshtastic_meshnet"] == "BravoNet"
+        # Bravo opts out: human attribution remains, legacy wire keys do not.
+        assert "BravoNet" in _payload_content(result)["body"]
+        assert not any(
+            key.startswith("meshtastic_") for key in _payload_content(result)
+        )
 
     async def test_non_meshtastic_source_ignores_meshtastic_configs(self) -> None:
         """Non-Meshtastic source with Meshtastic source_configs renders plain output."""

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 r"""Cross-adapter artifact run test: Matrix → Meshtastic delivery.
 
 Docker-gated integration test proving real Matrix adapter ingress through
@@ -37,7 +38,7 @@ Honest limitations
 
 Running locally::
 
-    pip install -e ".[matrix,meshtastic]"
+    pip install medre-adapter-matrix medre-adapter-meshtastic
     pytest tests/integration/test_cross_adapter_artifact_run.py -m docker -v
 
 With artifact collection::
@@ -97,9 +98,13 @@ pytestmark = pytest.mark.docker
 
 _SKIP_REASONS: list[str] = []
 if not HAS_NIO:
-    _SKIP_REASONS.append("mindroom-nio not installed; run: pip install '.[matrix]'")
+    _SKIP_REASONS.append(
+        "mindroom-nio not installed; run: pip install 'medre-adapter-matrix'"
+    )
 if not HAS_MESHTASTIC:
-    _SKIP_REASONS.append("mtjk not installed; run: pip install '.[meshtastic]'")
+    _SKIP_REASONS.append(
+        "mtjk not installed; run: pip install 'medre-adapter-meshtastic'"
+    )
 
 if _SKIP_REASONS:
     pytestmark = [

@@ -1,3 +1,4 @@
+# medre-test-tier: compatibility
 """Focused tests for runtime evidence enrichment in run-session reports.
 
 Tests the three compact runtime evidence fields added to run-session reports:

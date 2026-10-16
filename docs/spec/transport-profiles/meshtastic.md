@@ -23,7 +23,7 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `origin_label`                      | `str`                                  | `""`                 | Platform-neutral operator-defined source label for relay prefixes |
 | `default_channel`                   | `int`                                  | `0`                  | Default radio channel index for outbound                          |
 | `channel_mapping`                   | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
-| `message_delay_seconds`             | `float`                                | `0.5`                | Minimum seconds between outbound messages                         |
+| `message_delay_seconds`             | `float`                                | `2.2`                | Minimum seconds between outbound messages                         |
 | `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
 | `sync_timeout_ms`                   | `int`                                  | `30000`              | Sync operation timeout                                            |
 | `radio_relay_prefix`                | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
@@ -38,6 +38,14 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `tcp_liveness_interval_seconds`     | `float`                                | `60.0`               | TCP round-trip probe interval; `0` disables                       |
 | `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`               | TCP round-trip probe timeout                                      |
 | `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |
+
+### Firmware pacing
+
+The default outbound interval is 2.2 seconds. Current Meshtastic firmware rejects
+phone-originated text sends less than two seconds apart with RATE_LIMIT_EXCEEDED;
+the default leaves a scheduling margin. Operators MAY override the interval for
+a separately qualified firmware or test setup. A local SDK handoff receipt MUST
+NOT be interpreted as independent RF reception.
 
 ---
 
@@ -288,9 +296,9 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 Inbound Meshtastic events persist one versioned object at
 `metadata.native.data["meshtastic"]`. The normative machine contract is
-[`meshtastic-native-metadata.schema.json`](../../schemas/meshtastic-native-metadata.schema.json),
+[`meshtastic-native-metadata.schema.json`](https://github.com/jeremiah-k/medre-adapter-meshtastic/blob/main/docs/schemas/meshtastic-native-metadata.schema.json),
 and the representative payload is
-[`meshtastic-native-metadata-example.json`](../../schemas/examples/meshtastic-native-metadata-example.json).
+[`meshtastic-native-metadata-example.json`](https://github.com/jeremiah-k/medre-adapter-meshtastic/blob/main/docs/schemas/examples/meshtastic-native-metadata-example.json).
 The codec builder in `medre.adapters.meshtastic.event_shape` is the source
 implementation authority.
 
@@ -469,6 +477,6 @@ deterministically degraded to inline fallback text.
 
 | Library               | Purpose                                             | Optional                          |
 | --------------------- | --------------------------------------------------- | --------------------------------- |
-| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre[meshtastic]`)         |
+| `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre-adapter-meshtastic`)  |
 | `pubsub` (pypubsub)   | Meshtastic SDK callback subscription                | Yes (via `meshtastic` dependency) |
 | `meshtastic.protobuf` | Protobuf `MeshPacket` / `Data` for structured send  | Yes (via `meshtastic` dependency) |

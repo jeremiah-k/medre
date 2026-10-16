@@ -52,7 +52,6 @@ from medre.runtime.reporting import _derive_capability_evidence
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
 from .json import to_json
 from .storage_helpers import _open_readonly_storage
-from .transport_constants import RADIO_TRANSPORTS
 
 #: Machine- and human-shared definition of what the scan/runbook reports.
 _OUTCOME_DEFINITION = (
@@ -361,25 +360,13 @@ async def _build_event_recovery_runbook(
             f"{event_id} --config <config.yaml>' first."
         )
 
-    # Add duplicate-send risk warnings for radio transports.
-    for nref in native_refs:
-        if nref.adapter.lower() in RADIO_TRANSPORTS or any(
-            nref.adapter.lower().startswith(t) for t in RADIO_TRANSPORTS
-        ):
-            runbook["warnings"].append(
-                f"Adapter {nref.adapter} uses a radio transport — "
-                f"recovery may produce duplicate sends. "
-                f"Preview with 'medre replay --mode dry_run' first."
-            )
-            break
-
-    if runbook["warnings"] and not any(
-        "Radio transports" in w for w in runbook["warnings"]
+    # Recorded outbound evidence is independent of provider names or transport.
+    if "retryable" not in present_categories and any(
+        nref.direction == "outbound" for nref in native_refs
     ):
         runbook["warnings"].append(
-            "Radio transports (Meshtastic, MeshCore, LXMF) use "
-            "fire-and-forget delivery.  Recovery is best-effort "
-            "and duplicates are possible."
+            "Prior outbound native references exist — recovery may produce "
+            "duplicate sends. Preview with 'medre replay --mode dry_run' first."
         )
 
     return runbook
@@ -642,11 +629,16 @@ async def _recover(
                 "live_view": page.live_view,
             },
             "unresolved": [_scan_record(item) for item in page.items],
-            "warnings": [
-                "Radio transports (Meshtastic, MeshCore, LXMF) use "
-                "fire-and-forget delivery.  Recovery is best-effort "
-                "and duplicates are possible.",
-            ],
+            "warnings": (
+                [
+                    "Unresolved delivery attempts do not establish whether the "
+                    "destination received a message. Recovery may produce duplicate "
+                    "sends; inspect event evidence and preview replay with "
+                    "'medre replay --mode dry_run' first."
+                ]
+                if page.items
+                else []
+            ),
         }
         if json_output:
             print(to_json(scan_report))
