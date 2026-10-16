@@ -57,7 +57,6 @@ Transport profiles include machine-readable capability declarations
 | [appendices/transport-limitations.md](appendices/transport-limitations.md) | Cross-transport limitation summary         |
 | [appendices/transport-realism.md](appendices/transport-realism.md)         | Required evidence ladder and coverage      |
 | [appendices/known-limitations.md](appendices/known-limitations.md)         | Limitations surfaced from test annotations |
-| [appendices/release-readiness.md](appendices/release-readiness.md)         | Transport maturity and readiness checklist |
 
 ## Reading Order
 

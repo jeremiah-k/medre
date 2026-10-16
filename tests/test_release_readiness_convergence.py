@@ -1,9 +1,9 @@
-"""Release readiness convergence tests.
+"""Documentation and test-suite convergence tests.
 
-Verifies that release-readiness.md, evidence-levels.md, README, authority
-maps, schemas, CLI docs, and test filenames are convergent — no drift between
-status vocabularies, no stale process language in durable docs, and no
-leftover alpha/beta test filenames.
+Verifies that evidence-levels.md, README, authority maps, schemas, CLI docs,
+and test filenames are convergent — no drift between status vocabularies, no
+stale process language in durable docs, and no leftover alpha/beta test
+filenames.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from tests.helpers.forbidden_terms import FORBIDDEN_TERMS, find_stale_terms
 
 _ROOT = Path(__file__).resolve().parent.parent
 _DOCS = _ROOT / "docs"
-_READINESS = _DOCS / "spec" / "appendices" / "release-readiness.md"
 _EVIDENCE = _DOCS / "spec" / "appendices" / "evidence-levels.md"
 _README = _ROOT / "README.md"
 _TESTS = _ROOT / "tests"
@@ -37,17 +36,6 @@ def _read(path: Path) -> str:
 # ===========================================================================
 # 1. Prerelease / no-public-API commitment
 # ===========================================================================
-
-
-def test_release_readiness_states_prerelease() -> None:
-    """release-readiness.md says prerelease and no public API commitment."""
-    text = _read(_READINESS).lower()
-    assert (
-        "pre-release" in text or "prerelease" in text
-    ), "release-readiness.md must state pre-release status"
-    assert (
-        "no public api" in text
-    ), "release-readiness.md must state no public API commitment"
 
 
 def test_readme_has_prerelease_disclaimer() -> None:
@@ -66,88 +54,22 @@ def test_readme_has_prerelease_disclaimer() -> None:
 # ===========================================================================
 
 
-def test_release_readiness_uses_synthetic_tested() -> None:
-    """release-readiness.md must use 'synthetic-tested', not 'fake-tested'.
-
-    evidence-levels.md defines the canonical capability status vocabulary
-    including 'synthetic-tested'. release-readiness.md must use the same
-    labels to avoid status-label drift.
-    """
-    text = _read(_READINESS)
-    # fake-tested is the legacy label; synthetic-tested is canonical
-    assert "fake-tested" not in text, (
-        "release-readiness.md contains 'fake-tested' but should use "
-        "'synthetic-tested' per evidence-levels.md"
-    )
-    assert "synthetic-tested" in text, (
-        "release-readiness.md must use 'synthetic-tested' per "
-        "evidence-levels.md capability status definitions"
-    )
-
-
-def test_evidence_levels_defines_shared_status_labels() -> None:
-    """evidence-levels.md and release-readiness.md share core status labels."""
+def test_evidence_levels_defines_status_labels() -> None:
+    """evidence-levels.md defines the canonical capability status labels."""
     ev_text = _read(_EVIDENCE)
-    rd_text = _read(_READINESS)
 
-    # These labels must appear in both documents
-    shared_labels = [
+    status_labels = [
         "implemented-not-executed",
         "synthetic-tested",
         "docker-validated",
         "local-integration-validated",
         "live-validated",
     ]
-    for label in shared_labels:
+    for label in status_labels:
         assert f"`{label}`" in ev_text, (
             f"evidence-levels.md must define '{label}' in its capability "
             f"status table"
         )
-        assert label in rd_text, (
-            f"release-readiness.md must use '{label}' from evidence-levels.md "
-            f"vocabulary"
-        )
-
-
-def test_local_integration_historical_evidence_is_preserved() -> None:
-    """Recorded MeshCore/LXMF local-integration evidence keeps its provenance."""
-    text = _read(_READINESS)
-
-    matrix_marker = "## 1. Capability Matrix"
-    definitions_marker = "## 2. Status Definitions"
-    assert matrix_marker in text
-    assert definitions_marker in text
-    matrix = text.split(matrix_marker, 1)[1].split(definitions_marker, 1)[0]
-    rows = [
-        line
-        for line in matrix.splitlines()
-        if line.startswith("| Deterministic local integration")
-    ]
-    assert len(rows) == 1, "capability matrix must have exactly one integration row"
-    cells = [cell.strip() for cell in rows[0].strip("|").split("|")]
-    assert len(cells) == 5
-    assert cells[0] == "Deterministic local integration"
-    assert cells[3] == "local-integration-validated"
-    assert cells[4] == "local-integration-validated"
-
-    historical_marker = "### 6.1 Recorded historical evidence (pre-consolidation tree)"
-    not_executed_marker = "### 6.2 Not-executed gates (no evidence at any tier)"
-    future_marker = "### 6.3 Future release gates (not required for prerelease)"
-    assert historical_marker in text
-    assert not_executed_marker in text
-    assert future_marker in text
-    historical = text.split(historical_marker, 1)[1].split(not_executed_marker, 1)[0]
-    not_executed = text.split(not_executed_marker, 1)[1].split(future_marker, 1)[0]
-
-    assert "| MeshCore deterministic real-SDK TCP local integration" in historical
-    assert "| LXMF process-isolated real RNS/LXMRouter local integration" in historical
-    assert "Recorded date: 2026-08-21" in historical
-    assert "`ba2bceffad6810855e1858d202aee6039ac49824`" in historical
-    assert "Workflow run: `32529498484`" in historical
-    assert "`409762d0cbba1d46aab1fafb60449eca0370ae00`" in historical
-    assert "`5c8a67e922612f18ab01deefaeeb39c429b4df02`" in historical
-    assert "MeshCore deterministic local integration" not in not_executed
-    assert "LXMF process-isolated local integration" not in not_executed
 
 
 # ===========================================================================

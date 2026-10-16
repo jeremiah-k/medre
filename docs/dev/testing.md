@@ -141,9 +141,8 @@ class TestLegacyStorage(unittest.TestCase):
 
 Every collected test should exercise an executable contract. Do not use
 `pass`/ellipsis-only test functions as placeholders for future, manual, or
-hardware work. Record unexecuted readiness work in the release-readiness or
-known-limitations authorities and add the test when there is an executable
-path to assert.
+hardware work. Record unexecuted work in the known-limitations authority and
+add the test when there is an executable path to assert.
 
 ### Use pytest fixtures over setUp/tearDown
 
