@@ -4,8 +4,9 @@ MEDRE connects conversations on Matrix, Meshtastic, MeshCore, and LXMF. You
 install the providers you need, choose two adapter instances and their
 conversation addresses, then preview the route **before starting a service**.
 
-**New to MEDRE?** Follow the offline walkthrough first. It needs no accounts,
-radio hardware, or credentials. For native connections, keep a separate,
+**New to MEDRE?** Follow the walkthrough to validate the pipeline before you
+provision accounts or attach hardware, then connect the same installation to
+your real platforms. For a bridge you keep running, use a separate,
 commit-pinned [deployment project](#set-up-a-locked-deployment).
 
 > **Working pre-release; testers welcome, not production-ready.** Transport
@@ -19,8 +20,7 @@ commit-pinned [deployment project](#set-up-a-locked-deployment).
 ## 1. Install MEDRE and two providers
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-For an initial trial, the simplest option is a persistent command installed
-**directly from Git**—no PyPI release or source checkout required:
+The simplest way to start is a persistent command installed from Git:
 
 ```bash
 uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
@@ -39,7 +39,7 @@ separate project or virtualenv will not be visible to it. Use
 or remove providers. For longer-running bridges, prefer the
 [locked deployment](#set-up-a-locked-deployment) below.
 
-## 2. Verify routing offline
+## 2. Verify routing without credentials
 
 Generate a configuration from the installed providers and run one fake event
 through the pipeline:

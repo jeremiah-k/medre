@@ -1,7 +1,8 @@
 # Operate MEDRE
 
 New here? Start with **[Getting Started](getting-started.md)**: install from Git,
-run an offline smoke, and build a first route with the wizard. A persistent uv
+verify the pipeline without credentials, and build a first route with the
+wizard. A persistent uv
 tool is convenient for exploration; a locked uv project is preferable for
 long-running bridges. All examples assume `medre` is on your PATH. Within a
 project that is not activated, use `uv run --locked medre ...` instead.
