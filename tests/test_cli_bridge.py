@@ -326,6 +326,56 @@ def test_native_config_reports_missing_sdk_once_without_loading_implementations(
     assert not (tmp_path / "home").exists()
 
 
+@pytest.mark.parametrize("operation", ["fstat", "fdopen"])
+def test_descriptor_setup_failure_closes_and_removes_partial_output(
+    operation, monkeypatch, tmp_path
+):
+    from medre.cli.bridge_commands import _write_new_config
+
+    output = tmp_path / "bridge.yaml"
+    opened = []
+    original_open = os.open
+    original_fstat = os.fstat
+
+    def track_open(*args, **kwargs):
+        fd = original_open(*args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    def fail(*args, **kwargs):
+        raise OSError("descriptor setup failed")
+
+    monkeypatch.setattr("medre.cli.bridge_commands.os.open", track_open)
+    monkeypatch.setattr(f"medre.cli.bridge_commands.os.{operation}", fail)
+    with pytest.raises(OSError, match="descriptor setup failed"):
+        _write_new_config(output, "private config")
+    try:
+        with pytest.raises(OSError):
+            original_fstat(opened[0])
+    finally:
+        try:
+            os.close(opened[0])
+        except OSError:
+            pass
+    assert not output.exists()
+
+
+def test_interrupt_after_write_does_not_claim_no_configuration(monkeypatch, tmp_path):
+    from medre.cli.bridge_commands import _write_new_config
+
+    def interrupt_after_save(*args):
+        _write_new_config(*args)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "medre.cli.bridge_commands._write_new_config", interrupt_after_save
+    )
+    _, stderr, code = _run_cli_raw(*flags(tmp_path))
+    assert code == 1
+    assert (tmp_path / "bridge.yaml").exists()
+    assert "no configuration written" not in stderr
+
+
 def test_nonsecret_environment_values_do_not_shred_diagnostics(monkeypatch):
     from medre.cli.bridge_commands import _error_detail
 

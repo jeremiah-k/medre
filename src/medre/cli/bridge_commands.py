@@ -64,16 +64,31 @@ def _write_new_config(path: Path, text: str) -> None:
     POSIX permissions are owner-only; Windows inherits the directory's ACL.
     """
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    identity = os.fstat(fd)
+    identity = None
+    stream = None
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+        identity = os.fstat(fd)
+        stream = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        with stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
     except BaseException:
+        # fstat/fdopen can fail before a stream takes ownership of the fd.
+        # Obtain identity while it is still open, then close before unlinking
+        # (required on Windows). Never delete a path without an identity check.
+        if stream is None:
+            try:
+                if identity is None:
+                    identity = os.stat(fd)
+            finally:
+                os.close(fd)
         try:
             current = path.stat(follow_symlinks=False)
-            if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+            if identity and (current.st_dev, current.st_ino) == (
+                identity.st_dev,
+                identity.st_ino,
+            ):
                 path.unlink()
         except FileNotFoundError:
             pass
@@ -140,6 +155,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
     interactive = sys.stdin.isatty()
     document: dict = {}
     saved = False
+    saving = False
     try:
         output = Path(args.output).expanduser().absolute()
         if output.suffix.lower() not in (".yaml", ".yml"):
@@ -307,6 +323,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
         ):
             print("Cancelled; no configuration written.", file=sys.stderr)
             return
+        saving = True
         _write_new_config(output, draft.yaml)
         saved = True
         print(f"Saved {output}. No runtime started.", file=sys.stderr)
@@ -321,7 +338,12 @@ def _config_bridge(args: argparse.Namespace) -> None:
             (
                 "Interrupted after saving configuration; no runtime started."
                 if saved
-                else "Cancelled; no configuration written."
+                else (
+                    f"Interrupted while saving; check {output} for a completed "
+                    "configuration. No runtime started."
+                    if saving
+                    else "Cancelled; no configuration written."
+                )
             ),
             file=sys.stderr,
         )
