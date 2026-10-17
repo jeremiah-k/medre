@@ -37,7 +37,8 @@ medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 ```
 
 A fake `sent` receipt proves local routing and persistence, **not** remote
-delivery or RF reception.
+delivery, RF reception, or native inbound codec decoding. The generated sample
+uses a one-way diagnostic route; build your two-way route in the next step.
 
 **3. Create your first route.**
 

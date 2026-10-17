@@ -10,7 +10,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 
 | I want to… | Read |
 | --- | --- |
-| Install from Git, PyPI, or local paths | [Installation](install.md) and [adapter sources](adapter-installation.md) |
+| Install from Git, local paths, or published indexes | [Installation](install.md) and [adapter sources](adapter-installation.md) |
 | Manage a persistent CLI and adapter packages | [Package management](package-management.md) |
 | Build and preview a bridge interactively | [Guided configuration](guided-configuration.md) |
 | Get optional AI help with setup | [AI-assisted setup](ai-assisted-setup.md) |

@@ -1187,8 +1187,9 @@ medre routes plan [--config PATH]
 medre smoke [--config PATH] [--json]             # Normal offline fake smoke
 medre smoke --drill NAME [--config PATH] --json   # Failure drill
 medre smoke --run-session [--scenario NAME] --json  # Full lifecycle
-    Run fake bridge smoke test. Storage backend determined by config.
-    Use a config with storage.backend = "sqlite" for persistent evidence.
+    Run fake bridge smoke test. Storage defaults to the config; use
+    --storage-path PATH to persist evidence in SQLite without editing it.
+    Alternatively configure storage.backend = "sqlite" in the YAML.
     Normal smoke supports --message TEXT, --source-adapter ID and
     --source-context CONTEXT. --drill and --run-session are mutually exclusive;
     only --run-session accepts --scenario and --snapshot-dir. Incompatible

@@ -121,7 +121,7 @@ adopt after the first release.
 The recommended operator loop:
 
 1. **Pre-flight**: `medre config check` and `medre routes validate`
-2. **Optional smoke**: `medre smoke --config <sqlite-config> --json`
+2. **Optional smoke**: `medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json`
 3. **Inspect-first**: `medre inspect event` and `medre inspect receipts`
 4. **Deeper investigation**: `--timeline`, `--evidence`, `--recovery` flags on inspect
 5. **Replay only when needed**: `DRY_RUN` first, then `BEST_EFFORT`
@@ -136,13 +136,14 @@ The fastest way to confirm MEDRE works on your machine. No network, no credentia
 # Source checkout (in-memory storage, ephemeral)
 medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
 
-# Source checkout (persistent SQLite — edit config to set storage.backend: sqlite)
-medre smoke --config /tmp/medre-sqlite.yaml --json
+# Source checkout (persist evidence without editing the config)
+medre smoke --config examples/configs/fake-bridge-smoke.yaml \
+  --storage-path /tmp/medre-smoke.db --json
 
-# Installed package
+# Installed package with a sample-contributing provider
 medre config sample > /tmp/medre-walkthrough.yaml
-# Edit storage section: backend: sqlite, path: /tmp/medre-walkthrough.db
-medre smoke --config /tmp/medre-walkthrough.yaml --json
+medre smoke --config /tmp/medre-walkthrough.yaml \
+  --storage-path /tmp/medre-walkthrough.db --json
 ```
 
 Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
@@ -150,19 +151,28 @@ Expected: JSON with `"status": "passed"`, an `event_id`, and delivery receipts.
 ### What Smoke Validates
 
 - Pipeline builds and starts without errors.
-- Canonical event flows through codec, renderer, and session stages.
-- Fake adapter receives and acknowledges the event.
+- A fake adapter constructs a canonical event and injects it directly into
+  the core pipeline; routing, rendering, delivery, and receipt accounting run.
+- The fake destination adapter receives and acknowledges the delivery.
 - Storage round-trips correctly.
 - Diagnostics collected and reported.
 
 ### What Smoke Does Not Validate
 
+- Native inbound codec decoding or real transport session callbacks; normal
+  smoke bypasses these by injecting an already-canonical event.
 - Any real network communication.
 - Matrix SDK behaviour against a real homeserver.
 - E2EE crypto operations.
 - Meshtastic radio or serial communication.
 
-Storage backend is determined by the config file. With `storage.backend = "memory"` (the default in shipped configs), evidence is discarded after the run. For persistent evidence, set `storage.backend = "sqlite"` with a `path` in the config.
+Without `--storage-path`, the config selects the storage backend. Use
+`--storage-path FILE` to persist smoke evidence in SQLite **without editing
+YAML**, even when the configuration selects memory storage. Do not commit this
+file to source control. A smoke report covers one selected source event and its
+matched fanout, not all configured sources or live recipient delivery. For a
+specific eligible source use `--source-adapter INSTANCE_ID`; for a mapped
+conversation also pass `--source-context CONTEXT` (normal fake smoke only).
 
 ## Inspect-First Investigation
 

@@ -53,9 +53,12 @@ medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 **Expected:** the smoke report says `passed` and names the source, target, and
 persisted delivery evidence. A fake `sent` receipt verifies local routing and
 storage, **not** Matrix server acceptance or radio reception. Smoke covers one
-source event; run it separately for each source you need to exercise. If no
-installed provider contributes a fake sample, the generated config contains no
-route: install a sample-capable provider before running smoke.
+source event. The generated sample is a **one-way diagnostic route**, not a
+ready-to-run two-way bridge; construct a bidirectional route in step 3. Repeat
+smoke with `--source-adapter INSTANCE_ID` for each eligible route source, and
+`--source-context CONTEXT` for explicit context mappings. If no installed
+provider contributes a fake sample, the generated config contains no route:
+install a sample-capable provider before running smoke.
 
 Keep `sample.yaml` and `smoke.sqlite3` out of source control. Inspect the result
 using the reported event ID:
