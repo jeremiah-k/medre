@@ -115,10 +115,10 @@ adapters:
 ```
 
 `medre config sample` includes SDK-free samples contributed by installed
-providers. With one contribution it creates two fake instances; with none it
-emits a loadable empty config with installation guidance. Install a provider
-and regenerate to exercise routing. Providers may omit fake/sample support;
-consult their documentation for real connection settings.
+providers. With one contribution it creates two offline sample instances; with
+none it emits a loadable empty config with installation guidance. Install a
+provider and regenerate to exercise routing. Providers may omit fake/sample
+support; consult their documentation for real connection settings.
 
 Broken entry points are reported as `broken`, separately from `missing`,
 including the actual provider distribution name and entry-point reference.

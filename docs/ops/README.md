@@ -1,10 +1,10 @@
 # Operate MEDRE
 
 New here? Start with **[Getting Started](getting-started.md)**: install from Git,
-run an offline smoke, and configure a real two-way route. For repeated use,
-keep MEDRE and its adapters in one locked uv project. The examples below show
-`medre` directly; in a project without an activated environment, prefix it
-with `uv run --locked`.
+run an offline smoke, and build a first bridge with the guided builder. For
+repeated use, keep MEDRE and its adapters in one locked uv project. The
+examples below show `medre` directly; in a project without an activated
+environment, prefix it with `uv run --locked`.
 
 ## Find the right guide
 
@@ -12,6 +12,7 @@ with `uv run --locked`.
 | --- | --- |
 | Install from Git, PyPI, or local paths | [Installation](install.md) and [adapter sources](adapter-installation.md) |
 | Build and preview a bridge interactively | [Guided configuration](guided-configuration.md) |
+| Get optional AI help with setup | [AI-assisted setup](ai-assisted-setup.md) |
 | Configure routes, contexts, or policies | [Configuration](configuration.md) |
 | Start, stop, and monitor a bridge | [Running MEDRE](running-medre.md) |
 | Inspect message evidence or collect diagnostics | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
