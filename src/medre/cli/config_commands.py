@@ -239,6 +239,13 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
 
     print("Adapter types:")
     _print_cli_failures(cli_failures)
+    if not TRANSPORTS:
+        print("  No usable adapter providers discovered in this Python environment.")
+        print("  Run 'medre adapters sources' for available package requirements.")
+        print("  uv tool installations: medre adapters install ALIAS")
+        print(
+            "  Projects and pip environments: install the requirement with their package manager."
+        )
 
     # Check SDK availability
     for transport, dist_name, import_names in TRANSPORTS:
@@ -264,7 +271,10 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
             kind = getattr(rtc, "adapter_kind", "real")
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
     except ConfigNotFoundError:
-        print("No config found — run 'medre config sample' to generate one.")
+        if not TRANSPORTS:
+            print("Install a provider before generating a sample or building a bridge.")
+        else:
+            print("No config found — run 'medre config sample' to generate one.")
     except (ConfigFileError, ConfigValidationError):
         print("Config cannot be loaded — run 'medre config check' for details.")
 

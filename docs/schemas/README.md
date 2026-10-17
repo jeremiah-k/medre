@@ -19,6 +19,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `evidence-bundle.schema.json`        | Dict shape                                                      | `medre evidence` bundle structure                                           |
 | `adapter-config.schema.json`         | Per-transport configs                                           | Adapter configuration shapes                                                |
 | `routing-config.schema.json`         | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
+| `package-sources.schema.json` | Deployment source catalog | Adapter distribution aliases and source overrides |
 
 ## Examples
 

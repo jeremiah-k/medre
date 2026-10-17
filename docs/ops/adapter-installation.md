@@ -1,7 +1,9 @@
 # Installing external adapters: PyPI, Git, and local sources
 
 For a first installation directly from Git, follow [Getting Started](getting-started.md).
-This reference covers source choices, reproducibility, and provider ownership.
+For a persistent CLI with `medre adapters install` and `medre update`, see
+[package management](package-management.md). This reference covers source choices,
+reproducibility, and provider ownership.
 
 **Adapter discovery is source-agnostic.** MEDRE loads installed Python
 `medre.adapters` entry points. An adapter does not need to be on PyPI, hosted
@@ -9,7 +11,8 @@ on GitHub, or maintained by the MEDRE organization. Any trusted distribution
 that installs a valid entry point is eligible.
 
 MEDRE **does not** clone repositories, run a package manager, or install
-third-party code while loading a configuration or starting the runtime.
+third-party code while loading a configuration or starting the runtime. Explicit
+package-management commands delegate installation to uv.
 Package installation is an explicit **deployment** operation, separate from
 runtime YAML. This is intentional: unattended installations would run arbitrary
 build code with the operator's permissions and change a running environment.

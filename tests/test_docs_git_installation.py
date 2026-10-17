@@ -25,9 +25,7 @@ def test_persistent_cli_install_includes_the_provider_in_the_same_tool() -> None
     start = install.index("```bash\nuv tool install")
     end = install.index("```", start + 7)
     command = install[start:end]
-    assert (
-        "--with 'git+https://github.com/jeremiah-k/medre-adapter-matrix.git" in command
-    )
+    assert "medre adapters install matrix" in command
     assert "'git+https://github.com/jeremiah-k/medre.git" in command
     assert "medre version" in command
     assert "uv.lock" in install
