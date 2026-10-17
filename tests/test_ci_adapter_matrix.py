@@ -126,6 +126,73 @@ def test_installer_rejects_moving_refs() -> None:
         matrix.requirements([_entry()])
 
 
+@pytest.mark.parametrize("status", ["ahead", "identical", "behind", "diverged"])
+def test_merge_gate_distinguishes_landed_pins_from_candidate_branches(
+    monkeypatch, status
+):
+    commit = "a" * 40
+    calls = []
+
+    def lookup(args, **kwargs):
+        calls.append(args)
+        data = (
+            {"default_branch": "stable/core"}
+            if len(calls) == 1
+            else {
+                "status": status,
+                "merge_base_commit": {
+                    "sha": commit if status in ("ahead", "identical") else "b" * 40
+                },
+            }
+        )
+        return SimpleNamespace(stdout=json.dumps(data))
+
+    monkeypatch.setattr(matrix.subprocess, "run", lookup)
+    if status in ("ahead", "identical"):
+        matrix.check_merged([_entry(ref=commit)])
+    else:
+        with pytest.raises(ValueError, match="is not merged"):
+            matrix.check_merged([_entry(ref=commit)])
+    assert calls[1] == [
+        "gh",
+        "api",
+        f"repos/someone/custom-sensor/compare/{commit}...stable%2Fcore",
+    ]
+
+
+def test_merge_gate_rejects_temporary_branch_without_network(monkeypatch):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("moving reference reached GitHub")
+
+    monkeypatch.setattr(matrix.subprocess, "run", unexpected)
+    with pytest.raises(ValueError, match="full commit SHAs"):
+        matrix.check_merged([_entry(ref="refs/heads/test-only")])
+
+
+def test_merge_gate_checks_ancestry_not_only_github_status(monkeypatch):
+    def lookup(args, **kwargs):
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {"default_branch": "main"}
+                if "/compare/" not in args[-1]
+                else {"status": "ahead", "merge_base_commit": {"sha": "b" * 40}}
+            )
+        )
+
+    monkeypatch.setattr(matrix.subprocess, "run", lookup)
+    with pytest.raises(ValueError, match="is not merged"):
+        matrix.check_merged([_entry(ref="a" * 40)])
+
+
+def test_merge_gate_fails_closed_when_github_is_unavailable(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(matrix.subprocess, "run", unavailable)
+    with pytest.raises(ValueError, match="Cannot verify merged adapter"):
+        matrix.check_merged([_entry(ref="a" * 40)])
+
+
 def _create_local_adapter(
     parent: Path, repository: str, transport: str
 ) -> tuple[Path, str]:

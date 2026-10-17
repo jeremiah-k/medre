@@ -61,6 +61,11 @@ adapters _after_ syncing or use a locked deployment project to avoid removal.
 
 ## Change Dependencies
 
+For changes spanning core and adapters, follow
+[coordinated changes](coordinated-changes.md): qualify candidate pairs with
+explicit SHAs, land compatible dependencies first, then refresh the committed
+snapshot and run `python scripts/ci/adapter_matrix.py --check-merged`.
+
 Declare core dependencies in MEDRE, and transport SDK pins in each adapter
 `pyproject.toml`.
 `uv.lock` records the resolved graph and artifacts. Commit metadata and lockfile
