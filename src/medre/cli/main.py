@@ -158,6 +158,77 @@ def _build_parser() -> argparse.ArgumentParser:
     # version
     sub.add_parser("version", help="Print MEDRE version")
 
+    dev_p = sub.add_parser(
+        "dev",
+        help="Synchronize or test a source checkout without sibling path assumptions",
+    )
+    dev_sub = dev_p.add_subparsers(dest="dev_command", required=True)
+    for action in ("sync", "test"):
+        dev_action = dev_sub.add_parser(
+            action,
+            help=(
+                "Sync locked core and selected adapters"
+                if action == "sync"
+                else "Run an editable adapter's own pytest suite"
+            ),
+        )
+        dev_action.add_argument(
+            "--project",
+            help="MEDRE checkout (default: discover from working directory)",
+        )
+        dev_action.add_argument(
+            "--profile",
+            help="Local YAML preferences (default: checkout .medre-dev.yaml)",
+        )
+        dev_action.add_argument(
+            "--sources", help="Adapter source catalog; overrides the CI snapshot"
+        )
+        dev_action.add_argument(
+            "--editable",
+            action="append",
+            default=[],
+            metavar="ALIAS=PATH",
+            help="Use an adapter checkout at any location",
+        )
+        dev_action.add_argument(
+            "--sdk",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="Install native SDKs (default: SDK-free)",
+        )
+        dev_action.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print commands without changing packages",
+        )
+        if action == "sync":
+            dev_action.add_argument(
+                "adapters",
+                nargs="*",
+                help="Source aliases, optionally with extras; default: profile or compatibility snapshot",
+            )
+            dev_action.add_argument("--python", help="Python request passed to uv sync")
+        else:
+            dev_action.add_argument(
+                "--evidence-dir",
+                metavar="PATH",
+                help="Record the selected adapter's Git commit, diff, status and path before testing",
+            )
+            dev_action.add_argument("adapter", help="Editable adapter source alias")
+            dev_action.add_argument(
+                "pytest_args",
+                nargs=argparse.REMAINDER,
+                help="Arguments after -- go to pytest in the adapter checkout",
+            )
+
+    init_p = sub.add_parser(
+        "init",
+        help="Create an editable adapter source catalog without installing packages",
+    )
+    init_p.add_argument(
+        "--sources", default=None, help="Catalog path (default: MEDRE config directory)"
+    )
+
     # update
     update_p = sub.add_parser(
         "update",
@@ -663,7 +734,11 @@ def main(argv: list[str] | None = None) -> None:
                 "--config is for adapter inspection; use --sources for installation sources"
             )
 
-    if args.command == "update" or (
+    if args.command == "dev":
+        from .dev_commands import _development
+
+        _development(args)
+    elif args.command in ("init", "update") or (
         args.command == "adapters" and args.action in ("sources", "install", "remove")
     ):
         from .install_commands import _manage_installation

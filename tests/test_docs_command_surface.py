@@ -182,6 +182,8 @@ class TestParserCommandsDocumented:
             "paths",
             "version",
             "update",
+            "init",
+            "dev",
             "adapters",
             "diagnostics",
             "routes",

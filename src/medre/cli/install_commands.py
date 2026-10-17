@@ -10,6 +10,7 @@ from pathlib import Path
 from medre.tool_management import (
     ToolInstallation,
     ToolManagementError,
+    initialize_sources,
     load_sources,
     sources_path,
 )
@@ -18,6 +19,18 @@ from medre.tool_management import (
 def _manage_installation(args: argparse.Namespace) -> None:
     """Render source choices or execute a verified uv operation."""
     try:
+        if args.command == "init":
+            target = Path(args.sources) if args.sources else sources_path()
+            try:
+                target, created = initialize_sources(target)
+            except OSError:
+                raise ToolManagementError(
+                    f"Cannot create source catalog at {target}; check the parent directory path and permissions."
+                ) from None
+            print(f"{'Created' if created else 'Kept existing catalog:'} {target}")
+            print("Edit adapter sources here, then run 'medre adapters install ALIAS'.")
+            print("Core updates follow uv's installation receipt; run 'medre update'.")
+            return
         if args.command == "adapters":
             sources = load_sources(Path(args.sources) if args.sources else None)
             if args.action == "sources":

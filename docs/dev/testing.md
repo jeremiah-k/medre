@@ -18,11 +18,13 @@ For real devices, follow the [short hardware iteration sequence](../ops/live-val
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
 
-Native provider suites live in their independent repositories. Commands using
-a path such as ../medre-adapter-meshtastic/tests assume the corresponding
-checkout sits beside MEDRE and is installed in the test environment. Core
-retains cross-adapter, lifecycle, routing, and Docker integration suites.
-See [adapter installation](../ops/adapter-installation.md) for matching sources
+Native provider suites live in their independent repositories. Configure local
+checkout paths in `.medre-dev.yaml`, then run
+`uv run --no-sync medre dev test ALIAS -- PYTEST_ARGUMENTS` from core. This uses
+the adapter's pytest configuration without assuming sibling checkouts; see the
+[development environment](environment.md#work-on-adapters-at-any-location).
+Core retains cross-adapter, lifecycle, routing, and Docker integration suites.
+See [adapter installation](../ops/adapter-installation.md) for deployment sources
 and [short hardware iterations](../ops/live-validation/short-iterations.md)
 for coordinated bench setup.
 
@@ -574,11 +576,11 @@ raising the constant.
   so development runs cannot transmit accidentally:
 
   - `MESHTASTIC_LIVE_SEND=1` — Meshtastic RF transmission (see
-    `../medre-adapter-meshtastic/tests/test_meshtastic_live.py`).
+    `tests/test_meshtastic_live.py` in the meshtastic provider repository).
   - `MESHCORE_LIVE_SEND=1` — MeshCore node send (see
-    `../medre-adapter-meshcore/tests/test_meshcore_live.py`).
+    `tests/test_meshcore_live.py` in the meshcore provider repository).
   - `LXMF_LIVE_SEND=1` — LXMF / Reticulum outbound send (see
-    `../medre-adapter-lxmf/tests/test_lxmf_live.py`).
+    `tests/test_lxmf_live.py` in the lxmf provider repository).
 
   Without the corresponding flag, live-send tests in that module are
   skipped. Other live and hardware opt-ins (e.g. the `docker` marker,
@@ -739,7 +741,7 @@ uv run --no-sync pytest -m live -v --tb=short
 uv run --no-sync pytest tests/test_pipeline_delivery.py -v
 
 # Files matching a prefix
-(cd ../medre-adapter-matrix && ../medre/.venv/bin/python -m pytest tests/test_matrix_session*.py -v)
+uv run --no-sync medre dev test matrix -- -k matrix_session -v
 
 # Keyword match
 uv run --no-sync pytest -k "test_delivery" -v

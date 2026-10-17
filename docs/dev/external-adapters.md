@@ -54,12 +54,14 @@ MEDRE's documentation describe first-party examples, not an installation list.
    prove the sample bridge with external Matrix and Meshtastic wheels, outside
    all source checkouts and without SDKs.
 
-The generic default suite in this checkout includes cross-adapter tests. After
-`uv sync --locked --extra dev`, explicitly install the adapter checkouts with
-`uv pip install --no-deps -e ../medre-adapter-matrix ...` before collecting it.
-Run an adapter suite from its own repository with the shared interpreter, for
-example `../medre/.venv/bin/python -m pytest -q`. No adapter imports MEDRE's
-private `tests` package. Gated SDK/service/hardware/soak tiers stay explicit.
+The default suite includes cross-adapter tests. After the initial core setup,
+run `uv run --no-sync medre dev sync` to install the CI-pinned providers without
+SDK dependencies. Use a local development profile or `--editable ALIAS=PATH` for
+arbitrarily located checkouts, then run `medre dev test ALIAS -- -q` through
+`uv run --no-sync`. The helper uses the adapter's own working directory and the
+core interpreter. See [development environment](environment.md#install-external-adapters-for-development).
+No adapter imports MEDRE's private `tests` package. Gated SDK/service/hardware/soak
+tiers stay explicit.
 
 ## Dynamic compatibility selection
 

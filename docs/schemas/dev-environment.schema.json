@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/dev-environment.schema.json",
+  "title": "MEDRE checkout development preferences",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "adapters": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "sdk": {"type": "boolean"},
+    "sources": {"type": "string", "minLength": 1},
+    "editable": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}}
+  }
+}
