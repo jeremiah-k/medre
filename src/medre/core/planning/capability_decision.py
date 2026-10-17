@@ -111,6 +111,20 @@ _EVENT_KIND_FIELDS: dict[str, str] = {
     EventKind.TELEMETRY_POSITION: "metadata_fields",
 }
 
+#: Known kinds whose delivery semantics are governed outside capability gating.
+#: Adding a kind requires choosing this policy or a capability mapping explicitly.
+PASSTHROUGH_EVENT_KINDS: frozenset[str] = frozenset(
+    {
+        EventKind.IDENTITY_UPDATED,
+        EventKind.DELIVERY_QUEUED,
+        EventKind.DELIVERY_SENT,
+        EventKind.DELIVERY_FAILED,
+        EventKind.SYSTEM_AUDIT,
+        EventKind.SYSTEM_LIFECYCLE,
+        EventKind.PLUGIN_CUSTOM,
+    }
+)
+
 #: Boolean capability fields: ``True`` -> native/direct, ``False`` -> unsupported/skip.
 _BOOLEAN_FIELDS: frozenset[str] = frozenset(
     {"text", "attachments", "presence", "metadata_fields"}
@@ -380,6 +394,15 @@ class CapabilityDecisionResolver:
                 )
             )
 
+        elif kind not in PASSTHROUGH_EVENT_KINDS:
+            candidates.append(
+                _Candidate(
+                    capability_level="unsupported",
+                    capability_field="event_kind",
+                    reason=f"unsupported event kind {kind!r}",
+                )
+            )
+
         # 2. Relation candidates (in event.relations order).
         if event.relations:
             for rel in event.relations:
@@ -406,7 +429,7 @@ class CapabilityDecisionResolver:
                     )
                 )
 
-        # 3. No candidates → passthrough (native / direct).
+        # 3. Explicitly permitted known kinds without relations pass through.
         if not candidates:
             return CapabilityDecision(
                 target_adapter=target_adapter,

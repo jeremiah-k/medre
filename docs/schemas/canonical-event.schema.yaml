@@ -21,7 +21,7 @@ properties:
   event_kind:
     type: string
     minLength: 1
-    description: Event kind string (e.g. 'message.text', 'telemetry.received').
+    description: Non-empty event kind. Unrecognized kinds can be retained as evidence but are suppressed by capability planning.
   schema_version:
     type: integer
     minimum: 1
