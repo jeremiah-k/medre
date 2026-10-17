@@ -24,7 +24,7 @@ produced as a delivery artifact — is represented as a `CanonicalEvent`.
 
 ```python
 class CanonicalEvent(msgspec.Struct, frozen=True):
-    event_id: str                          # UUIDv7
+    event_id: str                          # Opaque unique identifier
     event_kind: str                        # "<domain>.<action>"
     schema_version: int                    # >= 1
     timestamp: datetime                    # UTC, timezone-aware
@@ -35,7 +35,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     parent_event_id: str | None            # Parent in derivation chain (None for source events)
     lineage: tuple[str, ...]               # Ordered chain of ancestor event IDs
     relations: tuple[EventRelation, ...]   # First-class relations (replies, reactions, etc.)
-    payload: dict[str, object]             # Kind-specific data (validated per event_kind)
+    payload: dict[str, object]             # Extensible kind-specific data
     metadata: EventMetadata                # Structured metadata namespaces
     depth: int = 0                         # Depth in derivation tree (0 for source events)
     trace_id: str | None = None            # Distributed tracing correlation ID
@@ -47,7 +47,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 
 | Field                 | Type                        | Default | Description                                                                                                                                                                                                                                                                                                                                       |
 | --------------------- | --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `event_id`            | `str`                       | —       | Globally unique identifier. MUST be UUIDv7 for time-ordering and uniqueness. MUST be a non-empty string.                                                                                                                                                                                                                                          |
+| `event_id`            | `str`                       | —       | Globally unique opaque identifier. MUST be a non-empty string. No UUID version is required.                                                                                                                                                                                                                                          |
 | `event_kind`          | `str`                       | —       | Kind string from the event kind registry (Section 5). MUST be a non-empty string.                                                                                                                                                                                                                                                                 |
 | `schema_version`      | `int`                       | —       | Schema version this event conforms to. MUST be `>= 1`. Current version: `1`.                                                                                                                                                                                                                                                                      |
 | `timestamp`           | `datetime`                  | —       | When the event occurred. MUST be timezone-aware (UTC).                                                                                                                                                                                                                                                                                            |
@@ -58,7 +58,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 | `parent_event_id`     | `str \| None`               | —       | ID of the parent event in the derivation chain. `None` for source events.                                                                                                                                                                                                                                                                         |
 | `lineage`             | `tuple[str, ...]`           | —       | Ordered chain of event IDs from origin to current. Every element MUST be a non-empty string.                                                                                                                                                                                                                                                      |
 | `relations`           | `tuple[EventRelation, ...]` | —       | First-class typed relations to other events.                                                                                                                                                                                                                                                                                                      |
-| `payload`             | `dict[str, object]`         | —       | Kind-specific data payload, validated per `event_kind` via the schema registry.                                                                                                                                                                                                                                                                   |
+| `payload`             | `dict[str, object]`         | —       | Extensible kind-specific data. The envelope freezes the mapping; it does not invoke per-kind schema validators. Individual admission and adapter contracts enforce their payload rules.                                                                                                                                                                                                                                                                   |
 | `metadata`            | `EventMetadata`             | —       | Structured metadata organized into namespaces (Section 4).                                                                                                                                                                                                                                                                                        |
 | `depth`               | `int`                       | `0`     | Depth in the derivation tree. MUST be `>= 0`. `0` for source events.                                                                                                                                                                                                                                                                              |
 | `trace_id`            | `str \| None`               | `None`  | Distributed tracing correlation ID, reserved for future protocol-neutral use.                                                                                                                                                                                                                                                                     |
@@ -489,10 +489,16 @@ The registry is extensible by plugins via `plugin.custom`.
 
 ### 5.2 Registration
 
-The schema registry maps `(event_kind, schema_version)` to a validation
-function. New kinds are registered at adapter/plugin load time. Registration
-has explicit overwrite semantics: a second registration for the same
-`(event_kind, schema_version)` replaces the first validator.
+`SchemaRegistry` is an optional validation utility, not an automatically invoked
+production admission gate. Callers can register `(event_kind, schema_version)`
+validators and invoke validation explicitly. Adapter discovery and pipeline
+admission do not populate or dispatch this registry. A second registration for
+the same pair explicitly replaces the first validator.
+
+The canonical constructor enforces envelope invariants and deep immutability.
+It MUST NOT be described as universally validating kind-specific payloads.
+Attachment admission and native adapter contracts provide narrower validation;
+these do not imply a validator for every event kind.
 
 ```python
 class SchemaRegistry:
@@ -547,6 +553,13 @@ own versioned native metadata namespace.
 | `duration_ms`        | integer, optional | all forms              | Duration in milliseconds for timed media, when known  |
 | `content_ref`        | string            | retained only          | `sha256:<64 lowercase hex>` local integrity reference |
 | `unavailable_reason` | string            | unavailable only       | One of the stable codes below                         |
+
+The standalone [attachment schema](../schemas/attachment.schema.json) describes
+this nine-field contract. Its `DeclaredAttachment` definition describes the
+retention-pending form separately. The schema is an external validation artifact,
+not an automatic `SchemaRegistry` registration. Optional fields may be null on
+input; serialization omits absent values. Content references MUST match the
+entire `sha256:<64 lowercase hex>` string, without a trailing newline.
 
 Descriptor states are exclusive:
 
@@ -628,8 +641,14 @@ These rules are non-negotiable. No code path MAY violate them.
 4. **Lineage is recoverable.** The original event MUST always be recoverable
    by following the `lineage` chain backward.
 
-5. **UUIDv7 identifiers.** Event IDs MUST be UUIDv7 for natural time ordering
-   and uniqueness.
+5. **Opaque identifiers and explicit ordering.** Event IDs MUST be non-empty
+   and globally unique. UUIDv7 is permitted, not required or enforced. IDs MUST
+   NOT be interpreted as occurrence time or lifecycle authority. Canonical event
+   queries order by timestamp, then event ID as a deterministic tie-breaker;
+   maintenance ID paging uses lexical order without a chronological guarantee.
+   Delivery receipt sequence orders receipt appends; committed outbox attempt
+   generation takes precedence when choosing delivery lifecycle authority.
+   Canonical events have no storage-assigned sequence field.
 
 6. **Deep immutability.** `payload`, `metadata.custom`, `EventRelation.metadata`,
    `TelemetryMetadata.metrics`, and `NativeMetadata.data` are all wrapped in

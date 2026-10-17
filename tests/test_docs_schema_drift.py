@@ -11,6 +11,7 @@ stays well under the test-file size ceiling.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import fields as dc_fields
 from pathlib import Path
 from typing import Any
@@ -254,3 +255,75 @@ def test_delivery_result_schema_rejects_strong_confirmation_on_deferred_handoff(
     assert list(
         validator.iter_errors(payload)
     ), "deferred hand-off must not claim remote-service confirmation"
+
+
+def test_canonical_nested_definitions_match_source_models() -> None:
+    """Nested field sets and required constructor inputs are schema boundaries."""
+    from medre.core.events import canonical, metadata
+
+    schema = _load_json(_SCHEMAS_DIR / "canonical-event.schema.json")
+    definitions = {"CanonicalEvent": schema, **schema["$defs"]}
+    for name, definition in definitions.items():
+        model = getattr(canonical, name, None) or getattr(metadata, name, None)
+        assert model is not None, f"Missing source model for {name}"
+        fields = model.__struct_fields__
+        assert set(definition["properties"]) == set(fields), name
+        required_count = len(fields) - len(model.__struct_defaults__)
+        assert set(definition.get("required", [])) == set(fields[:required_count]), name
+
+
+def test_canonical_json_and_yaml_validation_shapes_match() -> None:
+    """Compare the entire schema, including nested definitions and constraints."""
+    import yaml
+
+    def validation_shape(value):
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                if key in {"title", "description", "$comment", "examples"}:
+                    continue
+                if key in {"default", "const", "enum", "dependentRequired"}:
+                    result[key] = item
+                elif key in {
+                    "properties",
+                    "patternProperties",
+                    "$defs",
+                    "definitions",
+                    "dependentSchemas",
+                    "dependencies",
+                }:
+                    result[key] = {
+                        name: validation_shape(child) for name, child in item.items()
+                    }
+                else:
+                    result[key] = validation_shape(item)
+            return result
+        if isinstance(value, list):
+            return [validation_shape(item) for item in value]
+        return value
+
+    schema = _load_json(_SCHEMAS_DIR / "canonical-event.schema.json")
+    mirror = yaml.safe_load((_SCHEMAS_DIR / "canonical-event.schema.yaml").read_text())
+    assert validation_shape(schema) == validation_shape(mirror)
+
+
+def test_mirror_audit_preserves_property_names_and_default_data(
+    tmp_path, monkeypatch
+) -> None:
+    import pytest
+    import yaml
+
+    monkeypatch.setattr(sys.modules[__name__], "_SCHEMAS_DIR", tmp_path)
+    schema = {
+        "type": "object",
+        "properties": {"description": {"type": "string"}},
+        "default": {"title": "original"},
+    }
+    (tmp_path / "canonical-event.schema.json").write_text(json.dumps(schema))
+    for mirror in (
+        {**schema, "properties": {"description": {"type": "integer"}}},
+        {**schema, "default": {"title": "changed"}},
+    ):
+        (tmp_path / "canonical-event.schema.yaml").write_text(yaml.safe_dump(mirror))
+        with pytest.raises(AssertionError):
+            test_canonical_json_and_yaml_validation_shapes_match()

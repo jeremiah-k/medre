@@ -79,7 +79,7 @@
     "capability_field": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Adapter capability field that determined the delivery decision, when applicable."
+      "description": "Capability or policy field that determined delivery, when applicable; event_kind identifies suppression of an unrecognized kind."
     },
     "capability_reason": {
       "type": ["string", "null"],

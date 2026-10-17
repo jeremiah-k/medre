@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/attachment.schema.json",
+  "title": "AttachmentDescriptor",
+  "description": "Canonical primary attachment metadata. Retained content references and unavailable reasons are mutually exclusive. Native locators, keys, and bytes are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "audio",
+        "file",
+        "image",
+        "video"
+      ]
+    },
+    "filename": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "mime_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "size_bytes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "width": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "height": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "content_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "maxLength": 71
+    },
+    "unavailable_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        null,
+        "content_missing",
+        "fetch_exhausted",
+        "history_suppressed",
+        "integrity_failed",
+        "malformed_source",
+        "not_retained",
+        "oversized",
+        "policy_disabled",
+        "quota_exceeded",
+        "unsupported_source"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "content_ref"
+      ],
+      "properties": {
+        "content_ref": {
+          "type": "string"
+        },
+        "unavailable_reason": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "required": [
+        "unavailable_reason"
+      ],
+      "properties": {
+        "unavailable_reason": {
+          "type": "string"
+        },
+        "content_ref": {
+          "type": "null"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "DeclaredAttachment": {
+      "description": "Retention-pending adapter input only; not a persisted descriptor.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "audio",
+            "file",
+            "image",
+            "video"
+          ]
+        },
+        "filename": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mime_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

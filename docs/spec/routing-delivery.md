@@ -418,10 +418,19 @@ live-service or hardware evidence for thread degradation has been recorded.
 | `telemetry.received` | `metadata_fields` | Boolean    |
 | `telemetry.position` | `metadata_fields` | Boolean    |
 
-Event kinds not in this table produce no event-kind candidate and
-default to native/direct (passthrough).
+Known kinds explicitly listed in `PASSTHROUGH_EVENT_KINDS` produce no
+kind-specific capability candidate: `identity.updated`, `delivery.queued`,
+`delivery.sent`, `delivery.failed`, `system.audit`, `system.lifecycle`, and
+`plugin.custom`. Route-level restrictions on internal events still apply.
+Relations on these events remain subject to the relation capability checks.
 
-> **Passthrough semantics for unknown event kinds.** Event kinds not in the mapping table above are treated as natively supported. The resolver produces no event-kind candidate, and the decision defaults to native/direct. This means unknown event kinds are delivered rather than suppressed. If a future event kind requires capability gating, it **MUST** be added to this table with an appropriate capability field.
+Other event kinds MUST fail closed with capability level `unsupported`,
+delivery strategy `skip`, and capability field `event_kind`. Their payload may
+be retained as ingress evidence, but a wildcard route MUST NOT turn an
+unrecognized kind into supported native delivery. Every built-in kind MUST have
+either an explicit capability mapping or an explicit passthrough policy.
+Adapter extensions can use the recognized `plugin.custom` kind with a payload
+sub-kind; adding a native event kind requires a core policy and adapter contract.
 
 #### 6.3.4 Relation Mapping
 

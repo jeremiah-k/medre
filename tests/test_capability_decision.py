@@ -7,7 +7,7 @@ Covers:
 - Relation to capability field mapping (reply → replies, reaction → reactions, etc.).
 - Multiple-relation precedence (unsupported > fallback > native).
 - Tie-breaking by first candidate in evaluation order.
-- Passthrough for unknown/unmapped event kinds.
+- Explicit passthrough for known unmapped event kinds.
 - Reason string stability (matching existing user-visible strings).
 - ``supported`` field consistency.
 - Wrapper parity: ``capability_unsupported()`` returns None when decision.supported.
@@ -853,8 +853,8 @@ class TestFailClosedSemantics:
         assert decision.capability_level == "unsupported"
         assert decision.supported is False
 
-    def test_unknown_event_kind_passthrough(self) -> None:
-        """Unmapped event kinds always produce native/direct passthrough."""
+    def test_known_extension_kind_passthrough(self) -> None:
+        """The recognized plugin envelope permits native/direct passthrough."""
         event = make_event(event_kind="plugin.custom")
         caps = AdapterCapabilities()
         decision = resolver.decide(event, caps)

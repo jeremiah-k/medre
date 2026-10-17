@@ -19,6 +19,7 @@ the relevant spec/ops/dev page.
 | [documentation-style.md](documentation-style.md)               | Conventions for writing MEDRE documentation                          |
 | [licensing.md](licensing.md)                                  | Own-source licensing, dependency obligations, publication checks      |
 | [change-process.md](change-process.md)                         | How to propose and track documentation changes                       |
+| [messenger-interoperability.md](messenger-interoperability.md) | XMPP reference contracts, rendering, activity, security, and freeze evidence |
 
 ## How to Add Documentation
 

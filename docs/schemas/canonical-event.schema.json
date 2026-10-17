@@ -8,12 +8,12 @@
     "event_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Globally unique event identifier (UUIDv7 or similar time-sortable identifier)."
+      "description": "Globally unique, non-empty opaque event identifier. No UUID version or chronological ordering is enforced."
     },
     "event_kind": {
       "type": "string",
       "minLength": 1,
-      "description": "Event kind string from the kinds registry (e.g. 'message.text', 'telemetry.received')."
+      "description": "Non-empty event kind. Unrecognized kinds can be retained as evidence but are suppressed by capability planning."
     },
     "schema_version": {
       "type": "integer",
@@ -59,7 +59,7 @@
     "payload": {
       "type": "object",
       "additionalProperties": true,
-      "description": "The event-specific data payload (validated per event_kind)."
+      "description": "Extensible event-specific JSON object. The envelope does not dispatch per-kind payload validators; individual admission and adapter contracts enforce their own payload rules."
     },
     "metadata": {
       "$ref": "#/$defs/EventMetadata"

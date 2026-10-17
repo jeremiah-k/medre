@@ -183,7 +183,9 @@ class AdapterCapabilities:
         destinations.
     identity_encryption:
         Whether the adapter's transport identity model includes native
-        identity-level encryption semantics that MEDRE may report.
+        identity-level encryption semantics that MEDRE may report. This flag
+        does not describe optional/required message encryption, negotiated
+        conversation security, or proof of confidentiality across a bridge.
     presence:
         Whether the adapter exposes presence/online state semantics.
     topic_rooms:
