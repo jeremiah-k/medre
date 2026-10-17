@@ -158,6 +158,14 @@ def _build_parser() -> argparse.ArgumentParser:
     # version
     sub.add_parser("version", help="Print MEDRE version")
 
+    init_p = sub.add_parser(
+        "init",
+        help="Create an editable adapter source catalog without installing packages",
+    )
+    init_p.add_argument(
+        "--sources", default=None, help="Catalog path (default: MEDRE config directory)"
+    )
+
     # update
     update_p = sub.add_parser(
         "update",
@@ -663,7 +671,7 @@ def main(argv: list[str] | None = None) -> None:
                 "--config is for adapter inspection; use --sources for installation sources"
             )
 
-    if args.command == "update" or (
+    if args.command in ("init", "update") or (
         args.command == "adapters" and args.action in ("sources", "install", "remove")
     ):
         from .install_commands import _manage_installation

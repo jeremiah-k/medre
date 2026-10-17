@@ -1154,6 +1154,10 @@ medre version
 medre adapters
     List available adapter kinds and SDK dependency status.
 
+medre init [--sources PATH]
+    Create an adapter source catalog; preserve an existing valid catalog.
+    Install no packages and retain uv's core source receipt.
+
 medre adapters sources [--sources PATH]
     Print configurable adapter package sources.
 

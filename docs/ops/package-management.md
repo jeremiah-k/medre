@@ -4,6 +4,7 @@ Install one persistent command, then select the adapters you need:
 
 ```bash
 uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+medre init
 medre adapters sources
 medre adapters install matrix meshtastic
 medre adapters
@@ -54,8 +55,11 @@ comment showing the default override path. The default is `sources.yaml` next
 to MEDRE's runtime config: `$XDG_CONFIG_HOME/medre/sources.yaml` (falling back
 to `~/.config/medre/sources.yaml`), or `$MEDRE_HOME/sources.yaml`.
 
-Copy the catalog into that file and edit it, or pass `--sources PATH` to
-`sources`, `install`, or `remove`. MEDRE never writes this file automatically.
+Run `medre init` to create that file, then edit it, or pass `--sources PATH` to
+`init`, `sources`, `install`, or `remove`. Initialization keeps an existing valid
+catalog and never installs packages or generates a runtime bridge configuration.
+The core source remains authoritative in uv's tool receipt; it is not duplicated
+in this catalog. Ordinary commands do not create source files automatically.
 Overrides merge with the four defaults, which point to `jeremiah-k`'s adapter
 repositories on `main`. Set an alias to `null` to remove it from the catalog.
 
