@@ -3,14 +3,29 @@
 from __future__ import annotations
 
 import math
+import json
+from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.model import RetryConfig, RuntimeConfig
 from medre.config.routes import BridgePolicy, RouteConfig, RouteRetryConfig
 from medre.runtime.builder import RuntimeBuilder
+
+
+@pytest.mark.parametrize("route_id", ["relay\n", "relay\r\n"])
+def test_route_ids_reject_trailing_newlines_in_model_and_editor_schema(route_id):
+    values = {"source_adapters": ["source"], "dest_adapters": ["target"]}
+    with pytest.raises(ConfigValidationError, match="Invalid route ID"):
+        RouteConfig.from_dict(route_id, values)
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads((root / "docs/schemas/runtime-config.schema.json").read_text())
+    assert list(
+        Draft202012Validator(schema).iter_errors({"routes": {route_id: values}})
+    )
 
 
 def _route(**overrides: object) -> dict[str, object]:

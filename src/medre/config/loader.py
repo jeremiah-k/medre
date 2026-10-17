@@ -359,7 +359,7 @@ def load_config(
         # clean, secret-safe message.
         raise
 
-    config = _parse_runtime_config(data, paths)
+    config = parse_runtime_config(data, paths)
     return (config, source, paths)
 
 
@@ -368,12 +368,15 @@ def load_config(
 # ---------------------------------------------------------------------------
 
 
-def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
+def parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     """Construct a :class:`RuntimeConfig` from a parsed YAML dict.
 
     The *data* argument is a plain ``dict`` produced by the strict YAML
     parser; the runtime config construction is format-agnostic and feeds
-    plain dict/list/scalar values into the typed config dataclasses.
+    plain dict/list/scalar values into the typed config dataclasses. This is
+    also the authoring interface: callers validate an in-memory document with
+    the same models as file loading, without writing a temporary configuration.
+    Environment overrides are applied separately, as with ``load_config``.
     """
     # [runtime] section — validate type, then reject unknown keys before
     # reading individual fields so operators see typos first.

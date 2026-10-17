@@ -315,6 +315,13 @@ layer, not by the schemas.
 
 ### 3.4 Routes and Context Mapping
 
+Route IDs MUST be non-empty strings containing only ASCII letters, digits,
+underscores, or hyphens (`[A-Za-z0-9_-]+`). The entire string MUST match;
+whitespace and line terminators are invalid, including trailing newlines.
+Parsed and directly constructed `RouteConfig` values MUST enforce this rule.
+In runtime YAML, the identifier is the `routes` mapping key; an entry-level
+`route_id` field MUST be rejected.
+
 Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 
 - The source and dest adapter ID tuples (`source_adapters`, `dest_adapters`)
@@ -641,9 +648,66 @@ at validation time.
 medre run [--config PATH]           # Start the MEDRE runtime
 medre config check [--config PATH]  # Validate config file
 medre config sample                 # Print a sample YAML config
+medre config bridge --output PATH   # Author and preview a bridge offline
 medre paths                         # Print resolved MEDRE paths
 medre version                       # Print MEDRE version
 ```
+
+### 8.1 Guided bridge authoring
+
+`medre config bridge` MUST validate authored YAML through the same typed models,
+environment override layer, and route compiler as ordinary configuration. It
+MUST NOT start adapters, contact native services/devices, or install packages.
+Without `--config`, it starts from installed providers' fake samples with no
+routes; with `--config`, it preserves the input's provider fields and existing
+routes. Environment values MUST NOT be serialized into the output.
+
+The workflow requires two distinct enabled adapter instances and at least one
+explicit source/destination context pair. It creates a text-message route using
+the existing `context_map`, directionality, policy, and origin-label fields;
+there are no new runtime configuration fields. Duplicate source contexts,
+ambiguous reverse mappings, existing route IDs, blocking plan errors, and
+duplicate explicit text bridge legs MUST prevent saving. Native context strings
+MUST remain opaque to core. Loop warnings MUST remain visible in the plan.
+Unknown adapter references in disabled routes MUST also prevent saving, matching
+`config check`. Duplicate detection includes an existing wildcard source that
+would deliver text to the same explicit target context.
+An existing enabled text route on the same adapter pair MUST also prevent saving
+when its source domain overlaps a new bridge leg and its target context is
+unspecified. Disabled routes MUST NOT be treated as active duplicate deliveries.
+
+Interactive authoring MUST reject errors in the existing configuration and an
+invalid requested route ID before collecting context values. Context-specific
+failures MUST allow another attempt while retaining earlier accepted pairs.
+The offline text plan MUST display each leg's actual source-to-target address
+flow, including reverse-only legs; JSON retains the configured mapping provenance.
+
+Before returning a successful draft, authoring MUST run enabled adapters'
+provider-owned pure `runtime_config_preparer` hooks against the compiled route
+set, matching startup preflight for both fake and real instances. Hook failures
+MUST prevent preview success and saving. Derived native values MUST NOT be
+serialized into the draft; provider restrictions remain provider-owned.
+
+`--preview` MUST NOT write configuration. `--json` emits the existing route-plan
+shape; prompts and guidance go to stderr. Noninteractive authoring requires
+explicit endpoint IDs, direction, and context pairs. Interactive saving requires
+confirmation after preview. Output files MUST be exclusively created and MUST
+NOT overwrite existing files, directories, or symlinks. POSIX file permissions
+MUST restrict access to the owner; Windows deployments require an appropriate
+parent-directory ACL. Configuration errors exit 2; EOF/interruption exits 1.
+Confirmation accepts `yes`/`y` and `no`/`n` without case sensitivity or surrounding
+whitespace; an unrecognized answer MUST prompt again. A blank answer declines.
+Suggested fake-smoke commands MUST require every enabled saved adapter to be fake.
+Windows copyable commands target PowerShell and MUST quote arguments literally.
+
+Validation establishes configuration and routing consistency, not native SDK,
+authentication, address, or delivery readiness. Known raw/environment secrets
+and provider-declared secret fields MUST be redacted from authoring error details.
+This includes their ordinary string, Python repr, and JSON-escaped forms.
+Secret field heuristics MUST match whole field-name tokens rather than arbitrary
+substrings (so `enabled` is not secret-bearing). Known values shorter than eight
+characters MUST be redacted as whole tokens or quoted forms, preserving their
+occurrences within unrelated words.
 
 ## 9. Configuration Error Hierarchy
 

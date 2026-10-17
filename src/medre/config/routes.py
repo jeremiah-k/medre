@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Self
@@ -68,7 +68,7 @@ def _validate_route_id(route_id: str, *, section_path: str) -> None:
             "Route ID must not be empty",
             section_path=section_path,
         )
-    if not _VALID_ROUTE_ID.match(route_id):
+    if not isinstance(route_id, str) or not _VALID_ROUTE_ID.fullmatch(route_id):
         raise ConfigValidationError(
             f"Invalid route ID {route_id!r}: must contain only "
             f"alphanumeric characters, underscores, or hyphens",
@@ -1148,6 +1148,7 @@ class RouteConfig:
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
         section = f"routes.{self.route_id}"
+        _validate_route_id(self.route_id, section_path=section)
         if type(self.enabled) is not bool:
             raise ConfigValidationError(
                 f"Route {self.route_id!r}: 'enabled' must be a boolean, "
@@ -1618,6 +1619,26 @@ class RouteConfigSet:
     """
 
     routes: tuple[RouteConfig, ...] = ()
+
+    def adapter_reference_errors(self, adapter_ids: Collection[str]) -> list[str]:
+        """Report unknown endpoints, including latent references in disabled routes.
+
+        Authoring and config check use this stricter preflight. Runtime planning
+        can still describe disabled routes without activating their references.
+        """
+        known = set(adapter_ids)
+        errors = []
+        for route in self.routes:
+            for side, endpoints in (
+                ("source", route.source_adapters),
+                ("dest", route.dest_adapters),
+            ):
+                errors.extend(
+                    f"route {route.route_id}: references unknown {side} adapter {aid!r}"
+                    for aid in endpoints
+                    if aid not in known
+                )
+        return errors
 
     def validate(self) -> None:
         """Validate the route set for consistency.

@@ -50,6 +50,7 @@ async def _smoke(
     *,
     storage_path: str | None = None,
     source_adapter: str | None = None,
+    source_context: str | None = None,
 ) -> None:
     """Run fake bridge smoke test and print a compact evidence report.
 
@@ -79,6 +80,7 @@ async def _smoke(
             message_text=message_text,
             storage_path=storage_path,
             source_adapter=source_adapter,
+            source_context=source_context,
         )
 
     if json_output:
@@ -108,6 +110,8 @@ async def _smoke(
 
         print(f"  Event:       {event_id}")
         print(f"  Source:      {source}")
+        if report.get("source_context") is not None:
+            print(f"  Context:     {report['source_context']}")
         if report.get("coverage_scope") == "single_source":
             print(
                 f"  Coverage:    one source of {len(report.get('source_candidates', []))} available"

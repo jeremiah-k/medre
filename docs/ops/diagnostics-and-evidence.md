@@ -377,8 +377,13 @@ medre smoke --message "operator check $(date -Iseconds)"
 # Run a specific scenario (choices: happy_path, renderer_failure,
 # adapter_permanent_failure, adapter_transient_failure, capacity_rejection,
 # degraded_live_health)
-medre smoke --scenario <name> --json
+medre smoke --run-session --scenario <name> --json
 ```
+
+The three execution modes are mutually exclusive: normal smoke accepts a custom
+`--message` or source selector, drills use `--drill`, and session scenarios use
+`--run-session --scenario`. Options from another mode are rejected rather
+than silently ignored. All three accept `--config`, `--storage-path`, and `--json`.
 
 ### Smoke Persistence Caveat
 

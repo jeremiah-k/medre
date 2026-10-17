@@ -240,6 +240,7 @@ async def run_fake_bridge_smoke(
     message_text: str = "medre smoke test",
     storage_path: str | None = None,
     source_adapter: str | None = None,
+    source_context: str | None = None,
     now_fn: Callable[[], datetime] | None = None,
     monotonic_fn: Callable[[], float] | None = None,
 ) -> dict[str, Any]:
@@ -272,6 +273,9 @@ async def run_fake_bridge_smoke(
     source_adapter:
         Optional explicit source identifier for route coverage; without it,
         the first eligible source is used. One smoke cycle tests one source.
+    source_context:
+        Optional conversation address passed to the fake event factory's
+        ``channel`` argument. The factory must preserve it exactly.
     now_fn:
         Callable returning UTC datetime (inject for deterministic tests).
     monotonic_fn:
@@ -367,7 +371,9 @@ async def run_fake_bridge_smoke(
         candidates = eligible_smoke_sources(app)
         try:
             source_aid, source_instance = pick_source_adapter(app, source_adapter)
-            event = make_smoke_event(source_instance, message_text)
+            event = make_smoke_event(
+                source_instance, message_text, source_context=source_context
+            )
         except Exception as exc:
             try:
                 await app.stop()
@@ -602,6 +608,7 @@ async def run_fake_bridge_smoke(
             ),
             "preflight": preflight,
             "source_adapter": source_aid,
+            "source_context": event.source_channel_id,
             "source_candidates": candidates,
             "coverage_scope": "single_source",
             "target_adapters": target_adapters,

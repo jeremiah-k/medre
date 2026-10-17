@@ -4,7 +4,7 @@ This module exposes :func:`parse_yaml_config`, which parses YAML config
 text into a plain ``dict`` containing only standard Python types
 (``dict``, ``list``, ``str``, ``int``, ``float``, ``bool``, ``None``).
 The result is safe to feed directly into
-:func:`medre.config.loader._parse_runtime_config`.
+:func:`medre.config.loader.parse_runtime_config`.
 
 The parser enforces a deliberately *boring* subset of YAML by rejecting:
 
@@ -37,7 +37,20 @@ import yaml
 
 from medre.config.errors import ConfigFileError
 
-__all__ = ["StrictYAMLError", "parse_yaml_config"]
+__all__ = ["StrictYAMLError", "parse_yaml_config", "dump_yaml_config"]
+
+
+class _ConfigDumper(yaml.SafeDumper):
+    """Keep authored documents inside MEDRE's alias-free YAML subset."""
+
+    def ignore_aliases(self, data: object) -> bool:
+        return True
+
+
+def dump_yaml_config(data: dict) -> str:
+    """Serialize configuration without aliases, preserving mapping order."""
+    return yaml.dump(data, Dumper=_ConfigDumper, sort_keys=False, allow_unicode=True)
+
 
 # ---------------------------------------------------------------------------
 # Error type

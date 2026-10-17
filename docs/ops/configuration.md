@@ -25,6 +25,11 @@ clear error. The first file found wins. If no file is found, the runtime exits w
 
 Use `medre config check` to verify which file is loaded and whether it parses correctly.
 
+To build a route interactively, use
+[`medre config bridge`](guided-configuration.md). It selects configured
+instances, authors explicit context mappings, and previews production route
+expansion before saving a new file.
+
 ## Pre-flight Validation with `medre config check`
 
 `medre config check --config <path>` loads and validates a config file
@@ -1136,6 +1141,10 @@ medre config check [--config PATH]
 medre config sample
     Print a complete sample YAML config to stdout.
 
+medre config bridge --output PATH [--config PATH] [--preview] [--json]
+    Guide endpoint/context/direction selection and preview routes offline.
+    Save a new private YAML file; never overwrite or start adapters.
+
 medre paths
     Print all resolved MEDRE paths.
 
@@ -1163,9 +1172,15 @@ medre routes plan [--config PATH]
     Show the expanded route plan (offline, no network I/O). See
     "Route Topology Preview with `medre routes plan`" above.
 
-medre smoke [--config PATH] [--drill NAME] [--run-session] [--json]
+medre smoke [--config PATH] [--json]             # Normal offline fake smoke
+medre smoke --drill NAME [--config PATH] --json   # Failure drill
+medre smoke --run-session [--scenario NAME] --json  # Full lifecycle
     Run fake bridge smoke test. Storage backend determined by config.
     Use a config with storage.backend = "sqlite" for persistent evidence.
+    Normal smoke supports --message TEXT, --source-adapter ID and
+    --source-context CONTEXT. --drill and --run-session are mutually exclusive;
+    only --run-session accepts --scenario and --snapshot-dir. Incompatible
+    mode options are rejected before runtime startup.
 
 medre inspect event --storage-path PATH
     Read-only event inspection. Supports --timeline, --evidence, --recovery flags.

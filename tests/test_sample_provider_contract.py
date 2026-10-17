@@ -50,9 +50,15 @@ def test_arbitrary_provider_owns_sample_fields_and_addresses(monkeypatch):
     )
     data = parse_yaml_config(generate_sample_config())
     assert set(data["adapters"]) == {"independent_chat"}
-    assert set(data["adapters"]["independent_chat"]) == {"sample_1", "sample_2"}
+    assert set(data["adapters"]["independent_chat"]) == {
+        "independent_chat_1",
+        "independent_chat_2",
+    }
     assert data["routes"]["sample_bridge"]["dest_channel"] == "opaque-conversation"
-    assert data["adapters"]["independent_chat"]["sample_1"]["label"] == "private sensor"
+    assert (
+        data["adapters"]["independent_chat"]["independent_chat_1"]["label"]
+        == "private sensor"
+    )
 
 
 def test_provider_without_fake_is_not_given_a_fake_sample(monkeypatch):
@@ -76,6 +82,6 @@ def test_independent_sample_contributors_never_collide_on_instance_ids(monkeypat
         adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(specs)
     )
     data = parse_yaml_config(generate_sample_config())
-    assert set(data["adapters"]["first"]) == {"sample_1"}
-    assert set(data["adapters"]["second"]) == {"sample_2"}
-    assert data["routes"]["sample_bridge"]["source_adapters"] == ["sample_1"]
+    assert set(data["adapters"]["first"]) == {"first_1"}
+    assert set(data["adapters"]["second"]) == {"second_1"}
+    assert data["routes"]["sample_bridge"]["source_adapters"] == ["first_1"]

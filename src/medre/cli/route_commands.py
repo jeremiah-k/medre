@@ -449,11 +449,15 @@ def _render_route_plan(plan) -> None:
                 if leg.dest_destination_kind is not None:
                     dest_desc = _format_structured_destination(leg)
                 else:
-                    dest_desc = leg.mapping_dest_context or "?"
-                print(
-                    f"           context_map: {leg.mapping_source_context} "
-                    f"\u2192 {dest_desc}"
+                    dest_desc = (
+                        leg.dest_channel if leg.dest_channel is not None else "?"
+                    )
+                source_desc = (
+                    leg.source_channel
+                    if leg.source_channel is not None
+                    else leg.mapping_source_context
                 )
+                print(f"           context_map: {source_desc} \u2192 {dest_desc}")
             elif leg.source_channel is not None or leg.dest_channel is not None:
                 parts: list[str] = []
                 if leg.source_channel is not None:

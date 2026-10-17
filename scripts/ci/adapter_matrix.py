@@ -17,6 +17,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 _MANIFEST = Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
 _SHA = re.compile(r"[0-9a-f]{40}")
@@ -204,6 +205,59 @@ def requirements(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def check_merged(entries: list[dict[str, Any]]) -> None:
+    """Require published pins to be ancestors of their repository's default branch.
+
+    Candidate pairs belong in explicit dispatches or temporary manifests. A
+    reachable SHA alone does not establish that an adapter dependency landed.
+    GitHub comparison also works after squash merges and branch deletion.
+    """
+    if any(not _SHA.fullmatch(entry["ref"]) for entry in entries):
+        raise ValueError(
+            "merge qualification requires full commit SHAs, not branches or tags"
+        )
+
+    def github_json(endpoint: str) -> dict[str, Any]:
+        try:
+            result = subprocess.run(
+                ["gh", "api", endpoint],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return json.loads(result.stdout)
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+            ValueError,
+        ) as exc:
+            raise ValueError(
+                f"Cannot verify merged adapter revision through {endpoint}"
+            ) from exc
+
+    for entry in entries:
+        repository, commit = entry["repository"], entry["ref"]
+        metadata = github_json(f"repos/{repository}")
+        default = metadata.get("default_branch")
+        if not isinstance(default, str) or not default:
+            raise ValueError(f"Cannot determine default branch for {repository}")
+        comparison = github_json(
+            f"repos/{repository}/compare/{commit}...{quote(default, safe='')}"
+        )
+        if (
+            comparison.get("status") not in ("identical", "ahead")
+            or comparison.get("merge_base_commit", {}).get("sha") != commit
+        ):
+            raise ValueError(
+                f"{entry['transport']}: pinned {commit} is not merged into "
+                f"{repository}'s {default}. Merge the adapter dependency first, "
+                "then pin its landed commit. Candidate pairs cannot qualify a merge."
+            )
+        print(f"Merged: {repository}@{commit} ({default})")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=_MANIFEST)
@@ -221,6 +275,11 @@ def main() -> None:
         action="store_true",
         help="Atomically update manifest pins from clean sibling adapter HEADs",
     )
+    local.add_argument(
+        "--check-merged",
+        action="store_true",
+        help="Require each pinned SHA to be merged into its repository's default branch (uses gh)",
+    )
     parser.add_argument(
         "--repo-parent",
         type=Path,
@@ -228,7 +287,7 @@ def main() -> None:
         help="Directory containing MEDRE and sibling adapter checkouts",
     )
     args = parser.parse_args()
-    if (args.check_local or args.sync_local) and (
+    if (args.check_local or args.sync_local or args.check_merged) and (
         args.resolve or args.github_output or args.requirements
     ):
         parser.error(
@@ -236,6 +295,9 @@ def main() -> None:
             "with CI output or resolution"
         )
     entries = resolve_adapters(args.manifest, resolve=args.resolve)
+    if args.check_merged:
+        check_merged(entries)
+        return
     if args.check_local or args.sync_local:
         entries = reconcile_local(
             entries, repo_parent=args.repo_parent, update=args.sync_local

@@ -15,6 +15,20 @@ from medre.config.routes import (
 )
 
 
+@pytest.mark.parametrize(
+    "route_id", ["", "relay\n", "relay\r\n", "bad.route", 123, None]
+)
+def test_invalid_route_identifiers_fail_on_both_construction_paths(route_id):
+    for construct in (
+        lambda: RouteConfig(route_id, ("a",), ("b",)),
+        lambda: RouteConfig.from_dict(
+            route_id, {"source_adapters": ["a"], "dest_adapters": ["b"]}
+        ),
+    ):
+        with pytest.raises(ConfigValidationError):
+            construct()
+
+
 def test_string_bidirectional_expands_both_directions() -> None:
     rc = RouteConfig(
         route_id="mx_bridge",

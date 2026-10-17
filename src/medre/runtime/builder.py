@@ -595,20 +595,15 @@ class RuntimeBuilder:
         failure therefore aborts the build rather than being recorded as a
         recoverable :class:`AdapterBuildFailure`.
         """
-        if spec.runtime_config_preparer is None:
-            return config
-        try:
-            prepare = spec.runtime_config_preparer.load()
-            return prepare(
-                config,
-                adapter_id=adapter_id,
-                paths=self._paths,
-                routes=self._adapter_preparation_routes,
-            )
-        except Exception as exc:
-            raise RuntimeConfigError(
-                f"Failed to prepare adapter {adapter_id!r} ({spec.transport}): {exc}"
-            ) from exc
+        from medre.runtime.adapter_preparation import prepare_adapter_config
+
+        return prepare_adapter_config(
+            spec,
+            adapter_id,
+            config,
+            paths=self._paths,
+            routes=self._adapter_preparation_routes,
+        )
 
     def _prepare_adapter_configs(self) -> dict[tuple[str, str], Any]:
         """Prepare configs for all enabled registered adapter instances.

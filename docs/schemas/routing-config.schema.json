@@ -11,9 +11,9 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$",
-          "$comment": "When omitted, the route's mapping key is used as route_id; a route_id key inside the mapping value is ignored.",
-          "description": "Unique identifier for this route (alphanumeric, underscores, hyphens)."
+          "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])",
+          "$comment": "This component represents a standalone RouteConfig. In runtime YAML, the identifier is the routes mapping key; an entry-level route_id is rejected.",
+          "description": "Non-empty unique identifier containing only ASCII letters, digits, underscores or hyphens, with no line terminators."
         },
         "source_adapters": {
           "type": "array",
@@ -351,7 +351,7 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9_-]+$"
+          "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])"
         },
         "source_adapters": {
           "type": "array",

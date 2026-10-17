@@ -95,11 +95,13 @@ if any checkout is dirty or missing, rather than pinning half a coordinated
 change. A failed write preserves the original manifest and removes its
 temporary file. Existing full-commit refs remain valid for disconnected CI runs.
 Updating the manifest is always an explicit compatibility-change review.
-Adapter CI defaults to core `main`. During coordinated development, set the
-adapter repository's `MEDRE_CORE_REF` Actions variable to the proposed core
-branch or commit; the manual `core_ref` input overrides it. Clear the variable
-after the compatible core change merges. No commits or publication are
-performed by these scripts.
+Adapter CI defaults to core `main`. During coordinated development, dispatch a
+single run with `core_ref` set to the full proposed core SHA. Keep the persistent
+`MEDRE_CORE_REF` variable unset. Before core merges, `--check-merged` verifies that
+each committed adapter pin has landed in its repository's default branch. See
+[coordinated changes](coordinated-changes.md) for candidate-pair testing, contract
+test ownership, and the dependency-first merge order. No commits or publication
+are performed by these scripts.
 
 Publish matching core and adapter revisions before expecting cross-repository
 CI to test this extraction: remote repositories cannot see local working-tree

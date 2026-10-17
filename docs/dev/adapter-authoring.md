@@ -425,6 +425,14 @@ still be a delivery target. A pass requires delivery for every configured route
 target matched by the event, including targets lost during construction/startup.
 Event-factory errors fail the smoke and trigger runtime cleanup.
 
+For context-bound routes, support the optional `channel: str` argument on the
+factory. `medre smoke --source-adapter ID --source-context CONTEXT` passes the
+opaque context through that argument and verifies the returned
+`source_channel_id` and originating adapter ID. Do not ignore the argument or
+substitute another context: that fails the smoke before injection. Factories
+without the optional argument still work for ordinary smoke without explicit
+context selection. This is fake pipeline evidence, not native delivery proof.
+
 ### Test your adapter with these tiers
 
 | Tier | What to test                                                           |

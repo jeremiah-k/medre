@@ -11,6 +11,7 @@ with `uv run --locked`.
 | I want to… | Read |
 | --- | --- |
 | Install from Git, PyPI, or local paths | [Installation](install.md) and [adapter sources](adapter-installation.md) |
+| Build and preview a bridge interactively | [Guided configuration](guided-configuration.md) |
 | Configure routes, contexts, or policies | [Configuration](configuration.md) |
 | Start, stop, and monitor a bridge | [Running MEDRE](running-medre.md) |
 | Inspect message evidence or collect diagnostics | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
