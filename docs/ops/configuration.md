@@ -1154,6 +1154,18 @@ medre version
 medre adapters
     List available adapter kinds and SDK dependency status.
 
+medre adapters sources [--sources PATH]
+    Print configurable adapter package sources.
+
+medre adapters install ALIAS... [--sources PATH] [--dry-run]
+    Install adapter packages in the owning uv tool environment.
+
+medre adapters remove ALIAS... [--sources PATH] [--dry-run]
+    Remove explicit adapter package requirements.
+
+medre update [--dry-run]
+    Update core and adapters within installed source pins.
+
 medre diagnostics [--config PATH] [--refresh-health]
     Print adapter diagnostics snapshot. Without --refresh-health, reports
     build-time state only. With --refresh-health, starts adapters, polls
@@ -1377,3 +1389,6 @@ medre run
 # or:
 medre run --config /path/to/config.yaml
 ```
+
+For explicit package changes and source overrides, see
+[package management](package-management.md).

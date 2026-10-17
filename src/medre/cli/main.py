@@ -158,10 +158,44 @@ def _build_parser() -> argparse.ArgumentParser:
     # version
     sub.add_parser("version", help="Print MEDRE version")
 
+    # update
+    update_p = sub.add_parser(
+        "update",
+        help="Update MEDRE and adapters through the owning uv tool installation",
+    )
+    update_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the uv command without changing packages",
+    )
+
     # adapters
-    adapters_p = sub.add_parser("adapters", help="List or preflight installed adapters")
-    adapters_p.add_argument("action", nargs="?", choices=("check",), default=None)
+    adapters_p = sub.add_parser(
+        "adapters", help="Inspect, install, or remove adapter packages"
+    )
+    adapters_p.add_argument(
+        "action",
+        nargs="?",
+        choices=("check", "sources", "install", "remove"),
+        default=None,
+    )
+    adapters_p.add_argument(
+        "packages",
+        nargs="*",
+        help="Source aliases, optionally with extras (matrix[e2e])",
+    )
     adapters_p.add_argument("--config", default=None, help="Path to bridge YAML config")
+    adapters_p.add_argument(
+        "--sources",
+        default=None,
+        metavar="PATH",
+        help="Adapter source YAML (default: MEDRE config directory/sources.yaml)",
+    )
+    adapters_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the uv command without changing packages",
+    )
 
     # diagnostics
     diag_p = sub.add_parser(
@@ -614,7 +648,28 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "run":
+    if args.command == "adapters":
+        managing = args.action in ("install", "remove")
+        if bool(args.packages) != managing:
+            parser.error(
+                "adapters install/remove require source aliases; other adapter actions do not accept aliases"
+            )
+        if args.dry_run and not managing:
+            parser.error("--dry-run requires adapters install or remove")
+        if args.sources and args.action not in ("sources", "install", "remove"):
+            parser.error("--sources requires adapters sources, install, or remove")
+        if args.config and args.action not in (None, "check"):
+            parser.error(
+                "--config is for adapter inspection; use --sources for installation sources"
+            )
+
+    if args.command == "update" or (
+        args.command == "adapters" and args.action in ("sources", "install", "remove")
+    ):
+        from .install_commands import _manage_installation
+
+        _manage_installation(args)
+    elif args.command == "run":
         from .run_commands import _run
 
         try:

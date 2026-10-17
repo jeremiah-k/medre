@@ -43,24 +43,27 @@ invoke the project's `.venv/bin/medre` (Windows: `.venv\Scripts\medre.exe`)
 with the same `MEDRE_HOME` and environment variables used during setup.
 
 If you prefer a globally available **isolated CLI** rather than a deployment
-project, uv also supports installing tools straight from Git. The following
-installs core plus one provider into the **same tool environment**:
+project, install core once, then add providers to the **same tool environment**:
 
 ```bash
-uv tool install \
-  --with 'git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
-  'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+medre adapters install matrix
 medre version
 medre adapters
 ```
 
+Use `medre adapters sources` to inspect or customize the YAML source catalog,
+`medre adapters remove ALIAS` to remove a provider requirement, and
+`medre update` to update the tool within its recorded source constraints.
+Add `--dry-run` to preview a package change. See
+[package management](package-management.md) for private/local sources, extras,
+and environment detection.
+
 These branches are convenient for trials; replace them with reviewed commit
 SHAs for repeatability. `uv tool install` does **not** create a deployment
 `uv.lock`, and its environment is separate from your project's `.venv`. Use
-`uv tool list` to inspect installed tools; reinstall deliberately when changing
-Git revisions or providers. Avoid mixing globally installed adapters with a
-project environment and expecting them to be discovered together. If `medre`
-is not on your `PATH`, follow uv's `uv tool update-shell` guidance.
+`uv tool list` to inspect installed tools. If `medre` is not on your `PATH`,
+follow uv's `uv tool update-shell` guidance.
 
 `uvx --from 'git+https://github.com/jeremiah-k/medre.git@main'
 medre version` is fine for one-off commands, but a temporary uvx environment
