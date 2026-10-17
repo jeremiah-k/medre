@@ -326,6 +326,56 @@ def test_native_config_reports_missing_sdk_once_without_loading_implementations(
     assert not (tmp_path / "home").exists()
 
 
+def test_cli_preserves_direction_contexts_and_explicit_labels(tmp_path):
+    stdout, stderr, code = _run_cli_raw(
+        *flags(tmp_path), "--source-label", "Source label", "--dest-label", "Dest label"
+    )
+    assert code == 0, stderr
+    legs = json.loads(stdout)["routes"][0]["legs"]
+    assert {
+        (
+            leg["source_adapter_id"],
+            leg["source_channel"],
+            leg["dest_adapter_id"],
+            leg["dest_channel"],
+            leg["source_origin_label"],
+        )
+        for leg in legs
+    } == {
+        ("left", "room=α", "right", "0", "Source label"),
+        ("right", "0", "left", "room=α", "Dest label"),
+    }
+    raw = parse_yaml_config((tmp_path / "bridge.yaml").read_text())["routes"]["bridge"]
+    assert raw["source_adapters"] == ["left"]
+    assert raw["dest_adapters"] == ["right"]
+    assert raw["source_origin_label"] == "Source label"
+    assert raw["dest_origin_label"] == "Dest label"
+
+
+def test_output_suffix_is_validated_before_writing(tmp_path):
+    args = flags(tmp_path)
+    output = tmp_path / "notes.txt"
+    args[args.index("--output") + 1] = str(output)
+    _, stderr, code = _run_cli_raw(*args)
+    assert code == 2 and "Output must use .yaml or .yml" in stderr
+    assert not output.exists()
+
+
+def test_output_created_after_preview_is_never_overwritten(monkeypatch, tmp_path):
+    args = flags(tmp_path)
+    output = tmp_path / "bridge.yaml"
+    original_open = os.open
+
+    def race_open(path, *args, **kwargs):
+        output.write_text("concurrent writer")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("medre.cli.bridge_commands.os.open", race_open)
+    _, _, code = _run_cli_raw(*args)
+    assert code == 2
+    assert output.read_text() == "concurrent writer"
+
+
 @pytest.mark.parametrize("operation", ["fstat", "fdopen"])
 def test_descriptor_setup_failure_closes_and_removes_partial_output(
     operation, monkeypatch, tmp_path
@@ -392,3 +442,27 @@ def test_short_secrets_are_redacted_without_replacing_parts_of_words(secret):
     detail = f"Failed for adapter 'a1234b': invalid credential {secret!r}"
     actual = _error_detail(ValueError(detail), {"credential": secret})
     assert actual == "Failed for adapter 'a1234b': invalid credential [REDACTED]"
+
+
+def test_sdk_free_cli_bridge_can_smoke_each_selected_context(tmp_path):
+    _, stderr, code = _run_cli_raw(*flags(tmp_path))
+    assert code == 0, stderr
+    for adapter, context, target in (
+        ("left", "room=α", "right"),
+        ("right", "0", "left"),
+    ):
+        stdout, stderr, code = _run_cli_raw(
+            "smoke",
+            "--config",
+            str(tmp_path / "bridge.yaml"),
+            "--source-adapter",
+            adapter,
+            "--source-context",
+            context,
+            "--json",
+        )
+        report = json.loads(stdout)
+        assert code == 0 and report["status"] == "passed", report
+        assert report["source_adapter"] == adapter
+        assert report["source_context"] == context
+        assert report["target_adapters"] == [target]
