@@ -116,12 +116,18 @@ def sync_open(db_path: str) -> sqlite3.Connection:
     db = sqlite3.connect(db_path, check_same_thread=False)
     try:
         db.row_factory = sqlite3.Row
-        # Single transaction: per-statement autocommit would force one
-        # journal cycle per CREATE, and a failed init must leave no
-        # partial schema behind.
-        db.executescript("BEGIN;\n" + _SCHEMA + "\nCOMMIT;")
-        db.execute("PRAGMA journal_mode=WAL")
+        # The busy timeout precedes schema initialization so a second
+        # opener waits out a live writer like any later write would.
+        # BEGIN IMMEDIATE pins the write lock for the whole script: the
+        # DDL reads the existing schema before writing, and a deferred
+        # transaction that writes after a concurrent commit is refused
+        # immediately with SQLITE_BUSY_SNAPSHOT, which no busy timeout
+        # retries. Single transaction: per-statement autocommit would
+        # force one journal cycle per CREATE, and a failed init must
+        # leave no partial schema behind.
         db.execute("PRAGMA busy_timeout=5000")
+        db.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA + "\nCOMMIT;")
+        db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
         db.commit()
     except BaseException:
@@ -154,9 +160,12 @@ def sync_open_readonly(db_path: str) -> sqlite3.Connection:
 
 def sync_create_indexes(db: sqlite3.Connection) -> None:
     """Execute index DDL."""
-    # Single transaction: per-statement autocommit would force one journal
-    # cycle per CREATE INDEX, and a failure must leave no partial indexes.
-    db.executescript("BEGIN;\n" + _INDEXES + "\nCOMMIT;")
+    # BEGIN IMMEDIATE pins the write lock for the same reason as
+    # sync_open: deferred read-then-write DDL is refused outright when a
+    # concurrent commit lands mid-transaction. Single transaction:
+    # per-statement autocommit would force one journal cycle per CREATE
+    # INDEX, and a failure must leave no partial indexes.
+    db.executescript("BEGIN IMMEDIATE;\n" + _INDEXES + "\nCOMMIT;")
     db.commit()
 
 
