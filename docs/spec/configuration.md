@@ -665,6 +665,8 @@ MUST remain opaque to core. Loop warnings MUST remain visible in the plan.
 Unknown adapter references in disabled routes MUST also prevent saving, matching
 `config check`. Duplicate detection includes an existing wildcard source that
 would deliver text to the same explicit target context.
+An existing context-less text route on the same adapter pair MUST also prevent
+saving when its source domain overlaps a new bridge leg.
 
 Before returning a successful draft, authoring MUST run enabled adapters'
 provider-owned pure `runtime_config_preparer` hooks against the compiled route

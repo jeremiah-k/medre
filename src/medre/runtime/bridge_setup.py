@@ -132,6 +132,10 @@ def draft_bridge(
         for leg in entry.legs
         for wildcard in (False, True)
     }
+    new_addresses.update(
+        _leg_address(leg, wildcard_source=True, wildcard_dest=True)
+        for leg in entry.legs
+    )
     for existing in plan.routes:
         if existing.route_id == request.route_id:
             continue
@@ -153,14 +157,14 @@ def draft_bridge(
 
 
 def _leg_address(
-    leg: RoutePlanLeg, *, wildcard_source: bool = False
+    leg: RoutePlanLeg, *, wildcard_source: bool = False, wildcard_dest: bool = False
 ) -> tuple[str | None, ...]:
     """Compare targets and source domains without interpreting native addresses."""
     return (
         leg.source_adapter_id,
         None if wildcard_source else leg.source_channel,
         leg.dest_adapter_id,
-        leg.dest_channel,
+        None if wildcard_dest else leg.dest_channel,
         leg.dest_destination_kind,
         leg.dest_destination_hash,
         leg.dest_destination_name,

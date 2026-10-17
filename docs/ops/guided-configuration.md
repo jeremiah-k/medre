@@ -95,7 +95,8 @@ Existing routes are preserved. Choose a new `--route-id` if `bridge` already
 exists. A selected context pair already connected by a text route is rejected;
 edit that route instead of creating duplicate deliveries. Advanced intentional
 overlaps and structured destinations remain available through ordinary YAML.
-An existing wildcard source for the same explicit target is also caught. Stale
+An existing wildcard source for the same explicit target, or a context-less
+text route between the same adapters, is also caught. Stale
 adapter references in disabled routes need fixing before the draft can be saved,
 just as with `medre config check`.
 

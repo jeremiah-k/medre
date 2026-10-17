@@ -251,3 +251,15 @@ def test_provider_preflight_checks_only_active_ingress_contexts(monkeypatch, dir
         ):
             draft_bridge(text, request(directionality=direction), **kwargs)
     assert not resolve().state_dir.exists()
+
+
+@pytest.mark.parametrize("direction", ["source_to_dest", "dest_to_source"])
+def test_contextless_text_routes_cannot_duplicate_bridge_delivery(direction):
+    data = parse_yaml_config(CONFIG)
+    data["routes"]["broadcast"] = {
+        "source_adapters": ["left"],
+        "dest_adapters": ["right"],
+        "directionality": direction,
+    }
+    with pytest.raises(ConfigValidationError, match="already connects"):
+        draft_bridge(dump_yaml_config(data), request(), paths=resolve())
