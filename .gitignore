@@ -226,3 +226,6 @@ __marimo__/
 
 # Worktrees
 .worktrees/
+
+# Checkout-local development preferences
+.medre-dev.yaml

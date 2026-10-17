@@ -53,10 +53,12 @@ def sources_path() -> Path:
     return resolve().config_file.parent / "sources.yaml"
 
 
-def load_sources(path: Path | None = None) -> dict[str, str]:
+def load_sources(
+    path: Path | None = None, *, defaults: dict[str, str] | None = None
+) -> dict[str, str]:
     """Merge operator aliases over convenience defaults; reject ambiguous YAML."""
     target = path if path is not None else sources_path()
-    result = DEFAULT_SOURCES.copy()
+    result = (DEFAULT_SOURCES if defaults is None else defaults).copy()
     try:
         text = target.read_text(encoding="utf-8")
     except FileNotFoundError:

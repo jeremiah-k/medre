@@ -8,20 +8,23 @@ separate final check.
 
 ## Prepare the Bench
 
-Run from a MEDRE source checkout with the four adapter repositories beside it.
-Native protocol and pair tests live in their owning adapter repositories;
-cross-adapter and Docker tests remain in core. Install matching revisions from
-the [compatibility manifest](../../../.github/adapter-compatibility.json).
-A later core sync removes separately installed packages; reinstall the adapters
-after it. For a deployment without source checkouts, start with
-[Getting Started](../getting-started.md).
+Run from a MEDRE source checkout. Native protocol and pair tests live in their
+owning adapter repositories; cross-adapter and Docker tests remain in core.
+Configure the four editable paths in the
+[local development profile](../../dev/environment.md#work-on-adapters-at-any-location)
+for any checkout layout. The profile selects aliases matrix, meshtastic,
+meshcore and lxmf. Install native SDKs and Matrix encryption explicitly:
 
 ```bash
-uv sync --locked --extra dev
-uv pip install -e ../medre-adapter-meshtastic -e ../medre-adapter-meshcore \
-  -e ../medre-adapter-lxmf -e '../medre-adapter-matrix[e2e]'
+uv run --no-sync medre dev sync --sdk 'matrix[e2e]' meshtastic meshcore lxmf
 uv run --no-sync medre smoke --json
 ```
+
+Run adapter tests with `medre dev test ALIAS -- ...` through `uv run --no-sync`;
+these commands use the adapter's own test configuration. A Git-only install can
+run the smoke but requires editable checkouts to run adapter source tests.
+For a deployment without source checkouts, start with
+[Getting Started](../getting-started.md).
 
 Use an owned private channel on each mesh. Assign device A to MEDRE and device
 B to the independent native SDK peer. Set these endpoint variables in a private
@@ -101,7 +104,8 @@ mkdir -p "$MEDRE_EVIDENCE_ROOT"
 
 run_stage() {
   local stage="$1"
-  shift
+  local provider="$2"  # core or an editable adapter alias
+  shift 2
   local evidence_dir
   evidence_dir=$(mktemp -d "$MEDRE_EVIDENCE_ROOT/${stage}.XXXXXX") || return
   git rev-parse HEAD > "$evidence_dir/commit.txt"
@@ -110,7 +114,11 @@ run_stage() {
   uv run --no-sync python --version > "$evidence_dir/python-version.txt"
   uv run --no-sync uv pip list --format json > "$evidence_dir/packages.json"
   local result=0
-  uv run --no-sync pytest "$@" -v --tb=short -rA \
+  local runner=(uv run --no-sync pytest)
+  if [ "$provider" != core ]; then
+    runner=(uv run --no-sync medre dev test --evidence-dir "$evidence_dir" "$provider" --)
+  fi
+  "${runner[@]}" "$@" -v --tb=short -rA \
     --basetemp="$evidence_dir/state" \
     --junitxml="$evidence_dir/results.xml" \
     > "$evidence_dir/pytest.log" 2>&1 || result=$?
@@ -119,6 +127,12 @@ run_stage() {
   return "$result"
 }
 ```
+
+For adapter stages, `--evidence-dir` resolves the checkout from the same local
+profile used for testing and records its path, commit, binary dirty diff and
+working-tree status alongside the core state. A Git lookup failure stops the
+stage; existing adapter evidence files are never overwritten. Retain untracked
+source files separately when the recorded status lists them.
 
 The evidence directory includes SQLite state and logs that can contain message
 content and identifiers. Keep it private; publish a sanitized account of the
@@ -139,19 +153,19 @@ cases below so boundaries, deduplication, and negative controls execute.
 
 ```bash
 unset MEDRE_LIVE_QUICK
-run_stage mt-pair ../medre-adapter-meshtastic/tests/test_meshtastic_pair_live.py -m 'live and hardware'
-run_stage mc-pair tests/test_meshcore_pair_live.py -m 'live and hardware'
-run_stage lx-pair tests/test_lxmf_pair_live.py -m 'live and hardware'
+run_stage mt-pair meshtastic tests/test_meshtastic_pair_live.py -m 'live and hardware'
+run_stage mc-pair core tests/test_meshcore_pair_live.py -m 'live and hardware'
+run_stage lx-pair core tests/test_lxmf_pair_live.py -m 'live and hardware'
 
-run_stage radio-bridge tests/test_meshcore_meshtastic_bridge_live.py \
+run_stage radio-bridge core tests/test_meshcore_meshtastic_bridge_live.py \
   -m 'live and hardware'
-run_stage lx-bridges tests/test_lxmf_bridge_live.py -m 'live and hardware'
+run_stage lx-bridges core tests/test_lxmf_bridge_live.py -m 'live and hardware'
 
-run_stage matrix-docker tests/integration/test_synapse_*.py -m docker
+run_stage matrix-docker core tests/integration/test_synapse_*.py -m docker
 
 # A short paced volume iteration; increase the corpus only after this passes.
 export MEDRE_MATRIX_TRAFFIC=12
-run_stage radio-matrix tests/test_radio_message_matrix_live.py \
+run_stage radio-matrix core tests/test_radio_message_matrix_live.py \
   -m 'live and hardware'
 ```
 
@@ -197,7 +211,7 @@ Begin with short lifecycle cycles rather than an hours-long soak:
 
 ```bash
 export MESHTASTIC_SOAK_CYCLES=5
-run_stage mt-lifecycle ../medre-adapter-meshtastic/tests/test_meshtastic_hardware_soak.py \
+run_stage mt-lifecycle meshtastic tests/test_meshtastic_hardware_soak.py \
   -m 'live and hardware'
 ```
 

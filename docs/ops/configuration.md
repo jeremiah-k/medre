@@ -1167,6 +1167,16 @@ medre adapters install ALIAS... [--sources PATH] [--dry-run]
 medre adapters remove ALIAS... [--sources PATH] [--dry-run]
     Remove explicit adapter package requirements.
 
+medre dev sync [ALIAS...] [--project PATH] [--editable ALIAS=PATH]
+    Sync a standalone checkout's locked core and CI-pinned SDK-free providers.
+    Read local .medre-dev.yaml preferences; use --sdk for constrained native
+    dependencies, --sources for experiments, or --dry-run to print commands.
+
+medre dev test [--project PATH] [--editable ALIAS=PATH] ALIAS -- PYTEST_ARGUMENTS
+    Verify the installed editable provider, then run its own pytest suite
+    with the core checkout interpreter from the adapter checkout directory.
+    --evidence-dir PATH records that checkout's Git state before testing.
+
 medre update [--dry-run]
     Update core and adapters within installed source pins.
 

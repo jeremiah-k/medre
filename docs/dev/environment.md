@@ -39,25 +39,103 @@ should use separate environments.
 
 ## Install external adapters for development
 
-Core's only optional extra is `dev`. Adapter distributions own their SDK pins,
-transport configs, and test fakes. Repositories may be installed from Git,
-local checkouts, or PyPI. For a reproducible deployment use a separate uv
-project and source-pinned `uv.lock` (see
-[adapter installation](../ops/adapter-installation.md)).
+After the initial core sync, use one command for the SDK-free compatibility set:
 
 ```bash
-uv sync --locked --extra dev
-uv pip install --no-deps -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic \
-  -e ../medre-adapter-meshcore -e ../medre-adapter-lxmf
-uv run --no-sync python -m pytest tests/test_adapter_registry.py -q
+uv run --no-sync medre dev sync
+uv run --no-sync pytest -q
 uv run --no-sync medre smoke --json
 ```
 
-For SDK-backed jobs omit `--no-deps` when installing an adapter. To test the
-core/registry with adapters but without native SDKs, use `uv pip install
---no-deps -e ../medre-adapter-matrix` (repeat for each needed adapter).
-`uv sync` reconciles installed packages to the locked core state; install
-adapters _after_ syncing or use a locked deployment project to avoid removal.
+`medre dev sync` first syncs locked core `dev` dependencies, then installs the
+adapter commits from the checkout's CI compatibility snapshot without native SDK
+runtime dependencies. It targets this checkout's `.venv` explicitly, regardless
+of an activated environment or `UV_PROJECT_ENVIRONMENT`. Use a standalone
+checkout outside a parent uv workspace, whose shared lock/environment ownership
+is deliberately refused. When running printed uv commands manually, unset
+`UV_PROJECT_ENVIRONMENT` and `UV_PROJECT` first. No adapter clones are
+needed. Running the same command again restores the selection after a core sync.
+It does not edit `pyproject.toml`, `uv.lock`, or compatibility pins.
+
+Choose a subset, an interpreter, or native SDKs explicitly:
+
+```bash
+uv run --no-sync medre dev sync matrix meshcore --python 3.13
+uv run --no-sync medre dev sync --sdk 'matrix[e2e]' meshcore
+uv run --no-sync medre dev sync --dry-run
+```
+
+SDK mode exports constraints from the locked core graph before installing the
+providers and their declared dependencies. A conflicting SDK/core requirement
+fails resolution instead of replacing the editable core or its pinned shared
+dependencies. SDK-free mode omits adapter runtime dependencies; installing SDKs
+and then requesting an SDK-free sync removes them through uv's exact core sync.
+Stop tests and bridges using this environment before syncing. A failed or
+interrupted installation can leave a partial environment; correct the cause and
+repeat the same sync before testing. On Windows, a command running from the target
+`.venv` prints the commands for execution after `medre.exe` exits.
+
+### Work on adapters at any location
+
+Use `--editable ALIAS=PATH` to replace a selected Git source with a local checkout:
+
+```bash
+uv run --no-sync medre dev sync matrix --editable matrix=/work/providers/matrix
+uv run --no-sync medre dev test --editable matrix=/work/providers/matrix matrix -- -q
+```
+
+`dev test` uses the core environment's Python and runs pytest from the adapter
+checkout, preserving that repository's pytest configuration and helpers. Put
+MEDRE options before the adapter name; arguments after `--` belong to pytest.
+Before pytest runs, it verifies the installed core and provider are editable at
+the selected paths; a stale or different installation requires repeating `dev sync`.
+It does not install packages. Select SDKs with `dev sync --sdk` before running SDK
+contracts, for example `dev test matrix -- -m matrix_sdk -v`.
+
+For bench evidence, use `dev test --evidence-dir /private/run ALIAS -- ...` to
+record that adapter's Git path, commit, binary dirty diff and working-tree status
+before pytest starts. The destination can contain other stage artifacts; adapter
+evidence files are exclusively created. Git lookup failures stop execution.
+Keep untracked source files separately if the status lists them.
+
+To remember a selection, create `.medre-dev.yaml` in the core checkout; Git ignores
+this local profile. Paths inside it are relative to the profile, so different
+repository layouts do not affect commands:
+
+```yaml
+adapters: [matrix, meshcore]
+sdk: false
+editable:
+  matrix: /work/providers/matrix
+  meshcore: /another/location/meshcore
+# sources: /private/dev-sources.yaml
+```
+
+On Windows, use forward slashes such as `C:/work/providers/matrix`, or
+single-quote backslash paths in YAML so backslashes are not parsed as escapes.
+
+Then run `uv run --no-sync medre dev sync` and
+`uv run --no-sync medre dev test matrix -- -q`. CLI selections override the
+profile's adapter list; `--sdk` / `--no-sdk` override its mode, and `--editable`
+overrides its paths. `adapters: []` selects a core-only environment. A standalone
+uv-tool installation can also run `medre dev sync --project /work/medre`; the
+checkout environment is separate from the tool environment. `--profile PATH`
+selects a profile outside the checkout; the default local profile is never
+created implicitly. The profile shape is published in
+[dev-environment.schema.json](../schemas/dev-environment.schema.json).
+
+For custom Git revisions or third-party providers, pass `--sources PATH` (or set
+`sources` in the profile) using the [source catalog format](../ops/package-management.md#choose-your-own-sources).
+Only this explicitly selected catalog overrides the CI snapshot defaults;
+operator source preferences do not silently affect compatibility tests. A null
+alias removes it. Full SHAs retain repeatability; candidate branches and local
+edits are experiments, not evidence for the committed CI pair. Every editable
+checkout is validated against its selected distribution before synchronization.
+
+For a reproducible bridge deployment, use a separate
+[locked deployment project](../ops/adapter-installation.md). `dev sync` does not
+create a combined adapter lock; native SDK versions come from provider metadata.
+Use the coordinated-change policy below to qualify and land exact candidate pairs.
 
 ## Change Dependencies
 
@@ -76,7 +154,7 @@ changes together:
 uv lock
 uv lock --check
 uv sync --locked --extra dev
-uv pip install -e ../medre-adapter-lxmf
+uv run --no-sync medre dev sync --sdk lxmf
 ```
 
 For an intentional transitive update, use `uv lock --upgrade-package <package>`
@@ -115,9 +193,9 @@ leak into a core install. The proof requires network access.
 An activated pip virtual environment can continue to use:
 
 ```bash
-python -m pip install -e ".[dev]" -e ../medre-adapter-lxmf
-cd ../medre-adapter-lxmf
-python -m pytest ../medre-adapter-lxmf/tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
+python -m pip install -e ".[dev]" -e /path/to/lxmf-provider
+cd /path/to/lxmf-provider
+python -m pytest tests/test_lxmf_sdk_contract.py -m lxmf_sdk -v
 ```
 
 pip uses package requirements, not `uv.lock`, so transitive versions can differ
