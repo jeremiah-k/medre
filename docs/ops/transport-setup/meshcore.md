@@ -1,8 +1,9 @@
 # MeshCore Transport Setup
 
-For source checkouts, run the package commands below and then activate `.venv`
-with `source .venv/bin/activate` before invoking CLI tools. For pip and built-package
-installation, see [installation](../install.md).
+Install the provider in the same environment as MEDRE using the
+[installation guide](../install.md). Activate a project environment before
+invoking CLI tools; persistent uv tools already expose `medre` on PATH.
+The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre-release — no stable public API.
 
@@ -12,7 +13,7 @@ Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                                                     |
 | Python               | 3.11 or later                                                                                                                                          |
-| Package install      | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install -e ../medre-adapter-meshcore` (exact pin from project metadata) |
+| Package install      | Install meshcore in the MEDRE environment; see [installation](../install.md) (exact pin from project metadata) |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                                              |
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                                                        |
 | BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                                                     |
@@ -87,7 +88,7 @@ sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
 # Install the meshcore SDK (includes bleak)
-uv sync --locked && uv pip install -e ../medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 ```
 
 #### Pair the device first
@@ -193,7 +194,7 @@ The `meshcore` package depends on `bleak`, but if you installed MEDRE without
 the SDK:
 
 ```bash
-uv sync --locked && uv pip install -e ../medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 ```
 
 ##### `bluetoothctl scan on` does not show the node

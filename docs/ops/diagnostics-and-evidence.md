@@ -2,7 +2,7 @@
 
 Commands assume an activated MEDRE environment; see [installation](install.md).
 For checkout tests, sync core with `--extra dev`, then install the selected
-adapter distributions from sibling checkouts. Core has no transport extras;
+adapter distributions. Core has no transport extras;
 see [environment setup](../dev/environment.md) for sync behavior.
 
 How to collect, interpret, and reason about MEDRE pipeline evidence before and after a run.
@@ -431,7 +431,7 @@ separately for each eligible source as needed.
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic
+# Install matrix, meshtastic in the MEDRE environment; see [installation](install.md)
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -466,8 +466,8 @@ uv run --no-sync pytest -m "" -v
 | Symptom                                             | Likely cause                    | Action                                                                                         |
 | --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
 | Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
 | Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
 

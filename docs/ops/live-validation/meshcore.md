@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 source .venv/bin/activate
 
 export MESHCORE_CONNECTION_TYPE="tcp"
@@ -195,7 +195,7 @@ Before hardware validation, run the real pinned MeshCore SDK against MEDRE's
 local companion-protocol endpoint:
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 pytest ../medre-adapter-meshcore/tests/test_meshcore_local_integration.py \
   -m "local_integration and meshcore_sdk and not soak" -v
 ```

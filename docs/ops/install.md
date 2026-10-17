@@ -79,9 +79,8 @@ uv run --no-sync medre version
 ```
 
 This creates `.venv`, installs core in editable mode, and installs test/build
-tools via the `dev` extra. For adapter work, use sibling checkouts and install
-providers after the core sync, or create a separate locked deployment project
-with local editable sources. A later core `uv sync` can remove separately
+tools via the `dev` extra. For adapter work, use Git sources or editable checkouts at any location;
+see the [development environment guide](../dev/environment.md). A later core `uv sync` can remove separately
 installed providers. See [development environment](../dev/environment.md).
 
 Standard pip remains supported in a standalone virtualenv:
@@ -91,7 +90,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 python -m pip install -e ".[dev]"
-python -m pip install -e ../medre-adapter-matrix
+python -m pip install 'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main'
 ```
 
 For an existing environment or CI artifact, use

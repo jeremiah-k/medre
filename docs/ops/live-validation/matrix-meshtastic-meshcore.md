@@ -19,7 +19,7 @@ your current core, adapter commits, SDKs, and endpoints.
 | Meshtastic radio     | TLora or similar, connected via USB-serial                                                                            |
 | MeshCore device(s)   | One or two MeshCore nodes connected via USB-serial                                                                    |
 | Python               | 3.11 or later                                                                                                         |
-| Package install      | `uv sync --locked --extra dev`, then `uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic -e ../medre-adapter-meshcore` from sibling checkouts |
+| Package install      | Matrix, Meshtastic and MeshCore providers in the MEDRE environment; see [installation](../install.md) |
 | Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices                                               |
 | Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated                                                      |
 

@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-meshtastic
+# Install meshtastic in the MEDRE environment; see [installation](../install.md)
 source .venv/bin/activate
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
@@ -133,7 +133,7 @@ Physical-radio lifecycle endurance is opt-in and never runs in the default
 suite. Configure the same connection variables as the live smoke tests, then:
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-meshtastic
+# Install meshtastic in the MEDRE environment; see [installation](../install.md)
 export MESHTASTIC_SOAK_CYCLES=10
 pytest ../medre-adapter-meshtastic/tests/test_meshtastic_hardware_soak.py \
   -m "hardware and live and soak and meshtastic_sdk" -v

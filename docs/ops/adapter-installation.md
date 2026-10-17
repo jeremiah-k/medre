@@ -51,7 +51,7 @@ To use a locally checked-out adapter instead, replace the Matrix line
 **inside the existing `tool.uv.sources` table** (do not add a second table):
 
 ```toml
-medre-adapter-matrix = { path = "../medre-adapter-matrix", editable = true }
+medre-adapter-matrix = { path = "/path/to/matrix-provider", editable = true }
 ```
 
 Run `uv lock` to resolve the complete dependency graph, then `uv sync --locked`
@@ -86,12 +86,12 @@ python -m pip install \
 Or from a local checkout:
 
 ```bash
-python -m pip install -e ../medre -e ../medre-adapter-matrix
+python -m pip install -e /path/to/medre -e /path/to/matrix-provider
 ```
 
 If the distribution is published on PyPI later,
 `python -m pip install medre-adapter-matrix` will work like any other package.
-Until then, use its Git direct URL or sibling checkout. Other indexes and wheel
+Until then, use its Git direct URL or an explicitly chosen local checkout. Other indexes and wheel
 files work as well. For pip deployments, use a reviewed, pinned requirements
 file with a constraints/lock workflow appropriate for your deployment.
 

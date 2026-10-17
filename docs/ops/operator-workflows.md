@@ -2,7 +2,7 @@
 
 Commands assume an activated MEDRE environment; see [installation](install.md).
 For checkout tests, sync core with `--extra dev`, then install the selected
-adapter distributions from sibling checkouts. Core has no transport extras;
+adapter distributions. Core has no transport extras;
 see [environment setup](../dev/environment.md) for sync behavior.
 
 Day-to-day workflows for operating MEDRE: smoke testing, inspect-first investigation, evidence collection, event tracing, failure handling, and replay.
@@ -627,7 +627,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
-- The `matrix` extra installed: `uv sync --locked && uv pip install -e ../medre-adapter-matrix`.
+- The Matrix provider installed with its SDK; see [installation](install.md).
 
 ### Procedure — Matrix
 
@@ -675,7 +675,7 @@ If you have a Meshtastic radio node accessible via TCP or serial, you can valida
 ### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
-- The `meshtastic` extra installed: `uv sync --locked && uv pip install -e ../medre-adapter-meshtastic`.
+- The Meshtastic provider installed with its SDK; see [installation](install.md).
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
 ### Procedure — Meshtastic

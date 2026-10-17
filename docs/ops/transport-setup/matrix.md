@@ -1,8 +1,9 @@
 # Matrix Transport Setup
 
-For source checkouts, run the package commands below and then activate `.venv`
-with `source .venv/bin/activate` before invoking CLI tools. For pip and built-package
-installation, see [installation](../install.md).
+Install the provider in the same environment as MEDRE using the
+[installation guide](../install.md). Activate a project environment before
+invoking CLI tools; persistent uv tools already expose `medre` on PATH.
+The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
 
@@ -13,7 +14,7 @@ Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-r
 | Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                                                    |
 | Bot account       | A dedicated Matrix user, not your personal account                                                                                                                                         |
 | Python            | 3.11 or later                                                                                                                                                                              |
-| Package install   | `uv sync --locked && uv pip install -e ../medre-adapter-matrix` (plaintext). `uv sync --locked && uv pip install -e '../medre-adapter-matrix[e2e]'` (adds Olm/Megolm crypto libs for encrypted rooms). |
+| Package install   | Install matrix in the MEDRE environment; see [installation](../install.md) (plaintext). Install matrix[e2e] in the MEDRE environment; see [installation](../install.md) (adds Olm/Megolm crypto libs for encrypted rooms). |
 | Access token      | Obtained via login API or Element UI                                                                                                                                                       |
 | A test room       | Unencrypted, bot has joined it                                                                                                                                                             |
 | Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                       |
@@ -413,7 +414,7 @@ adapter treats the room as unencrypted (fail-closed).
 | `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
 | `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | `uv sync --locked && uv pip install -e '../medre-adapter-matrix[e2e]'`                                                                                                                                                                                                                                 |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)                                                                                                                                                                                                                                 |
 
 ## Classic Sync durability and recovery
 

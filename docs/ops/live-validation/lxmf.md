@@ -38,7 +38,7 @@ cancelled messages return promptly along with delivered and failed messages.
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-lxmf
+# Install lxmf in the MEDRE environment; see [installation](../install.md)
 source .venv/bin/activate
 
 # Configure a Reticulum transport (AutoInterface for LAN is default)
@@ -261,7 +261,7 @@ Run the real pinned RNS/LXMF stack in a process-isolated local probe before
 external Reticulum testing:
 
 ```bash
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-lxmf
+# Install lxmf in the MEDRE environment; see [installation](../install.md)
 pytest ../medre-adapter-lxmf/tests/test_lxmf_local_integration.py \
   -m "local_integration and lxmf_sdk and not soak" -v
 ```
