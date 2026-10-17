@@ -18,7 +18,9 @@ Windows file lock. A dry-run preview MUST exit successfully on every platform.
 Adapter changes MUST preserve the core requirement and every unrelated explicit
 requirement from uv's receipt, including supported extras, markers, source refs,
 and version constraints. Unsupported receipt settings MUST cause refusal before
-installation rather than silent loss. MEDRE MUST NOT write uv's receipt itself.
+installation rather than silent loss. A URL source with an existing fragment and
+a separately recorded subdirectory MUST be refused; two fragments can change
+archive hash and installer semantics. MEDRE MUST NOT write uv's receipt itself.
 Updates MUST delegate to `uv tool upgrade medre`, retaining uv's recorded source
 constraints and installer settings. Package changes require a process restart
 before adapter discovery reflects them.

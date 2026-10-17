@@ -103,8 +103,9 @@ Back up persistent state before updating; MEDRE's pre-release schemas can change
 
 The helper reads uv's receipt without modifying it. Adapter changes support
 ordinary index, Git, URL, and absolute local-path requirements. They refuse
-unsupported receipt shapes, editable packages, extra exported executables, and
-custom saved resolver settings or constraints rather than discarding them.
+unsupported receipt shapes, ambiguous URL fragment/subdirectory combinations,
+editable packages, extra exported executables, and custom saved resolver
+settings or constraints rather than discarding them.
 Use uv directly for those adapter changes. `medre update` delegates receipt
 handling to uv and retains those settings.
 

@@ -184,7 +184,15 @@ def _receipt_requirement(value: object) -> str:
             source += _subdirectory_fragment(query["subdirectory"][0])
         name += " @ " + source
     elif "url" in value:
-        name += " @ " + value["url"]
+        # A pre-existing fragment can carry a hash or other installer options.
+        # Appending a second fragment would change the source's meaning.
+        url = value["url"]
+        if "subdirectory" in value and isinstance(url, str) and urlsplit(url).fragment:
+            raise ToolManagementError(
+                "Cannot replay a URL receipt with both an existing fragment "
+                "and a separate subdirectory; use uv directly."
+            )
+        name += " @ " + url
         if "subdirectory" in value:
             name += _subdirectory_fragment(value["subdirectory"])
     elif "path" in value or "directory" in value:

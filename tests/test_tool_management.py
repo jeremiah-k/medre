@@ -405,6 +405,29 @@ def test_subdirectory_delimiters_fail_closed(tool, field, subdir):
         tool.change_adapters(["matrix"], tm.DEFAULT_SOURCES)
 
 
+@pytest.mark.parametrize(
+    "fragment", ["sha256=" + "a" * 64, "subdirectory=other", "egg=radio"]
+)
+def test_url_receipt_never_concatenates_two_fragments(tool, fragment):
+    """A reconstructed requirement must not lose a hash or source option."""
+    tool.receipt["requirements"].append(
+        {
+            "name": "radio",
+            "url": f"https://example.com/radio.zip#{fragment}",
+            "subdirectory": "python",
+        }
+    )
+    with pytest.raises(tm.ToolManagementError, match="existing fragment"):
+        tool.change_adapters(["matrix"], tm.DEFAULT_SOURCES)
+
+
+def test_url_receipt_preserves_existing_fragment_without_subdirectory():
+    receipt = {"name": "radio", "url": "https://example.com/radio.zip#sha256=abc"}
+    assert tm._receipt_requirement(receipt) == (
+        "radio @ https://example.com/radio.zip#sha256=abc"
+    )
+
+
 def test_python_request_survives_dependency_changes(tool):
     tool.receipt["python"] = "3.13"
     command = tool.change_adapters(["matrix"], tm.DEFAULT_SOURCES)
