@@ -16,8 +16,9 @@ medre config bridge --output bridge.yaml
 ```
 
 Without an input file, MEDRE starts from installed providers' fake samples and
-an empty route set. The list shows each instance ID, platform, and fake/real
-kind. Sample instance IDs are `<provider>_<number>`, such as `matrix_1`, so
+an empty route set. The list shows each instance ID, platform, and whether the
+instance is an offline sample or a real connection. Sample instance IDs are
+`<provider>_<number>`, such as `matrix_1`, so
 each ID names its platform; one sample-contributing provider supplies two
 distinct instances, `<provider>_1` and `<provider>_2`, and further instances
 of a provider belong under the same `adapters.<provider>` group in the saved

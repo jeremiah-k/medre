@@ -247,6 +247,44 @@ def test_context_prompts_surface_provider_sample_channels(monkeypatch, tmp_path)
     assert "right context (e.g. 'opaque-room')" in stderr
 
 
+def test_sample_instances_are_labeled_offline_samples_and_yaml_stays_fake(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal(
+            "independent_chat_1\nindependent_chat_2\nbidirectional\n"
+            "room-A\nroom-B\n\n\n\nyes\n"
+        ),
+    )
+    _, stderr, code = _run_cli_raw(
+        "config", "bridge", "--output", str(tmp_path / "bridge.yaml")
+    )
+    assert code == 0, stderr
+    assert (
+        "No input configuration given: starting from installed providers' "
+        "offline samples." in stderr
+    )
+    assert "independent_chat_1: independent_chat (offline sample)" in stderr
+    assert "(fake)" not in stderr
+    document = parse_yaml_config((tmp_path / "bridge.yaml").read_text())
+    assert (
+        document["adapters"]["independent_chat"]["independent_chat_1"]["adapter_kind"]
+        == "fake"
+    )
+
+
+def test_real_adapter_kind_label_is_shown_as_is(tmp_path):
+    args = flags(tmp_path)
+    document = parse_yaml_config(CONFIG)
+    for values in document["adapters"]["independent_chat"].values():
+        values["adapter_kind"] = "real"
+    (tmp_path / "input.yaml").write_text(dump_yaml_config(document))
+    _, stderr, code = _run_cli_raw(*args, "--preview")
+    assert code == 0, stderr
+    assert "left: independent_chat (real)" in stderr
+
+
 def test_native_adapter_implementations_are_not_loaded(monkeypatch, tmp_path):
     from medre.adapter_spec import SymbolRef
 

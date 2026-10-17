@@ -29,6 +29,9 @@ from .exit_codes import EXIT_CONFIG, EXIT_FAILED
 from .json import to_json
 from .route_commands import _render_route_plan
 
+# Display-only labels for adapter kinds; saved YAML keeps provider literals.
+_KIND_LABELS = {"fake": "offline sample"}
+
 
 def _ask(prompt: str, *, default: str | None = None) -> str:
     """Keep prompts off stdout so JSON output remains machine-readable."""
@@ -170,7 +173,8 @@ def _config_bridge(args: argparse.Namespace) -> None:
             document["routes"] = {}
             text = dump_yaml_config(document)
             print(
-                "Starting with installed providers' offline fake samples.",
+                "No input configuration given: starting from installed providers' "
+                "offline samples.",
                 file=sys.stderr,
             )
         else:
@@ -198,13 +202,14 @@ def _config_bridge(args: argparse.Namespace) -> None:
         if len(choices) < 2:
             raise ConfigValidationError(
                 "Two enabled adapter instances are required. Install a provider with "
-                "fake sample support, or supply --config with your provider-owned "
+                "offline sample support, or supply --config with your provider-owned "
                 "connection settings. See docs/ops/adapter-installation.md."
             )
         print("Adapter instances:", file=sys.stderr)
         for aid in choices:
             transport, rtc = adapters[aid]
-            print(f"  {aid}: {transport} ({rtc.adapter_kind})", file=sys.stderr)
+            kind = _KIND_LABELS.get(rtc.adapter_kind, rtc.adapter_kind)
+            print(f"  {aid}: {transport} ({kind})", file=sys.stderr)
         source = _choose(args.source, choices, "source", interactive)
         dest = _choose(
             args.dest, [aid for aid in choices if aid != source], "dest", interactive

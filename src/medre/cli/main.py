@@ -111,7 +111,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "bridge", help="Guide bridge configuration and preview routes offline"
     )
     bridge_p.add_argument(
-        "--config", default=None, help="Existing YAML; omit for provider fake samples"
+        "--config",
+        default=None,
+        help="Existing YAML; omit for installed providers' offline samples",
     )
     bridge_p.add_argument(
         "--output", required=True, help="New .yaml/.yml path; never overwritten"
