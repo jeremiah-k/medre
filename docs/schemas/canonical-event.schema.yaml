@@ -15,7 +15,9 @@ properties:
   event_id:
     type: string
     minLength: 1
-    description: Globally unique event identifier (UUIDv7 or similar).
+    description: >-
+      Globally unique, non-empty opaque event identifier.
+      No UUID version or chronological ordering is enforced.
   event_kind:
     type: string
     minLength: 1
@@ -54,7 +56,10 @@ properties:
   payload:
     type: object
     additionalProperties: true
-    description: The event-specific data payload.
+    description: >-
+      Extensible event-specific JSON object. The envelope does not dispatch
+      per-kind payload validators; individual admission and adapter contracts
+      enforce their own payload rules.
   metadata:
     $ref: "#/$defs/EventMetadata"
   source_native_ref:
