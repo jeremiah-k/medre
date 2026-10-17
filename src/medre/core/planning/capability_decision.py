@@ -202,8 +202,9 @@ def _resolve_field_level(
     * **Thread relations** resolve through the three-level ``threads`` field.
       Built-in adapters currently advertise fallback rather than unverified
       native thread semantics.
-    * **Unknown/unmapped event kinds** produce no candidate and default to
-      native/direct passthrough at the resolver level (not here).
+    * **Unrecognized event kinds** are suppressed by the resolver rather than
+      receiving a native/direct decision. Only explicitly listed known kinds
+      may pass through without a capability-field mapping.
     """
     try:
         raw_value = getattr(caps, field_name)

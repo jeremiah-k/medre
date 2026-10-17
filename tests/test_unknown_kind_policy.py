@@ -71,3 +71,21 @@ async def test_wildcard_route_suppresses_unknown_kind_before_rendering(temp_stor
         assert stored.event_kind == "message.poll"
     finally:
         await runner.stop()
+
+
+def test_unknown_kind_cannot_be_authorized_by_a_supported_relation():
+    """Known reply support never overrides an unknown event-kind suppression."""
+    from medre.core.events.canonical import EventRelation
+
+    relation = EventRelation(
+        relation_type="reply",
+        target_event_id="parent",
+        target_native_ref=None,
+        key=None,
+        fallback_text=None,
+    )
+    event = make_event(event_kind="future.notification", relations=(relation,))
+    decision = resolver.decide(event, AdapterCapabilities(replies="native"))
+    assert decision.capability_level == "unsupported"
+    assert decision.capability_field == "event_kind"
+    assert decision.delivery_strategy == "skip"
