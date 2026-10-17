@@ -7,7 +7,7 @@ It never connects to an account or device, installs packages, or starts MEDRE.
 
 In a uv deployment, prefix the commands below with `uv run --locked`.
 
-## Try an offline bridge
+## Build a first bridge with sample instances
 
 Install your chosen providers in MEDRE's environment, then run:
 
@@ -17,7 +17,7 @@ medre config bridge --output bridge.yaml
 
 Without an input file, MEDRE starts from installed providers' fake samples and
 an empty route set. The list shows each instance ID, platform, and whether the
-instance is an offline sample or a real connection. Sample instance IDs are
+instance is an SDK-free sample or a real connection. Sample instance IDs are
 `<provider>_<number>`, such as `matrix_1`, so
 each ID names its platform; one sample-contributing provider supplies two
 distinct instances, `<provider>_1` and `<provider>_2`, and further instances
@@ -55,8 +55,8 @@ Press Ctrl+C at any prompt to cancel without saving.
    save, or decline to leave the filesystem unchanged. `y/n` also work; typos
    prompt again, and Enter defaults to no. Reverse previews show addresses in
    actual message-flow order. After saving, MEDRE
-   prints copyable validation commands with the saved path and, for offline
-   samples, a smoke command for the first mapped source context.
+   prints copyable validation commands with the saved path and, for sample
+   instances, a smoke command for the first mapped source context.
 
 Two-way bridges normally produce loop/cycle warnings because both directions
 are intentional. MEDRE applies native-reference duplicate, self-loop, and
@@ -120,7 +120,7 @@ example, a Matrix instance with an explicit `room_allowlist` must include every
 room from which an enabled route receives messages, including reverse legs.
 Update the input configuration (or the corresponding environment override)
 before authoring; the workflow does not broaden native permissions for you.
-For an offline sample, use a context allowed by `medre config sample`.
+For a sample instance, use a context allowed by `medre config sample`.
 
 Existing routes are preserved. Choose a new `--route-id` if `bridge` already
 exists. A selected context pair already connected by an enabled text route is

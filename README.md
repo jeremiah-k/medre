@@ -10,10 +10,9 @@ evidence; each transport is an independently installed Python adapter.
 > an active database to work around a schema mismatch: it may contain pending
 > messages and evidence.
 
-## Try MEDRE locally
+## Install MEDRE
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-No PyPI release or source checkout is required for a first offline test.
 
 **1. Install the CLI and example providers.**
 
@@ -28,7 +27,7 @@ executable cannot safely replace itself. For a reproducible, long-running
 bridge use a [locked deployment project](docs/ops/getting-started.md#set-up-a-locked-deployment)
 instead of floating Git branches.
 
-**2. Check the local pipeline (offline, no credentials).**
+**2. Verify the pipeline before connecting anything.**
 
 ```bash
 medre config sample > sample.yaml
@@ -39,6 +38,7 @@ medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 A fake `sent` receipt proves local routing and persistence, **not** remote
 delivery, RF reception, or native inbound codec decoding. The generated sample
 uses a one-way diagnostic route; build your two-way route in the next step.
+The same installation runs live bridges.
 
 **3. Create your first route.**
 
