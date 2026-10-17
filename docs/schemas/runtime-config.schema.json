@@ -207,6 +207,7 @@
   "$defs": {
     "RouteEntry": {
       "title": "RouteEntry",
+      "$comment": "Guided authoring validates the existing document before context entry. Disabled routes retain reference validation but do not count as active duplicate deliveries. These cross-route checks belong to typed configuration and the route compiler, not this structural schema.",
       "description": "A single route definition. Its identifier is the routes mapping key: a non-empty string of ASCII letters, digits, underscores or hyphens, with no line terminators. An entry-level route_id field is not accepted. Policy / retry / context_map are modelled as plain objects here; their internal shape is enforced by the component schema and the typed dataclass.",
       "type": "object",
       "additionalProperties": false,

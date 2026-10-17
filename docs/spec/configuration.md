@@ -672,8 +672,15 @@ MUST remain opaque to core. Loop warnings MUST remain visible in the plan.
 Unknown adapter references in disabled routes MUST also prevent saving, matching
 `config check`. Duplicate detection includes an existing wildcard source that
 would deliver text to the same explicit target context.
-An existing context-less text route on the same adapter pair MUST also prevent
-saving when its source domain overlaps a new bridge leg.
+An existing enabled text route on the same adapter pair MUST also prevent saving
+when its source domain overlaps a new bridge leg and its target context is
+unspecified. Disabled routes MUST NOT be treated as active duplicate deliveries.
+
+Interactive authoring MUST reject errors in the existing configuration and an
+invalid requested route ID before collecting context values. Context-specific
+failures MUST allow another attempt while retaining earlier accepted pairs.
+The offline text plan MUST display each leg's actual source-to-target address
+flow, including reverse-only legs; JSON retains the configured mapping provenance.
 
 Before returning a successful draft, authoring MUST run enabled adapters'
 provider-owned pure `runtime_config_preparer` hooks against the compiled route
@@ -688,6 +695,10 @@ confirmation after preview. Output files MUST be exclusively created and MUST
 NOT overwrite existing files, directories, or symlinks. POSIX file permissions
 MUST restrict access to the owner; Windows deployments require an appropriate
 parent-directory ACL. Configuration errors exit 2; EOF/interruption exits 1.
+Confirmation accepts `yes`/`y` and `no`/`n` without case sensitivity or surrounding
+whitespace; an unrecognized answer MUST prompt again. A blank answer declines.
+Suggested fake-smoke commands MUST require every enabled saved adapter to be fake.
+Windows copyable commands target PowerShell and MUST quote arguments literally.
 
 Validation establishes configuration and routing consistency, not native SDK,
 authentication, address, or delivery readiness. Known raw/environment secrets

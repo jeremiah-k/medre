@@ -7,7 +7,6 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -15,9 +14,8 @@ from pathlib import Path
 
 from medre.adapter_registry import get_adapter_spec, iter_adapter_specs
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
-from medre.config.env import _is_secret_field, apply_env_overrides
+from medre.config.env import _is_secret_field
 from medre.config.errors import ConfigValidationError
-from medre.config.loader import parse_runtime_config
 from medre.config.paths import resolve
 from medre.config.routes import RouteDirectionality
 from medre.core.observability.sanitization import (
@@ -25,7 +23,7 @@ from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
     sanitize_error,
 )
-from medre.runtime.bridge_setup import BridgeRequest, draft_bridge, precheck_bridge
+from medre.runtime.bridge_setup import BridgeAuthoring, BridgeRequest, precheck_bridge
 from medre.runtime.errors import RuntimeConfigError
 
 from .exit_codes import EXIT_CONFIG, EXIT_FAILED
@@ -65,19 +63,28 @@ def _choose(
             f"--{name} is required without an interactive terminal"
         )
     print(f"Choose {name}:", file=sys.stderr)
+    # A literal numeric ID must remain selectable without shadowing menu rows.
+    numbered_ids = any(choice.isascii() and choice.isdecimal() for choice in choices)
     for index, choice in enumerate(choices, start=1):
         explanation = f" — {labels[choice]}" if labels and choice in labels else ""
-        print(f"  {index}. {choice}{explanation}", file=sys.stderr)
+        number = f"#{index}" if numbered_ids else str(index)
+        print(f"  {number}. {choice}{explanation}", file=sys.stderr)
     while True:
         answer = _ask(name.capitalize(), default=default)
         if answer in choices:
             return answer
-        if answer.isascii() and answer.isdecimal():
-            index = int(answer)
+        number = answer.removeprefix("#")
+        if (
+            number.isascii()
+            and number.isdecimal()
+            and len(number) <= len(str(len(choices)))
+        ):
+            index = int(number)
             if 1 <= index <= len(choices):
                 return choices[index - 1]
         print(
-            f"Invalid {name} {answer!r}; enter a number from 1 to {len(choices)} "
+            f"Invalid {name} {answer[:80]!r}; enter a number from "
+            f"{'#' if numbered_ids else ''}1 to {'#' if numbered_ids else ''}{len(choices)} "
             "or an exact value from the list.",
             file=sys.stderr,
         )
@@ -85,7 +92,24 @@ def _choose(
 
 def _command_example(*args: str) -> str:
     """Render a copyable platform-native command even for paths with spaces."""
-    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
+    if os.name == "nt":
+        # PowerShell single quotes preserve &, $, backticks and embedded quotes.
+        return "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in args)
+    return shlex.join(args)
+
+
+def _confirm_save(output: Path) -> bool:
+    while True:
+        answer = (
+            _ask(f"Save new configuration to {output}? (yes/no)", default="no")
+            .strip()
+            .lower()
+        )
+        if answer in ("yes", "y"):
+            return True
+        if answer in ("no", "n"):
+            return False
+        print("Please answer yes or no (y/n).", file=sys.stderr)
 
 
 def _write_new_config(path: Path, text: str) -> None:
@@ -222,7 +246,12 @@ def _config_bridge(args: argparse.Namespace) -> None:
         document = parse_yaml_config(
             text, str(report.config_path) if args.config is not None else "<sample>"
         )
-        config = apply_env_overrides(parse_runtime_config(document, paths), paths)
+        authoring = BridgeAuthoring(text, paths=paths)
+        config = authoring.config
+        if interactive:
+            print(
+                "Press Ctrl+C at any prompt to cancel without saving.", file=sys.stderr
+            )
         adapters = {
             aid: (transport, rtc)
             for transport, aid, rtc in config.adapters.all_configs()
@@ -257,6 +286,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 transport: group for transport, group in groups.items() if group
             }
             text = dump_yaml_config(document)
+            authoring = BridgeAuthoring(text, paths=paths)
         direction = _choose(
             args.direction,
             ["bidirectional", "source_to_dest", "dest_to_source"],
@@ -280,7 +310,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
             # the loop below, so validation there stays retryable and never
             # aborts the session.
             precheck_bridge(
-                config,
+                authoring.config,
                 BridgeRequest(
                     source,
                     dest,
@@ -292,8 +322,9 @@ def _config_bridge(args: argparse.Namespace) -> None:
             )
             print(
                 "A context is a platform's conversation address (room, channel, or topic). "
-                "Use exact provider identifiers. Each mapping bounds both directions; "
-                "leave the source blank when finished.",
+                "Use exact provider identifiers in source/destination order; "
+                "the selected direction controls message flow. "
+                "Leave the source blank when finished.",
                 file=sys.stderr,
             )
 
@@ -344,7 +375,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     args.route_id,
                 )
                 try:
-                    draft_bridge(text, attempt, paths=paths)
+                    authoring.draft(attempt)
                 except (ConfigValidationError, RuntimeConfigError) as exc:
                     # Core validation and provider-owned restrictions report
                     # through different hierarchies; both are pair-specific.
@@ -354,6 +385,10 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     )
                     continue
                 contexts.append((context, target))
+                print(
+                    f"Added context pair {len(contexts)}; add another or press Enter to continue.",
+                    file=sys.stderr,
+                )
         source_label = args.source_label
         dest_label = args.dest_label
         if interactive:
@@ -371,8 +406,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     )
                     or None
                 )
-        draft = draft_bridge(
-            text,
+        draft = authoring.draft(
             BridgeRequest(
                 source,
                 dest,
@@ -382,7 +416,6 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 source_label,
                 dest_label,
             ),
-            paths=paths,
         )
         checked_transports: set[str] = set()
         for aid, (transport, rtc) in adapters.items():
@@ -426,13 +459,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
         if args.preview:
             print("Preview only; no configuration written.", file=sys.stderr)
             return
-        if (
-            interactive
-            and _ask(
-                f"Save new configuration to {output}? (yes/no)", default="no"
-            ).lower()
-            != "yes"
-        ):
+        if interactive and not _confirm_save(output):
             print("Cancelled; no configuration written.", file=sys.stderr)
             return
         saving = True
@@ -445,7 +472,11 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 "  " + _command_example("medre", *command, "--config", str(output)),
                 file=sys.stderr,
             )
-        if all(adapters[aid][1].adapter_kind == "fake" for aid in (source, dest)):
+        if all(
+            rtc.adapter_kind == "fake"
+            for _, _, rtc in authoring.config.adapters.all_configs()
+            if rtc.enabled
+        ):
             authored = next(
                 route for route in draft.plan.routes if route.route_id == args.route_id
             )
@@ -470,13 +501,21 @@ def _config_bridge(args: argparse.Namespace) -> None:
                         file=sys.stderr,
                     )
             print(
-                "  Smoke proves only the selected sample contexts; repeat for "
+                "  Run these if the provider supports context-aware fake events. "
+                "Smoke proves only the selected sample contexts; repeat for "
                 "other mappings and qualify native delivery separately.",
                 file=sys.stderr,
             )
         else:
             print(
-                "  Check native prerequisites with 'medre adapters check --config'; "
+                "  "
+                + _command_example(
+                    "medre", "adapters", "check", "--config", str(output)
+                ),
+                file=sys.stderr,
+            )
+            print(
+                "  Fake smoke requires every enabled adapter to be an offline sample; "
                 "a plan does not prove live delivery.",
                 file=sys.stderr,
             )

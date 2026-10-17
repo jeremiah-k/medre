@@ -27,8 +27,12 @@ existing configuration. Only the two selected sample instances are saved;
 unused sample connections are omitted. An existing input configuration
 retains all its connections.
 
+Press Ctrl+C at any prompt to cancel without saving.
+
 1. Choose a source and destination by number or exact instance ID. The
    destination list excludes the selected source; its numbers start at 1.
+   If an instance ID is itself a number, menu positions use `#1`, `#2`, and so
+   on to avoid confusing an ID with a menu position.
    Noninteractive commands still require exact IDs.
 2. Choose a direction by number or name. Press Enter for the default,
    `bidirectional` (both ways). Choose `source_to_dest` or `dest_to_source`
@@ -48,7 +52,9 @@ retains all its connections.
    the adapter's label; an explicitly empty `--source-label` or `--dest-label`
    suppresses that label.
 5. Read the forward/reverse legs and any loop warnings. Confirm with `yes` to
-   save, or decline to leave the filesystem unchanged. After saving, MEDRE
+   save, or decline to leave the filesystem unchanged. `y/n` also work; typos
+   prompt again, and Enter defaults to no. Reverse previews show addresses in
+   actual message-flow order. After saving, MEDRE
    prints copyable validation commands with the saved path and, for offline
    samples, a smoke command for the first mapped source context.
 
@@ -117,13 +123,20 @@ before authoring; the workflow does not broaden native permissions for you.
 For an offline sample, use a context allowed by `medre config sample`.
 
 Existing routes are preserved. Choose a new `--route-id` if `bridge` already
-exists. A selected context pair already connected by a text route is rejected;
+exists. A selected context pair already connected by an enabled text route is
+rejected;
 edit that route instead of creating duplicate deliveries. Advanced intentional
 overlaps and structured destinations remain available through ordinary YAML.
 An existing wildcard source for the same explicit target, or a context-less
 text route between the same adapters, is also caught. Stale
 adapter references in disabled routes need fixing before the draft can be saved,
 just as with `medre config check`.
+
+Existing configuration errors are reported before context entry. A bad context
+pair can be retried without losing earlier accepted pairs. Fake-smoke next steps
+are shown only when every enabled adapter in the saved configuration is fake;
+providers also need context-aware fake event support. On Windows, the printed
+commands are quoted for PowerShell.
 
 ## Preview, automation, and file protection
 
