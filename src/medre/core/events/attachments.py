@@ -208,7 +208,7 @@ class AttachmentDescriptor:
             )
         if self.content_ref is not None and (
             not isinstance(self.content_ref, str)
-            or CONTENT_REF_PATTERN.match(self.content_ref) is None
+            or CONTENT_REF_PATTERN.fullmatch(self.content_ref) is None
         ):
             raise AttachmentDescriptorError(
                 "attachment content_ref must be a local content-addressed "

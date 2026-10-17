@@ -554,6 +554,13 @@ own versioned native metadata namespace.
 | `content_ref`        | string            | retained only          | `sha256:<64 lowercase hex>` local integrity reference |
 | `unavailable_reason` | string            | unavailable only       | One of the stable codes below                         |
 
+The standalone [attachment schema](../schemas/attachment.schema.json) describes
+this nine-field contract. Its `DeclaredAttachment` definition describes the
+retention-pending form separately. The schema is an external validation artifact,
+not an automatic `SchemaRegistry` registration. Optional fields may be null on
+input; serialization omits absent values. Content references MUST match the
+entire `sha256:<64 lowercase hex>` string, without a trailing newline.
+
 Descriptor states are exclusive:
 
 - **retained** — `content_ref` is set and `unavailable_reason` is absent.
