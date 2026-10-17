@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -12,7 +13,7 @@ from pathlib import Path
 
 from medre.adapter_registry import get_adapter_spec, iter_adapter_specs
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
-from medre.config.env import apply_env_overrides
+from medre.config.env import _is_secret_field, apply_env_overrides
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import parse_runtime_config
 from medre.config.paths import resolve
@@ -88,8 +89,10 @@ def _error_detail(exc: Exception, document: dict) -> str:
     }
 
     def sensitive(name: str) -> bool:
-        return name.lower() in declared or any(
-            token in name.lower() for token in BROAD_SECRET_TOKENS
+        return (
+            name.lower() in declared
+            or _is_secret_field(name)
+            or bool(set(re.split(r"[^a-z0-9]+", name.lower())) & BROAD_SECRET_TOKENS)
         )
 
     secrets: set[str] = set()
@@ -123,7 +126,12 @@ def _error_detail(exc: Exception, document: dict) -> str:
             collect(value, True)
     detail = str(exc)
     for value in sorted(secrets, key=len, reverse=True):
-        detail = detail.replace(value, REDACTED_TOKEN)
+        # Short values (including PINs) can be ordinary word fragments.
+        # Redact complete tokens and quoted forms without shredding prose.
+        if len(value) < 8:
+            detail = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", REDACTED_TOKEN, detail)
+        else:
+            detail = detail.replace(value, REDACTED_TOKEN)
     return sanitize_error(detail)
 
 

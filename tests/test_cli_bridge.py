@@ -324,3 +324,21 @@ def test_native_config_reports_missing_sdk_once_without_loading_implementations(
     assert stderr.count("Prerequisite missing") == 1
     assert not (tmp_path / "bridge.yaml").exists()
     assert not (tmp_path / "home").exists()
+
+
+def test_nonsecret_environment_values_do_not_shred_diagnostics(monkeypatch):
+    from medre.cli.bridge_commands import _error_detail
+
+    monkeypatch.setenv("MEDRE_ATTACHMENTS__ENABLED", "1")
+    monkeypatch.setenv("MEDRE_ADAPTER__LEFT__MAPPING", "a")
+    detail = "Route 'bridge' has 1 leg and 1 conflict at line 1"
+    assert _error_detail(ValueError(detail), {}) == detail
+
+
+@pytest.mark.parametrize("secret", ["a", "1234"])
+def test_short_secrets_are_redacted_without_replacing_parts_of_words(secret):
+    from medre.cli.bridge_commands import _error_detail
+
+    detail = f"Failed for adapter 'a1234b': invalid credential {secret!r}"
+    actual = _error_detail(ValueError(detail), {"credential": secret})
+    assert actual == "Failed for adapter 'a1234b': invalid credential [REDACTED]"

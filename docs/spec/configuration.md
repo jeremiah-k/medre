@@ -686,6 +686,10 @@ Validation establishes configuration and routing consistency, not native SDK,
 authentication, address, or delivery readiness. Known raw/environment secrets
 and provider-declared secret fields MUST be redacted from authoring error details.
 This includes their ordinary string, Python repr, and JSON-escaped forms.
+Secret field heuristics MUST match whole field-name tokens rather than arbitrary
+substrings (so `enabled` is not secret-bearing). Known values shorter than eight
+characters MUST be redacted as whole tokens or quoted forms, preserving their
+occurrences within unrelated words.
 
 ## 9. Configuration Error Hierarchy
 
