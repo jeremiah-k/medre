@@ -425,3 +425,28 @@ def test_malformed_receipts_fail_without_tracebacks(tool, settings):
     tool.receipt.update(settings)
     with pytest.raises(tm.ToolManagementError):
         tool.change_adapters(["matrix"], tm.DEFAULT_SOURCES)
+
+
+def test_empty_inventory_explains_environment_and_installation(monkeypatch, capsys):
+    from medre.cli import config_commands
+    from medre.config.errors import ConfigNotFoundError
+    from medre.config import loader
+
+    monkeypatch.setattr(config_commands, "TRANSPORTS", ())
+
+    def missing_config(*args, **kwargs):
+        raise ConfigNotFoundError("missing")
+
+    monkeypatch.setattr(loader, "load_config", missing_config)
+    monkeypatch.setattr(
+        tm.subprocess,
+        "run",
+        lambda *a, **k: pytest.fail("read-only inventory invoked uv"),
+    )
+    config_commands._adapters()
+    output = capsys.readouterr().out
+    assert "No usable adapter providers discovered in this Python environment" in output
+    assert "medre adapters sources" in output
+    assert "medre adapters install ALIAS" in output
+    assert "before generating a sample" in output
+    assert "run 'medre config sample'" not in output

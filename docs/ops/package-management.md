@@ -36,6 +36,8 @@ On Windows, they print the uv command and exit 2 without changing packages;
 run that command in PowerShell after `medre.exe` exits so its executable is not
 locked. `--dry-run` remains a successful preview on every platform.
 Stop running bridges before changing packages and restart them afterward.
+An empty `medre adapters` inventory explains the active environment and points
+to source inspection and installation before generating a sample.
 Adapter discovery is fixed for the lifetime of a MEDRE process. Check
 `medre adapters` and `medre config check --config bridge.yaml` before restarting.
 
