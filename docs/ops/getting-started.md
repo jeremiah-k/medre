@@ -5,10 +5,10 @@ the connections, the messages that may cross them, and how their source appears
 to recipients. Core handles routing, persistence, lifecycle, and delivery
 evidence; each adapter owns its platform's configuration, protocol, and SDK.
 
-Start with a local fake bridge to learn the commands, then connect real accounts
-or devices. The first example uses **Matrix + Meshtastic**; other providers work
-through the same core. For a persistent deployment, use reviewed Git revisions
-and keep its `uv.lock`.
+Start with the guided bridge builder on offline samples to learn the commands,
+then connect real accounts or devices. The first example uses **Matrix +
+Meshtastic**; other providers work through the same core. For a persistent
+deployment, use reviewed Git revisions and keep its `uv.lock`.
 
 > **Testing is welcome; schemas are still evolving.** MEDRE works with real
 > services and radios, but configuration, event, and SQLite schemas can change
@@ -82,59 +82,11 @@ For a one-off CLI trial, `uvx` is also supported. It runs in an isolated tool
 environment and does not inherit the adapters from your deployment. For details,
 see [installation options](install.md#persistent-command-without-uv-run).
 
-## Optional AI-assisted setup
-
-MEDRE has many configuration choices. If you get stuck on contexts, routes, or
-adapter settings, an AI coding assistant can help you turn a concrete goal into
-a draft configuration. [OpenCode](https://opencode.ai/) is one option:
-
-```bash
-curl -fsSL https://opencode.ai/v2/install | bash
-opencode
-```
-
-The [download page](https://opencode.ai/download) lists every installation
-method (npm, Homebrew, and others), and the
-[official setup guide](https://opencode.ai/v2/docs/) covers first steps.
-
-OpenCode's model catalog changes over time: models rotate, but there is
-usually something free to use, and many free models work without creating an
-account. Two high-quality free options at the time of writing are **DeepSeek
-V4.1 Flash** (`deepseek-v4.1-flash-free`) and **GLM-5.3 Flash**
-(`glm-5.3-flash-free`); check
-[OpenCode's live model catalog](https://opencode.ai/v2/docs/console/models/)
-for what is currently available and its terms.
-
-You can ask an assistant in plain language. Two examples:
-
-Ask for a first two-way route between two transports:
-
-```text
-Using the MEDRE Getting Started guide and the Matrix and Meshtastic setup
-pages, help me write a minimal two-way route between my Matrix test room and
-Meshtastic channel 0. Explain each setting. Do not invent adapter fields; have
-me validate the YAML with `medre config check`, then run the offline smoke
-before suggesting a real connection.
-```
-
-Ask for a plan before writing any configuration:
-
-```text
-Using the MEDRE documentation, help me plan a bridge between my MeshCore node
-and my Matrix account. Ask me for whatever details you need, list the
-adapter instances and contexts you would create, explain each setting, and
-finish with the `medre config check` and `medre smoke` commands that validate
-the result offline.
-```
-
-Keep tokens, passwords, private keys, and unredacted databases **out of AI
-chats**. Review every proposed change. MEDRE does not need an AI service to
-operate.
-
 ## Prove the installation without connecting anything
 
-Installed first-party providers contribute fake configurations. Fakes exercise
-routing and storage without opening a homeserver or device connection.
+Installed first-party providers contribute offline samples. Samples keep
+`adapter_kind: fake` in YAML and exercise routing and storage without opening
+a homeserver or device connection.
 
 ```bash
 uv run --locked medre config sample > sample.yaml
@@ -179,10 +131,16 @@ one offline workflow:
 uv run --locked medre config bridge --output bridge.yaml
 ```
 
-Without an input file this starts from installed providers' fake samples. For
-native connections you already configured, add `--config connections.yaml`.
-The command previews actual route expansion and, in a terminal, asks before
-saving a new file. Noninteractive use saves directly; add `--preview` to inspect
+Without an input file this starts from installed providers' offline samples.
+For native connections you already configured, add `--config connections.yaml`.
+In a terminal, the instance and direction prompts show numbered choices and
+accept either the number or the exact ID; Enter keeps the `bidirectional`
+default, and each context pair is validated as you enter it — a rejection
+re-prompts with the provider's reason. Press Ctrl+C at any prompt to cancel
+without saving. The command previews actual route expansion and, in a
+terminal, asks before saving a new file; afterwards it prints copyable
+`medre config check`, `medre routes plan`, and fake smoke commands carrying
+the saved path. Noninteractive use saves directly; add `--preview` to inspect
 without writing. In either mode,
 it does not start adapters or install packages. See
 [guided configuration](guided-configuration.md) for examples, automation, and
@@ -190,6 +148,11 @@ context-specific fake smoke checks. Continue below for the native connection
 settings and a hand-written route example.
 
 ## Build a real two-way route
+
+The hand-written route below is the native reference. Once your connection
+settings exist in a file,
+`medre config bridge --config connections.yaml --output bridge.yaml`
+produces the same result interactively.
 
 Save this as `bridge.yaml` in your deployment directory. Replace the homeserver,
 bot user ID, room ID, and serial device path with your own values. Invite the
@@ -309,6 +272,8 @@ acceptance. RF reception needs an independent recipient observation; encrypted
 LXMF delivery has its own native confirmation behavior.
 [Operator workflows](operator-workflows.md) explains tracing, replay, and
 recovery without guessing from a successful send log.
+
+For optional AI-assisted setup help, see [AI-assisted setup](ai-assisted-setup.md).
 
 ## Choose another platform
 

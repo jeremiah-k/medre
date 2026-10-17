@@ -63,16 +63,16 @@ Use `medre config bridge --output bridge.yaml` for
 instances and contexts, preview both directions, and save a validated draft
 without starting adapters.
 
-The [Getting Started guide](docs/ops/getting-started.md#optional-ai-assisted-setup)
-explains how an AI coding assistant such as
-[OpenCode](https://opencode.ai/) can help you understand the example YAML,
-select adapter contexts, and validate a proposed route. You can use free models
-when available; the assistant is optional, and MEDRE itself does not require AI.
+The [AI-assisted setup guide](docs/ops/ai-assisted-setup.md) explains how an
+AI coding assistant such as [OpenCode](https://opencode.ai/) can walk you
+through `medre config bridge`, explain its prompts, and help you validate the
+saved configuration. You can use free models when available; the assistant is
+optional, and MEDRE itself does not require AI.
 
 ## Documentation
 
 - **[Getting Started](docs/ops/getting-started.md)** — install from Git,
-  offline smoke, and first two-way route.
+  offline smoke, and a guided first bridge.
 - **[Operator guides](docs/ops/README.md)** — configure, run, inspect, recover,
   and troubleshoot.
 - **[Adapter authoring](docs/dev/adapter-authoring.md)** — build an independent

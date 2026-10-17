@@ -111,8 +111,8 @@ medre config check --config sample.yaml
 medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 ```
 
-A sample contributing provider creates fake instances and a route without
-connecting to a service or radio. If none of your installed providers
+A sample contributing provider creates offline sample instances and a route
+without connecting to a service or radio. If none of your installed providers
 contributes a sample, the generated config is empty: install a provider before
 expecting smoke delivery. The smoke result reports a source, receipts and an
 event ID. Inspect durable evidence with:
