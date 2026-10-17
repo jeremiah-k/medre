@@ -239,6 +239,14 @@ class AdapterCapabilities:
     threads: str = "unsupported"
 ```
 
+`identity_encryption` remains a boolean describing native identity-level
+semantics. It MUST NOT be interpreted as a per-message encryption guarantee or
+as an optional/required/disabled conversation-security policy. Those are separate
+axes: a transport can use E2EE while this flag is false. Capability and metadata
+values MUST NOT imply end-to-end confidentiality across a decrypting bridge.
+See [messenger interoperability](../dev/messenger-interoperability.md) for the
+rendering, activity, identity, and negotiation boundaries considered before freeze.
+
 Relation fields (`replies`, `reactions`, `edits`, `deletes`, `threads`) use the
 closed semantic levels `native`, `fallback`, and `unsupported`. Boolean and
 size-limit fields are direct planning facts. `CapabilityDecisionResolver` and
