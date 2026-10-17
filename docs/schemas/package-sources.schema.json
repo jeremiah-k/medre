@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/package-sources.schema.json",
+  "title": "MEDRE adapter package sources",
+  "description": "Explicit deployment aliases; independent of runtime transport discovery.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["adapters"],
+  "properties": {
+    "adapters": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$" },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "null" },
+          { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9]" }
+        ]
+      }
+    }
+  }
+}

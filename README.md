@@ -15,17 +15,21 @@ use the same public contracts.
 ## Get started
 
 The fastest way to explore MEDRE is to install it **directly from Git**. No PyPI
-publication is required. This example installs the Matrix provider alongside
-MEDRE into one persistent uv tool environment:
+publication is required. Install core once, then add the Matrix provider to its
+persistent uv tool environment:
 
 ```bash
-uv tool install \
-  --with 'git+https://github.com/jeremiah-k/medre-adapter-matrix.git' \
-  'git+https://github.com/jeremiah-k/medre.git'
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+medre adapters install matrix
 
 medre version
 medre adapters
 ```
+
+Use `medre adapters sources` to customize adapter repositories and
+`medre update` to update within installed source pins. See
+[package management](docs/ops/package-management.md) for source overrides and
+command previews.
 
 Next, run a **fake, offline** routing test—no homeserver, radio, or credentials
 required:
