@@ -10,7 +10,6 @@ the relevant spec/ops/dev page.
 | Document                                                       | Purpose                                                              |
 | -------------------------------------------------------------- | -------------------------------------------------------------------- |
 | [environment.md](environment.md)                               | Checkout setup, uv/pip workflows, extras, dependency updates, builds |
-| [development-roadmap.md](development-roadmap.md)               | Operator workflows, conversation fidelity, routing, operations, and ecosystem priorities |
 | [testing.md](testing.md)                                       | Test suite structure, patterns, tiers, live-test harness             |
 | [adapter-authoring.md](adapter-authoring.md)                   | How to write a new transport adapter                                 |
 | [adapter-sdk-parity.md](adapter-sdk-parity.md)                 | Installed-SDK contract tiers and open SDK parity gaps                |
