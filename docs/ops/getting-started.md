@@ -181,7 +181,9 @@ uv run --locked medre config bridge --output bridge.yaml
 
 Without an input file this starts from installed providers' fake samples. For
 native connections you already configured, add `--config connections.yaml`.
-The command previews actual route expansion and asks before saving a new file;
+The command previews actual route expansion and, in a terminal, asks before
+saving a new file. Noninteractive use saves directly; add `--preview` to inspect
+without writing. In either mode,
 it does not start adapters or install packages. See
 [guided configuration](guided-configuration.md) for examples, automation, and
 context-specific fake smoke checks. Continue below for the native connection

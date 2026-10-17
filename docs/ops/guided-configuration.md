@@ -36,6 +36,13 @@ are omitted. An existing input configuration retains all its connections.
 5. Read the forward/reverse legs and any loop warnings. Confirm with `yes` to
    save, or decline to leave the filesystem unchanged.
 
+Two-way bridges normally produce loop/cycle warnings because both directions
+are intentional. MEDRE applies native-reference duplicate, self-loop, and
+route-trace guards during delivery; see
+[loop suppression](../spec/routing-delivery.md#5-loop-suppression) for their
+scope. The topology warnings alone do not show whether a native echo will be
+recognized by a provider.
+
 The generated route permits `message.created` and `message.text`. Other event
 kinds need an explicit policy change. Replies and any attachments carried by
 those events continue to follow the existing attachment settings, provider
@@ -80,9 +87,9 @@ medre config bridge --config connections.yaml --output bridge.yaml \
 
 Replace the addresses with your actual context IDs. Repeat `--map` for more
 conversation pairs. A two-way mapping needs an unambiguous reverse address;
-mapping two sources to the same destination is supported only for one-way
-routes. Both endpoints may use the same provider, but this workflow requires
-two different adapter instances.
+mapping two sources to the same destination is supported only for
+`source_to_dest` routes. Both endpoints may use the same provider, but this
+workflow requires two different adapter instances.
 
 Provider configuration restrictions are checked before preview or saving. For
 example, a Matrix instance with an explicit `room_allowlist` must include every
