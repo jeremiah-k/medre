@@ -61,7 +61,7 @@ async def test_wildcard_route_suppresses_unknown_kind_before_rendering(temp_stor
         assert len(outcomes) == 1
         assert outcomes[0].status == "skipped"
         assert outcomes[0].failure_kind is DeliveryFailureKind.CAPABILITY_SUPPRESSED
-        assert not adapter.received_events
+        assert not adapter.delivered_payloads
         receipts = await temp_storage.list_receipts_for_event(event.event_id)
         assert receipts
         assert receipts[-1].capability_field == "event_kind"
