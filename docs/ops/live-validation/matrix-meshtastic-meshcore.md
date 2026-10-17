@@ -5,6 +5,11 @@ Meshtastic, and MeshCore. This guide wires three real adapters with serial as
 the preferred connection method for MeshCore, validates all six routing
 directions, and records evidence at each step.
 
+These are reproducible bench procedures, not a claim that a native service or
+hardware tier passes on every new Git revision. Historical counts and device
+observations below apply only to the dated runs; capture fresh evidence for
+your current core, adapter commits, SDKs, and endpoints.
+
 ## Prerequisites
 
 | Requirement          | Details                                                                                                               |
@@ -14,12 +19,14 @@ directions, and records evidence at each step.
 | Meshtastic radio     | TLora or similar, connected via USB-serial                                                                            |
 | MeshCore device(s)   | One or two MeshCore nodes connected via USB-serial                                                                    |
 | Python               | 3.11 or later                                                                                                         |
-| Package install      | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic medre-adapter-meshcore` |
+| Package install      | `uv sync --locked --extra dev`, then `uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic -e ../medre-adapter-meshcore` from sibling checkouts |
 | Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices                                               |
 | Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated                                                      |
 
 After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI
-steps below. Keep all three transport extras selected when syncing this bridge.
+steps below. Do not run a new `uv sync` after installing the adapters into the core
+checkout: it can remove packages not in the lockfile. Use a locked deployment
+project for repeated native validation.
 
 BLE is available as a fallback connection method for MeshCore. See
 [Bluetooth fallback](#bluetooth-fallback) below.

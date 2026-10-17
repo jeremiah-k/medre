@@ -23,8 +23,8 @@ Declare the core and the adapters your bridge needs in a deployment
 `pyproject.toml` and commit that file **and its `uv.lock`**. The distribution
 name belongs in dependencies; the source belongs in `tool.uv.sources`.
 
-A bridge using MEDRE from Git, Matrix from PyPI, and MeshCore from Git could
-use (replace example commits with real **full commit SHAs**):
+A bridge using MEDRE, Matrix, and MeshCore directly from Git can use
+(replace example commits with real **full commit SHAs**):
 
 ```toml
 [project]
@@ -39,29 +39,29 @@ dependencies = [
 
 [tool.uv.sources]
 medre = { git = "https://github.com/jeremiah-k/medre.git", rev = "FULL_MEDRE_COMMIT_SHA" }
+medre-adapter-matrix = { git = "https://github.com/jeremiah-k/medre-adapter-matrix.git", rev = "FULL_MATRIX_COMMIT_SHA" }
 medre-adapter-meshcore = { git = "https://github.com/jeremiah-k/medre-adapter-meshcore.git", rev = "FULL_MESHCORE_COMMIT_SHA" }
 ```
 
-The Matrix distribution in this example is intentionally **not** assigned a
-Git source: uv resolves it from the configured package index, if published.
-To use Git instead, add:
+When a provider is published on an index, omit its entry from
+`tool.uv.sources` to use that index. Keep the entry when testing a pre-release
+Git revision; an index package cannot be assumed to exist.
+
+To use a locally checked-out adapter instead, replace the Matrix line
+**inside the existing `tool.uv.sources` table** (do not add a second table):
 
 ```toml
-[tool.uv.sources]
-medre-adapter-matrix = { git = "https://github.com/jeremiah-k/medre-adapter-matrix.git", rev = "FULL_MATRIX_COMMIT_SHA" }
-```
-
-_Merge_ that entry into the existing `tool.uv.sources` table; do not create a
-second table in one TOML file. To use a locally checked-out adapter instead:
-
-```toml
-[tool.uv.sources]
 medre-adapter-matrix = { path = "../medre-adapter-matrix", editable = true }
 ```
 
 Run `uv lock` to resolve the complete dependency graph, then `uv sync --locked`
-for reproducible installs. `uv run --no-sync medre adapters check --config
-bridge.yaml` reports missing or broken providers without opening a platform connection. Finish with `medre config check --config bridge.yaml`.
+for reproducible installs. From the project directory, validate the providers
+and configuration without starting a native connection:
+
+```bash
+uv run --locked medre adapters check --config bridge.yaml
+uv run --locked medre config check --config bridge.yaml
+```
 
 For a private Git repository, uv also accepts authenticated SSH Git URLs;
 use your SSH agent or credential helper, not credentials embedded in committed
@@ -89,8 +89,9 @@ Or from a local checkout:
 python -m pip install -e ../medre -e ../medre-adapter-matrix
 ```
 
-When a package is on PyPI, `python -m pip install medre-adapter-matrix`
-works exactly as for any other Python distribution. Other indexes and wheel
+If the distribution is published on PyPI later,
+`python -m pip install medre-adapter-matrix` will work like any other package.
+Until then, use its Git direct URL or sibling checkout. Other indexes and wheel
 files work as well. For pip deployments, use a reviewed, pinned requirements
 file with a constraints/lock workflow appropriate for your deployment.
 

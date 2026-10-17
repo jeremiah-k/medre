@@ -1,8 +1,9 @@
 # Diagnostics and Evidence
 
 Commands assume an activated MEDRE environment; see [installation](install.md).
-For checkout tests, select `--extra dev` along with every required transport
-extra. See [environment setup](../dev/environment.md) for sync behavior.
+For checkout tests, sync core with `--extra dev`, then install the selected
+adapter distributions from sibling checkouts. Core has no transport extras;
+see [environment setup](../dev/environment.md) for sync behavior.
 
 How to collect, interpret, and reason about MEDRE pipeline evidence before and after a run.
 
@@ -430,7 +431,7 @@ separately for each eligible source as needed.
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
+uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -465,8 +466,8 @@ uv run --no-sync pytest -m "" -v
 | Symptom                                             | Likely cause                    | Action                                                                                         |
 | --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
 | Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
 | Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
 
@@ -495,7 +496,9 @@ medre storage status
 medre evidence --storage-path /path/to/medre.db --json | jq '.sections.config_summary.storage_path'
 ```
 
-The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing prerelease schema mismatches, the path reported here is the file to back up and remove.
+The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing pre-release schema mismatches, stop the runtime and preserve
+the SQLite database **and its WAL sidecars** before considering a reset. See
+[pre-release storage reset](operator-workflows.md#pre-release-storage-reset).
 
 ## Evidence Assertion Criteria
 

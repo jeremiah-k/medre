@@ -12,7 +12,7 @@ Setting up and running the MEDRE Meshtastic adapter against a real radio node. P
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Meshtastic node      | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial                           |
 | Python               | 3.11 or later                                                                                                          |
-| Package install      | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install medre-adapter-meshtastic` |
+| Package install      | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install -e ../medre-adapter-meshtastic` |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4403                                                              |
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                        |
 | Radio channel        | A channel index (default 0) not used for critical or emergency communications                                          |
@@ -36,7 +36,7 @@ nc -zv meshtastic.local 4403
 4. Optionally verify with the Meshtastic CLI:
 
 ```bash
-uv sync --locked && uv pip install medre-adapter-meshtastic   # pinned mtjk fork; also provides the meshtastic CLI
+uv sync --locked && uv pip install -e ../medre-adapter-meshtastic   # pinned mtjk fork; also provides the meshtastic CLI
 meshtastic --host meshtastic.local --info
 ```
 

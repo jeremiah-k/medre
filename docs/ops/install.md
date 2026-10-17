@@ -14,7 +14,7 @@ SDK is included in core; adapters are separately installable distributions.
 
 | Goal                                           | Use                                                                         | Repeatability                                      |
 | ---------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| Operate a bridge                               | [Locked uv deployment project](getting-started.md#install-from-git-with-uv) | Pin Git commits and commit `uv.lock`               |
+| Operate a bridge                               | [Locked uv deployment project](getting-started.md#set-up-a-locked-deployment) | Pin Git commits and commit `uv.lock`               |
 | Keep a short `medre` command without a project | `uv tool install` below                                                     | Explicit Git revisions, but no deployment lockfile |
 | Try help or version once                       | `uvx --from ... medre version`                                              | Temporary isolated tool environment                |
 | Develop MEDRE                                  | Editable source checkout below                                              | Core `uv.lock`                                     |
@@ -129,7 +129,7 @@ The CLI's `--storage-path` flag temporarily selects SQLite for smoke, even if
 the sample config uses in-memory storage. A fake `sent` receipt proves local
 pipeline and adapter-fake behavior, **not network or RF reception**. For live
 credentials and native confirmation, follow the [transport setup
-pages](getting-started.md#choose-another-platform) and [operator
+pages](README.md#find-the-right-guide) and [operator
 workflows](operator-workflows.md).
 
 ## Package and test validation

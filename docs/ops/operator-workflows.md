@@ -1,8 +1,9 @@
 # Operator Workflows
 
 Commands assume an activated MEDRE environment; see [installation](install.md).
-For checkout tests, select `--extra dev` along with every required transport
-extra. See [environment setup](../dev/environment.md) for sync behavior.
+For checkout tests, sync core with `--extra dev`, then install the selected
+adapter distributions from sibling checkouts. Core has no transport extras;
+see [environment setup](../dev/environment.md) for sync behavior.
 
 Day-to-day workflows for operating MEDRE: smoke testing, inspect-first investigation, evidence collection, event tracing, failure handling, and replay.
 
@@ -69,51 +70,45 @@ then the database is stale and needs a reset.
 
 ### Step-by-step reset procedure
 
-1. **Find the database path.**
+**Only reset disposable test storage.** Stop MEDRE and any other SQLite readers
+or writers first. Confirm no service, replay job, or inspection process is
+still using the database. A reset loses every queued delivery, event, receipt,
+and native reference in the active store. Investigate pending work and retain
+an archive if you need it later; see [recovery](recovery-and-replay.md).
+
+1. **Resolve the database path.** `medre paths` shows the state directory;
+   `medre storage status --storage-path PATH` inspects the schema. Use the
+   actual SQLite file from your config, not an assumed default path.
+2. **Make an independent archive or backup.** In SQLite WAL mode, committed
+   data may still live in `PATH-wal`. Copying only `PATH` is **not** a complete
+   backup. With the application stopped, preserve the database together with
+   its `-wal` and `-shm` sidecars in a private directory, or use the command
+   below with `--backup`. Keep the resulting backup and its matching sidecars
+   together when inspecting it. Verify the backup before discarding the old
+   state.
+3. **Reset the disposable database deliberately.** With all users stopped,
+   use the built-in guarded reset and its backup option:
 
    ```bash
-   medre storage status --storage-path ~/.local/state/medre/medre.sqlite
+   medre storage reset --storage-path /path/to/medre.sqlite --backup --yes
    ```
 
-   The `--storage-path` flag is required. Use `medre paths` to see the resolved state directory if you don't know the database path.
-
-2. **Back up the old database.**
-
-   ```bash
-   cp ~/.local/state/medre/medre.sqlite ~/.local/state/medre/medre.sqlite.bak
-   ```
-
-   Keep the backup if the old data has investigative value. The backup is a plain SQLite file you can query with `sqlite3`.
-
-3. **Delete the database file.**
-
-   ```bash
-   rm ~/.local/state/medre/medre.sqlite
-   rm ~/.local/state/medre/medre.sqlite-wal 2>/dev/null
-   rm ~/.local/state/medre/medre.sqlite-shm 2>/dev/null
-   ```
-
-   Or use `medre storage reset --storage-path <path> --backup --yes`, which handles the backup and deletion:
-
-   ```bash
-   medre storage reset --storage-path ~/.local/state/medre/medre.sqlite --backup --yes
-   ```
-
-   This creates a timestamped `.bak-<timestamp>.db` copy and removes the original along with any WAL/SHM sidecar files. It does not start the runtime or create a new database.
-
-4. **Rerun MEDRE.**
-
-   ```bash
-   medre run --config your-config.yaml
-   ```
-
-   The next startup creates a fresh database with the current schema shape.
+   This copies the SQLite database and any existing sidecars into timestamped
+   backup paths, then removes the active database and its sidecars. It is a
+   file-level backup, **not an online SQLite snapshot**; do not run it while
+   another process is writing. Avoid hand-deleting SQLite files.
+4. **Start MEDRE against the new empty store** with
+   `medre run --config bridge.yaml`. Confirm its new schema using
+   `medre storage status --storage-path PATH`.
 
 ### What happens to the old data
 
 Nothing from the old database is carried forward. The reset is total. Events, receipts, native refs, and outbox state from the old database are gone. The new database starts empty.
 
-If you need data from the old database, query the backup file with `sqlite3` or `medre inspect --storage-path /path/to/backup.sqlite`.
+If you need old evidence, keep the complete backup set. Inspect a verified
+copy without running MEDRE against it; if a WAL sidecar was backed up, leave
+it beside the copied main file under the matching name. Never treat the
+file-level reset backup as a live SQLite snapshot.
 
 ### When this does not apply
 
@@ -632,7 +627,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
-- The `matrix` extra installed: `uv sync --locked && uv pip install medre-adapter-matrix`.
+- The `matrix` extra installed: `uv sync --locked && uv pip install -e ../medre-adapter-matrix`.
 
 ### Procedure — Matrix
 
@@ -680,7 +675,7 @@ If you have a Meshtastic radio node accessible via TCP or serial, you can valida
 ### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
-- The `meshtastic` extra installed: `uv sync --locked && uv pip install medre-adapter-meshtastic`.
+- The `meshtastic` extra installed: `uv sync --locked && uv pip install -e ../medre-adapter-meshtastic`.
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
 ### Procedure — Meshtastic

@@ -636,7 +636,7 @@ The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
+uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -976,8 +976,8 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 | Symptom                                             | Likely cause                          | Action                                                                                         |
 | --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                                  |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
 | Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                                             |
 | Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                                          |
 | `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules))                  |
@@ -1002,11 +1002,11 @@ snapshot are documented in [external adapters](external-adapters.md).
 `medre smoke` is **one event from one source**, not a proof that every
 configured route works. The JSON report now lists `source_candidates` and
 `coverage_scope: single_source`. When checking a multi-adapter deployment,
-run each listed source separately, with a separate SQLite evidence path:
+run each listed **adapter instance ID** separately, with a separate SQLite evidence path. The IDs below assume the default fake samples; use the IDs from your own report:
 
 ```bash
-medre smoke --config bridge.yaml --source-adapter matrix --storage-path matrix-smoke.sqlite --json
-medre smoke --config bridge.yaml --source-adapter meshtastic --storage-path meshtastic-smoke.sqlite --json
+medre smoke --config bridge.yaml --source-adapter matrix_1 --storage-path matrix-smoke.sqlite --json
+medre smoke --config bridge.yaml --source-adapter meshtastic_1 --storage-path meshtastic-smoke.sqlite --json
 ```
 
 `--source-adapter` rejects unknown, disabled or unrouted sources instead of
