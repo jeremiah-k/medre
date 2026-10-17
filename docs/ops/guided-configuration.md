@@ -29,7 +29,9 @@ are omitted. An existing input configuration retains all its connections.
 3. Enter a source context and its destination context. These are native
    conversation addresses: a room ID, channel index, topic, or another address
    defined by the provider. They remain strings, including numeric channels.
-   Enter additional pairs as needed, then leave the next source context blank.
+   Each prompt shows the provider's declared example address in parentheses;
+   the example is a format reference, not a required value. Enter additional
+   pairs as needed, then leave the next source context blank.
 4. Optionally name each side for attribution. Blank interactive answers keep
    the adapter's label; an explicitly empty `--source-label` or `--dest-label`
    suppresses that label.

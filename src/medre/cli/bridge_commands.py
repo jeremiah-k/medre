@@ -246,9 +246,26 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 "leave the source blank when finished.",
                 file=sys.stderr,
             )
+
+            def context_prompt(aid: str) -> str:
+                spec = get_adapter_spec(adapters[aid][0])
+                example = None
+                if spec is not None and spec.sample_config is not None:
+                    # A broken sample callback must not block authoring over a
+                    # cosmetic hint; provider diagnostics already surfaced it.
+                    try:
+                        example = spec.sample_config.load()().channel
+                    except Exception:
+                        example = None
+                return (
+                    f"{aid} context (e.g. '{example}')" if example else f"{aid} context"
+                )
+
+            source_prompt = context_prompt(source)
+            dest_prompt = context_prompt(dest)
             contexts = []
-            while context := _ask(f"{source} context"):
-                contexts.append((context, _ask(f"{dest} context")))
+            while context := _ask(source_prompt):
+                contexts.append((context, _ask(dest_prompt)))
         source_label = args.source_label
         dest_label = args.dest_label
         if interactive:

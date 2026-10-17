@@ -225,6 +225,28 @@ def test_guided_session_previews_and_confirms_before_writing(
     assert (tmp_path / "bridge.yaml").exists() is saved
 
 
+def test_context_prompts_surface_provider_sample_channels(monkeypatch, tmp_path):
+    install_provider(monkeypatch)
+    path = tmp_path / "input.yaml"
+    path.write_text(CONFIG)
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal("left\nright\nbidirectional\nroom-A\nroom-B\n\n\n\nyes\n"),
+    )
+    stdout, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(path),
+        "--output",
+        str(tmp_path / "bridge.yaml"),
+        "--json",
+    )
+    assert code == 0, stderr
+    assert "left context (e.g. 'opaque-room')" in stderr
+    assert "right context (e.g. 'opaque-room')" in stderr
+
+
 def test_native_adapter_implementations_are_not_loaded(monkeypatch, tmp_path):
     from medre.adapter_spec import SymbolRef
 
