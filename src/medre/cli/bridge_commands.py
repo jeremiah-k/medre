@@ -94,7 +94,13 @@ def _command_example(*args: str) -> str:
     """Render a copyable platform-native command even for paths with spaces."""
     if os.name == "nt":
         # PowerShell single quotes preserve &, $, backticks and embedded quotes.
-        return "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in args)
+        def literal(arg: str) -> str:
+            if re.fullmatch(r"[A-Za-z0-9_./:\\-]+", arg):
+                return arg
+            return "'" + arg.replace("'", "''") + "'"
+
+        command = " ".join(literal(arg) for arg in args)
+        return "& " + command if args and literal(args[0]).startswith("'") else command
     return shlex.join(args)
 
 
@@ -486,6 +492,11 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     continue
                 seen_sources.add(leg.source_adapter_id)
                 if leg.source_channel is not None:
+                    context_args = (
+                        (f"--source-context={leg.source_channel}",)
+                        if leg.source_channel.startswith("-")
+                        else ("--source-context", leg.source_channel)
+                    )
                     print(
                         "  "
                         + _command_example(
@@ -495,8 +506,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                             str(output),
                             "--source-adapter",
                             leg.source_adapter_id,
-                            "--source-context",
-                            leg.source_channel,
+                            *context_args,
                         ),
                         file=sys.stderr,
                     )

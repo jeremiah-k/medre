@@ -18,6 +18,12 @@ core revision. Do not make new adapter tests require an unrelated core UI change
 Keep core-only tests SDK-free; declare provider-dependent integration tests as
 `medre-test-tier: compatibility` and exercise both layers when a contract changes.
 
+For generated commands, verify shell argument round trips rather than imposing
+one platform's quoting style on every platform. Keep behavior tests runnable
+without providers, then use the paired compatibility suite for native contracts.
+Change tests with their owning behavior in the same commit; do not move an
+unrelated assertion into a dependent repository just to make a candidate pass.
+
 ## Qualify a candidate pair without persistent overrides
 
 Commit and push each candidate so remote CI can fetch its exact revision. Keep

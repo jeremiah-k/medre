@@ -136,7 +136,30 @@ def test_windows_next_steps_quote_powershell_metacharacters(monkeypatch):
 
     monkeypatch.setattr(bridge_commands, "os", SimpleNamespace(name="nt"))
     command = bridge_commands._command_example("medre", "--config", "a&b's $file.yaml")
-    assert command == "& 'medre' '--config' 'a&b''s $file.yaml'"
+    assert command == "medre --config 'a&b''s $file.yaml'"
+
+
+def test_suggested_smoke_keeps_option_like_contexts_as_values(tmp_path, monkeypatch):
+    _, stderr, code = run_guided(
+        tmp_path,
+        monkeypatch,
+        "left\nright\nbidirectional\n--room\nroom-B\n\n\n\nyes\n",
+    )
+    assert code == 0, stderr
+    assert "--source-context=--room" in stderr
+    stdout, stderr, code = _run_cli_raw(
+        "smoke",
+        "--config",
+        str(tmp_path / "bridge.yaml"),
+        "--source-adapter",
+        "left",
+        "--source-context=--room",
+        "--json",
+    )
+    import json
+
+    assert code == 0, stderr
+    assert json.loads(stdout)["source_context"] == "--room"
 
 
 def test_disabled_text_route_does_not_block_a_new_active_bridge():
@@ -186,7 +209,12 @@ def test_next_step_command_round_trips_shell_metacharacters():
         invocation = [shell, "-NoProfile", "-Command"]
     else:
         invocation = ["sh", "-c"]
-    arguments = ["--config", "a&b's $file `x`;quoted.yaml"]
+    arguments = [
+        "--config",
+        "a&b's $file `x`;quoted.yaml",
+        "001",
+        "--source-context=--room",
+    ]
     command = _command_example(
         sys.executable,
         "-c",
