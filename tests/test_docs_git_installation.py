@@ -59,7 +59,7 @@ def test_readme_has_a_runnable_git_first_path_and_data_warning() -> None:
     assert "uv tool install" in readme
     assert "medre config check --config sample.yaml" in readme
     assert "medre smoke --config sample.yaml" in readme
-    assert "not** remote delivery" in readme
+    assert "**not** remote" in readme
     assert "back up persistent state" in readme
     assert "not production-ready" in readme
     assert "docs/ops/getting-started.md" in readme

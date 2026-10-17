@@ -1,8 +1,9 @@
 # LXMF Transport Setup
 
-For source checkouts, run the package commands below and then activate `.venv`
-with `source .venv/bin/activate` before invoking CLI tools. For pip and built-package
-installation, see [installation](../install.md).
+Install the provider in the same environment as MEDRE using the
+[installation guide](../install.md). Activate a project environment before
+invoking CLI tools; persistent uv tools already expose `medre` on PATH.
+The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE LXMF adapter against a real Reticulum network. Pre-release — no stable public API.
 
@@ -14,7 +15,7 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 | LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                                                         |
 | Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                                                              |
 | Python              | 3.11 or later                                                                                                                                                 |
-| Package install     | Core: `uv sync --locked` (fake mode). Real connectivity: `uv sync --locked && uv pip install medre-adapter-lxmf` (exact LXMF/RNS pins from project metadata). |
+| Package install     | Install lxmf in the MEDRE environment; see [installation](../install.md) (exact LXMF/RNS pins from project metadata). |
 | Network access      | At least one Reticulum transport interface configured                                                                                                         |
 
 Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.

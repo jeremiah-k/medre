@@ -5,6 +5,11 @@ Meshtastic using real hardware. This guide wires a Matrix homeserver adapter to
 a Meshtastic serial radio with a bidirectional route, validates both directions,
 and explains what success means at each step.
 
+These are reproducible bench procedures, not a claim that a native service or
+hardware tier passes on every new Git revision. Historical counts and device
+observations below apply only to the dated runs; capture fresh evidence for
+your current core, adapter commits, SDKs, and endpoints.
+
 ## Prerequisites
 
 | Requirement        | Details                                                                                        |
@@ -13,7 +18,7 @@ and explains what success means at each step.
 | Matrix bot account | Dedicated user, not your personal account                                                      |
 | Meshtastic radio   | Connected via USB-serial (`/dev/ttyACM0` typical)                                              |
 | Python             | 3.11 or later                                                                                  |
-| Package install    | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Package install    | Install matrix, meshtastic in the MEDRE environment; see [installation](../install.md) |
 | Serial port access | User must have read/write on the tty device (e.g. `dialout` group on Linux)                    |
 
 After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI

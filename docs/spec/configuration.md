@@ -348,7 +348,7 @@ Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 The full normative semantics for route matching, policy evaluation, and
 delivery fanout live in [routing-delivery.md](routing-delivery.md). The
 operator-facing YAML examples, including policy and retry tables, live in
-[Configuration Reference §routes](../ops/configuration.md#routesroute_id).
+[Configuration Reference §routes](../ops/configuration.md).
 Programmatically constructed `RouteConfig` values are subject to the same
 runtime-semantic invariants before expansion: both adapter sides MUST be
 non-empty, structured destinations MUST have exactly one destination adapter

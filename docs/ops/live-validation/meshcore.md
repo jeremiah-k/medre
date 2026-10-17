@@ -2,10 +2,15 @@
 
 Live smoke test procedures for the MeshCore adapter against a real radio node.
 
+These are reproducible bench procedures, not a claim that a native service or
+hardware tier passes on every new Git revision. Historical counts and device
+observations below apply only to the dated runs; capture fresh evidence for
+your current core, adapter commits, SDKs, and endpoints.
+
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 source .venv/bin/activate
 
 export MESHCORE_CONNECTION_TYPE="tcp"
@@ -190,7 +195,7 @@ Before hardware validation, run the real pinned MeshCore SDK against MEDRE's
 local companion-protocol endpoint:
 
 ```bash
-uv sync --locked --extra dev && uv pip install medre-adapter-meshcore
+# Install meshcore in the MEDRE environment; see [installation](../install.md)
 pytest ../medre-adapter-meshcore/tests/test_meshcore_local_integration.py \
   -m "local_integration and meshcore_sdk and not soak" -v
 ```

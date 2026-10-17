@@ -91,7 +91,7 @@ run sessions. Real configurations are rejected by fake smoke.
 
 Use `--config` with a file containing your existing adapter connections. Native
 connection fields and prerequisites stay with their providers; see
-[provider setup](getting-started.md#build-a-real-two-way-route). The workflow does not request or
+[transport setup guides](README.md#find-the-right-guide). The workflow does not request or
 display connection credentials. Existing fields, literal secrets, and path
 placeholders are retained in the new file; environment values are not copied.
 The route plan includes the current environment overrides, just like

@@ -36,7 +36,7 @@ in a document under this tree.
 | [configuration.md](configuration.md)                       | YAML config, XDG paths, env overrides, config model             |
 | [security-privacy.md](security-privacy.md)                 | Security model, credential handling, privacy boundaries         |
 | [diagnostics-evidence.md](diagnostics-evidence.md)         | Observability, diagnostics snapshots, evidence classification   |
-| [package-management.md](package-management.md) | Explicit deployment helpers and source ownership |
+| [package-management.md](package-management.md)                 | Explicit deployment helpers and source ownership                |
 | [conformance.md](conformance.md)                           | Conformance definition, test categories, authority rules        |
 
 ### Transport Profiles

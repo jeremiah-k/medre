@@ -14,7 +14,7 @@ SDK is included in core; adapters are separately installable distributions.
 
 | Goal                                           | Use                                                                         | Repeatability                                      |
 | ---------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| Operate a bridge                               | [Locked uv deployment project](getting-started.md#install-from-git-with-uv) | Pin Git commits and commit `uv.lock`               |
+| Operate a bridge                               | [Locked uv deployment project](getting-started.md#set-up-a-locked-deployment) | Pin Git commits and commit `uv.lock`               |
 | Keep a short `medre` command without a project | `uv tool install` below                                                     | Explicit Git revisions, but no deployment lockfile |
 | Try help or version once                       | `uvx --from ... medre version`                                              | Temporary isolated tool environment                |
 | Develop MEDRE                                  | Editable source checkout below                                              | Core `uv.lock`                                     |
@@ -79,9 +79,8 @@ uv run --no-sync medre version
 ```
 
 This creates `.venv`, installs core in editable mode, and installs test/build
-tools via the `dev` extra. For adapter work, use sibling checkouts and install
-providers after the core sync, or create a separate locked deployment project
-with local editable sources. A later core `uv sync` can remove separately
+tools via the `dev` extra. For adapter work, use Git sources or editable checkouts at any location;
+see the [development environment guide](../dev/environment.md). A later core `uv sync` can remove separately
 installed providers. See [development environment](../dev/environment.md).
 
 Standard pip remains supported in a standalone virtualenv:
@@ -91,7 +90,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 python -m pip install -e ".[dev]"
-python -m pip install -e ../medre-adapter-matrix
+python -m pip install 'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main'
 ```
 
 For an existing environment or CI artifact, use
@@ -129,7 +128,7 @@ The CLI's `--storage-path` flag temporarily selects SQLite for smoke, even if
 the sample config uses in-memory storage. A fake `sent` receipt proves local
 pipeline and adapter-fake behavior, **not network or RF reception**. For live
 credentials and native confirmation, follow the [transport setup
-pages](getting-started.md#choose-another-platform) and [operator
+pages](README.md#find-the-right-guide) and [operator
 workflows](operator-workflows.md).
 
 ## Package and test validation

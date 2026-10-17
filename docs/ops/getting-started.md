@@ -1,295 +1,175 @@
 # Getting Started
 
-MEDRE connects conversations across independently installed platforms. You choose
-the connections, the messages that may cross them, and how their source appears
-to recipients. Core handles routing, persistence, lifecycle, and delivery
-evidence; each adapter owns its platform's configuration, protocol, and SDK.
+MEDRE connects conversations on Matrix, Meshtastic, MeshCore, and LXMF. You
+install the providers you need, choose two adapter instances and their
+conversation addresses, then preview the route **before starting a service**.
 
-Start with the guided bridge builder on offline samples to learn the commands,
-then connect real accounts or devices. The first example uses **Matrix +
-Meshtastic**; other providers work through the same core. For a persistent
-deployment, use reviewed Git revisions and keep its `uv.lock`.
+**New to MEDRE?** Follow the offline walkthrough first. It needs no accounts,
+radio hardware, or credentials. For native connections, keep a separate,
+commit-pinned [deployment project](#set-up-a-locked-deployment).
 
-> **Testing is welcome; schemas are still evolving.** MEDRE works with real
-> services and radios, but configuration, event, and SQLite schemas can change
-> before the first release. Stop the bridge and back up private state before
-> upgrading. Some revisions may require a new **disposable test database**;
-> deleting an existing database may lose evidence or pending outbound work.
-> Never remove a live database as a troubleshooting shortcut.
+> **Working pre-release; testers welcome, not production-ready.** Transport
+> behavior has been exercised, but config, event, and SQLite layouts may change
+> between revisions. Use disposable test state initially. Before upgrading,
+> stop MEDRE and back up configuration, credentials, and the **complete** SQLite
+> database including its WAL sidecars. Never delete a database containing
+> pending deliveries as an upgrade workaround. See
+> [pre-release storage handling](operator-workflows.md#pre-release-storage-reset).
 
-## Install from Git with uv
+## 1. Install MEDRE and two providers
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-A small deployment project keeps MEDRE and your chosen adapters in **one Python
-environment**, with their complete dependency graph recorded in a lockfile.
-You do not need a source checkout or a published PyPI release.
+For an initial trial, the simplest option is a persistent command installed
+**directly from Git**—no PyPI release or source checkout required:
 
-Core and first-party adapter implementations are available on their respective
-main branches. Each adapter remains an independently installed package.
+```bash
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+medre adapters install matrix meshtastic
+medre adapters
+```
+
+If the `medre` command is not found, run `uv tool update-shell` and open a new
+shell. On **Windows**, `medre adapters install` prints a uv command instead of
+replacing a running `medre.exe`; run the printed command from PowerShell after
+MEDRE exits. This is an intentional handoff, not an installation success.
+
+The tool manages its **own** Python environment. Providers installed into a
+separate project or virtualenv will not be visible to it. Use
+[package management](package-management.md) to inspect sources, change extras,
+or remove providers. For longer-running bridges, prefer the
+[locked deployment](#set-up-a-locked-deployment) below.
+
+## 2. Verify routing offline
+
+Generate a configuration from the installed providers and run one fake event
+through the pipeline:
+
+```bash
+medre config sample > sample.yaml
+medre config check --config sample.yaml
+medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
+```
+
+**Expected:** the smoke report says `passed` and names the source, target, and
+persisted delivery evidence. A fake `sent` receipt verifies local routing and
+storage, **not** Matrix server acceptance or radio reception. Smoke covers one
+source event. The generated sample is a **one-way diagnostic route**, not a
+ready-to-run two-way bridge; construct a bidirectional route in step 3. Repeat
+smoke with `--source-adapter INSTANCE_ID` for each eligible route source, and
+`--source-context CONTEXT` for explicit context mappings. If no installed
+provider contributes a fake sample, the generated config contains no route:
+install a sample-capable provider before running smoke.
+
+Keep `sample.yaml` and `smoke.sqlite3` out of source control. Inspect the result
+using the reported event ID:
+
+```bash
+medre inspect event EVENT_ID --storage-path smoke.sqlite3
+medre inspect receipts --event EVENT_ID --storage-path smoke.sqlite3
+```
+
+## 3. Build a route using the wizard
+
+```bash
+medre config bridge --output bridge.yaml
+```
+
+Choose the source and destination adapter **instance IDs** from the numbered
+menu (for example, `matrix_1` and `meshtastic_1`). Choose one-way or
+bidirectional forwarding, then map their **conversation contexts**: a Matrix
+room ID like `!room:server` and a Meshtastic channel index like `0`. The
+prompts show address examples; use your real addresses when connecting native
+services. Review the compiled forward and reverse legs before confirming.
+
+A bidirectional route usually produces a topology-cycle warning: that is a
+prompt to review loop controls, not proof of a delivery loop. The builder saves
+a **new** YAML file and never overwrites your input configuration.
+
+After saving, use the exact validation and context-specific smoke commands
+printed by the wizard. You can also review the plan directly:
+
+```bash
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+```
+
+A successful preview proves configuration and route-plan consistency; it does
+not start adapters or test live delivery. See
+[guided configuration](guided-configuration.md) for repeated `--map` pairs,
+noninteractive use, source contexts, and existing native connections.
+
+## 4. Connect real services or devices
+
+Use the transport-specific setup instructions for credentials, identity
+storage, device permissions, encryption, and native context formats:
+
+| Provider | Configure | Conversation example |
+| --- | --- | --- |
+| [Matrix](transport-setup/matrix.md) | Account, room membership, optional E2EE | Room ID `!room:server` (not a `#` alias) |
+| [Meshtastic](transport-setup/meshtastic.md) | Node connection and RF provisioning | Channel index `0` |
+| [MeshCore](transport-setup/meshcore.md) | Companion connection, contacts and channels | Provider-declared contact or channel |
+| [LXMF](transport-setup/lxmf.md) | Reticulum identity, RNS configuration and destination | Native LXMF destination |
+
+Put native adapter instances in `connections.yaml`, then run the same wizard
+without exposing secrets at its prompts:
+
+```bash
+medre config bridge --config connections.yaml --output bridge.yaml
+medre adapters check --config bridge.yaml
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+```
+
+Configure tokens through environment variables or a service manager rather
+than pasting them into shared files. Test delivery **in each direction from an
+independent recipient**; a local send receipt is not proof of remote receipt.
+For operation, monitoring, and recovery, see [running MEDRE](running-medre.md)
+and [operator workflows](operator-workflows.md).
+
+## Set up a locked deployment
+
+For a bridge you intend to keep running, create a uv project and pin the
+reviewed MEDRE and provider Git commits. `uv.lock` captures the resolved
+packages, and `uv run --locked` executes against that project's environment.
+The following is a **starting example** using moving branches; replace each
+`@main` with the full reviewed commit SHA and keep the resulting lockfile.
 
 ```bash
 uv init --bare --python 3.13 my-medre-bridge
 cd my-medre-bridge
-mkdir -p .medre
-chmod 700 .medre
-export MEDRE_HOME="$PWD/.medre"
-printf '.medre/\n' >> .gitignore
 uv add \
   'medre @ git+https://github.com/jeremiah-k/medre.git@main' \
   'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
   'medre-adapter-meshtastic @ git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@main'
-
+uv sync --locked
 uv run --locked medre version
 uv run --locked medre adapters
 ```
 
-This example installs Matrix and Meshtastic with their SDK dependencies.
-Choose only the adapters you need. The [adapter installation guide](adapter-installation.md)
-covers Git commit pins, local checkouts, private sources, and package indexes.
-For a repeatable deployment, replace moving refs with reviewed full commit SHAs
-and retain both `pyproject.toml` and `uv.lock`. Core's
-[compatibility manifest](../../.github/adapter-compatibility.json) records the
-adapter revisions tested together in CI.
+You can now prefix the tutorial's `medre` commands with `uv run --locked` from
+this project, or activate `.venv` and run plain `medre`. Never mix `uv tool`
+package changes with a project's dependency graph; use `uv add`, `uv remove`,
+and `uv sync --locked` instead. The full
+[adapter-source reference](adapter-installation.md) covers local checkouts,
+private Git servers, package indexes, and extras such as Matrix E2EE.
 
-Here, uv manages Python, the virtual environment, and packages. Run commands
-with `uv run --locked` from this directory; there is no activation step. If you
-prefer typing **`medre`** directly, run `uv sync --locked` and activate the
-project's environment (`source .venv/bin/activate` on Bash or
-`.\.venv\Scripts\Activate.ps1` in PowerShell). Alternatively invoke
-`.venv/bin/medre` directly from a service. Keep credentials, state databases,
-and generated private configs out of version control.
-
-For a persistent, globally available CLI without a project, see
-[uv tool install](install.md#persistent-command-without-uv-run). That is useful
-for trials, but unlike a project it does not give each bridge a reviewed lockfile
-and its own dependency environment.
-
-`MEDRE_HOME` keeps this bridge's state and credentials separate from other
-deployments. Set it to the same private directory in the service environment
-when running unattended. The `.gitignore` entry keeps that directory out of Git.
-
-The shell examples above use POSIX syntax. In PowerShell, replace the
-mkdir/chmod/export/printf lines with the following, choosing a directory whose
-Windows permissions restrict access to the bridge operator:
-
-```powershell
-New-Item -ItemType Directory -Force .medre | Out-Null
-$env:MEDRE_HOME = Join-Path $PWD ".medre"
-Add-Content .gitignore ".medre/"
-```
-
-For a one-off CLI trial, `uvx` is also supported. It runs in an isolated tool
-environment and does not inherit the adapters from your deployment. For details,
-see [installation options](install.md#persistent-command-without-uv-run).
-
-## Prove the installation without connecting anything
-
-Installed first-party providers contribute offline samples. Samples keep
-`adapter_kind: fake` in YAML and exercise routing and storage without opening
-a homeserver or device connection.
+For a private state directory in Bash:
 
 ```bash
-uv run --locked medre config sample > sample.yaml
-uv run --locked medre adapters check --config sample.yaml
-uv run --locked medre config check --config sample.yaml
-uv run --locked medre smoke --config sample.yaml --storage-path .medre/smoke.sqlite3 --json
+mkdir -p .medre
+chmod 700 .medre
+export MEDRE_HOME="$PWD/.medre"
+printf '.medre/\n' >> .gitignore
 ```
 
-The smoke report should show status passed, a source adapter, matched targets,
-and delivery receipts. It also reports `source_candidates`: a normal smoke
-exercises one source. For configurations with multiple source adapters, repeat
-with `--source-adapter` and another eligible **instance ID** to cover each source.
-A pass proves the fake pipeline;
-it does not prove network access or recipient delivery.
+In PowerShell, create `.medre`, restrict its ACL to the bridge operator, then
+set `$env:MEDRE_HOME = Join-Path $PWD '.medre'`. Set the same absolute path in
+your service environment; also exclude YAML secrets and SQLite evidence from
+Git. See [path configuration](configuration.md#medre_home-single-directory-mode).
 
-With no sample-contributing provider installed, the sample has empty adapter
-and route sections and prints installation guidance. Install a provider before
-expecting a routing smoke to pass.
+## Need help?
 
-## Learn the pieces
-
-| Concept              | Meaning                                                      | Example                                                               |
-| -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
-| Provider / transport | An installed package registering a platform type.            | medre-adapter-matrix registers matrix.                                |
-| Adapter instance     | One configured connection with a unique ID.                  | bot connects one Matrix account; node connects one Meshtastic device. |
-| Canonical event      | Core's platform-neutral representation of an incoming event. | A message, its native reference, and source metadata.                 |
-| Context              | A platform-owned address for a conversation.                 | A Matrix room ID or a Meshtastic channel index.                       |
-| Route                | A rule connecting adapter instances and contexts.            | Room A to channel 0, with a reverse leg.                              |
-| Receipt              | Evidence of an attempted or suppressed delivery.             | Accepted by a local transport, accepted by Matrix, or policy denied.  |
-
-Adapters decode native events and render outbound events. Core does not need to
-know whether a future provider uses a mesh, a decentralized chat system, or a
-hosted service. Community authors choose their own repositories, package names,
-and distribution methods.
-
-## Build a bridge with guidance
-
-Choose adapter instances, conversation contexts, direction, and attribution in
-one offline workflow:
-
-```bash
-uv run --locked medre config bridge --output bridge.yaml
-```
-
-Without an input file this starts from installed providers' offline samples.
-For native connections you already configured, add `--config connections.yaml`.
-In a terminal, the instance and direction prompts show numbered choices and
-accept either the number or the exact ID; Enter keeps the `bidirectional`
-default, and each context pair is validated as you enter it — a rejection
-re-prompts with the provider's reason. Press Ctrl+C at any prompt to cancel
-without saving. The command previews actual route expansion and, in a
-terminal, asks before saving a new file; afterwards it prints copyable
-`medre config check`, `medre routes plan`, and fake smoke commands carrying
-the saved path. Noninteractive use saves directly; add `--preview` to inspect
-without writing. In either mode,
-it does not start adapters or install packages. See
-[guided configuration](guided-configuration.md) for examples, automation, and
-context-specific fake smoke checks. Continue below for the native connection
-settings and a hand-written route example.
-
-## Build a real two-way route
-
-The hand-written route below is the native reference. Once your connection
-settings exist in a file,
-`medre config bridge --config connections.yaml --output bridge.yaml`
-produces the same result interactively.
-
-Save this as `bridge.yaml` in your deployment directory. Replace the homeserver,
-bot user ID, room ID, and serial device path with your own values. Invite the
-bot to a private test room. Provision matching Meshtastic radio settings and
-channel keys on your nodes separately; MEDRE connects to the gateway and selects
-a channel, rather than configuring its RF region or keys.
-
-```yaml
-runtime:
-  name: my-bridge
-
-storage:
-  backend: sqlite
-  path: "{state}/medre.sqlite3"
-
-adapters:
-  matrix:
-    bot:
-      adapter_kind: real
-      homeserver: https://matrix.example.org
-      user_id: "@bridge:example.org"
-      access_token: "" # Supplied through the environment below.
-      encryption_mode: plaintext
-      room_allowlist:
-        - "!test-room:example.org"
-      relay_prefix: "[{origin_label}] {sender}: "
-  meshtastic:
-    node:
-      adapter_kind: real
-      connection_type: serial
-      serial_port: /dev/ttyACM0
-      message_delay_seconds: 2.2
-      radio_relay_prefix: "[{origin_label}] {sender}: "
-
-routes:
-  conversation:
-    source_adapters: [bot]
-    dest_adapters: [node]
-    directionality: bidirectional
-    context_map:
-      "!test-room:example.org":
-        dest_context: "0"
-        source_origin_label: Matrix
-        dest_origin_label: Local mesh
-    policy:
-      allowed_event_types: [message.created, message.text]
-```
-
-The mapping key is a context on the source adapter. This route forwards the
-Matrix room to Meshtastic channel 0 and creates a reverse leg from that channel
-back to the room. Other rooms and channels have no matching leg.
-
-Labels describe the originating side: Matrix-to-mesh text gets a Matrix label;
-mesh-to-Matrix text gets a Local mesh label. Prefixes affect presentation, not
-sender identity or authorization. Native reply support and text limits depend on
-the destination provider; delivery evidence records fallback and truncation.
-
-For encrypted Matrix rooms, add the Matrix `e2e` extra to your deployment,
-configure `encryption_mode: e2ee_required`, and follow the
-[Matrix setup guide](transport-setup/matrix.md) before starting. The plaintext
-example above is for an unencrypted test room.
-
-Supply the bot token through your shell's secret mechanism or service manager.
-For an interactive Bash shell, this avoids placing it in shell history:
-
-```bash
-read -r -s -p 'Matrix bot token: ' MEDRE_ADAPTER__BOT__ACCESS_TOKEN
-export MEDRE_ADAPTER__BOT__ACCESS_TOKEN
-echo
-uv run --locked medre adapters check --config bridge.yaml
-uv run --locked medre config check --config bridge.yaml
-uv run --locked medre run --config bridge.yaml
-```
-
-On other shells or operating systems, set the same environment variable using
-their supported secret input mechanism. Environment tokens use the adapter
-instance ID, not the transport name.
-
-Send a short message as a separate Matrix user and confirm it on a second
-Meshtastic node. Reply from that node and confirm the return event in Matrix.
-This checks both native boundaries; a successful local send receipt alone is
-not proof that the second node received the packet.
-
-## Extend the bridge deliberately
-
-- **Another room/channel:** add another `context_map` entry with its own room ID
-  and channel index. Use per-entry labels when recipients need to distinguish
-  conversations.
-- **One-way forwarding:** use `directionality: source_to_dest`. This is useful for
-  announcements or multiple sources sharing one destination.
-- **Fanout:** add separate routes to other adapter instances. Each target keeps
-  its own delivery outcome, capability decisions, and rendering limits.
-- **Restrict senders or event kinds:** add route policy allowlists. Policy on a
-  bidirectional declaration applies to both legs; use separate one-way routes
-  when each direction needs different rules.
-- **A native addressed destination:** use a structured destination supported by
-  the owning provider, such as an LXMF destination hash. Its provider supplies
-  validation; core does not carry a fixed catalog of platform addresses.
-
-See [configuration](configuration.md) for complete route forms, environment
-overrides, and policy rules. The
-[multi-context example](../../examples/configs/live-matrix-meshtastic-channel-map.yaml)
-shows several channels and directional alternatives.
-
-## Inspect what happened
-
-The runtime prints resolved paths at startup; `medre paths` also shows them.
-Use the database path from your deployment when inspecting persistent evidence:
-
-```bash
-uv run --locked medre inspect event EVENT_ID --storage-path /path/to/medre.sqlite3
-uv run --locked medre inspect receipts --event EVENT_ID --storage-path /path/to/medre.sqlite3
-```
-
-Distinguish local queue acceptance, local transport handoff, and remote service
-acceptance. RF reception needs an independent recipient observation; encrypted
-LXMF delivery has its own native confirmation behavior.
-[Operator workflows](operator-workflows.md) explains tracing, replay, and
-recovery without guessing from a successful send log.
-
-For optional AI-assisted setup help, see [AI-assisted setup](ai-assisted-setup.md).
-
-## Choose another platform
-
-| Provider repository                                                  | What it owns                                                                 | Setup                                             |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------- |
-| [Matrix](https://github.com/jeremiah-k/medre-adapter-matrix)         | Matrix SDK, accounts, rooms, encryption, metadata rendering, and fake.       | [Matrix setup](transport-setup/matrix.md)         |
-| [Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Serial/TCP/BLE node connection, packets, channels, and fake.                 | [Meshtastic setup](transport-setup/meshtastic.md) |
-| [MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore)     | Companion connection, channel/contact addressing, firmware limits, and fake. | [MeshCore setup](transport-setup/meshcore.md)     |
-| [LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf)             | Reticulum/LXMF identities, destinations, native delivery, and fake.          | [LXMF setup](transport-setup/lxmf.md)             |
-
-Each repository owns its dependencies and licensing. Install only the providers
-your deployment uses, and review their licenses and upstream dependencies when
-redistributing. Separating a provider repository does not itself change the
-license obligations of combining packages.
-
-To build a new provider, start with [adapter authoring](../dev/adapter-authoring.md).
-Briar, SimpleX Chat, and other privacy-oriented platforms are possible future
-integrations, not currently implemented providers. The same public contracts
-also allow authors to integrate proprietary platforms.
+[AI-assisted setup](ai-assisted-setup.md) is optional. An assistant can explain
+prompts and help review a config without ever seeing your keys or database.
+For command or SDK failures, use [troubleshooting](troubleshooting.md) and
+share sanitized diagnostics with your exact core/adapter revisions.

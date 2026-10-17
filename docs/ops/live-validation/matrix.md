@@ -2,10 +2,15 @@
 
 Live smoke test procedures for the Matrix adapter against a real homeserver.
 
+These are reproducible bench procedures, not a claim that a native service or
+hardware tier passes on every new Git revision. Historical counts and device
+observations below apply only to the dated runs; capture fresh evidence for
+your current core, adapter commits, SDKs, and endpoints.
+
 ## Quick Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install medre-adapter-matrix
+# Install matrix in the MEDRE environment; see [installation](../install.md)
 source .venv/bin/activate
 
 export MATRIX_HOMESERVER=http://localhost:8008
@@ -23,7 +28,7 @@ Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 No external homeserver needed. Uses a local Docker Synapse container.
 
 ```bash
-uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
+# Install matrix, meshtastic in the MEDRE environment; see [installation](../install.md)
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -42,7 +47,7 @@ Expected: 15 passed, 1 xfailed (third-party inbound requires second user during 
 ## E2EE Live Validation
 
 ```bash
-uv sync --locked --extra dev && uv pip install 'medre-adapter-matrix[e2e]'
+# Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)
 
 # Docker E2EE harness
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
@@ -143,8 +148,9 @@ pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py
 pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py -m matrix_sdk
 ```
 
-With the Matrix extra installed, the SDK-contract test verifies the pinned
-application-owned Classic Sync surfaces. The storage tests characterize the crash
+With the Matrix provider installed in the test environment, the SDK-contract
+test verifies the pinned application-owned Classic Sync surfaces. The storage
+tests characterize the crash
 windows independently of a homeserver: admission is atomic, pending work and the
 committed cursor survive restart, stale leases are reclaimable, and native replay
 resolves to the original canonical identity.

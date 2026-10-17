@@ -1,8 +1,9 @@
 # Diagnostics and Evidence
 
 Commands assume an activated MEDRE environment; see [installation](install.md).
-For checkout tests, select `--extra dev` along with every required transport
-extra. See [environment setup](../dev/environment.md) for sync behavior.
+For checkout tests, sync core with `--extra dev`, then install the selected
+adapter distributions. Core has no transport extras;
+see [environment setup](../dev/environment.md) for sync behavior.
 
 How to collect, interpret, and reason about MEDRE pipeline evidence before and after a run.
 
@@ -59,7 +60,7 @@ live-validation pages as history and are not re-claimed here.
 
 Run these commands in order. Each writes JSON to stdout. Redirect to files for the bundle archive.
 
-### Ephemeral Smoke (no files left behind)
+### Default Smoke (report file; configuration-selected storage)
 
 ```bash
 medre smoke --json > bundle-smoke.json
@@ -68,11 +69,20 @@ medre smoke --json > bundle-smoke.json
 
 ### Persistent Smoke (inspectable after exit)
 
-Use a config with `storage.backend = "sqlite"` and `storage.path`:
+Use a sample-contributing provider and choose a SQLite file with
+`--storage-path`; no config edit is needed:
 
 ```bash
-medre smoke --config /tmp/medre-sqlite.yaml --json > bundle-smoke-persist.json
+medre config sample > /tmp/medre-smoke.yaml
+medre smoke --config /tmp/medre-smoke.yaml \
+  --storage-path /tmp/medre-smoke.db --json > bundle-smoke-persist.json
 ```
+
+Ordinary fake smoke injects a canonical event directly into the core pipeline.
+It validates local routing, rendering, receipts, and persistence, **not** native
+inbound codec decoding, transport callbacks, or recipient reception. Repeat
+with `--source-adapter INSTANCE_ID` and, for mapped contexts,
+`--source-context CONTEXT` to exercise other eligible sources.
 
 ### Failure Drills (all available drills)
 
@@ -81,7 +91,7 @@ for drill in renderer_failure adapter_permanent_failure \
   adapter_transient_failure capacity_rejection shutdown_rejection \
   replay_duplicate_risk degraded_live_health; do
   medre smoke --drill "$drill" \
-    --config /tmp/medre-sqlite.yaml --json \
+    --config /tmp/medre-smoke.yaml --json \
     >> bundle-drills.jsonl
 done
 ```
@@ -92,7 +102,7 @@ done
 for drill in bad_route_config all_adapters_build_fail \
   partial_degraded_startup all_adapters_start_fail; do
   medre smoke --drill "$drill" \
-    --config /tmp/medre-sqlite.yaml --json \
+    --config /tmp/medre-smoke.yaml --json \
     >> bundle-preruntime.jsonl
 done
 ```
@@ -145,7 +155,7 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
 | Command                                                                        | Storage           | Starts adapters    | Output                           | Exit codes                              |
 | ------------------------------------------------------------------------------ | ----------------- | ------------------ | -------------------------------- | --------------------------------------- |
 | `medre smoke --json`                                                           | Config-determined | Fake only          | passed/failed JSON               | 0=passed, 1=failed                      |
-| `medre smoke --config <sqlite-cfg> --json`                                     | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
+| `medre smoke --config <cfg> --storage-path <db> --json`                       | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
 | `medre smoke --drill <name> --json`                                            | Config-determined | Fake only          | Drill report JSON                | 0=passed, 1=failed                      |
 | `medre smoke --drill <name> --config <sqlite-cfg> --json`                      | SQLite            | Fake only          | Drill report JSON + DB           | 0=passed, 1=failed                      |
 | `medre evidence --storage-path <db> --json`                                    | SQLite (RO)       | No                 | Full bundle JSON                 | 0=passed/partial, 2=storage error       |
@@ -394,19 +404,17 @@ the affected event, route, and adapter. Callback sessions wait for complete
 receipt evidence up to their polling deadline. Their fake receipts prove local
 pipeline handoff; they do not prove recipient delivery on a live platform.
 
-`medre smoke` uses in-memory storage by default. When the smoke process exits, all stored evidence is released. The JSON report printed to stdout is the only surviving record.
+Without a config override, normal smoke uses the shipped in-memory fixture.
+In-memory evidence disappears when the process exits; retain its JSON report
+if you need to compare results later. For durable evidence, either configure
+`storage.backend: sqlite` and a path in YAML, or use `--storage-path DB` to
+select a SQLite file without rewriting the config.
 
-To persist evidence to SQLite, pass a config file that sets `[storage] backend = "sqlite"` and `storage.path`:
-
-`medre inspect` subcommands require persistent storage. Running `medre inspect` against a config with `[storage] backend = "memory"` produces:
-
-```text
-Error: storage backend is 'memory' — no persistent data to inspect.
-```
-
-When the config specifies SQLite storage, events, receipts, and native refs are written to the configured database file and can be inspected with `medre inspect` after the process exits.
-
-`medre inspect` subcommands use `--storage-path` to open a SQLite database directly (no config file needed). After a smoke run with persistent storage, pass the database path to inspect:
+`medre inspect` opens a SQLite database directly via `--storage-path`; it
+does not accept a bridge configuration or select its storage backend. An
+in-memory smoke run leaves no durable data to inspect. If the configuration
+selects SQLite, use its resolved storage path; if you passed `--storage-path`
+to smoke, inspect **that same file** after the process exits:
 
 ```bash
 medre inspect event <event_id> --storage-path /tmp/medre-smoke.db
@@ -430,7 +438,7 @@ separately for each eligible source as needed.
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic
+# Install matrix, meshtastic in the MEDRE environment; see [installation](install.md)
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -465,8 +473,8 @@ uv run --no-sync pytest -m "" -v
 | Symptom                                             | Likely cause                    | Action                                                                                         |
 | --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | `uv sync --locked --extra dev && uv pip install medre-adapter-matrix medre-adapter-meshtastic` |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
 | Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
 | Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
 
@@ -495,7 +503,9 @@ medre storage status
 medre evidence --storage-path /path/to/medre.db --json | jq '.sections.config_summary.storage_path'
 ```
 
-The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing prerelease schema mismatches, the path reported here is the file to back up and remove.
+The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing pre-release schema mismatches, stop the runtime and preserve
+the SQLite database **and its WAL sidecars** before considering a reset. See
+[pre-release storage reset](operator-workflows.md#pre-release-storage-reset).
 
 ## Evidence Assertion Criteria
 
@@ -562,7 +572,7 @@ In addition to unidirectional criteria for each direction:
 Run pre-runtime drills with:
 
 ```bash
-medre smoke --drill <drill_name> --config /tmp/medre-sqlite.yaml --json
+medre smoke --drill DRILL_NAME --config /tmp/medre-smoke.yaml --json
 ```
 
 These four programmatic drills use synthetic instances of one installed fake
