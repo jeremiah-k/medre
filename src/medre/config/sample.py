@@ -53,7 +53,10 @@ def generate_sample_config() -> str:
 
     With no contributions the config explains why no routing can be exercised.
     A single contributing provider gets two distinct instances. Core assigns
-    IDs, so independent authors never need to coordinate sample instance names.
+    IDs, so independently authored providers never coordinate instance names.
+    IDs derive from the transport, so listings, plans, and saved files are
+    self-describing; numbering counts per provider, leaving room for further
+    instances of the same provider under ``adapters.<provider>``.
     """
     groups = {}
     samples = []
@@ -75,15 +78,15 @@ def generate_sample_config() -> str:
             raise ValueError(
                 f"{spec.transport} sample overrides lifecycle fields: {sorted(forbidden)}"
             )
-        instance_id = f"sample_{len(samples) + 1}"
-        groups[spec.transport] = {
-            instance_id: {"enabled": True, "adapter_kind": "fake", **values}
-        }
+        instances = groups.setdefault(spec.transport, {})
+        instance_id = f"{spec.transport}_{len(instances) + 1}"
+        instances[instance_id] = {"enabled": True, "adapter_kind": "fake", **values}
         samples.append((instance_id, spec.transport, sample))
     if len(samples) == 1:
         source_id, transport, sample = samples[0]
-        groups[transport]["sample_2"] = dict(groups[transport][source_id])
-        samples.append(("sample_2", transport, sample))
+        duplicate_id = f"{transport}_{len(groups[transport]) + 1}"
+        groups[transport][duplicate_id] = dict(groups[transport][source_id])
+        samples.append((duplicate_id, transport, sample))
     routes = {}
     if samples:
         source_id = samples[0][0]

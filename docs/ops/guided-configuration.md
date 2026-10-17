@@ -17,11 +17,14 @@ medre config bridge --output bridge.yaml
 
 Without an input file, MEDRE starts from installed providers' fake samples and
 an empty route set. The list shows each instance ID, platform, and fake/real
-kind. One sample-contributing provider supplies two distinct instances, so you
-can learn routing with just one provider installed. A provider without fake
-sample support can still participate through an existing configuration.
-Only the two selected sample instances are saved; unused sample connections
-are omitted. An existing input configuration retains all its connections.
+kind. Sample instance IDs are `<provider>_<number>`, such as `matrix_1`, so
+each ID names its platform; one sample-contributing provider supplies two
+distinct instances, `<provider>_1` and `<provider>_2`, and further instances
+of a provider belong under the same `adapters.<provider>` group in the saved
+file. A provider without fake sample support can still participate through an
+existing configuration. Only the two selected sample instances are saved;
+unused sample connections are omitted. An existing input configuration
+retains all its connections.
 
 1. Choose two enabled instance IDs from the list.
 2. Choose `bidirectional` for replies in both directions, `source_to_dest` for
