@@ -68,7 +68,7 @@ def _validate_route_id(route_id: str, *, section_path: str) -> None:
             "Route ID must not be empty",
             section_path=section_path,
         )
-    if not _VALID_ROUTE_ID.fullmatch(route_id):
+    if not isinstance(route_id, str) or not _VALID_ROUTE_ID.fullmatch(route_id):
         raise ConfigValidationError(
             f"Invalid route ID {route_id!r}: must contain only "
             f"alphanumeric characters, underscores, or hyphens",
@@ -1148,6 +1148,7 @@ class RouteConfig:
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
         section = f"routes.{self.route_id}"
+        _validate_route_id(self.route_id, section_path=section)
         if type(self.enabled) is not bool:
             raise ConfigValidationError(
                 f"Route {self.route_id!r}: 'enabled' must be a boolean, "

@@ -315,6 +315,13 @@ layer, not by the schemas.
 
 ### 3.4 Routes and Context Mapping
 
+Route IDs MUST be non-empty strings containing only ASCII letters, digits,
+underscores, or hyphens (`[A-Za-z0-9_-]+`). The entire string MUST match;
+whitespace and line terminators are invalid, including trailing newlines.
+Parsed and directly constructed `RouteConfig` values MUST enforce this rule.
+In runtime YAML, the identifier is the `routes` mapping key; an entry-level
+`route_id` field MUST be rejected.
+
 Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 
 - The source and dest adapter ID tuples (`source_adapters`, `dest_adapters`)
