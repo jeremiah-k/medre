@@ -159,9 +159,16 @@ satisfy. Puppeting is not a claim of end-to-end encryption across the bridge.
 Use XMPP as the first conformance reference and SimpleX as a concrete privacy-
 oriented integration candidate. The SimpleX CLI API is unauthenticated and
 localhost-bound by default; protect the local endpoint and keep it separate from
-public runtime control surfaces. Ignore unknown sidecar response tags without
-inventing canonical kinds or crashing the session. Pin the tested sidecar/API
-revision in the adapter repository. There is no requirement to depend on the
+public runtime control surfaces. Dispatch by correlation first: a WebSocket
+message with a ``corrId`` matching a pending command is a command response,
+even when its ``resp.type`` is unknown. Complete that pending command with an
+explicit unsupported-response error, release its pending state, and retain the
+redacted tag as diagnostic evidence; never leave the caller waiting indefinitely.
+Unknown **unsolicited events** (without a pending command correlation) may be
+ignored without inventing canonical kinds or crashing the session. On disconnect,
+fail outstanding commands explicitly; test unknown tags, reordered replies,
+late replies, and reconnection against the pinned sidecar API. Pin that revision
+in the adapter repository. There is no requirement to depend on the
 TypeScript SDK or embed SimpleX's Haskell runtime in MEDRE core.
 
 ## Evidence required for a freeze
