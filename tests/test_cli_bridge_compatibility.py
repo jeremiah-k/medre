@@ -51,3 +51,33 @@ def test_matrix_context_outside_sample_allowlist_is_rejected_at_entry(
     assert document["routes"]["bridge"]["context_map"] == {
         "!room:example.com": {"dest_context": "1"}
     }
+
+
+def test_guided_bridge_rejects_matrix_alias_not_authorized_by_room_allowlist(
+    monkeypatch, tmp_path
+):
+    """Provider preflight checks aliases too, not only !room ID prefixes."""
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(_REAL_SPECS)
+    )
+    monkeypatch.setattr(loader, "_KNOWN_TRANSPORTS", _REAL_TRANSPORTS)
+    output = tmp_path / "bridge.yaml"
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--output",
+        str(output),
+        "--source",
+        "matrix_1",
+        "--dest",
+        "meshtastic_1",
+        "--direction",
+        "bidirectional",
+        "--map",
+        "#alias:example.com",
+        "1",
+    )
+    assert code == 2, stderr
+    assert "must be a room ID" in stderr
+    assert not output.exists()

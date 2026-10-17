@@ -225,6 +225,66 @@ def test_guided_session_previews_and_confirms_before_writing(
     assert (tmp_path / "bridge.yaml").exists() is saved
 
 
+def test_interactive_numbered_choices_and_copyable_next_steps(monkeypatch, tmp_path):
+    """Operators may select by number; saved IDs remain canonical provider IDs."""
+    path = tmp_path / "input.yaml"
+    path.write_text(CONFIG)
+    output = tmp_path / "bridge with spaces.yaml"
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal("99\n2\n1\n3\nroom-R\nroom-L\n\n\n\nyes\n"),
+    )
+    stdout, stderr, code = _run_cli_raw(
+        "config", "bridge", "--config", str(path), "--output", str(output), "--json"
+    )
+    assert code == 0, stderr
+    assert "1. left" in stderr and "2. right" in stderr
+    assert "Invalid source '99'" in stderr
+    assert "3. dest_to_source" in stderr
+    assert "Next steps:" in stderr
+    assert "medre config check --config" in stderr
+    # A path containing spaces must be quoted/escaped for the current shell.
+    from medre.cli.bridge_commands import _command_example
+
+    assert (
+        _command_example("medre", "config", "check", "--config", str(output)) in stderr
+    )
+    assert json.loads(stdout)["total_legs"] == 1
+    assert "--source-adapter left --source-context room-L" in stderr
+    assert "--source-adapter right --source-context room-R" not in stderr
+    document = parse_yaml_config(output.read_text())
+    route = document["routes"]["bridge"]
+    assert route["source_adapters"] == ["right"]
+    assert route["dest_adapters"] == ["left"]
+    assert route["directionality"] == "dest_to_source"
+
+
+def test_interactive_empty_first_pair_reprompts_and_two_way_warning(
+    monkeypatch, tmp_path
+):
+    """Accidental Enter cannot terminate authoring with an opaque config error."""
+    path = tmp_path / "input.yaml"
+    path.write_text(CONFIG)
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal("left\nright\n\n\nroom-A\nroom-B\n\n\n\nyes\n"),
+    )
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(path),
+        "--output",
+        str(tmp_path / "bridge.yaml"),
+    )
+    assert code == 0, stderr
+    assert "Enter at least one context pair before finishing" in stderr
+    assert "a two-way bridge forms a route cycle by design" in stderr
+    assert "Next steps:" in stderr
+    assert "--source-adapter left --source-context room-A" in stderr
+    assert "--source-adapter right --source-context room-B" in stderr
+
+
 def test_context_prompts_surface_provider_sample_channels(monkeypatch, tmp_path):
     install_provider(monkeypatch)
     path = tmp_path / "input.yaml"

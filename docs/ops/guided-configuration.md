@@ -27,9 +27,12 @@ existing configuration. Only the two selected sample instances are saved;
 unused sample connections are omitted. An existing input configuration
 retains all its connections.
 
-1. Choose two enabled instance IDs from the list.
-2. Choose `bidirectional` for replies in both directions, `source_to_dest` for
-   one-way flow, or `dest_to_source` for the opposite one-way flow.
+1. Choose a source and destination by number or exact instance ID. The
+   destination list excludes the selected source; its numbers start at 1.
+   Noninteractive commands still require exact IDs.
+2. Choose a direction by number or name. Press Enter for the default,
+   `bidirectional` (both ways). Choose `source_to_dest` or `dest_to_source`
+   for one-way traffic.
 3. Enter a source context and its destination context. These are native
    conversation addresses: a room ID, channel index, topic, or another address
    defined by the provider. They remain strings, including numeric channels.
@@ -39,12 +42,15 @@ retains all its connections.
    room the provider's allowlist omits, a duplicate source context, or a pair
    an existing route already connects — reports the reason and prompts again
    for the source context instead of aborting after all prompts. Enter
-   additional pairs as needed, then leave the next source context blank.
+   additional pairs as needed, then leave the next source context blank. An
+   empty first source context prompts again instead of ending setup.
 4. Optionally name each side for attribution. Blank interactive answers keep
    the adapter's label; an explicitly empty `--source-label` or `--dest-label`
    suppresses that label.
 5. Read the forward/reverse legs and any loop warnings. Confirm with `yes` to
-   save, or decline to leave the filesystem unchanged.
+   save, or decline to leave the filesystem unchanged. After saving, MEDRE
+   prints copyable validation commands with the saved path and, for offline
+   samples, a smoke command for the first mapped source context.
 
 Two-way bridges normally produce loop/cycle warnings because both directions
 are intentional. MEDRE applies native-reference duplicate, self-loop, and
@@ -95,8 +101,10 @@ medre config bridge --config connections.yaml --output bridge.yaml \
   --source-label 'Private room' --dest-label 'Local channel'
 ```
 
-Replace the addresses with your actual context IDs. Repeat `--map` for more
-conversation pairs. A two-way mapping needs an unambiguous reverse address;
+Replace the addresses with your actual context IDs. Matrix inbound
+contexts must use a room ID (`!room:server`), not a room alias (`#room:server`),
+even without a room allowlist: inbound events carry room IDs. Repeat `--map`
+for more conversation pairs. A two-way mapping needs an unambiguous reverse address;
 mapping two sources to the same destination is supported only for
 `source_to_dest` routes. Both endpoints may use the same provider, but this
 workflow requires two different adapter instances.

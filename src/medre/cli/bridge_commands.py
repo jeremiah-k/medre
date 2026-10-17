@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -44,7 +46,16 @@ def _ask(prompt: str, *, default: str | None = None) -> str:
     return answer.rstrip("\r\n") or (default if default is not None else "")
 
 
-def _choose(value: str | None, choices: list[str], name: str, interactive: bool) -> str:
+def _choose(
+    value: str | None,
+    choices: list[str],
+    name: str,
+    interactive: bool,
+    *,
+    default: str | None = None,
+    labels: dict[str, str] | None = None,
+) -> str:
+    """Accept stable IDs for automation and numbered choices at a terminal."""
     if value is not None:
         if value not in choices:
             raise ConfigValidationError(f"Invalid {name}; choose from {choices}")
@@ -53,11 +64,28 @@ def _choose(value: str | None, choices: list[str], name: str, interactive: bool)
         raise ConfigValidationError(
             f"--{name} is required without an interactive terminal"
         )
+    print(f"Choose {name}:", file=sys.stderr)
+    for index, choice in enumerate(choices, start=1):
+        explanation = f" — {labels[choice]}" if labels and choice in labels else ""
+        print(f"  {index}. {choice}{explanation}", file=sys.stderr)
     while True:
-        answer = _ask(name.capitalize())
+        answer = _ask(name.capitalize(), default=default)
         if answer in choices:
             return answer
-        print(f"Choose from {choices}.", file=sys.stderr)
+        if answer.isascii() and answer.isdecimal():
+            index = int(answer)
+            if 1 <= index <= len(choices):
+                return choices[index - 1]
+        print(
+            f"Invalid {name} {answer!r}; enter a number from 1 to {len(choices)} "
+            "or an exact value from the list.",
+            file=sys.stderr,
+        )
+
+
+def _command_example(*args: str) -> str:
+    """Render a copyable platform-native command even for paths with spaces."""
+    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
 
 
 def _write_new_config(path: Path, text: str) -> None:
@@ -229,17 +257,18 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 transport: group for transport, group in groups.items() if group
             }
             text = dump_yaml_config(document)
-        direction = args.direction
-        if direction is None:
-            if not interactive:
-                raise ConfigValidationError(
-                    "--direction is required without an interactive terminal"
-                )
-            while direction not in {item.value for item in RouteDirectionality}:
-                direction = _ask(
-                    "Direction (source_to_dest, dest_to_source, bidirectional)",
-                    default="bidirectional",
-                )
+        direction = _choose(
+            args.direction,
+            ["bidirectional", "source_to_dest", "dest_to_source"],
+            "direction",
+            interactive,
+            default="bidirectional",
+            labels={
+                "bidirectional": "messages flow both ways",
+                "source_to_dest": f"{source} → {dest} only",
+                "dest_to_source": f"{dest} → {source} only",
+            },
+        )
         contexts = args.contexts
         if contexts is None:
             if not interactive:
@@ -285,7 +314,16 @@ def _config_bridge(args: argparse.Namespace) -> None:
             source_prompt = context_prompt(source)
             dest_prompt = context_prompt(dest)
             contexts: list[tuple[str, str]] = []
-            while context := _ask(source_prompt):
+            while True:
+                context = _ask(source_prompt)
+                if not context:
+                    if contexts:
+                        break
+                    print(
+                        "Enter at least one context pair before finishing.",
+                        file=sys.stderr,
+                    )
+                    continue
                 target = _ask(dest_prompt)
                 if any(
                     not value or value.strip() != value for value in (context, target)
@@ -377,6 +415,13 @@ def _config_bridge(args: argparse.Namespace) -> None:
         if args.json:
             print(to_json(draft.plan))
         else:
+            if direction == "bidirectional" and interactive:
+                print(
+                    "Note: a two-way bridge forms a route cycle by design. "
+                    "Topology warnings below are not proof of duplicate sends; "
+                    "native echo prevention still requires testing.",
+                    file=sys.stderr,
+                )
             _render_route_plan(draft.plan)
         if args.preview:
             print("Preview only; no configuration written.", file=sys.stderr)
@@ -394,12 +439,47 @@ def _config_bridge(args: argparse.Namespace) -> None:
         _write_new_config(output, draft.yaml)
         saved = True
         print(f"Saved {output}. No runtime started.", file=sys.stderr)
-        print(
-            "Next: medre config check --config PATH; medre routes plan --config PATH. "
-            "For fake smoke, select --source-adapter and --source-context from the plan. "
-            "Native prerequisites and delivery need separate qualification.",
-            file=sys.stderr,
-        )
+        print("Next steps:", file=sys.stderr)
+        for command in (("config", "check"), ("routes", "plan")):
+            print(
+                "  " + _command_example("medre", *command, "--config", str(output)),
+                file=sys.stderr,
+            )
+        if all(adapters[aid][1].adapter_kind == "fake" for aid in (source, dest)):
+            authored = next(
+                route for route in draft.plan.routes if route.route_id == args.route_id
+            )
+            seen_sources: set[str] = set()
+            for leg in authored.legs:
+                if leg.source_adapter_id in seen_sources:
+                    continue
+                seen_sources.add(leg.source_adapter_id)
+                if leg.source_channel is not None:
+                    print(
+                        "  "
+                        + _command_example(
+                            "medre",
+                            "smoke",
+                            "--config",
+                            str(output),
+                            "--source-adapter",
+                            leg.source_adapter_id,
+                            "--source-context",
+                            leg.source_channel,
+                        ),
+                        file=sys.stderr,
+                    )
+            print(
+                "  Smoke proves only the selected sample contexts; repeat for "
+                "other mappings and qualify native delivery separately.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "  Check native prerequisites with 'medre adapters check --config'; "
+                "a plan does not prove live delivery.",
+                file=sys.stderr,
+            )
     except (EOFError, KeyboardInterrupt):
         print(
             (
