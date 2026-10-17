@@ -78,6 +78,15 @@ name = "medre-adapter-{name}"
     return path
 
 
+@pytest.fixture
+def posix_launcher(monkeypatch):
+    # The launcher's win32 branch spawns a real pytest subprocess; these
+    # tests exercise the POSIX execv handoff seam deterministically.
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+
+
 def test_default_selection_uses_exact_snapshot_without_sdk_deps(checkout):
     env = DevEnvironment.inspect(arguments(checkout))
     commands = env.sync_commands()
@@ -641,7 +650,7 @@ def test_adapter_test_command_requires_a_synced_environment(checkout, tmp_path):
 
 
 def test_installed_metadata_scan_skips_foreign_and_malformed_distributions(
-    checkout, monkeypatch
+    checkout, monkeypatch, posix_launcher
 ):
     """The launcher bootstrap ignores distributions it cannot identify."""
     import importlib.metadata
@@ -707,7 +716,9 @@ def test_unreadable_direct_url_fails_closed(checkout, monkeypatch, capsys):
     assert "does not match" in capsys.readouterr().err
 
 
-def test_dev_test_strips_a_leading_separator_argument(checkout, tmp_path, capsys):
+def test_dev_test_strips_a_leading_separator_argument(
+    checkout, tmp_path, capsys, posix_launcher
+):
     adapter = adapter_checkout(tmp_path)
     python = checkout / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
@@ -746,7 +757,7 @@ def test_windows_sync_refuses_to_replace_the_running_tool(
 
 
 def test_failed_adapter_tests_exit_with_the_test_status(
-    checkout, tmp_path, monkeypatch, capsys
+    checkout, tmp_path, monkeypatch, capsys, posix_launcher
 ):
     import medre.cli.dev_commands as dev_cli
 
