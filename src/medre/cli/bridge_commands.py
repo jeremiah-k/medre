@@ -170,7 +170,9 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 )
             text = report.config_path.read_text(encoding="utf-8")
 
-        document = parse_yaml_config(text)
+        document = parse_yaml_config(
+            text, str(report.config_path) if args.config is not None else "<sample>"
+        )
         config = apply_env_overrides(parse_runtime_config(document, paths), paths)
         adapters = {
             aid: (transport, rtc)
