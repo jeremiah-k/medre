@@ -591,8 +591,9 @@ class TestMatrixAutoJoinRoomsDerivation:
             for transport, _adapter_id in builder._prepared_adapter_configs
         )
 
-    def test_non_bang_channel_ignored(self, tmp_paths: MedrePaths) -> None:
-        """Channels not starting with '!' are not treated as rooms."""
+    def test_non_bang_source_channel_rejected(self, tmp_paths: MedrePaths) -> None:
+        """A Matrix source context that is not a room ID cannot match inbound
+        events, so preparation fails closed."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
             enabled=True,
@@ -619,8 +620,9 @@ class TestMatrixAutoJoinRoomsDerivation:
             ),
             routes=RouteConfigSet(routes=(route,)),
         )
-        prepared = _prepare_matrix_config(config, tmp_paths, "fm")
-        assert prepared.auto_join_rooms == ()
+        builder = RuntimeBuilder(config, tmp_paths)
+        with pytest.raises(RuntimeConfigError, match="must be a room ID"):
+            builder.build()
 
     def test_bidirectional_route_both_rooms_derived(
         self, tmp_paths: MedrePaths
