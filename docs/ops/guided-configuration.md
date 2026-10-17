@@ -84,6 +84,13 @@ mapping two sources to the same destination is supported only for one-way
 routes. Both endpoints may use the same provider, but this workflow requires
 two different adapter instances.
 
+Provider configuration restrictions are checked before preview or saving. For
+example, a Matrix instance with an explicit `room_allowlist` must include every
+room from which an enabled route receives messages, including reverse legs.
+Update the input configuration (or the corresponding environment override)
+before authoring; the workflow does not broaden native permissions for you.
+For an offline sample, use a context allowed by `medre config sample`.
+
 Existing routes are preserved. Choose a new `--route-id` if `bridge` already
 exists. A selected context pair already connected by a text route is rejected;
 edit that route instead of creating duplicate deliveries. Advanced intentional

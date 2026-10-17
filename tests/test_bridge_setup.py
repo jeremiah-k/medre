@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from medre.adapter_spec import SymbolRef
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigValidationError
@@ -205,3 +206,48 @@ def test_environment_cannot_disable_the_new_route(monkeypatch):
     monkeypatch.setenv("MEDRE_ROUTE__BRIDGE__ENABLED", "false")
     with pytest.raises(ConfigValidationError):
         draft_bridge(CONFIG, request(), paths=resolve())
+
+
+def prepare_chat_config(config, *, adapter_id, paths, routes):
+    """An SDK-free provider hook with route-dependent ingress restrictions."""
+    for route in routes:
+        if (
+            route.enabled
+            and route.source.adapter == adapter_id
+            and config.allowed_contexts
+            and route.source.channel not in config.allowed_contexts
+        ):
+            raise ValueError(f"Context {route.source.channel!r} is not allowed")
+    return config
+
+
+@pytest.mark.parametrize("direction", list(RouteDirectionality))
+def test_provider_preflight_checks_only_active_ingress_contexts(monkeypatch, direction):
+    from medre import adapter_registry
+    from medre.adapter_registry import AdapterTypeRegistry
+    from medre.runtime.errors import RuntimeConfigError
+
+    spec = replace(
+        install_provider(monkeypatch),
+        runtime_config_preparer=SymbolRef(__name__, "prepare_chat_config"),
+    )
+    monkeypatch.setattr(
+        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry((spec,))
+    )
+    data = parse_yaml_config(CONFIG)
+    data["adapters"]["independent_chat"]["right"]["allowed_contexts"] = ["other"]
+    kwargs = dict(paths=resolve())
+    text = dump_yaml_config(data)
+    if direction is RouteDirectionality.SOURCE_TO_DEST:
+        assert (
+            draft_bridge(
+                text, request(directionality=direction), **kwargs
+            ).plan.total_legs
+            == 1
+        )
+    else:
+        with pytest.raises(
+            RuntimeConfigError, match="Context 'topic=0' is not allowed"
+        ):
+            draft_bridge(text, request(directionality=direction), **kwargs)
+    assert not resolve().state_dir.exists()

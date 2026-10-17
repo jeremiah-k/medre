@@ -76,3 +76,44 @@ def test_guided_sample_to_both_context_specific_smokes(monkeypatch, tmp_path):
         assert (
             len([r for r in report["delivery_receipts"] if r["status"] == "sent"]) == 1
         )
+
+
+@pytest.mark.parametrize("preview", [True, False])
+@pytest.mark.parametrize("reverse", [True, False])
+def test_matrix_room_restrictions_fail_before_preview_or_save(
+    monkeypatch, tmp_path, preview, reverse
+):
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "state"))
+    adapters = parse_yaml_config(generate_sample_config())["adapters"]
+    if not {"matrix", "meshtastic"} <= adapters.keys():
+        pytest.skip("Requires installed Matrix and Meshtastic sample providers")
+    matrix = next(iter(adapters["matrix"]))
+    mesh = next(iter(adapters["meshtastic"]))
+    source, dest = (mesh, matrix) if reverse else (matrix, mesh)
+    contexts = (
+        ("1", "!not-in-sample:example.org")
+        if reverse
+        else ("!not-in-sample:example.org", "1")
+    )
+    path = tmp_path / "bridge.yaml"
+    options = ["--preview"] if preview else []
+    stdout, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--output",
+        str(path),
+        "--source",
+        source,
+        "--dest",
+        dest,
+        "--direction",
+        "bidirectional",
+        "--map",
+        *contexts,
+        "--json",
+        *options,
+    )
+    assert code == 2 and "room_allowlist that omits source rooms" in stderr
+    assert stdout == ""
+    assert not path.exists()
+    assert not (tmp_path / "state").exists()

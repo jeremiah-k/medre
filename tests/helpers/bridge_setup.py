@@ -16,6 +16,7 @@ class ChatConfig:
     credential: str = ""
     unlock_phrase: str = ""
     store_path: str = ""
+    allowed_contexts: tuple[str, ...] = ()
 
     def validate(self):
         return self

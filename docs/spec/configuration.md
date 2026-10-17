@@ -666,6 +666,12 @@ Unknown adapter references in disabled routes MUST also prevent saving, matching
 `config check`. Duplicate detection includes an existing wildcard source that
 would deliver text to the same explicit target context.
 
+Before returning a successful draft, authoring MUST run enabled adapters'
+provider-owned pure `runtime_config_preparer` hooks against the compiled route
+set, matching startup preflight for both fake and real instances. Hook failures
+MUST prevent preview success and saving. Derived native values MUST NOT be
+serialized into the draft; provider restrictions remain provider-owned.
+
 `--preview` MUST NOT write configuration. `--json` emits the existing route-plan
 shape; prompts and guidance go to stderr. Noninteractive authoring requires
 explicit endpoint IDs, direction, and context pairs. Interactive saving requires

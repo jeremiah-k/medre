@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from medre.adapter_registry import get_adapter_spec
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigValidationError
@@ -16,6 +17,8 @@ from medre.config.loader import parse_runtime_config
 from medre.config.paths import MedrePaths
 from medre.config.routes import RouteDirectionality
 from medre.core.events.kinds import EventKind
+from medre.runtime.adapter_preparation import prepare_adapter_config
+from medre.runtime.route_engine import build_runtime_routes
 from medre.runtime.route_plan import RoutePlan, RoutePlanLeg, build_route_plan
 
 _TEXT_EVENT_KINDS = (EventKind.MESSAGE_CREATED, EventKind.MESSAGE_TEXT)
@@ -109,6 +112,17 @@ def draft_bridge(
     )
     if errors:
         raise ConfigValidationError("Cannot create bridge: " + "; ".join(errors))
+    runtime_routes = tuple(build_runtime_routes(effective.routes))
+    for transport, adapter_id, rtc in effective.adapters.all_configs():
+        if not rtc.enabled or rtc.config is None:
+            continue
+        spec = get_adapter_spec(transport)
+        if spec is not None:
+            # Keep native restrictions in the provider's pure startup hook.
+            # Derived values are deliberately not serialized into the draft.
+            prepare_adapter_config(
+                spec, adapter_id, rtc.config, paths=paths, routes=runtime_routes
+            )
     entry = next(entry for entry in plan.routes if entry.route_id == request.route_id)
     if not entry.enabled or not entry.legs:
         raise ConfigValidationError("The new bridge has no active route legs")
