@@ -285,6 +285,92 @@ def test_real_adapter_kind_label_is_shown_as_is(tmp_path):
     assert "left: independent_chat (real)" in stderr
 
 
+def test_duplicate_source_context_is_rejected_and_authoring_continues(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "input.yaml"
+    path.write_text(CONFIG)
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal(
+            "left\nright\nbidirectional\n"
+            "room-A\nroom-B\n"
+            "room-A\nroom-C\n"
+            "room-D\nroom-E\n"
+            "\n\n\nyes\n"
+        ),
+    )
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(path),
+        "--output",
+        str(tmp_path / "bridge.yaml"),
+    )
+    assert code == 0, stderr
+    assert "Context rejected: Duplicate source context 'room-A'" in stderr
+    document = parse_yaml_config((tmp_path / "bridge.yaml").read_text())
+    assert set(document["routes"]["bridge"]["context_map"]) == {"room-A", "room-D"}
+
+
+def test_unstripped_context_entry_gets_an_actionable_message(monkeypatch, tmp_path):
+    path = tmp_path / "input.yaml"
+    path.write_text(CONFIG)
+    monkeypatch.setattr(
+        "sys.stdin",
+        Terminal(
+            "left\nright\nbidirectional\n"
+            " room\nroom-B\n"
+            "room-A\nroom-B\n"
+            "\n\n\nyes\n"
+        ),
+    )
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(path),
+        "--output",
+        str(tmp_path / "bridge.yaml"),
+    )
+    assert code == 0, stderr
+    assert "Contexts cannot be empty or begin or end with whitespace." in stderr
+    assert "must already be stripped" not in stderr
+    document = parse_yaml_config((tmp_path / "bridge.yaml").read_text())
+    assert document["routes"]["bridge"]["context_map"] == {
+        "room-A": {"dest_context": "room-B"}
+    }
+
+
+def test_existing_route_id_fails_before_context_prompts(monkeypatch, tmp_path):
+    document = parse_yaml_config(CONFIG)
+    document["routes"] = {
+        "bridge": {
+            "source_adapters": ["left"],
+            "dest_adapters": ["right"],
+            "directionality": "bidirectional",
+            "context_map": {"kept": {"dest_context": "other"}},
+            "policy": {"allowed_event_types": ["message.created", "message.text"]},
+        }
+    }
+    path = tmp_path / "input.yaml"
+    path.write_text(dump_yaml_config(document))
+    monkeypatch.setattr("sys.stdin", Terminal("left\nright\nbidirectional\n"))
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(path),
+        "--output",
+        str(tmp_path / "bridge.yaml"),
+    )
+    assert code == 2, stderr
+    assert "Route 'bridge' already exists" in stderr
+    assert "A context is a platform's conversation address" not in stderr
+    assert not (tmp_path / "bridge.yaml").exists()
+
+
 def test_native_adapter_implementations_are_not_loaded(monkeypatch, tmp_path):
     from medre.adapter_spec import SymbolRef
 

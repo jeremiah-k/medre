@@ -14,6 +14,7 @@ from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import parse_runtime_config
+from medre.config.model import RuntimeConfig
 from medre.config.paths import MedrePaths
 from medre.config.routes import RouteDirectionality
 from medre.core.events.kinds import EventKind
@@ -45,6 +46,32 @@ class BridgeDraft:
     plan: RoutePlan
 
 
+def precheck_bridge(
+    config: RuntimeConfig, request: BridgeRequest, *, require_contexts: bool = True
+) -> None:
+    """Reject request preconditions that are independent of any context value.
+
+    Checks that both endpoints exist and are enabled, that the endpoints
+    differ, that the route ID is unused, and — unless *require_contexts* is
+    False — that at least one context mapping is supplied. Importable and
+    callable without running the full draft; :func:`draft_bridge` calls it
+    before any context-level validation so callers can reject structural
+    mistakes before collecting contexts.
+    """
+    inventory = {aid: rtc for _, aid, rtc in config.adapters.all_configs()}
+    for endpoint in (request.source_adapter, request.dest_adapter):
+        if endpoint not in inventory:
+            raise ConfigValidationError(f"Unknown adapter instance {endpoint!r}")
+        if not inventory[endpoint].enabled:
+            raise ConfigValidationError(f"Adapter instance {endpoint!r} is disabled")
+    if request.source_adapter == request.dest_adapter:
+        raise ConfigValidationError("Choose two different adapter instances")
+    if request.route_id in {route.route_id for route in config.routes.routes}:
+        raise ConfigValidationError(f"Route {request.route_id!r} already exists")
+    if require_contexts and not request.contexts:
+        raise ConfigValidationError("At least one explicit context mapping is required")
+
+
 def draft_bridge(
     config_yaml: str, request: BridgeRequest, *, paths: MedrePaths
 ) -> BridgeDraft:
@@ -57,18 +84,7 @@ def draft_bridge(
     """
     document = parse_yaml_config(config_yaml)
     config = apply_env_overrides(parse_runtime_config(document, paths), paths)
-    inventory = {aid: rtc for _, aid, rtc in config.adapters.all_configs()}
-    for endpoint in (request.source_adapter, request.dest_adapter):
-        if endpoint not in inventory:
-            raise ConfigValidationError(f"Unknown adapter instance {endpoint!r}")
-        if not inventory[endpoint].enabled:
-            raise ConfigValidationError(f"Adapter instance {endpoint!r} is disabled")
-    if request.source_adapter == request.dest_adapter:
-        raise ConfigValidationError("Choose two different adapter instances")
-    if request.route_id in {route.route_id for route in config.routes.routes}:
-        raise ConfigValidationError(f"Route {request.route_id!r} already exists")
-    if not request.contexts:
-        raise ConfigValidationError("At least one explicit context mapping is required")
+    precheck_bridge(config, request)
 
     context_map = {}
     for source, dest in request.contexts:

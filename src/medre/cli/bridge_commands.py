@@ -23,7 +23,8 @@ from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
     sanitize_error,
 )
-from medre.runtime.bridge_setup import BridgeRequest, draft_bridge
+from medre.runtime.bridge_setup import BridgeRequest, draft_bridge, precheck_bridge
+from medre.runtime.errors import RuntimeConfigError
 
 from .exit_codes import EXIT_CONFIG, EXIT_FAILED
 from .json import to_json
@@ -245,6 +246,21 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 raise ConfigValidationError(
                     "At least one --map SOURCE_CONTEXT DEST_CONTEXT is required"
                 )
+            # Structural failures surface before the operator types any
+            # context. Only context-specific failures can reject a pair in
+            # the loop below, so validation there stays retryable and never
+            # aborts the session.
+            precheck_bridge(
+                config,
+                BridgeRequest(
+                    source,
+                    dest,
+                    (),
+                    RouteDirectionality(direction),
+                    args.route_id,
+                ),
+                require_contexts=False,
+            )
             print(
                 "A context is a platform's conversation address (room, channel, or topic). "
                 "Use exact provider identifiers. Each mapping bounds both directions; "
@@ -268,9 +284,38 @@ def _config_bridge(args: argparse.Namespace) -> None:
 
             source_prompt = context_prompt(source)
             dest_prompt = context_prompt(dest)
-            contexts = []
+            contexts: list[tuple[str, str]] = []
             while context := _ask(source_prompt):
-                contexts.append((context, _ask(dest_prompt)))
+                target = _ask(dest_prompt)
+                if any(
+                    not value or value.strip() != value for value in (context, target)
+                ):
+                    print(
+                        "Contexts cannot be empty or begin or end with whitespace.",
+                        file=sys.stderr,
+                    )
+                    continue
+                # Each accumulated pair is validated through the same draft
+                # the command will save, so provider restrictions (allowlists,
+                # duplicates, already-connected pairs) are rejected at entry.
+                attempt = BridgeRequest(
+                    source,
+                    dest,
+                    tuple(contexts) + ((context, target),),
+                    RouteDirectionality(direction),
+                    args.route_id,
+                )
+                try:
+                    draft_bridge(text, attempt, paths=paths)
+                except (ConfigValidationError, RuntimeConfigError) as exc:
+                    # Core validation and provider-owned restrictions report
+                    # through different hierarchies; both are pair-specific.
+                    print(
+                        f"Context rejected: {_error_detail(exc, document)}",
+                        file=sys.stderr,
+                    )
+                    continue
+                contexts.append((context, target))
         source_label = args.source_label
         dest_label = args.dest_label
         if interactive:

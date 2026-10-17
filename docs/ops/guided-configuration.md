@@ -34,8 +34,12 @@ retains all its connections.
    conversation addresses: a room ID, channel index, topic, or another address
    defined by the provider. They remain strings, including numeric channels.
    Each prompt shows the provider's declared example address in parentheses;
-   the example is a format reference, not a required value. Enter additional
-   pairs as needed, then leave the next source context blank.
+   the example is a format reference, not a required value. Each pair is
+   validated as soon as it is entered: a rejected address — for example a
+   room the provider's allowlist omits, a duplicate source context, or a pair
+   an existing route already connects — reports the reason and prompts again
+   for the source context instead of aborting after all prompts. Enter
+   additional pairs as needed, then leave the next source context blank.
 4. Optionally name each side for attribution. Blank interactive answers keep
    the adapter's label; an explicitly empty `--source-label` or `--dest-label`
    suppresses that label.
