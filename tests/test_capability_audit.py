@@ -5,8 +5,8 @@ authoritative runtime truth and do not overclaim.
 Machine-checked capability conformance proof across all four adapters
 and their JSON capability declarations: fake capabilities, JSON capability
 files, and source-declared capability surfaces must agree, with no
-overclaims. The field count is intentionally locked so adding or removing
-planning capabilities requires an explicit audit update.
+overclaims. Audit coverage follows the complete declared field set so adding
+a planning capability requires profiles and implementations to agree.
 
 Evidence tiers: ``fake_pipeline`` (tier 1) and ``fake_adapter_callback`` (tier 2).
 No network, no hardware, no optional SDK dependencies for fake-adapter checks.
@@ -44,13 +44,6 @@ from medre.core.contracts.adapter import AdapterCapabilities
 
 TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 
-FIELD_COUNT = len(dataclass_fields(AdapterCapabilities))
-# Delivery timing/evidence traits are intentionally not planning capabilities.
-EXPECTED_CAPABILITY_FIELDS = 19
-assert FIELD_COUNT == EXPECTED_CAPABILITY_FIELDS, (
-    f"AdapterCapabilities has {FIELD_COUNT} fields, expected "
-    f"{EXPECTED_CAPABILITY_FIELDS}. Update the capability audit intentionally."
-)
 
 PROFILES_DIR = (
     Path(__file__).resolve().parent.parent / "docs" / "spec" / "transport-profiles"
@@ -233,7 +226,17 @@ def test_real_adapter_matches_fake_for_every_field(transport: str) -> None:
 
 def test_audit_total_declaration_count() -> None:
     """Every transport declares the complete planning capability surface."""
-    assert len(TRANSPORTS) * FIELD_COUNT == 76
+    expected = {
+        (transport, field.name)
+        for transport in TRANSPORTS
+        for field in dataclass_fields(AdapterCapabilities)
+    }
+    declared = {
+        (transport, field)
+        for transport in TRANSPORTS
+        for field in _load_json_caps(transport)
+    }
+    assert declared == expected
 
 
 def test_delivery_runtime_traits_are_not_planning_capabilities() -> None:

@@ -496,8 +496,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     Attributes
     ----------
     event_id:
-        Globally unique event identifier (UUIDv7 or similar time-sortable
-        identifier).
+        Globally unique, non-empty opaque event identifier. No UUID version
+        or chronological ordering is enforced.
     event_kind:
         Event kind string from the :mod:`~medre.core.events.kinds`
         registry.

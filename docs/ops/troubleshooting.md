@@ -849,6 +849,17 @@ The only non-zero exit is code 3 (`EXIT_BUILD`), returned when the ZIP
 file cannot be written. This lets operators attach a bundle even when
 the runtime cannot start.
 
+## Unrecognized event kind is suppressed
+
+A receipt with `capability_field: event_kind` and delivery strategy `skip` means
+that core has no delivery policy for the incoming event kind. A wildcard route
+cannot bypass this guard. Inspect the stored event and its evidence with
+`medre inspect event EVENT_ID --storage-path PATH --evidence`, then align core
+and adapter versions or implement an explicit supported-kind contract.
+`plugin.custom` is the recognized extension envelope; putting a feature there
+still requires a matching renderer and adapter implementation. Enabling text
+capabilities alone does not make an unknown event kind deliverable.
+
 ## See Also
 
 - [diagnostics-and-evidence.md](diagnostics-and-evidence.md) — evidence provenance, bundle collection, report shapes

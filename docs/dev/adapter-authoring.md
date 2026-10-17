@@ -167,7 +167,7 @@ async def _listen(self):
 
 The `decode` method sets at minimum:
 
-- `event_id`: UUIDv7 for time ordering
+- `event_id`: globally unique, non-empty opaque ID; no UUID version is required
 - `event_kind`: e.g., `"message.created"`, `"telemetry.received"`
 - `schema_version`: currently `1`
 - `timestamp`: UTC datetime
