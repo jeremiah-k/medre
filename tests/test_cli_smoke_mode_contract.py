@@ -39,6 +39,18 @@ from tests.helpers.cli import _run_cli_raw
             ("--run-session", "--source-adapter", "source"),
             "--source-adapter is supported only for normal smoke",
         ),
+        (
+            ("--drill", "", "--message", "text"),
+            "--message is supported only for normal smoke",
+        ),
+        (
+            ("--drill", "", "--source-adapter", "source"),
+            "--source-adapter is supported only for normal smoke",
+        ),
+        (
+            ("--drill", "", "--source-context", "room"),
+            "--source-context is supported only for normal smoke",
+        ),
     ],
 )
 def test_incompatible_modes_fail_before_runtime_work(monkeypatch, options, explanation):

@@ -676,15 +676,16 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 
-        if args.message is not None and (args.drill or args.run_session):
+        normal_smoke = args.drill is None and not args.run_session
+        if args.message is not None and not normal_smoke:
             parser.error("--message is supported only for normal smoke")
         if args.snapshot_dir is not None and not args.run_session:
             parser.error("--snapshot-dir requires --run-session")
         if args.scenario is not None and not args.run_session:
             parser.error("--scenario requires --run-session")
-        if args.source_adapter is not None and (args.drill or args.run_session):
+        if args.source_adapter is not None and not normal_smoke:
             parser.error("--source-adapter is supported only for normal smoke")
-        if args.source_context is not None and (args.drill or args.run_session):
+        if args.source_context is not None and not normal_smoke:
             parser.error("--source-context is supported only for normal smoke")
 
         if getattr(args, "run_session", False):
