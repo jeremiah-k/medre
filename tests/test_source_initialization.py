@@ -46,3 +46,21 @@ def test_init_identifies_catalog_creation_failure(tmp_path, capsys):
     assert f"Cannot create source catalog at {target}" in error
     assert "cannot execute uv" not in error
     assert parent.is_file()
+
+
+def test_init_loads_a_catalog_created_between_check_and_write(tmp_path, monkeypatch):
+    """A catalog created after the existence check is loaded, never replaced."""
+    from pathlib import Path
+
+    target = tmp_path / "sources.yaml"
+    real_open = Path.open
+
+    def racing_open(self, mode="r", *args, **kwargs):
+        if self == target and "x" in mode:
+            target.write_text("adapters:\n  matrix: null\n")
+            raise FileExistsError
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", racing_open)
+    assert initialize_sources(target) == (target, False)
+    assert target.read_text() == "adapters:\n  matrix: null\n"

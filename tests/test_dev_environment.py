@@ -541,3 +541,275 @@ def test_failed_git_evidence_does_not_start_adapter_tests(
     assert len(calls) == 1 and calls[0][0] == "git"
     assert not evidence.exists()
     assert "Cannot record adapter Git state" in capsys.readouterr().err
+
+
+def test_checkout_discovery_walks_up_from_a_nested_cwd(checkout, tmp_path, monkeypatch):
+    """Discovery without --project climbs to the checkout past non-project folders."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "wrapper"\n')
+    nested = checkout / "src" / "medre"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    assert DevEnvironment.inspect(arguments(checkout, project=None)).root == (
+        checkout.resolve()
+    )
+
+
+def test_checkout_discovery_reports_a_missing_checkout(checkout, tmp_path, monkeypatch):
+    """A directory chain with no MEDRE metadata exhausts discovery."""
+    bare = tmp_path / "plain" / "nested"
+    bare.mkdir(parents=True)
+    monkeypatch.chdir(bare)
+    with pytest.raises(ToolManagementError, match="Run from a MEDRE checkout"):
+        checkout_root()
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {
+            "transport": "1bad",
+            "distribution": "medre-adapter-x",
+            "repository": "o/x",
+            "ref": "a" * 40,
+        },
+        {
+            "transport": "matrix",
+            "distribution": "medre-adapter-x",
+            "repository": "o/x",
+            "ref": "short",
+        },
+    ],
+)
+def test_snapshot_rejects_malformed_entries(checkout, entry):
+    """Snapshot entries need package-style aliases and full commit SHAs."""
+    (checkout / ".github/adapter-compatibility.json").write_text(
+        json.dumps([entry, entry])
+    )
+    with pytest.raises(
+        ToolManagementError, match="unique aliases and full commit SHAs"
+    ):
+        DevEnvironment.inspect(arguments(checkout))
+
+
+def test_snapshot_rejects_duplicate_aliases(checkout):
+    """The same alias twice in a snapshot is a corruption, not a choice."""
+    entry = {
+        "transport": "matrix",
+        "distribution": "medre-adapter-matrix",
+        "repository": "owner/matrix",
+        "ref": "a" * 40,
+    }
+    (checkout / ".github/adapter-compatibility.json").write_text(
+        json.dumps([entry, entry])
+    )
+    with pytest.raises(
+        ToolManagementError, match="unique aliases and full commit SHAs"
+    ):
+        DevEnvironment.inspect(arguments(checkout))
+
+
+def test_snapshot_rejects_an_empty_compatibility_snapshot(checkout):
+    (checkout / ".github/adapter-compatibility.json").write_text("[]")
+    with pytest.raises(ToolManagementError, match="must contain adapters"):
+        DevEnvironment.inspect(arguments(checkout))
+
+
+def test_profile_sources_must_name_a_catalog_file(checkout):
+    (checkout / ".medre-dev.yaml").write_text('sources: ""\n')
+    with pytest.raises(ToolManagementError, match="must name a source catalog file"):
+        DevEnvironment.inspect(arguments(checkout))
+
+
+def test_editable_overrides_must_use_alias_equals_path(checkout):
+    with pytest.raises(ToolManagementError, match="once per alias"):
+        DevEnvironment.inspect(arguments(checkout, editable=["matrix"]))
+
+
+def test_editable_overrides_must_be_selected(checkout, tmp_path):
+    adapter = adapter_checkout(tmp_path, "meshcore")
+    with pytest.raises(ToolManagementError, match="must be selected: meshcore"):
+        DevEnvironment.inspect(
+            arguments(checkout, editable=[f"meshcore={adapter}"], adapters=["matrix"])
+        )
+
+
+def test_adapter_test_command_requires_a_synced_environment(checkout, tmp_path):
+    adapter = adapter_checkout(tmp_path)
+    env = DevEnvironment.inspect(arguments(checkout, editable=[f"matrix={adapter}"]))
+    with pytest.raises(ToolManagementError, match="run medre dev sync first"):
+        env.test_command("matrix", ["-q"])
+
+
+def test_installed_metadata_scan_skips_foreign_and_malformed_distributions(
+    checkout, monkeypatch
+):
+    """The launcher bootstrap ignores distributions it cannot identify."""
+    import importlib.metadata
+    import medre.dev_environment as dev
+
+    def record(name, url):
+        return SimpleNamespace(
+            metadata={"Name": name},
+            read_text=lambda _, url=url: json.dumps(
+                {"url": url, "dir_info": {"editable": True}}
+            ),
+        )
+
+    distributions = [
+        SimpleNamespace(metadata={}),
+        SimpleNamespace(metadata={"Name": "!unparseable"}),
+        record("other-adapter", "file:///elsewhere"),
+        record("medre", checkout.as_uri()),
+        record("medre-adapter-matrix", "file:///provider"),
+    ]
+    monkeypatch.setattr(
+        importlib.metadata, "distributions", lambda **kwargs: distributions
+    )
+    calls = []
+
+    def replaced(*command):
+        calls.append(command)
+        raise RuntimeError("replaced execv")
+
+    monkeypatch.setattr("medre.dev_environment.os.execv", replaced)
+    with pytest.raises(RuntimeError, match="replaced execv"):
+        dev._test_installed_adapter(
+            "medre-adapter-matrix", "file:///provider", checkout.as_uri(), ["-q"]
+        )
+    assert calls == [(dev.sys.executable, [dev.sys.executable, "-m", "pytest", "-q"])]
+
+
+def test_unreadable_direct_url_fails_closed(checkout, monkeypatch, capsys):
+    import importlib.metadata
+    import medre.dev_environment as dev
+
+    def record(name, direct_url_body):
+        return SimpleNamespace(
+            metadata={"Name": name},
+            read_text=lambda _, body=direct_url_body: body,
+        )
+
+    distributions = [
+        record(
+            "medre",
+            json.dumps({"url": checkout.as_uri(), "dir_info": {"editable": True}}),
+        ),
+        record("medre-adapter-matrix", "not json"),
+    ]
+    monkeypatch.setattr(
+        importlib.metadata, "distributions", lambda **kwargs: distributions
+    )
+    with pytest.raises(SystemExit) as exc:
+        dev._test_installed_adapter(
+            "medre-adapter-matrix", "file:///provider", checkout.as_uri(), ["-q"]
+        )
+    assert exc.value.code == 2
+    assert "does not match" in capsys.readouterr().err
+
+
+def test_dev_test_strips_a_leading_separator_argument(checkout, tmp_path, capsys):
+    adapter = adapter_checkout(tmp_path)
+    python = checkout / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    main(
+        [
+            "dev",
+            "test",
+            "--project",
+            str(checkout),
+            "--editable",
+            f"matrix={adapter}",
+            "--dry-run",
+            "matrix",
+            "--",
+            "--",
+            "-q",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert out.rstrip().endswith("-q")
+    assert "-- -q" not in out
+
+
+def test_windows_sync_refuses_to_replace_the_running_tool(
+    checkout, monkeypatch, capsys
+):
+    import medre.cli.dev_commands as dev_cli
+
+    monkeypatch.setattr(dev_cli.sys, "platform", "win32")
+    monkeypatch.setattr(dev_cli.sys, "prefix", str(checkout / ".venv"))
+    with pytest.raises(SystemExit) as exc:
+        main(["dev", "sync", "--project", str(checkout)])
+    assert exc.value.code == 2
+    assert "after medre.exe exits" in capsys.readouterr().err
+
+
+def test_failed_adapter_tests_exit_with_the_test_status(
+    checkout, tmp_path, monkeypatch, capsys
+):
+    import medre.cli.dev_commands as dev_cli
+
+    adapter = adapter_checkout(tmp_path)
+    python = checkout / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    monkeypatch.setattr(
+        dev_cli.subprocess,
+        "run",
+        lambda command, **kwargs: SimpleNamespace(returncode=3),
+    )
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "dev",
+                "test",
+                "--project",
+                str(checkout),
+                "--editable",
+                f"matrix={adapter}",
+                "matrix",
+                "--",
+                "-q",
+            ]
+        )
+    assert exc.value.code == 3
+    assert "Synchronization may be incomplete" not in capsys.readouterr().err
+
+
+def test_successful_sync_reports_completion(checkout, monkeypatch, capsys):
+    import medre.cli.dev_commands as dev_cli
+
+    runs = []
+
+    def ok(command, **kwargs):
+        runs.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(dev_cli.subprocess, "run", ok)
+    main(["dev", "sync", "--project", str(checkout)])
+    assert "Checkout ready" in capsys.readouterr().out
+    assert len(runs) == 2
+    assert runs[0][1] == "sync"
+    assert "--no-deps" in runs[1]
+
+
+def test_development_errors_report_a_clean_cli_failure(checkout, capsys):
+    (checkout / ".medre-dev.yaml").mkdir()
+    with pytest.raises(SystemExit) as exc:
+        main(["dev", "sync", "--project", str(checkout)])
+    assert exc.value.code == 2
+    assert "Development error:" in capsys.readouterr().err
+
+
+def test_interrupted_development_command_reports_rerun(checkout, monkeypatch, capsys):
+    import medre.cli.dev_commands as dev_cli
+
+    def interrupted(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dev_cli, "DevEnvironment", SimpleNamespace(inspect=interrupted))
+    with pytest.raises(SystemExit) as exc:
+        main(["dev", "sync", "--project", str(checkout)])
+    assert exc.value.code == 130
+    assert "interrupted" in capsys.readouterr().err
