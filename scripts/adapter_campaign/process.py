@@ -12,6 +12,7 @@ from typing import Callable
 from uuid import uuid4
 
 _STOP_TIMEOUT = 20
+_DRAIN_TIMEOUT = 5
 
 
 class Peer:
@@ -111,8 +112,9 @@ class Peer:
             if self.process is not None:
                 if self.process.returncode is None:
                     try:
-                        await self._write({"op": "stop"})
-                        await asyncio.wait_for(self.process.wait(), _STOP_TIMEOUT)
+                        async with asyncio.timeout(_STOP_TIMEOUT):
+                            await self._write({"op": "stop"})
+                            await self.process.wait()
                     except (TimeoutError, BrokenPipeError, ConnectionResetError):
                         forced = True
                         if self.process.returncode is None:
@@ -121,9 +123,18 @@ class Peer:
                                 await asyncio.wait_for(self.process.wait(), 5)
                             except TimeoutError:
                                 self._signal(force=True)
-                                await self.process.wait()
+                                await asyncio.wait_for(
+                                    self.process.wait(), _DRAIN_TIMEOUT
+                                )
                 if self.reader is not None:
-                    await self.reader
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(self.reader), _DRAIN_TIMEOUT
+                        )
+                    except TimeoutError:
+                        forced = True
+                        self._signal(force=True)
+                        await asyncio.wait_for(self.reader, _DRAIN_TIMEOUT)
                 if (
                     forced
                     or self.process.returncode != 0
@@ -132,19 +143,23 @@ class Peer:
                 ):
                     raise RuntimeError(f"{self.name}: native peer cleanup failed")
         finally:
-            if (
-                self.process is not None
-                and self.process.returncode is not None
-                and sys.platform != "win32"
-            ):
-                # Reap native SDK descendants even if the Python owner exits first.
+            if self.process is not None:
+                # Cancellation and partial startup also leave owned children.
+                # Reap them before closing evidence streams or returning.
                 self._signal(force=True)
+                if self.process.returncode is None:
+                    await asyncio.wait_for(self.process.wait(), _DRAIN_TIMEOUT)
+            if self.reader is not None and not self.reader.done():
+                self.reader.cancel()
+                await asyncio.gather(self.reader, return_exceptions=True)
             for stream in (self.log, self.errors, self.output):
                 if stream is not None:
                     stream.close()
 
     def _signal(self, *, force: bool = False) -> None:
         if sys.platform == "win32":
+            if self.process.returncode is not None:
+                return
             if force:
                 self.process.kill()
             else:

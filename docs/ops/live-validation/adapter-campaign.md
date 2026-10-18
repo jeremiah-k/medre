@@ -122,3 +122,14 @@ The default suite also runs test_all_adapter_campaign.py with SDK-free providers
 Unavailable provider cases are explicitly skipped. This tier checks routing,
 renderers, storage, addressing, and delivery provenance; native receipt requires
 the opt-in campaign above.
+
+Plan validation prints only harness-authored messages. YAML/parser and native
+exceptions remain private because their text can include credentials.
+
+Peer cleanup bounds stdout draining and kills owned descendants that retain
+pipes after their leader exits; forced cleanup prevents qualification. Cancelled
+cleanup also reaps the owned process before closing evidence streams.
+
+Every run creates an initial results report before collecting package versions
+and config hashes; a metadata failure produces a failed report and private
+failure trace.
