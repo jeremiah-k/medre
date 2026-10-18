@@ -60,28 +60,33 @@ async def run(plan: Plan, directory: Path) -> dict:
         "completed_pairs": [],
         "cases": [],
         "python": platform.python_version(),
-        "packages": {
-            "medre": version("medre"),
-            **{
-                f"medre-adapter-{entry['transport']}": version(
-                    f"medre-adapter-{entry['transport']}"
-                )
-                for entry in plan.endpoints.values()
-            },
-        },
-        "harness_sha256": {
-            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in Path(__file__).parent.glob("*.py")
-        },
-        "runtime_config_sha256": hashlib.sha256(
-            plan.runtime_file.read_bytes()
-        ).hexdigest(),
     }
     write_report(directory, report)
     peers = {name: Peer(name, directory, plan.timeout) for name in plan.endpoints}
     app = None
     failure = None
     try:
+        report.update(
+            {
+                "packages": {
+                    "medre": version("medre"),
+                    **{
+                        f"medre-adapter-{entry['transport']}": version(
+                            f"medre-adapter-{entry['transport']}"
+                        )
+                        for entry in plan.endpoints.values()
+                    },
+                },
+                "harness_sha256": {
+                    path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in Path(__file__).parent.glob("*.py")
+                },
+                "runtime_config_sha256": hashlib.sha256(
+                    plan.runtime_file.read_bytes()
+                ).hexdigest(),
+            }
+        )
+        write_report(directory, report)
         config, paths = runtime_config(plan, directory)
         for name, peer in peers.items():
             await peer.start({**plan.endpoints[name], "marker_prefix": prefix})

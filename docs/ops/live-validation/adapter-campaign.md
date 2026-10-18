@@ -129,3 +129,7 @@ exceptions remain private because their text can include credentials.
 Peer cleanup bounds stdout draining and kills owned descendants that retain
 pipes after their leader exits; forced cleanup prevents qualification. Cancelled
 cleanup also reaps the owned process before closing evidence streams.
+
+Every run creates an initial results report before collecting package versions
+and config hashes; a metadata failure produces a failed report and private
+failure trace.
