@@ -358,32 +358,46 @@ async def _drill_renderer_failure(
             )
             # Verify a "failed" receipt was persisted.
             receipts = []
+            storage_error: str | None = None
             if app.storage is not None:
                 try:
                     receipts = await app.storage.list_receipts_for_event(event.event_id)
-                except Exception:
-                    pass
-            has_failed_receipt = any(
-                r.status == "failed" and "Rendering failed" in (r.error or "")
-                for r in receipts
-            )
-            steps.append(
-                _step(
-                    "verify_failed_receipt",
-                    "ok" if has_failed_receipt else "missing",
-                    receipt_count=len(receipts),
-                    has_failed_receipt=has_failed_receipt,
-                )
-            )
-            if failure_kind != "renderer_failure" or not has_failed_receipt:
-                report["status"] = "failed"
-                report["fail_reasons"] = []
-                if failure_kind != "renderer_failure":
-                    report["fail_reasons"].append(
-                        f"Expected renderer_failure, got {failure_kind}"
+                except Exception as exc:
+                    # Drill completes so a broken storage read surfaces as a
+                    # step verdict instead of a false missing-receipt claim.
+                    storage_error = sanitize_error(str(exc))
+            if storage_error is not None:
+                steps.append(
+                    _step(
+                        "verify_failed_receipt",
+                        "storage_error",
+                        storage_error=storage_error,
                     )
-                if not has_failed_receipt:
-                    report["fail_reasons"].append("No failed receipt persisted")
+                )
+                report["status"] = "failed"
+                report["fail_reasons"] = [f"Storage read failed: {storage_error}"]
+            else:
+                has_failed_receipt = any(
+                    r.status == "failed" and "Rendering failed" in (r.error or "")
+                    for r in receipts
+                )
+                steps.append(
+                    _step(
+                        "verify_failed_receipt",
+                        "ok" if has_failed_receipt else "missing",
+                        receipt_count=len(receipts),
+                        has_failed_receipt=has_failed_receipt,
+                    )
+                )
+                if failure_kind != "renderer_failure" or not has_failed_receipt:
+                    report["status"] = "failed"
+                    report["fail_reasons"] = []
+                    if failure_kind != "renderer_failure":
+                        report["fail_reasons"].append(
+                            f"Expected renderer_failure, got {failure_kind}"
+                        )
+                    if not has_failed_receipt:
+                        report["fail_reasons"].append("No failed receipt persisted")
 
     except Exception as exc:
         report["status"] = "failed"
@@ -802,31 +816,48 @@ async def _drill_capacity_rejection(
             )
         )
         # Verify: suppressed evidence receipts for capacity-rejected deliveries.
+        receipts = []
+        storage_error: str | None = None
         if app.storage is not None:
             try:
                 receipts = await app.storage.list_receipts_for_event(event.event_id)
-            except Exception:
-                receipts = []
-        else:
-            receipts = []
-        cap_target_adapters = {o.target_adapter for o in cap_outcomes}
-        cap_receipts = [r for r in receipts if r.target_adapter in cap_target_adapters]
-        has_suppressed = all(
-            r.status == "suppressed" and r.failure_kind == "capacity_rejection"
-            for r in cap_receipts
-        )
-        steps.append(
-            _step(
-                "verify_suppressed_receipts",
-                "ok" if has_suppressed and len(cap_receipts) >= 1 else "unexpected",
-                receipt_count=len(cap_receipts),
-                all_suppressed=has_suppressed,
+            except Exception as exc:
+                # Drill completes so a broken storage read surfaces as a step
+                # verdict instead of a false suppression verdict.
+                storage_error = sanitize_error(str(exc))
+        if storage_error is not None:
+            steps.append(
+                _step(
+                    "verify_suppressed_receipts",
+                    "storage_error",
+                    storage_error=storage_error,
+                )
             )
-        )
+            report["status"] = "failed"
+            report["fail_reasons"] = [f"Storage read failed: {storage_error}"]
+        else:
+            cap_target_adapters = {o.target_adapter for o in cap_outcomes}
+            cap_receipts = [
+                r for r in receipts if r.target_adapter in cap_target_adapters
+            ]
+            has_suppressed = all(
+                r.status == "suppressed" and r.failure_kind == "capacity_rejection"
+                for r in cap_receipts
+            )
+            steps.append(
+                _step(
+                    "verify_suppressed_receipts",
+                    "ok" if has_suppressed and len(cap_receipts) >= 1 else "unexpected",
+                    receipt_count=len(cap_receipts),
+                    all_suppressed=has_suppressed,
+                )
+            )
 
         if not has_cap_rejection:
             report["status"] = "failed"
-            report["fail_reasons"] = ["No CAPACITY_REJECTION observed"]
+            report.setdefault("fail_reasons", []).append(
+                "No CAPACITY_REJECTION observed"
+            )
 
     except Exception as exc:
         report["status"] = "failed"
@@ -926,46 +957,62 @@ async def _drill_shutdown_rejection(
             )
         )
         # Verify: suppressed evidence receipts for shutdown-rejected deliveries.
+        receipts = []
+        storage_error: str | None = None
         if app.storage is not None:
             try:
                 receipts = await app.storage.list_receipts_for_event(event.event_id)
-            except Exception:
-                receipts = []
-        else:
-            receipts = []
-        shutdown_target_adapters = {o.target_adapter for o in shutdown_outcomes}
-        shutdown_receipts = [
-            r for r in receipts if r.target_adapter in shutdown_target_adapters
-        ]
-        has_suppressed = all(
-            r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
-            for r in shutdown_receipts
-        )
-        steps.append(
-            _step(
-                "verify_suppressed_receipts",
-                (
-                    "ok"
-                    if has_suppressed and len(shutdown_receipts) >= 1
-                    else "unexpected"
-                ),
-                receipt_count=len(shutdown_receipts),
-                all_suppressed=has_suppressed,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+            except Exception as exc:
+                # Drill completes so a broken storage read surfaces as a step
+                # verdict instead of a false suppression verdict.
+                storage_error = sanitize_error(str(exc))
+        if storage_error is not None:
+            steps.append(
+                _step(
+                    "verify_suppressed_receipts",
+                    "storage_error",
+                    storage_error=storage_error,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
             )
-        )
+            report["status"] = "failed"
+            report["fail_reasons"] = [f"Storage read failed: {storage_error}"]
+        else:
+            shutdown_target_adapters = {o.target_adapter for o in shutdown_outcomes}
+            shutdown_receipts = [
+                r for r in receipts if r.target_adapter in shutdown_target_adapters
+            ]
+            has_suppressed = all(
+                r.status == "suppressed" and r.failure_kind == "shutdown_rejection"
+                for r in shutdown_receipts
+            )
+            steps.append(
+                _step(
+                    "verify_suppressed_receipts",
+                    (
+                        "ok"
+                        if has_suppressed and len(shutdown_receipts) >= 1
+                        else "unexpected"
+                    ),
+                    receipt_count=len(shutdown_receipts),
+                    all_suppressed=has_suppressed,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+            )
 
-        report["rejection_timeline"] = {
-            "stop_accepting_at": stop_ts,
-            "inject_at": inject_ts,
-            "accepting_work_at_rejection": False,
-            "shutdown_rejections": len(shutdown_outcomes),
-            "suppressed_receipts_created": len(shutdown_receipts),
-        }
+            report["rejection_timeline"] = {
+                "stop_accepting_at": stop_ts,
+                "inject_at": inject_ts,
+                "accepting_work_at_rejection": False,
+                "shutdown_rejections": len(shutdown_outcomes),
+                "suppressed_receipts_created": len(shutdown_receipts),
+            }
 
         if not has_shutdown:
             report["status"] = "failed"
-            report["fail_reasons"] = ["No SHUTDOWN_REJECTION observed"]
+            report.setdefault("fail_reasons", []).append(
+                "No SHUTDOWN_REJECTION observed"
+            )
 
     except Exception as exc:
         report["status"] = "failed"
@@ -1022,20 +1069,36 @@ async def _drill_replay_duplicate_risk(
         outcomes1 = await app.pipeline_runner.handle_ingress(event)
         live_ts = datetime.now(timezone.utc).isoformat()
         receipts1 = []
+        storage_error: str | None = None
         if app.storage is not None:
             try:
                 receipts1 = await app.storage.list_receipts_for_event(event.event_id)
-            except Exception:
-                pass
-        steps.append(
-            _step(
-                "first_delivery",
-                "ok",
-                outcome_count=len(outcomes1),
-                receipt_count=len(receipts1),
-                timestamp=live_ts,
-            )
+            except Exception as exc:
+                # Drill completes so storage faults surface in the duplicate
+                # verdict instead of a false zero-count comparison.
+                storage_error = sanitize_error(str(exc))
+        first_delivery = _step(
+            "first_delivery", "ok", outcome_count=len(outcomes1), timestamp=live_ts
         )
+        if storage_error is None:
+            first_delivery["receipt_count"] = len(receipts1)
+        else:
+            first_delivery.update(result="storage_error", storage_error=storage_error)
+        steps.append(first_delivery)
+        if storage_error is not None:
+            # Without a readable baseline, a replay cannot establish duplicate
+            # evidence. Preserve the fault without inventing a zero count.
+            steps.append(
+                _step(
+                    "verify_duplicate_receipts",
+                    "storage_error",
+                    storage_error=storage_error,
+                )
+            )
+            report["status"] = "failed"
+            report["fail_reasons"] = [f"Storage read failed: {storage_error}"]
+            report["drill_steps"] = steps
+            return report
 
         # Replay BEST_EFFORT.
         replay_engine = app._replay_engine
@@ -1065,38 +1128,50 @@ async def _drill_replay_duplicate_risk(
 
         # Collect receipts after replay.
         receipts2 = []
-        if app.storage is not None:
+        if storage_error is None and app.storage is not None:
             try:
                 receipts2 = await app.storage.list_receipts_for_event(event.event_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                storage_error = sanitize_error(str(exc))
 
-        new_receipts = len(receipts2) - len(receipts1)
-        timeline_verified = new_receipts > 0
-        steps.append(
-            _step(
-                "verify_duplicate_receipts",
-                "ok" if timeline_verified else "unexpected",
-                receipts_before=len(receipts1),
-                receipts_after=len(receipts2),
-                new_receipts=new_receipts,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+        if storage_error is not None:
+            steps.append(
+                _step(
+                    "verify_duplicate_receipts",
+                    "storage_error",
+                    storage_error=storage_error,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
             )
-        )
-
-        report["receipt_timeline"] = {
-            "live_receipt_count": len(receipts1),
-            "replay_receipt_count": new_receipts,
-            "total_receipt_count": len(receipts2),
-            "replay_run_id": request.run_id,
-            "timeline_verified": timeline_verified,
-        }
-
-        if new_receipts <= 0:
             report["status"] = "failed"
-            report["fail_reasons"] = [
-                "Expected duplicate receipts from replay, got none"
-            ]
+            report["fail_reasons"] = [f"Storage read failed: {storage_error}"]
+        else:
+            new_receipts = len(receipts2) - len(receipts1)
+            timeline_verified = new_receipts > 0
+            steps.append(
+                _step(
+                    "verify_duplicate_receipts",
+                    "ok" if timeline_verified else "unexpected",
+                    receipts_before=len(receipts1),
+                    receipts_after=len(receipts2),
+                    new_receipts=new_receipts,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+
+            report["receipt_timeline"] = {
+                "live_receipt_count": len(receipts1),
+                "replay_receipt_count": new_receipts,
+                "total_receipt_count": len(receipts2),
+                "replay_run_id": request.run_id,
+                "timeline_verified": timeline_verified,
+            }
+
+            if new_receipts <= 0:
+                report["status"] = "failed"
+                report["fail_reasons"] = [
+                    "Expected duplicate receipts from replay, got none"
+                ]
 
     except Exception as exc:
         report["status"] = "failed"

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/drill-step.schema.json",
+  "title": "Failure drill evidence step",
+  "type": "object",
+  "required": ["step", "result"],
+  "properties": {
+    "step": {
+      "type": "string"
+    },
+    "result": {
+      "enum": ["ok", "unexpected", "missing", "storage_error"]
+    },
+    "storage_error": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "storage_error"
+          }
+        },
+        "required": ["result"]
+      },
+      "then": {
+        "required": ["storage_error"],
+        "not": {
+          "anyOf": [
+            {
+              "required": ["receipt_count"]
+            },
+            {
+              "required": ["receipts_before"]
+            },
+            {
+              "required": ["receipts_after"]
+            },
+            {
+              "required": ["new_receipts"]
+            },
+            {
+              "required": ["has_failed_receipt"]
+            },
+            {
+              "required": ["all_suppressed"]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}
