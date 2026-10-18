@@ -343,3 +343,24 @@ def test_failed_manifest_write_preserves_original_and_removes_temporary_file(
         matrix.write_manifest_atomic(path, [_entry(ref="a" * 40)])
     assert path.read_bytes() == original
     assert list(tmp_path.glob(f".{path.name}.*")) == []
+
+
+def test_namespaced_checkouts_distinguish_owners_with_the_same_repo_name(tmp_path):
+    entries = []
+    for owner in ("one", "two"):
+        parent = tmp_path / owner
+        parent.mkdir()
+        _, sha = _create_local_adapter(parent, "adapter", "community_sensor")
+        entries.append(
+            _entry(repository=f"{owner}/adapter", ref=sha, distribution="adapter")
+        )
+    assert matrix.reconcile_local(entries, repo_parent=tmp_path) == entries
+    assert matrix.reconcile_local([entries[0], entries[0]], repo_parent=tmp_path) == [
+        entries[0],
+        entries[0],
+    ]
+
+
+def test_local_pin_check_rejects_moving_refs_before_reading_checkouts(tmp_path):
+    with pytest.raises(ValueError, match="full commit SHAs"):
+        matrix.reconcile_local([_entry(ref="refs/heads/main")], repo_parent=tmp_path)

@@ -110,12 +110,21 @@ def reconcile_local(
     only used on explicit request; the operation never fetches or installs.
     Validate every checkout *before* returning any updated refs.
     """
+    if not update and any(not _SHA.fullmatch(entry["ref"]) for entry in entries):
+        raise ValueError(
+            "Local pin comparison requires full commit SHAs; resolve moving refs before comparing"
+        )
     updated: list[dict[str, Any]] = []
     mismatches: list[str] = []
     for entry in entries:
         repository = entry["repository"]
         transport = entry["transport"]
-        checkout = (repo_parent / repository.split("/")[1]).resolve()
+        namespaced = repo_parent / repository
+        checkout = (
+            namespaced
+            if namespaced.is_dir()
+            else repo_parent / repository.split("/")[1]
+        ).resolve()
         if not checkout.is_dir():
             raise ValueError(f"missing adapter checkout for {transport}: {checkout}")
 
@@ -284,7 +293,7 @@ def main() -> None:
         "--repo-parent",
         type=Path,
         default=_MANIFEST.parents[1].parent,
-        help="Directory containing MEDRE and sibling adapter checkouts",
+        help="Directory containing sibling or owner/repository adapter checkouts",
     )
     args = parser.parse_args()
     if (args.check_local or args.sync_local or args.check_merged) and (

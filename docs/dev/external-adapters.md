@@ -105,6 +105,17 @@ each committed adapter pin has landed in its repository's default branch. See
 test ownership, and the dependency-first merge order. No commits or publication
 are performed by these scripts.
 
+The scheduled **Adapter Pin Drift Canary** workflow runs `--check-local` against
+fresh clones of every manifest repository's default branch daily at 08:30 UTC,
+after the adapter-side default-branch canaries, and on every manual dispatch.
+On confirmed pin drift the job summary names the two legitimate resolutions — a Renovate pin bump once cross-adapter CI qualifies
+the pair, or a coordinated core-first flow where the pin waits on an unmerged
+core PR. The canary only reports; it never updates the manifest.
+
+The pin-drift canary clones unique repositories under owner/repository paths,
+requires immutable manifest SHAs, and queues overlapping checks. Setup and
+validation failures are reported separately from confirmed pin drift.
+
 Publish matching core and adapter revisions before expecting cross-repository
 CI to test this extraction: remote repositories cannot see local working-tree
 changes. Core-only CI remains meaningful throughout that coordination.
