@@ -7,10 +7,10 @@ import asyncio
 import json
 from pathlib import Path
 
-from .plan import load_plan, runtime_config
+from .plan import PlanError, load_plan, runtime_config
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--config", type=Path, required=True, help="Private campaign YAML"
@@ -28,14 +28,9 @@ def main() -> int:
         action="store_true",
         help="Connect to configured lab endpoints and send nonces",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         plan = load_plan(args.config, set(args.only.split(",")) if args.only else None)
-    except ValueError as exc:
-        # Plan validation messages name manifest fields; they carry no credentials.
-        print(f"Invalid campaign plan: {exc}")
-        return 1
-    try:
         if not args.run:
             # Validate the runtime too, but never build it or open any state.
             runtime_config(plan, Path("/tmp/medre-campaign-plan"))
@@ -55,10 +50,13 @@ def main() -> int:
         from .run import run
 
         asyncio.run(run(plan, args.output.resolve()))
+    except PlanError as exc:
+        print(f"Campaign plan rejected: {exc}")
+        return 1
     except (Exception, KeyboardInterrupt) as exc:
         # Runtime and SDK errors can contain credentials. Keep public output bounded.
         print(
-            f"Campaign failed ({type(exc).__name__}); inspect the private evidence directory."
+            f"Campaign failed ({type(exc).__name__}); inspect the configuration and private evidence directory, if created."
         )
         return 1
     return 0

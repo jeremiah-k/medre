@@ -1159,6 +1159,14 @@ failure. Drills that start a runtime **MUST** close it on cancellation and
 unexpected exceptions, report `shutdown_status`, and require error-free shutdown
 with status `stopped`. Cleanup errors **MUST NOT** replace the original report.
 
+Receipt-read failures **MUST** produce a `storage_error` step verdict with
+sanitized error detail and fail the report. Unreadable storage **MUST NOT** be
+represented as an empty receipt set or used to derive receipt timelines. A
+failed pre-replay receipt baseline **MUST** prevent replay verification. Storage
+faults **MUST** remain in the failure reasons alongside other observed failures.
+The common step shape is published in
+[drill-step.schema.json](../schemas/drill-step.schema.json).
+
 ### 22.4 Synthetic lifecycle drill coverage
 
 The programmatic `bad_route_config`, `all_adapters_build_fail`,
