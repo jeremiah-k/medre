@@ -11,6 +11,26 @@ behaviour.
 > because the limitation is replaced by a different constraint), update
 > this appendix in the same change.
 
+## Evidence provenance and scope
+
+This index was checked against the **2026-10-17 18:25** five-repository stack.
+These are repository-relative paths, not files in the MEDRE core checkout:
+
+| Repository | Inspected commit |
+| --- | --- |
+| `medre` | `f0171a3317b85536230e8b3c000270574b1e2dc8` |
+| `medre-adapter-matrix` | `b7b2815e2d54a81eb745b5beb24a7ac0f20b8d01` |
+| `medre-adapter-meshtastic` | `3c44a30401c8d9d7865d3313cf2d75d378eefa87` |
+| `medre-adapter-meshcore` | `f250353b1b1064dc6ca479ae9475dcabd9c58857` |
+| `medre-adapter-lxmf` | `24f8873e03c83dc9546b3e2216b10456afa14e0a` |
+
+Core-owned test references use `tests/...`; provider-owned references name the
+repository explicitly. A **test path records where a claim is exercised**, not
+proof it passed on these five commits. Historical pass counts and hardware
+observations below are dated evidence, *not* an automatic current-tree native
+qualification. Re-run the relevant opt-in tiers with the exact provider pins
+and record environment, SDK revisions, and raw evidence for a new claim.
+
 ## 1. Meshtastic → Matrix Live Inbound Evidence
 
 The Meshtastic-to-Matrix inbound path has an opt-in hardware harness, but it is
@@ -50,11 +70,12 @@ policy inside the `DELIVER` phase.
 
 LXMF defines a `PAPER` delivery **method** alongside `DIRECT`,
 `OPPORTUNISTIC`, and `PROPAGATED`. The delivery **state** vocabulary
-(`LxmfDeliveryState` in `src/medre/adapters/lxmf/session.py`) has no
+(`LxmfDeliveryState` in the LXMF provider’s
+`medre-adapter-lxmf/src/medre/adapters/lxmf/session.py`) has no
 paper-specific entry.
 
-- **Source:** `tests/test_lxmf_state_mapping.py` and
-  `tests/test_lxmf_session.py` assert that any LXMF delivery state value
+- **Source:** `medre-adapter-lxmf/tests/test_lxmf_state_mapping.py` and
+  `medre-adapter-lxmf/tests/test_lxmf_session.py` assert that any LXMF delivery state value
   the runtime does not recognise maps to `LxmfDeliveryState.UNMAPPED`.
 - **Current behaviour:** If LXMF reports a state value outside the
   eight-name map (`GENERATING`, `OUTBOUND`, `SENDING`, `SENT`,
@@ -81,7 +102,7 @@ upstream mmrelay in four known ways:
    are unsupported.** MEDRE only renders generic variables such as
    `{sender}` and `{sender_short}`. Per-index aliases that mmrelay
    consumers may emit are intentionally not interpolated. See
-   `src/medre/adapters/matrix/renderer.py` for the supported template
+   `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py` for the supported template
    vocabulary.
 
 3. **Reaction body byte-format differences vs upstream MMR.** MEDRE
@@ -93,7 +114,7 @@ upstream mmrelay in four known ways:
 4. **Hardcoded `TEXT_MESSAGE_APP` portnum in mmrelay-compat Matrix
    metadata.** The Matrix adapter embeds a hardcoded
    `"TEXT_MESSAGE_APP"` port number in the mmrelay-compatibility
-   metadata. See `src/medre/adapters/matrix/renderer.py` (`embed_*`)
+   metadata. See `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py` (`embed_*`)
    for the injection site. Multi-portnum or non-text packet types are
    not currently exposed through this metadata block.
 
@@ -120,8 +141,8 @@ exposes no transport-down event, so a silently lost transport is first
 noticed on the next outbound send. Operators MUST NOT read `healthy`
 as peer reachability.
 
-- **Source:** `src/medre/adapters/lxmf/adapter.py::health_check`;
-  `tests/test_lxmf_health_lifecycle.py`.
+- **Source:** `medre-adapter-lxmf/src/medre/adapters/lxmf/adapter.py::health_check`;
+  `medre-adapter-lxmf/tests/test_lxmf_health_lifecycle.py`.
 
 ### 5.2 MeshCore and Matrix expose no outbound queue evidence
 
@@ -129,8 +150,8 @@ The outbound-queue diagnostic keys (`queue_pending`, `queue_total_sent`,
 `queue_total_failed`) exist only on the Meshtastic adapter. MeshCore and
 Matrix diagnostics have no equivalent queue-depth surface.
 
-- **Source:** `src/medre/adapters/meshtastic/adapter.py` (keys present);
-  Matrix/MeshCore adapter diagnostics (keys absent).
+- **Source:** `medre-adapter-meshtastic/src/medre/adapters/meshtastic/adapter.py`
+  (keys present); corresponding Matrix/MeshCore adapter diagnostics (keys absent).
 
 ## 6. LXMF Envelope Relation Fidelity
 
@@ -142,10 +163,12 @@ pinned-SDK hop: instance A renders a relation-bearing event through
 `LxmfRenderer` and its real `LxmfAdapter`, and distinct process B
 decodes through the real inbound adapter/codec path over a loopback
 Reticulum `UDPInterface` pair
-(`tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`).
+(`medre-adapter-lxmf/tests/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`).
 That harness passed on the declared pinned SDKs in a locked disposable venv
 at the 2026-09-18 gate: 3/3 local-integration tests were green, and
-`PYTHONPATH=src python -m tests.helpers.lxmf_local_probe relation <tmpdir>`
+the provider-owned
+`medre-adapter-lxmf/tests/medre_lxmf_tests/helpers/lxmf_local_probe.py`
+probe
 exited 0 with every verdict true and the runtime-resolved SDK versions recorded
 in the result payload. The passing run is still
 local-SDK loopback evidence only: external interoperability (real
@@ -153,8 +176,8 @@ multi-hop meshes, other MEDRE deployments, live hardware) remains
 unproven, and no live-network or hardware bridge proof is claimed from
 a local SDK relation test.
 
-- **Source:** `src/medre/adapters/lxmf/codec.py`;
-  `tests/integration/test_lxmf_local_integration.py`.
+- **Source:** `medre-adapter-lxmf/src/medre/adapters/lxmf/codec.py`;
+  `medre-adapter-lxmf/tests/test_lxmf_local_integration.py`.
 
 ## See also
 
@@ -162,7 +185,8 @@ a local SDK relation test.
   limitations.
 - [`transport-realism.md`](transport-realism.md) — required evidence
   ladder and current transport coverage.
-- `tests/test_pipeline_conformance.py`, `tests/test_lxmf_state_mapping.py`,
-  `tests/test_live_matrix_meshtastic_bridge.py`,
-  `tests/test_matrix_reaction_mmrelay.py` — the test modules that record
-  the limitations above.
+- `tests/test_pipeline_conformance.py`,
+  `tests/test_live_matrix_meshtastic_bridge.py`, and
+  `tests/test_matrix_reaction_mmrelay.py` (MEDRE core), and
+  `medre-adapter-lxmf/tests/test_lxmf_state_mapping.py` (LXMF provider)
+  — the test modules recording the limitations above.

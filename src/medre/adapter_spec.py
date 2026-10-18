@@ -12,7 +12,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["AdapterSpec", "AdapterSample", "DestinationSpec", "SymbolRef"]
+__all__ = [
+    "AdapterSpec",
+    "AdapterSample",
+    "DestinationSpec",
+    "SymbolRef",
+    "NativeSetupField",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +65,23 @@ class AdapterSample:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeSetupField:
+    """A provider-owned prompt; MEDRE does not know native field semantics.
+
+    A field may be conditional on a prior choice. Native values are still
+    validated using the provider's actual config model and preflight.
+    """
+
+    name: str
+    label: str
+    required: bool = True
+    secret: bool = False
+    choices: tuple[str, ...] = ()
+    active_when: tuple[str, str] | None = None
+    numeric: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterSpec:
     """Declarative assembly metadata for one installed adapter type.
 
@@ -89,6 +112,7 @@ class AdapterSpec:
     native_detection_priority: int = 100
     destinations: tuple[DestinationSpec, ...] = ()
     sample_config: SymbolRef | None = None
+    native_setup_fields: tuple[NativeSetupField, ...] = ()
     logger_levels: tuple[tuple[str, str], ...] = ()
 
     @property

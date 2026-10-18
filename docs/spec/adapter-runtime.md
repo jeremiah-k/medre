@@ -933,6 +933,22 @@ creates two distinct instances; with none it emits an empty, loadable config
 and installation guidance. Sample callbacks **MUST NOT** include real secrets,
 perform I/O, or import SDKs.
 
+A provider **MAY** declare `native_setup_fields`, an SDK-free tuple of
+`NativeSetupField` values naming fields of its provider-owned config dataclass.
+Field declarations **MUST** use unique, valid config fields and **MUST NOT**
+include the core lifecycle wrapper fields (`adapter_id`, `adapter_kind`,
+`enabled`). A field listed in `support_secret_fields` **MUST** use
+`secret=True`, and secret prompts **MUST** belong to that redaction list.
+Choices **MUST** be unique non-empty strings and **MUST NOT** be combined with
+secret or numeric input. Conditional fields **MUST** reference a choice of a
+preceding field. Labels **MUST** be non-empty strings and prompt flags **MUST**
+be booleans. The guided native CLI **MUST** validate the completed document with
+the authoritative loader and provider's pure preflight, **MUST NOT** import
+native SDKs or contact hardware, and **MUST NOT** overwrite existing output.
+Secret input **MUST NOT** be echoed; any saved secret makes the private YAML
+credential-bearing. This optional metadata does not replace provider-native
+validation, qualification, or SDK setup.
+
 External SDK import roots receive a warning-level logging default; the root
 logger and MEDRE namespace remain controlled by core/operator settings. Providers **MAY**
 declare `logger_levels`, a tuple of dependency logger name / canonical level

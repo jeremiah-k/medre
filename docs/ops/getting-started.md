@@ -110,8 +110,18 @@ storage, device permissions, encryption, and native context formats:
 | [MeshCore](transport-setup/meshcore.md) | Companion connection, contacts and channels | Provider-declared contact or channel |
 | [LXMF](transport-setup/lxmf.md) | Reticulum identity, RNS configuration and destination | Native LXMF destination |
 
-Put native adapter instances in `connections.yaml`, then run the same wizard
-without exposing secrets at its prompts:
+Create native instances through the provider-declared interactive setup (Matrix,
+Meshtastic, or MeshCore), or follow the individual transport guides for manual
+configuration and LXMF:
+
+```bash
+medre config native --transport matrix --adapter-id bot --output matrix.yaml
+medre config native --transport meshtastic --adapter-id node \
+  --config matrix.yaml --output connections.yaml
+```
+
+The native form accepts access tokens through hidden prompts, but stores them
+in the private YAML; do not commit it. Then run the route wizard:
 
 ```bash
 medre config bridge --config connections.yaml --output bridge.yaml

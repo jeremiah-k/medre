@@ -146,11 +146,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dest-label", default=None, help="Reverse origin label; empty suppresses it"
     )
     bridge_p.add_argument(
+        "--replace-route",
+        action="store_true",
+        help="Replace an existing guided text route by --route-id in a NEW output file",
+    )
+    bridge_p.add_argument(
         "--preview", action="store_true", help="Validate and preview without writing"
     )
     bridge_p.add_argument(
         "--json", action="store_true", help="Print the effective route plan as JSON"
     )
+
+    native_p = config_sub.add_parser(
+        "native", help="Guide an offline, provider-owned native connection draft"
+    )
+    native_p.add_argument("--transport", required=True, help="Installed provider type")
+    native_p.add_argument("--adapter-id", required=True, help="New adapter instance ID")
+    native_p.add_argument(
+        "--config", default=None, help="Existing configuration to extend"
+    )
+    native_p.add_argument("--output", required=True, help="New private YAML path")
 
     # paths
     sub.add_parser("paths", help="Print resolved MEDRE paths")
@@ -312,6 +327,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Emit the plan as a normalized JSON report",
     )
+
+    routes_explain_p = routes_sub.add_parser(
+        "explain", help="Explain offline source matching without delivery guarantees"
+    )
+    routes_explain_p.add_argument("--config", default=None, help="Path to config file")
+    routes_explain_p.add_argument("--source-adapter", required=True, help="Instance ID")
+    routes_explain_p.add_argument(
+        "--source-context", required=True, help="Exact conversation ID"
+    )
+    routes_explain_p.add_argument("--event-kind", default="message.text")
+    routes_explain_p.add_argument(
+        "--sender-id", default=None, help="Sender ID for policy checks"
+    )
+    routes_explain_p.add_argument("--json", action="store_true")
 
     # smoke
     smoke_p = sub.add_parser(
@@ -769,6 +798,10 @@ def main(argv: list[str] | None = None) -> None:
             from .bridge_commands import _config_bridge
 
             _config_bridge(args)
+        elif args.config_command == "native":
+            from .native_commands import _config_native
+
+            _config_native(args)
     elif args.command == "paths":
         from .config_commands import _paths
 
@@ -792,6 +825,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "routes":
         from .route_commands import (
             _routes_list,
+            _routes_explain,
             _routes_plan,
             _routes_topology,
             _routes_validate,
@@ -805,6 +839,15 @@ def main(argv: list[str] | None = None) -> None:
             _routes_list(args.config)
         elif args.routes_command == "plan":
             _routes_plan(args.config, as_json=args.json)
+        elif args.routes_command == "explain":
+            _routes_explain(
+                args.config,
+                args.source_adapter,
+                args.source_context,
+                args.event_kind,
+                sender_id=args.sender_id,
+                as_json=args.json,
+            )
     elif args.command == "smoke":
         from .smoke_commands import _run_session, _smoke
 

@@ -323,6 +323,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     (),
                     RouteDirectionality(direction),
                     args.route_id,
+                    replace_route=args.replace_route,
                 ),
                 require_contexts=False,
             )
@@ -379,6 +380,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     tuple(contexts) + ((context, target),),
                     RouteDirectionality(direction),
                     args.route_id,
+                    replace_route=args.replace_route,
                 )
                 try:
                     authoring.draft(attempt)
@@ -421,6 +423,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 args.route_id,
                 source_label,
                 dest_label,
+                args.replace_route,
             ),
         )
         checked_transports: set[str] = set()

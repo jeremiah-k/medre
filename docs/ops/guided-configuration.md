@@ -87,6 +87,76 @@ A smoke pass covers one source/context and its matched fanout, not every route
 or native delivery. `--source-context` applies to normal smoke, not drills or
 run sessions. Real configurations are rejected by fake smoke.
 
+## Create native connections without hand-writing adapter fields
+
+For providers that declare an offline native-setup form (currently Matrix,
+Meshtastic and MeshCore), use **`medre config native`** before building routes.
+It prompts for provider-defined connection fields, validates them through the
+provider's real config model and pure preflight, and creates a new YAML file.
+It never contacts an account, radio, or server. It requires an interactive
+terminal; scripts can continue using reviewed YAML templates.
+
+```bash
+medre config native --transport matrix --adapter-id bot \
+  --output matrix.yaml
+medre config native --transport meshtastic --adapter-id node \
+  --config matrix.yaml --output connections.yaml
+medre config bridge --config connections.yaml --output bridge.yaml
+```
+
+For MeshCore, replace `--transport meshtastic` with `--transport meshcore`.
+The radio form lets you choose TCP, serial, or BLE, then asks only for the
+fields relevant to that connection. LXMF and other providers without a
+native form continue to use their [transport guide](transport-setup/lxmf.md)
+and a prepared input configuration.
+
+**Secrets and privacy:** Matrix's access token is entered through a hidden
+terminal prompt, never a CLI argument, and is saved in the resulting YAML.
+Files are created exclusively (owner-only permissions on POSIX; directory ACLs
+apply on Windows). Treat **every generated copy** as credential-bearing:
+keep it outside Git, restrict read access, and prefer the provider's
+sidecar/env-secret workflow if you do not want to store tokens in YAML. Do
+not publish the generated configuration or paste it into an AI prompt.
+Reusing a file through `--config` preserves existing native values and any
+literal secrets without displaying them.
+
+## Explain a route decision
+
+Use the source-matching explanation to understand *why a configured route
+matches or does not match* a given adapter/context/kind. The report is
+computed entirely from configuration: MEDRE's production route compiler and
+router supply the candidate set, and where supplied, the production allowlist
+evaluator scores policy inputs. No adapter session or device is contacted.
+
+```bash
+medre routes explain --config bridge.yaml \
+  --source-adapter bot --source-context '!room:example.org' \
+  --event-kind message.text --json
+```
+
+Add `--sender-id` when a route has a sender allowlist. Otherwise the report
+marks that check **sender_required**, not allowed. It distinguishes disabled or
+unmatched source filters, policy denials, and unknown event-kind suppression.
+The report is **not** a delivery prediction: target capabilities, runtime
+readiness, native authorization, duplicate guards, and recipient receipt
+still require runtime/native evidence. An offline candidate does not mean the
+message will be delivered.
+
+## Safely change an existing guided bridge
+
+Use `--replace-route` with the ID of an existing *guided text* route. The old
+input file remains untouched and the new output must not exist. Advanced
+custom routes—priority, retry, extra policy, native structured destinations,
+or nonstandard fields—are rejected instead of silently flattened. Review the
+new route plan before using it.
+
+```bash
+medre config bridge --config bridge.yaml --output revised.yaml \
+  --route-id bridge --replace-route --source bot --dest node \
+  --direction bidirectional --map '!room:example.org' '0'
+medre routes plan --config revised.yaml
+```
+
 ## Add a route to native connections
 
 Use `--config` with a file containing your existing adapter connections. Native
@@ -122,9 +192,9 @@ Update the input configuration (or the corresponding environment override)
 before authoring; the workflow does not broaden native permissions for you.
 For a sample instance, use a context allowed by `medre config sample`.
 
-Existing routes are preserved. Choose a new `--route-id` if `bridge` already
-exists. A selected context pair already connected by an enabled text route is
-rejected;
+Existing routes are preserved by default. Choose a new `--route-id` if `bridge`
+already exists, or use `--replace-route` for a guided text route as above. A
+selected context pair already connected by an enabled text route is rejected;
 edit that route instead of creating duplicate deliveries. Advanced intentional
 overlaps and structured destinations remain available through ordinary YAML.
 An existing wildcard source for the same explicit target, or a context-less

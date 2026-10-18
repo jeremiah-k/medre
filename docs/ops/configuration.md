@@ -1145,6 +1145,10 @@ medre config bridge --output PATH [--config PATH] [--preview] [--json]
     Guide endpoint/context/direction selection and preview routes offline.
     Save a new private YAML file; never overwrite or start adapters.
 
+medre config native --transport TYPE --adapter-id ID --output PATH [--config PATH]
+    Collect provider-declared connection settings offline with hidden secret input.
+    Save a new private YAML file without contacting devices or accounts.
+
 medre paths
     Print all resolved MEDRE paths.
 
@@ -1193,6 +1197,10 @@ medre routes topology [--config PATH]
 
 medre routes list [--config PATH]
     List configured routes (offline, no network I/O).
+
+medre routes explain --source-adapter ID --source-context CONTEXT [--config PATH] [--json]
+    Explain source matching and configured policy checks without starting adapters.
+    Use --event-kind KIND and --sender-id ID to examine event and identity filters.
 
 medre routes plan [--config PATH]
     Show the expanded route plan (offline, no network I/O). See

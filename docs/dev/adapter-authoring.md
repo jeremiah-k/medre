@@ -32,6 +32,27 @@ Every adapter declares a role:
 The role is inferred from the adapter type at configuration load time. Operators
 do not set it manually.
 
+## Optional SDK-free native setup prompts
+
+A provider may expose `AdapterSpec.native_setup_fields` as a tuple of
+`NativeSetupField` declarations from `medre.adapter_spec`. Each declaration
+names a field in the provider-owned configuration model and its operator
+prompt; `secret=True` hides terminal input, `choices` provides valid choices,
+`active_when=(field, value)` selects dependent inputs, and `numeric=True`
+parses an integer. The core does **not** hardcode native connection fields.
+The wizard calls the usual typed loader and pure runtime preflight; it never
+imports an SDK or starts an adapter. The provider remains responsible for
+validation, runtime prerequisites, address formats, and documentation. Do not
+include fields with side effects or secrets that cannot safely be written to
+a private config file. Fields in `support_secret_fields` require hidden input;
+choice prompts accept unique text values and cannot be numeric or secret.
+Conditional inputs reference a declared choice of a preceding prompt. To retain
+compatibility with core versions without native forms, check for
+`medre.adapter_spec.NativeSetupField` before constructing the optional tuple or
+passing the keyword to `AdapterSpec`; provider discovery can then work on core
+main while form support is qualified against a candidate core revision. Omitting the tuple leaves guided native setup unavailable
+for that provider without affecting manual configuration.
+
 ## Step 1: Implement the Adapter Protocol
 
 Your adapter class satisfies the `Adapter` protocol with four methods:
