@@ -155,6 +155,7 @@ def test_native_detection_priority_preserves_existing_precedence() -> None:
         "matrix",
         "meshtastic",
         "lxmf",
+        "xmpp",
     )
 
 
