@@ -1,0 +1,73 @@
+name: Adapter Pin Drift Canary
+
+on:
+  schedule:
+    # Daily at 08:30 UTC, after the adapter-side default-branch canaries
+    # (06:30-07:00 UTC) have produced the revisions this check compares.
+    - cron: "30 8 * * *" # yamllint disable-line rule:quoted-strings
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  GIT_TERMINAL_PROMPT: "0"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  pin-drift:
+    name: Manifest pins vs adapter default branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version-file: .tool-versions
+          python-version: "3.13"
+      - name: Clone adapter default branches
+        run: |
+          repos=$(jq -r '.[].repository' .github/adapter-compatibility.json | sort -u)
+          mkdir -p "$RUNNER_TEMP/pins"
+          for repo in $repos; do
+            mkdir -p "$RUNNER_TEMP/pins/${repo%/*}"
+            git clone --depth 1 --quiet \
+              "https://github.com/${repo}.git" \
+              "$RUNNER_TEMP/pins/${repo}"
+          done
+      - name: Compare manifest pins with adapter default branches
+        run: |
+          set -o pipefail
+          uv run --no-project --python 3.13 python scripts/ci/adapter_matrix.py \
+            --check-local --repo-parent "$RUNNER_TEMP/pins" 2>&1 | tee pin-check.log
+      - name: Summarize verification failures
+        if: failure()
+        run: |
+          {
+            if [[ -f pin-check.log ]] && grep -Fq 'adapter compatibility pins differ from local checkouts:' pin-check.log; then
+              echo "## Adapter compatibility pins lag adapter default branches"
+              echo ""
+              echo "Two legitimate resolutions exist:"
+              echo ""
+              echo "- Qualify the adapter default-branch commit against core, then accept the Renovate pin bump."
+              echo "- During a coordinated core-first change, retain the qualified pin until the core change merges and the pair is qualified."
+              echo ""
+              echo "This canary only reports drift; it never updates manifest pins."
+            else
+              echo "## Adapter pin verification could not complete"
+              echo ""
+              echo "Inspect the failed setup, checkout, or validation step before changing any pins."
+            fi
+            if [[ -f pin-check.log ]]; then
+              echo ""
+              echo '```text'
+              cat pin-check.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
