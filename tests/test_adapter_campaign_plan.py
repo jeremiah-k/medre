@@ -110,3 +110,20 @@ def test_native_delivery_requires_expected_sender_scope_and_body(change):
         native_receipt(
             SimpleNamespace(name="matrix", records=records), endpoint, "MR-proof"
         )
+
+
+def test_cli_displays_only_harness_authored_validation_messages(
+    tmp_path, capsys, monkeypatch
+):
+    from scripts.adapter_campaign import __main__ as cli
+
+    path = manifest(tmp_path, timeout_seconds=0)
+    assert cli.main(["--config", str(path)]) == 1
+    assert "timeout_seconds must be finite" in capsys.readouterr().out
+
+    def parser_failure(*args):
+        raise ValueError("access_token=private-fixture")
+
+    monkeypatch.setattr(cli, "load_plan", parser_failure)
+    assert cli.main(["--config", str(path)]) == 1
+    assert "private-fixture" not in capsys.readouterr().out
