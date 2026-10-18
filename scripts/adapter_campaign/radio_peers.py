@@ -136,16 +136,17 @@ async def lxmf(settings: dict) -> None:
         )
 
         def receive(message):
+            text = message.content.decode(errors="replace")
+            if settings["marker_prefix"] not in text:
+                return
             emit(
                 "native_observed",
                 signature_validated=bool(message.signature_validated),
                 content_bytes=len(message.content),
-                has_campaign_marker=settings["marker_prefix"]
-                in message.content.decode(),
             )
             if message.signature_validated:
                 received(
-                    text=message.content.decode(),
+                    text=text,
                     sender=message.source_hash.hex(),
                     channel=message.source_hash.hex(),
                     native_id=message.hash.hex(),

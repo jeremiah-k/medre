@@ -108,7 +108,8 @@ async def wait_evidence(
             if items:
                 item = items[0]
                 if (
-                    len(item["receipts"]) >= len(targets)
+                    sum(row["status"] == "sent" for row in item["receipts"])
+                    >= len(targets)
                     and len(item["outbox"]) >= len(targets)
                     and all(row["status"] == "sent" for row in item["outbox"])
                 ):

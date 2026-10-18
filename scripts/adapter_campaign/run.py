@@ -127,8 +127,10 @@ async def run(plan: Plan, directory: Path) -> dict:
         for source, peer in peers.items():
             for owner in peers.values():
                 owner.check()
-            marker = prefix + source
-            text = marker + " café ✓"
+            # The trailing space keeps one source's marker from matching
+            # inside another's when one endpoint name prefixes another.
+            marker = prefix + source + " "
+            text = marker + "café ✓"
             sent = await peer.send(text)
             targets = {
                 name: endpoint["channel"]
