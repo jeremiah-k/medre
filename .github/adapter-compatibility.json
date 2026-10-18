@@ -30,5 +30,13 @@
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-lxmf"
+  },
+  {
+    "transport": "xmpp",
+    "repository": "jeremiah-k/medre-adapter-xmpp",
+    "ref": "23ee7554368ff3092d970cccda270bab7163096d",
+    "extras": "",
+    "local_integration": false,
+    "distribution": "medre-adapter-xmpp"
   }
 ]
