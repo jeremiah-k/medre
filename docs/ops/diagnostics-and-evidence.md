@@ -155,7 +155,7 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
 | Command                                                                        | Storage           | Starts adapters    | Output                           | Exit codes                              |
 | ------------------------------------------------------------------------------ | ----------------- | ------------------ | -------------------------------- | --------------------------------------- |
 | `medre smoke --json`                                                           | Config-determined | Fake only          | passed/failed JSON               | 0=passed, 1=failed                      |
-| `medre smoke --config <cfg> --storage-path <db> --json`                       | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
+| `medre smoke --config <cfg> --storage-path <db> --json`                        | SQLite            | Fake only          | passed/failed JSON + DB          | 0=passed, 1=failed                      |
 | `medre smoke --drill <name> --json`                                            | Config-determined | Fake only          | Drill report JSON                | 0=passed, 1=failed                      |
 | `medre smoke --drill <name> --config <sqlite-cfg> --json`                      | SQLite            | Fake only          | Drill report JSON + DB           | 0=passed, 1=failed                      |
 | `medre evidence --storage-path <db> --json`                                    | SQLite (RO)       | No                 | Full bundle JSON                 | 0=passed/partial, 2=storage error       |
@@ -260,6 +260,10 @@ All four conditions below are required for a passed smoke report:
   ]
 }
 ```
+
+A step whose storage read fails reports `result: "storage_error"` with the
+redacted error text in a `storage_error` field, and the drill report is `failed`. A
+storage fault is never reported as a missing-receipt or count-based verdict.
 
 ### Evidence Bundle Report
 
@@ -470,13 +474,13 @@ uv run --no-sync pytest -m "" -v
 
 ### Failure Interpretation
 
-| Symptom                                             | Likely cause                    | Action                                                                                         |
-| --------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                                    |
+| Symptom                                             | Likely cause                    | Action                                                                              |
+| --------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running       | Start Docker: `docker info`                                                         |
 | Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed    | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
 | Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed        | Install matrix, meshtastic in the MEDRE environment; see [installation](install.md) |
-| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                           |
-| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                             |
+| Config validation exits 2                           | YAML syntax or credential error | `medre config check --config <path>`                                                |
+| Routes validate exits 2                             | Unknown adapter ref in route    | Check adapter IDs in routes match adapters section                                  |
 
 ## Diagnostics Commands
 
