@@ -36,6 +36,7 @@ class BridgeRequest:
     route_id: str = "bridge"
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
+    replace_route: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,8 @@ def precheck_bridge(
     """Reject request preconditions that are independent of any context value.
 
     Checks that both endpoints exist and are enabled, that the endpoints
-    differ, that the route ID is unused, and — unless *require_contexts* is
+    differ, that the route ID is unused (or exists for explicit replacement),
+    and — unless *require_contexts* is
     False — that at least one context mapping is supplied. Importable and
     callable without running the full draft; :func:`draft_bridge` calls it
     before any context-level validation so callers can reject structural
@@ -66,8 +68,13 @@ def precheck_bridge(
             raise ConfigValidationError(f"Adapter instance {endpoint!r} is disabled")
     if request.source_adapter == request.dest_adapter:
         raise ConfigValidationError("Choose two different adapter instances")
-    if request.route_id in {route.route_id for route in config.routes.routes}:
+    existing = request.route_id in {route.route_id for route in config.routes.routes}
+    if existing and not request.replace_route:
         raise ConfigValidationError(f"Route {request.route_id!r} already exists")
+    if request.replace_route and not existing:
+        raise ConfigValidationError(
+            f"Cannot replace missing route {request.route_id!r}"
+        )
     RouteConfig.from_dict(
         request.route_id,
         {
@@ -129,12 +136,55 @@ class BridgeAuthoring:
         )
         _checked_plan(self.config, paths)
 
+    def precheck(
+        self, request: BridgeRequest, *, require_contexts: bool = True
+    ) -> dict | None:
+        """Validate template-specific replacement constraints before prompting."""
+        precheck_bridge(self.config, request, require_contexts=require_contexts)
+        original: dict | None = None
+        if request.replace_route:
+            # Do not flatten arbitrary route policy, structured destinations,
+            # retry settings or operator extensions into a text-only bridge.
+            original = (self._document.get("routes") or {})[request.route_id]
+            accepted = {
+                "source_adapters",
+                "dest_adapters",
+                "directionality",
+                "context_map",
+                "policy",
+                "source_origin_label",
+                "dest_origin_label",
+            }
+            if (
+                not isinstance(original, dict)
+                or set(original) - accepted
+                or not isinstance(original.get("context_map"), dict)
+                or any(
+                    not isinstance(entry, dict) or set(entry) != {"dest_context"}
+                    for entry in original.get("context_map", {}).values()
+                )
+                or original.get("policy")
+                != {"allowed_event_types": list(_TEXT_EVENT_KINDS)}
+            ):
+                raise ConfigValidationError(
+                    f"Route {request.route_id!r} is not a simple guided text "
+                    "bridge; edit its advanced settings manually"
+                )
+            if original.get("source_adapters") != [
+                request.source_adapter
+            ] or original.get("dest_adapters") != [request.dest_adapter]:
+                raise ConfigValidationError(
+                    "Cannot change the endpoints of a guided route in place; "
+                    "create a new route instead"
+                )
+
+        return original
+
     def draft(self, request: BridgeRequest) -> BridgeDraft:
         """Return complete validated YAML and its plan, preserving the template."""
         document = dict(self._document)
-        config = self.config
         paths = self._paths
-        precheck_bridge(config, request)
+        original = self.precheck(request)
 
         context_map = {}
         for source, dest in request.contexts:
@@ -154,6 +204,9 @@ class BridgeAuthoring:
         }
         for field in ("source_origin_label", "dest_origin_label"):
             value = getattr(request, field)
+            if value is None and request.replace_route:
+                # Omission means "keep" when editing, not "erase attribution".
+                value = original.get(field) if original is not None else None
             if value is not None:
                 route[field] = value
         document["routes"] = {**(document.get("routes") or {}), request.route_id: route}

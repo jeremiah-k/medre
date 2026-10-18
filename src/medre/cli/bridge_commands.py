@@ -23,7 +23,7 @@ from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
     sanitize_error,
 )
-from medre.runtime.bridge_setup import BridgeAuthoring, BridgeRequest, precheck_bridge
+from medre.runtime.bridge_setup import BridgeAuthoring, BridgeRequest
 from medre.runtime.errors import RuntimeConfigError
 
 from .exit_codes import EXIT_CONFIG, EXIT_FAILED
@@ -293,12 +293,24 @@ def _config_bridge(args: argparse.Namespace) -> None:
             }
             text = dump_yaml_config(document)
             authoring = BridgeAuthoring(text, paths=paths)
+        existing_direction = "bidirectional"
+        if args.replace_route:
+            existing = next(
+                (
+                    route
+                    for route in authoring.config.routes.routes
+                    if route.route_id == args.route_id
+                ),
+                None,
+            )
+            if existing is not None:
+                existing_direction = existing.directionality.value
         direction = _choose(
             args.direction,
             ["bidirectional", "source_to_dest", "dest_to_source"],
             "direction",
             interactive,
-            default="bidirectional",
+            default=existing_direction,
             labels={
                 "bidirectional": "messages flow both ways",
                 "source_to_dest": f"{source} → {dest} only",
@@ -315,14 +327,14 @@ def _config_bridge(args: argparse.Namespace) -> None:
             # context. Only context-specific failures can reject a pair in
             # the loop below, so validation there stays retryable and never
             # aborts the session.
-            precheck_bridge(
-                authoring.config,
+            authoring.precheck(
                 BridgeRequest(
                     source,
                     dest,
                     (),
                     RouteDirectionality(direction),
                     args.route_id,
+                    replace_route=args.replace_route,
                 ),
                 require_contexts=False,
             )
@@ -379,6 +391,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                     tuple(contexts) + ((context, target),),
                     RouteDirectionality(direction),
                     args.route_id,
+                    replace_route=args.replace_route,
                 )
                 try:
                     authoring.draft(attempt)
@@ -421,6 +434,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 args.route_id,
                 source_label,
                 dest_label,
+                replace_route=args.replace_route,
             ),
         )
         checked_transports: set[str] = set()

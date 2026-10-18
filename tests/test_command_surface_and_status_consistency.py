@@ -505,8 +505,8 @@ class TestNestedCommandCoverage:
     @pytest.mark.parametrize(
         "top_level,expected",
         [
-            ("config", {"check", "sample", "bridge"}),
-            ("routes", {"validate", "topology", "list", "plan"}),
+            ("config", {"check", "sample", "bridge", "native"}),
+            ("routes", {"validate", "topology", "list", "plan", "explain"}),
             ("inspect", {"event", "receipts", "native-ref", "pressure", "replay"}),
             ("trace", {"event", "replay"}),
             ("storage", {"status", "reset"}),

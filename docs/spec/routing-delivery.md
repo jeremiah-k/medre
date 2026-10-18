@@ -1818,6 +1818,20 @@ reverse direction, each `context_map` entry MUST use a distinct
 the same pairs SHOULD split the entries into separate routes, each with
 its own dedicated dest context.
 
+### 17.7 Offline Route Explanations
+
+`medre routes explain` projects hypothetical source adapter, context, event kind,
+and optional sender ID through the production route compiler and source matcher.
+When enough inputs are present, it also calls the core allowlist evaluator for
+each matched destination. A missing sender required by policy remains unknown,
+not implicitly permitted. Unknown event kinds remain subject to capability
+suppression; source matching does not override that boundary.
+
+The output's `offline_source_matching_only` scope means no adapter was started
+and destination capabilities, readiness, native permissions, duplicate suppression,
+and actual transport acceptance were not established. This diagnostic cannot be
+used as delivery evidence or as an authority to replay messages.
+
 ## 18. Non-Goals
 
 This specification explicitly does **not** provide:

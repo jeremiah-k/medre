@@ -513,3 +513,53 @@ def _render_route_plan(plan) -> None:
             print(f"  \u26a0 {loop}")
     else:
         print("Loops: none detected")
+
+
+def _routes_explain(
+    config_path: str | None,
+    source_adapter: str,
+    source_context: str,
+    event_kind: str,
+    *,
+    sender_id: str | None = None,
+    as_json: bool = False,
+) -> None:
+    """Explain static source matching without suggesting a delivery guarantee."""
+    from medre.runtime.route_explain import explain_routes
+
+    try:
+        config, _source, paths = load_config(config_path)
+        config = apply_env_overrides(config, paths)
+        result = explain_routes(
+            config,
+            source_adapter=source_adapter,
+            source_context=source_context,
+            event_kind=event_kind,
+            sender_id=sender_id,
+        )
+    except Exception as exc:
+        print(f"Route explanation error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+    if as_json:
+        print(to_json(result.to_dict()))
+        return
+    print("Route source-match explanation (offline; no adapter I/O)")
+    print(f"  Source: {source_adapter} / {source_context} / {event_kind}")
+    for item in result.matches:
+        destinations = ", ".join(
+            f"{target['adapter']} ({target['destination_kind'] or 'context'}"
+            f"{': ' + str(target['context']) if target['context'] is not None else ''})"
+            for target in item.targets
+        )
+        print(f"  CANDIDATE {item.route_id} -> {destinations}")
+        for target in item.targets:
+            detail = target["policy"]
+            if target["reason"]:
+                detail += f" ({target['reason']})"
+            print(f"    {target['adapter']}: {detail}")
+    for item in result.excluded:
+        print(f"  EXCLUDED {item.route_id}: {item.reason}")
+    if not result.matches:
+        print("  No configured source filters matched.")
+    print(f"  Scope: {result.scope}")
+    print(f"  Important: {result.caveat}")
