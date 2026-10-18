@@ -33,13 +33,25 @@ jobs:
           python-version: "3.13"
       - name: Clone adapter default branches
         run: |
+          # The local checker expects clean sibling checkouts by basename.
+          # Duplicated repositories are harmless, but colliding basenames are
+          # ambiguous and must be rejected before cloning anything.
+          jq -e 'all(.[]; (.repository | test("^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")) and (.ref | test("^[a-f0-9]{40}$")))' \
+            .github/adapter-compatibility.json >/dev/null || {
+              echo "::error::Pin-drift canary requires valid repositories and immutable SHA pins"
+              exit 1
+            }
           repos=$(jq -r '.[].repository' .github/adapter-compatibility.json | sort -u)
+          collisions=$(printf '%s\n' "$repos" | awk -F/ '{print $NF}' | sort | uniq -d)
+          if [[ -n "$collisions" ]]; then
+            echo "::error::Ambiguous adapter checkout basenames: $collisions"
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/pins"
           for repo in $repos; do
-            mkdir -p "$RUNNER_TEMP/pins/${repo%/*}"
             git clone --depth 1 --quiet \
               "https://github.com/${repo}.git" \
-              "$RUNNER_TEMP/pins/${repo}"
+              "$RUNNER_TEMP/pins/${repo##*/}"
           done
       - name: Compare manifest pins with adapter default branches
         run: |
