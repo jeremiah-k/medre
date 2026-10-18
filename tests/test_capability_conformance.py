@@ -27,7 +27,7 @@ from medre.core.contracts.adapter import AdapterCapabilities
 # Constants
 # ---------------------------------------------------------------------------
 
-TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf", "xmpp")
 
 _SENTINEL = object()
 
@@ -40,15 +40,16 @@ PROFILES_DIR = (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_OPTIONAL_SDK_PREFIXES = ("nio", "meshtastic", "meshcore", "RNS", "LXMF")
+_OPTIONAL_SDK_PREFIXES = ("nio", "meshtastic", "meshcore", "RNS", "LXMF", "slixmpp")
 
 
 def _is_optional_sdk_import_error(exc: ImportError) -> bool:
     """Return True if *exc* was caused by a missing optional external SDK.
 
     Known optional SDKs: nio (Matrix), meshtastic, meshcore, RNS/LXMF
-    (Reticulum).  MEDRE-internal ``ImportError`` (e.g. a typo in
-    ``medre.adapters.*``) must propagate so that the test fails loudly.
+    (Reticulum), slixmpp (XMPP).  MEDRE-internal ``ImportError`` (e.g. a
+    typo in ``medre.adapters.*``) must propagate so that the test fails
+    loudly.
     """
     return exc.name is not None and any(
         exc.name == prefix or exc.name.startswith(prefix + ".")
@@ -106,6 +107,15 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
         config = MeshtasticConfig(adapter_id="test_conformance")
         adapter = MeshtasticAdapter(config)
         return adapter._capabilities
+
+    if transport == "xmpp":
+        try:
+            from medre.adapters.xmpp.adapter import CAPABILITIES as _XMPP_CAPABILITIES
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                pytest.skip(f"XMPP SDK not available: {exc}")
+            raise
+        return _XMPP_CAPABILITIES
 
     if transport == "meshcore":
         try:

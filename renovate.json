@@ -114,6 +114,20 @@
       "depNameTemplate": "medre-adapter-lxmf",
       "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-lxmf",
       "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-xmpp main in the adapter compatibility snapshot",
+      "managerFilePatterns": [
+        "/^\\.github/adapter-compatibility\\.json$/"
+      ],
+      "matchStrings": [
+        "\"transport\": \"xmpp\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-xmpp",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-xmpp",
+      "currentValueTemplate": "main"
     }
   ],
   "packageRules": [
@@ -162,7 +176,7 @@
     },
     {
       "description": "Adapter revision bumps automerge after the cross-adapter compatibility jobs qualify the core/adapter pair on the update PR",
-      "matchDepNames": ["medre-adapter-matrix", "medre-adapter-meshtastic", "medre-adapter-meshcore", "medre-adapter-lxmf"],
+      "matchDepNames": ["medre-adapter-matrix", "medre-adapter-meshtastic", "medre-adapter-meshcore", "medre-adapter-lxmf", "medre-adapter-xmpp"],
       "matchUpdateTypes": ["pin", "digest", "pinDigest"],
       "automerge": true
     }

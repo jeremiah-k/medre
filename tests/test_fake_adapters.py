@@ -9,8 +9,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.adapters.fakes.presentation import (
+    FakePresentationAdapter,
+    _MAX_FAKE_HISTORY as _PRESENTATION_HISTORY_CAP,
+)
+from medre.adapters.fakes.transport import (
+    FakeTransportAdapter,
+    _MAX_FAKE_HISTORY as _TRANSPORT_HISTORY_CAP,
+)
 from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
@@ -35,6 +41,15 @@ def _make_event(event_id: str = "evt-1") -> CanonicalEvent:
         relations=(),
         payload={"text": "hello"},
         metadata=EventMetadata(),
+    )
+
+
+def _rendered(event_id: str, adapter_id: str) -> RenderingResult:
+    return RenderingResult(
+        event_id=event_id,
+        target_adapter=adapter_id,
+        target_channel="ch-0",
+        payload={"text": "hello"},
     )
 
 
@@ -111,6 +126,34 @@ class TestFakeTransportAdapter:
         assert event.source_adapter == "test_t"
         assert event.source_channel_id == "ch-0"
         assert event.payload["body"] == "ping"
+
+    async def test_stop_before_start_tolerates_missing_context(self) -> None:
+        """stop() before start() neither crashes nor logs through a context."""
+        adapter = FakeTransportAdapter("test_t")
+        await adapter.stop()
+        assert adapter.is_started is False
+        assert adapter.ctx is None
+
+    async def test_delivered_payloads_history_is_bounded(self, caplog) -> None:
+        """deliver() evicts the oldest payloads once the history cap is hit."""
+        adapter = FakeTransportAdapter("test_t")
+        total = _TRANSPORT_HISTORY_CAP + 2
+        with caplog.at_level("WARNING", logger="medre.adapters.fakes.transport"):
+            for i in range(total):
+                await adapter.deliver(_rendered(f"evt-{i}", "test_t"))
+        assert len(adapter.delivered_payloads) == _TRANSPORT_HISTORY_CAP
+        assert adapter.delivered_payloads[0].event_id == "evt-2"
+        assert adapter.delivered_payloads[-1].event_id == f"evt-{total - 1}"
+        assert any("trimmed" in record.getMessage() for record in caplog.records)
+
+    def test_event_snapshots_are_bounded(self) -> None:
+        """make_event() evicts the oldest snapshots once the cap is hit."""
+        adapter = FakeTransportAdapter("test_t")
+        total = _TRANSPORT_HISTORY_CAP + 2
+        events = [adapter.make_event(text=f"m{i}") for i in range(total)]
+        assert len(adapter.event_snapshots) == _TRANSPORT_HISTORY_CAP
+        assert events[0].event_id not in adapter.event_snapshots
+        assert events[-1].event_id in adapter.event_snapshots
 
 
 # ===================================================================
@@ -216,6 +259,32 @@ class TestFakePresentationAdapter:
         assert len(reaction.relations) == 1
         assert reaction.relations[0].relation_type == "reaction"
         assert reaction.relations[0].key == "🔥"
+
+    async def test_stop_before_start_tolerates_missing_context(self) -> None:
+        """stop() before start() neither crashes nor logs through a context."""
+        adapter = FakePresentationAdapter("test_p")
+        await adapter.stop()
+        assert adapter.is_started is False
+        assert adapter.ctx is None
+
+    async def test_simulate_inbound_requires_started_adapter(self) -> None:
+        """simulate_inbound raises RuntimeError if not started."""
+        adapter = FakePresentationAdapter("test_p")
+        with pytest.raises(RuntimeError, match="has not been started"):
+            await adapter.simulate_inbound(_make_event())
+
+    async def test_inbound_history_is_bounded(self, make_adapter_context) -> None:
+        """simulate_inbound() evicts the oldest inbound events past the cap."""
+        adapter = FakePresentationAdapter("test_p")
+        await adapter.start(make_adapter_context("test_p"))
+        total = _PRESENTATION_HISTORY_CAP + 2
+        events = [_make_event(event_id=f"evt-{i}") for i in range(total)]
+        for event in events:
+            await adapter.simulate_inbound(event)
+        assert len(adapter.inbound_events) == _PRESENTATION_HISTORY_CAP
+        kept_ids = {e.event_id for e in adapter.inbound_events}
+        assert events[0].event_id not in kept_ids
+        assert adapter.inbound_events[-1].event_id == events[-1].event_id
 
 
 # ===================================================================
@@ -708,6 +777,27 @@ class TestFaultyPresentationAdapter:
         assert isinstance(delivery2, AdapterHandoffResult)
         assert adapter.call_count == 5
         assert len(adapter.delivered_payloads) == 2
+
+    async def test_unrecognized_failure_mode_never_raises(self) -> None:
+        """A failure_mode outside the documented set injects no failures."""
+        from medre.adapters.fakes.presentation import FaultyPresentationAdapter
+        from medre.core.contracts.adapter import AdapterHandoffResult
+
+        adapter = FaultyPresentationAdapter(
+            adapter_id="odd-mode",
+            failure_mode="mystery",
+        )
+        result = RenderingResult(
+            event_id="evt-5",
+            target_adapter="odd-mode",
+            target_channel="ch-0",
+            payload={"text": "test"},
+        )
+
+        delivery = await adapter.deliver(result)
+        assert isinstance(delivery, AdapterHandoffResult)
+        assert adapter.call_count == 1
+        assert len(adapter.delivered_payloads) == 1
 
     async def test_faulty_adapter_lifecycle(self, make_adapter_context) -> None:
         """FaultyPresentationAdapter supports start/stop lifecycle."""
