@@ -121,7 +121,9 @@ medre config native --transport meshtastic --adapter-id node \
 ```
 
 The native form accepts access tokens through hidden prompts, but stores them
-in the private YAML; do not commit it. Then run the route wizard:
+in the private YAML; do not commit it. To keep secrets out of YAML, use
+provider-supported environment variables or credential sidecars instead. Then
+run the route wizard:
 
 ```bash
 medre config bridge --config connections.yaml --output bridge.yaml

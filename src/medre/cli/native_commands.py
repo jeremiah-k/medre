@@ -73,6 +73,16 @@ def _validate_native_fields(spec: AdapterSpec) -> None:
         prior[field.name] = field
 
 
+def _next_output_path(path: Path, suffix: str) -> Path:
+    """Suggest a distinct unused file without claiming the name is reserved."""
+    candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
+    index = 2
+    while os.path.lexists(candidate):
+        candidate = path.with_name(f"{path.stem}-{suffix}-{index}{path.suffix}")
+        index += 1
+    return candidate
+
+
 def _config_native(args) -> None:
     """Collect provider-declared values, validate, and create a new private YAML."""
     document: dict = {}
@@ -190,8 +200,20 @@ def _config_native(args) -> None:
         count = sum(len(group) for group in adapters.values())
         if count < 2:
             print(
-                "  Add a second instance: medre config native --transport PROVIDER "
-                "--adapter-id NEW_ID --config INPUT --output NEXT.yaml",
+                "  Add a second instance: "
+                + _command_example(
+                    "medre",
+                    "config",
+                    "native",
+                    "--transport",
+                    "PROVIDER",
+                    "--adapter-id",
+                    "NEW_ID",
+                    "--config",
+                    str(output),
+                    "--output",
+                    str(_next_output_path(output, "next")),
+                ),
                 file=sys.stderr,
             )
         else:
@@ -204,7 +226,7 @@ def _config_native(args) -> None:
                     "--config",
                     str(output),
                     "--output",
-                    str(output.with_name("bridge.yaml")),
+                    str(_next_output_path(output, "bridge")),
                 ),
                 file=sys.stderr,
             )

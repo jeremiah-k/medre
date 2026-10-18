@@ -136,16 +136,16 @@ class BridgeAuthoring:
         )
         _checked_plan(self.config, paths)
 
-    def draft(self, request: BridgeRequest) -> BridgeDraft:
-        """Return complete validated YAML and its plan, preserving the template."""
-        document = dict(self._document)
-        config = self.config
-        paths = self._paths
-        precheck_bridge(config, request)
+    def precheck(
+        self, request: BridgeRequest, *, require_contexts: bool = True
+    ) -> dict | None:
+        """Validate template-specific replacement constraints before prompting."""
+        precheck_bridge(self.config, request, require_contexts=require_contexts)
+        original: dict | None = None
         if request.replace_route:
             # Do not flatten arbitrary route policy, structured destinations,
             # retry settings or operator extensions into a text-only bridge.
-            original = (document.get("routes") or {})[request.route_id]
+            original = (self._document.get("routes") or {})[request.route_id]
             accepted = {
                 "source_adapters",
                 "dest_adapters",
@@ -178,6 +178,14 @@ class BridgeAuthoring:
                     "create a new route instead"
                 )
 
+        return original
+
+    def draft(self, request: BridgeRequest) -> BridgeDraft:
+        """Return complete validated YAML and its plan, preserving the template."""
+        document = dict(self._document)
+        paths = self._paths
+        original = self.precheck(request)
+
         context_map = {}
         for source, dest in request.contexts:
             if not all(
@@ -198,7 +206,7 @@ class BridgeAuthoring:
             value = getattr(request, field)
             if value is None and request.replace_route:
                 # Omission means "keep" when editing, not "erase attribution".
-                value = original.get(field)
+                value = original.get(field) if original is not None else None
             if value is not None:
                 route[field] = value
         document["routes"] = {**(document.get("routes") or {}), request.route_id: route}

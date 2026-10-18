@@ -15,6 +15,7 @@ from medre.adapter_spec import NativeSetupField
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import parse_runtime_config
+from medre.config.routes import RouteDirectionality
 from medre.config.paths import resolve
 from medre.runtime.bridge_setup import BridgeRequest, draft_bridge
 from medre.runtime.route_explain import explain_routes
@@ -437,3 +438,92 @@ def test_native_form_rejects_unknown_or_undeclared_secret(monkeypatch, tmp_path)
             )
         assert err.value.code == 2
         assert not (tmp_path / "blocked.yaml").exists()
+
+
+def test_replacement_precheck_refuses_advanced_route_without_context_input():
+    from medre.runtime.bridge_setup import BridgeAuthoring
+
+    first = draft_bridge(
+        CONFIG, BridgeRequest("left", "right", (("room", "one"),)), paths=resolve()
+    )
+    document = parse_yaml_config(first.yaml)
+    document["routes"]["bridge"]["priority"] = 7
+    authoring = BridgeAuthoring(dump_yaml_config(document), paths=resolve())
+    with pytest.raises(ConfigValidationError, match="not a simple guided"):
+        authoring.precheck(
+            BridgeRequest("left", "right", (), replace_route=True),
+            require_contexts=False,
+        )
+    with pytest.raises(ConfigValidationError, match="Cannot change the endpoints"):
+        BridgeAuthoring(first.yaml, paths=resolve()).precheck(
+            BridgeRequest("right", "left", (), replace_route=True),
+            require_contexts=False,
+        )
+
+
+def test_interactive_replacement_keeps_one_way_default(monkeypatch, tmp_path):
+    from tests.helpers.cli import _run_cli_raw
+
+    first = draft_bridge(
+        CONFIG,
+        BridgeRequest(
+            "left",
+            "right",
+            (("room", "one"),),
+            directionality=RouteDirectionality.SOURCE_TO_DEST,
+        ),
+        paths=resolve(),
+    )
+    inp = tmp_path / "input.yaml"
+    inp.write_text(first.yaml)
+    out = tmp_path / "updated.yaml"
+    monkeypatch.setattr("sys.stdin", Terminal("left\nright\n\nroom\ntwo\n\n\n\nyes\n"))
+    _, stderr, code = _run_cli_raw(
+        "config",
+        "bridge",
+        "--config",
+        str(inp),
+        "--output",
+        str(out),
+        "--replace-route",
+        "--route-id",
+        "bridge",
+    )
+    assert code == 0, stderr
+    new = parse_yaml_config(out.read_text())
+    assert new["routes"]["bridge"]["directionality"] == "source_to_dest"
+    assert inp.read_text() == first.yaml
+
+
+def test_native_next_step_paths_are_unused_and_distinct(tmp_path):
+    from medre.cli.native_commands import _next_output_path
+
+    existing = tmp_path / "bridge.yaml"
+    existing.write_text("original")
+    (tmp_path / "bridge-bridge.yaml").write_text("other")
+    proposed = _next_output_path(existing, "bridge")
+    assert proposed.name == "bridge-bridge-2.yaml"
+    assert not proposed.exists()
+    assert (
+        _next_output_path(tmp_path / "native.yaml", "next").name == "native-next.yaml"
+    )
+
+
+def test_route_explanation_text_closes_destination_descriptor(tmp_path):
+    initial = draft_bridge(
+        CONFIG, BridgeRequest("left", "right", (("room", "topic"),)), paths=resolve()
+    )
+    config_file = tmp_path / "routes.yaml"
+    config_file.write_text(initial.yaml)
+    stdout, stderr, code = _run_cli_raw(
+        "routes",
+        "explain",
+        "--config",
+        str(config_file),
+        "--source-adapter",
+        "left",
+        "--source-context",
+        "room",
+    )
+    assert code == 0, stderr
+    assert "right (context: topic)" in stdout

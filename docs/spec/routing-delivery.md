@@ -1818,7 +1818,7 @@ reverse direction, each `context_map` entry MUST use a distinct
 the same pairs SHOULD split the entries into separate routes, each with
 its own dedicated dest context.
 
-## 17.7 Offline Route Explanations
+### 17.7 Offline Route Explanations
 
 `medre routes explain` projects hypothetical source adapter, context, event kind,
 and optional sender ID through the production route compiler and source matcher.

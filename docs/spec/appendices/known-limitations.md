@@ -13,16 +13,17 @@ behaviour.
 
 ## Evidence provenance and scope
 
-This index was checked against the **2026-10-17 18:25** five-repository stack.
+This index was checked against the **2026-10-18 05:25** six-repository stack.
 These are repository-relative paths, not files in the MEDRE core checkout:
 
 | Repository | Inspected commit |
 | --- | --- |
-| `medre` | `f0171a3317b85536230e8b3c000270574b1e2dc8` |
-| `medre-adapter-matrix` | `b7b2815e2d54a81eb745b5beb24a7ac0f20b8d01` |
-| `medre-adapter-meshtastic` | `3c44a30401c8d9d7865d3313cf2d75d378eefa87` |
-| `medre-adapter-meshcore` | `f250353b1b1064dc6ca479ae9475dcabd9c58857` |
+| `medre` | `a63b31dbb250984011e5c475f554c03a933dbabf` |
+| `medre-adapter-matrix` | `4dd48892b30bca8b8d1b271591a1e1c22a4e3577` |
+| `medre-adapter-meshtastic` | `f3925afb238e257ecd75d66e40041264edc67da8` |
+| `medre-adapter-meshcore` | `b326a233bb3d51e4168f48713da6c73ad4868d76` |
 | `medre-adapter-lxmf` | `24f8873e03c83dc9546b3e2216b10456afa14e0a` |
+| `medre-adapter-xmpp` | `28aab6b5140d4f16bc3b2d39648344324cdd0980` |
 
 Core-owned test references use `tests/...`; provider-owned references name the
 repository explicitly. A **test path records where a claim is exercised**, not
@@ -151,7 +152,9 @@ The outbound-queue diagnostic keys (`queue_pending`, `queue_total_sent`,
 Matrix diagnostics have no equivalent queue-depth surface.
 
 - **Source:** `medre-adapter-meshtastic/src/medre/adapters/meshtastic/adapter.py`
-  (keys present); corresponding Matrix/MeshCore adapter diagnostics (keys absent).
+  (keys present); `medre-adapter-matrix/src/medre/adapters/matrix/adapter.py`
+  and `medre-adapter-meshcore/src/medre/adapters/meshcore/adapter.py`
+  (the corresponding diagnostics do not expose those queue keys).
 
 ## 6. LXMF Envelope Relation Fidelity
 
@@ -186,7 +189,7 @@ a local SDK relation test.
 - [`transport-realism.md`](transport-realism.md) — required evidence
   ladder and current transport coverage.
 - `tests/test_pipeline_conformance.py`,
-  `tests/test_live_matrix_meshtastic_bridge.py`, and
+  `tests/test_live_matrix_radio_bridge.py`, and
   `tests/test_matrix_reaction_mmrelay.py` (MEDRE core), and
   `medre-adapter-lxmf/tests/test_lxmf_state_mapping.py` (LXMF provider)
   — the test modules recording the limitations above.

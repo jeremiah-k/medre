@@ -85,6 +85,10 @@ def explain_routes(
         elif route.source.event_kinds and event_kind not in route.source.event_kinds:
             reason = "event kind excluded by route source filter"
         result = "candidate" if route.id in matches else "excluded"
+        if result == "candidate":
+            reason = "source filter matched"
+        elif reason == "source filter matched":
+            reason = "excluded by production source matcher"
         targets = (
             tuple(
                 _explain_target(route, event, target, sender_id=sender_id)

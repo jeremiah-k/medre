@@ -547,7 +547,9 @@ def _routes_explain(
     print(f"  Source: {source_adapter} / {source_context} / {event_kind}")
     for item in result.matches:
         destinations = ", ".join(
-            f"{target['adapter']}:{target['context']}" for target in item.targets
+            f"{target['adapter']} ({target['destination_kind'] or 'context'}"
+            f"{': ' + str(target['context']) if target['context'] is not None else ''})"
+            for target in item.targets
         )
         print(f"  CANDIDATE {item.route_id} -> {destinations}")
         for target in item.targets:

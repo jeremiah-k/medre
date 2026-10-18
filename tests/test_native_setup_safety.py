@@ -159,3 +159,17 @@ def test_explain_reports_known_denial_with_unspecified_sender(provider):
     target = result.matches[0].targets[0]
     assert target["policy"] == "policy_denied"
     assert target["reason"] == "channel_not_allowed"
+
+
+def test_native_conditional_field_rejects_unlisted_choice(provider):
+    controller = NativeSetupField("origin_label", "Mode", choices=("a", "b"))
+    dependent = NativeSetupField(
+        "credential",
+        "Credential",
+        secret=True,
+        active_when=("origin_label", "c"),
+    )
+    with pytest.raises(ConfigValidationError, match="prior choice"):
+        native_commands._validate_native_fields(
+            replace(provider, native_setup_fields=(controller, dependent))
+        )
