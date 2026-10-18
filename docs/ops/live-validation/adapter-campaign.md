@@ -125,3 +125,7 @@ the opt-in campaign above.
 
 Plan validation prints only harness-authored messages. YAML/parser and native
 exceptions remain private because their text can include credentials.
+
+Peer cleanup bounds stdout draining and kills owned descendants that retain
+pipes after their leader exits; forced cleanup prevents qualification. Cancelled
+cleanup also reaps the owned process before closing evidence streams.

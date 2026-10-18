@@ -128,3 +128,54 @@ async def test_malformed_protocol_output_fails_the_campaign(tmp_path):
         finally:
             with pytest.raises(RuntimeError, match="cleanup"):
                 await peer.stop()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group ownership")
+async def test_exited_owner_with_inherited_stdout_has_bounded_cleanup(
+    tmp_path, monkeypatch
+):
+    import asyncio
+
+    from scripts.adapter_campaign import process
+    from tests.helpers.async_utils import wait_until
+
+    monkeypatch.setattr(process, "_STOP_TIMEOUT", 0.05)
+    monkeypatch.setattr(process, "_DRAIN_TIMEOUT", 0.1)
+    native = "import time; time.sleep(60)"
+    setup = f"import subprocess\nsubprocess.Popen([sys.executable, '-c', {native!r}], stdin=subprocess.DEVNULL)\n"
+    child = CHILD.replace("for line in sys.stdin:", setup + "for line in sys.stdin:")
+    peer = Peer("inherited", tmp_path, 2)
+    await peer.start({}, argv=[sys.executable, "-c", child])
+    # Stop the leader before stop() so only stdout inheritance keeps its reader alive.
+    await peer._write({"op": "stop"})
+    assert await wait_until(lambda: peer.process.returncode is not None, timeout=1)
+    with pytest.raises(RuntimeError, match="cleanup"):
+        await asyncio.wait_for(peer.stop(), 1)
+    assert peer.reader.done()
+    assert peer.log.closed
+
+
+async def test_cancelled_cleanup_reaps_the_owned_process(tmp_path, monkeypatch):
+    import asyncio
+
+    from scripts.adapter_campaign import process
+    from tests.helpers.async_utils import wait_until
+
+    monkeypatch.setattr(process, "_DRAIN_TIMEOUT", 0.2)
+    child = CHILD.replace(
+        "        break",
+        """        print('MRPEER {"kind":"stopping"}', flush=True)
+        continue""",
+    )
+    peer = Peer("cancelled", tmp_path, 2)
+    await peer.start({}, argv=[sys.executable, "-c", child])
+    stopping = asyncio.create_task(peer.stop())
+    assert await wait_until(
+        lambda: any(row["kind"] == "stopping" for row in peer.records), timeout=1
+    )
+    stopping.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await stopping
+    assert peer.process.returncode is not None
+    assert peer.reader.done()
+    assert peer.log.closed
