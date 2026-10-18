@@ -20,7 +20,16 @@ jobs:
   merge-readiness:
     name: Merge readiness
     if: always()
-    needs: [adapter-merge-gate, quality, adapter-plan, core, test, adapter-contract, transport-local-integration]
+    needs:
+      [
+        adapter-merge-gate,
+        quality,
+        adapter-plan,
+        core,
+        test,
+        adapter-contract,
+        transport-local-integration,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
