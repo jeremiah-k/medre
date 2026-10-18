@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "b7b2815e2d54a81eb745b5beb24a7ac0f20b8d01",
+    "ref": "4d9754ad9f00dd4705f97cb0bb98772ead06f3fc",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix"
@@ -10,7 +10,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "3c44a30401c8d9d7865d3313cf2d75d378eefa87",
+    "ref": "217e45409ec55b08ffac47adb951ddb22bd5177a",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -18,7 +18,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "f250353b1b1064dc6ca479ae9475dcabd9c58857",
+    "ref": "273bf3cbaa7e95ead6c048480022611514318bbd",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
@@ -34,7 +34,7 @@
   {
     "transport": "xmpp",
     "repository": "jeremiah-k/medre-adapter-xmpp",
-    "ref": "23ee7554368ff3092d970cccda270bab7163096d",
+    "ref": "aed0e9ce62178f4ed0cd48f61ce2e7bad25c57d3",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
