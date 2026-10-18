@@ -1,5 +1,10 @@
 # Testing Guide
 
+For end-to-end bench messages across every installed provider, use the
+[cross-adapter campaign](../ops/live-validation/adapter-campaign.md). It combines
+native peer commands, durable MEDRE evidence, and independent far-side receipt
+for all six adapters, with an explicit partial-run option for smaller labs.
+
 This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
@@ -638,7 +643,7 @@ The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
 ```bash
 # Prerequisites: Docker daemon running, SDK extras installed
-uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic
+uv run --no-sync medre dev sync --sdk matrix meshtastic
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -975,14 +980,14 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 
 ### Failure interpretation
 
-| Symptom                                             | Likely cause                          | Action                                                                                         |
-| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                                  |
-| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
-| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv sync --locked --extra dev && uv pip install -e ../medre-adapter-matrix -e ../medre-adapter-meshtastic` |
-| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                                             |
-| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                                          |
-| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules))                  |
+| Symptom                                             | Likely cause                          | Action                                                                        |
+| --------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| Docker tests skip with "Docker not available"       | Docker daemon not running             | `docker info`                                                                 |
+| Docker tests skip with "mtjk not installed"         | Meshtastic SDK not installed          | `uv run --no-sync medre dev sync --sdk matrix meshtastic`                     |
+| Docker tests skip with "mindroom-nio not installed" | Matrix SDK not installed              | `uv run --no-sync medre dev sync --sdk matrix meshtastic`                     |
+| Live tests skip                                     | Missing environment variables         | Set required `MATRIX_*` or `MESHTASTIC_*` env vars                            |
+| Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
+| `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
 
 ## See also
 

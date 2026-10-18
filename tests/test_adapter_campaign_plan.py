@@ -1,0 +1,112 @@
+"""Native campaign gating and independent receipt assertions."""
+
+from types import SimpleNamespace
+
+import pytest
+import yaml
+
+from scripts.adapter_campaign.plan import TRANSPORTS, load_plan
+from scripts.adapter_campaign.run import native_receipt
+
+
+def manifest(tmp_path, **overrides):
+    data = {
+        "version": 1,
+        "runtime_config": "private-runtime.yaml",
+        "endpoints": {
+            name: {
+                "transport": name,
+                "channel": "test",
+                "expected_sender": "bot",
+                "peer": {},
+            }
+            for name in TRANSPORTS
+        },
+        **overrides,
+    }
+    path = tmp_path / "campaign.yaml"
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+def test_full_plan_names_all_thirty_directed_pairs(tmp_path):
+    plan = load_plan(manifest(tmp_path))
+    assert plan.full
+    assert len(plan.pairs) == len(set(plan.pairs)) == 30
+    assert all(source != target for source, target in plan.pairs)
+    assert plan.runtime_file == tmp_path / "private-runtime.yaml"
+
+
+@pytest.mark.parametrize("version", [True, "1", None, 2])
+def test_manifest_version_requires_integer_one(tmp_path, version):
+    with pytest.raises(ValueError, match="version 1"):
+        load_plan(manifest(tmp_path, version=version))
+
+
+def test_partial_plan_requires_explicit_selection(tmp_path):
+    path = manifest(tmp_path)
+    data = yaml.safe_load(path.read_text())
+    del data["endpoints"]["chatmail"]
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="all six"):
+        load_plan(path)
+    plan = load_plan(path, {"matrix", "xmpp"})
+    assert not plan.full
+    assert set(plan.pairs) == {("matrix", "xmpp"), ("xmpp", "matrix")}
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("timeout_seconds", float("nan")),
+        ("timeout_seconds", True),
+        ("pacing_seconds", 0),
+        ("settle_seconds", -1),
+        ("timeout_seconds", 301),
+    ],
+)
+def test_unbounded_or_unpaced_radio_plan_is_rejected(tmp_path, field, value):
+    with pytest.raises(ValueError, match="seconds"):
+        load_plan(manifest(tmp_path, **{field: value}))
+
+
+@pytest.mark.parametrize("selected", [{"matrix"}, {"matrix", "unknown"}])
+def test_invalid_partial_transport_selection_is_rejected(tmp_path, selected):
+    with pytest.raises(ValueError):
+        load_plan(manifest(tmp_path), selected)
+
+
+def test_duplicate_transport_endpoints_do_not_qualify_as_full_coverage(tmp_path):
+    path = manifest(tmp_path)
+    data = yaml.safe_load(path.read_text())
+    data["endpoints"]["matrix2"] = {**data["endpoints"]["matrix"], "peer": {}}
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="exactly one"):
+        load_plan(path)
+
+
+@pytest.mark.parametrize("change", ["sender", "channel", "duplicate", "body"])
+def test_native_delivery_requires_expected_sender_scope_and_body(change):
+    record = {
+        "kind": "received",
+        "sender": "bot",
+        "channel": "room",
+        "text": "MR-proof café ✓",
+    }
+    endpoint = {
+        "transport": "matrix",
+        "expected_sender": "bot",
+        "channel": "room",
+        "peer": {},
+    }
+    records = [record]
+    if change == "duplicate":
+        records.append(dict(record))
+    elif change == "body":
+        record["text"] = "MR-proof missing UTF-8 body"
+    else:
+        record[change] = "other"
+    with pytest.raises(AssertionError):
+        native_receipt(
+            SimpleNamespace(name="matrix", records=records), endpoint, "MR-proof"
+        )

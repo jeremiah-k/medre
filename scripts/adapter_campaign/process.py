@@ -1,0 +1,156 @@
+"""Own native peers, their command channels, and private evidence streams."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Callable
+from uuid import uuid4
+
+_STOP_TIMEOUT = 20
+
+
+class Peer:
+    def __init__(self, name: str, directory: Path, timeout: float) -> None:
+        self.name = name
+        self.directory = directory
+        self.timeout = timeout
+        self.records: list[dict] = []
+        self.process = None
+        self.reader = None
+        self.log = None
+        self.errors = None
+        self.output = None
+        self.changed = asyncio.Event()
+        self.failure: Exception | None = None
+
+    async def start(self, settings: dict, *, argv: list[str] | None = None) -> None:
+        """Send credentials over stdin, never the process command line."""
+        self.log = (self.directory / f"{self.name}.jsonl").open("x")
+        self.errors = (self.directory / f"{self.name}.stderr").open("x")
+        self.output = (self.directory / f"{self.name}.stdout").open("x")
+        self.process = await asyncio.create_subprocess_exec(
+            *(argv or [sys.executable, "-m", "scripts.adapter_campaign.worker"]),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=self.errors,
+            limit=64 * 1024,
+            start_new_session=sys.platform != "win32",
+        )
+        self.reader = asyncio.create_task(self._read())
+        await self._write(settings)
+        await self.wait(lambda record: record["kind"] == "ready")
+
+    async def _read(self) -> None:
+        try:
+            while line := await self.process.stdout.readline():
+                # SDK stdout is not evidence and may contain private data.
+                if not line.startswith(b"MRPEER "):
+                    self.output.write(line.decode(errors="replace"))
+                    self.output.flush()
+                    continue
+                record = json.loads(line[7:])
+                if not isinstance(record, dict) or "kind" not in record:
+                    raise ValueError("Malformed native peer record")
+                if len(self.records) >= 1024:
+                    raise ValueError("Native peer evidence window exhausted")
+                self.records.append(record)
+                self.log.write(json.dumps(record) + "\n")
+                self.log.flush()
+                self.changed.set()
+            await self.process.wait()
+        except Exception:
+            self.failure = RuntimeError(f"{self.name}: peer evidence stream failed")
+        finally:
+            self.changed.set()
+
+    async def _write(self, command: dict) -> None:
+        async with asyncio.timeout(self.timeout):
+            self.process.stdin.write((json.dumps(command) + "\n").encode())
+            await self.process.stdin.drain()
+
+    def check(self) -> None:
+        if self.failure is not None:
+            raise self.failure
+        if any(record["kind"] == "error" for record in self.records):
+            raise RuntimeError(f"{self.name}: native peer reported failure")
+        if self.reader is not None and self.reader.done():
+            raise RuntimeError(f"{self.name}: native peer exited during the campaign")
+
+    async def wait(self, predicate: Callable[[dict], bool]) -> dict:
+        async with asyncio.timeout(self.timeout):
+            while True:
+                self.changed.clear()
+                self.check()
+                for record in self.records:
+                    if predicate(record):
+                        return record
+                await self.changed.wait()
+
+    async def send(self, text: str) -> dict:
+        return await self.command("send", text=text)
+
+    async def synchronize(self) -> None:
+        await self.command("synchronize")
+
+    async def command(self, operation: str, **data) -> dict:
+        command = uuid4().hex
+        await self._write({"op": operation, "id": command, **data})
+        return await self.wait(
+            lambda record: record["kind"] == "sent" and record["command"] == command
+        )
+
+    async def stop(self) -> None:
+        """Always reap the child; forced cleanup prevents a passing verdict."""
+        forced = False
+        try:
+            if self.process is not None:
+                if self.process.returncode is None:
+                    try:
+                        await self._write({"op": "stop"})
+                        await asyncio.wait_for(self.process.wait(), _STOP_TIMEOUT)
+                    except (TimeoutError, BrokenPipeError, ConnectionResetError):
+                        forced = True
+                        if self.process.returncode is None:
+                            self._signal()
+                            try:
+                                await asyncio.wait_for(self.process.wait(), 5)
+                            except TimeoutError:
+                                self._signal(force=True)
+                                await self.process.wait()
+                if self.reader is not None:
+                    await self.reader
+                if (
+                    forced
+                    or self.process.returncode != 0
+                    or self.failure
+                    or any(record["kind"] == "error" for record in self.records)
+                ):
+                    raise RuntimeError(f"{self.name}: native peer cleanup failed")
+        finally:
+            if (
+                self.process is not None
+                and self.process.returncode is not None
+                and sys.platform != "win32"
+            ):
+                # Reap native SDK descendants even if the Python owner exits first.
+                self._signal(force=True)
+            for stream in (self.log, self.errors, self.output):
+                if stream is not None:
+                    stream.close()
+
+    def _signal(self, *, force: bool = False) -> None:
+        if sys.platform == "win32":
+            if force:
+                self.process.kill()
+            else:
+                self.process.terminate()
+            return
+        try:
+            os.killpg(self.process.pid, signal.SIGKILL if force else signal.SIGTERM)
+        except ProcessLookupError:
+            pass

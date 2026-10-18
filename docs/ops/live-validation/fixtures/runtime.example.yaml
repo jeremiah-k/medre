@@ -1,0 +1,55 @@
+# Dedicated lab adapter settings. The campaign supplies routes and core storage.
+adapters:
+  matrix:
+    matrix:
+      enabled: true
+      adapter_kind: real
+      homeserver: https://matrix.example.org
+      user_id: "@medre:matrix.example.org"
+      access_token: "" # Set the dedicated bot account's token.
+      room_allowlist: ["!campaign:matrix.example.org"]
+      encryption_mode: plaintext
+  meshtastic:
+    mt:
+      enabled: true
+      adapter_kind: real
+      connection_type: serial
+      serial_port: /dev/serial/by-id/replace-with-medre-radio
+      default_channel: 0
+      message_delay_seconds: 2.5
+  meshcore:
+    mc:
+      enabled: true
+      adapter_kind: real
+      connection_type: ble
+      ble_address: AA:BB:CC:DD:EE:01
+      default_channel: 1
+      identity: MEDRE-MC
+      message_delay_seconds: 2.5
+  lxmf:
+    lx:
+      enabled: true
+      adapter_kind: real
+      connection_type: reticulum
+      identity_path: /private/bench/lx-medre.identity
+      reticulum_config_dir: /private/bench/rns-medre
+      storage_path: /private/bench/lx-medre-storage
+      default_delivery_method: direct
+      announce_interval_seconds: 8
+      stamp_cost: 0
+  xmpp:
+    xmpp:
+      enabled: true
+      adapter_kind: real
+      jid: medre@example.org/bridge
+      password: "" # Set the dedicated bot account's password.
+      nickname: medre
+      rooms: [campaign@conference.example.org]
+  chatmail:
+    chatmail:
+      enabled: true
+      adapter_kind: real
+      accounts_dir: /private/bench/mail-medre
+      account_id: 1
+      chats: [12]
+      state_dir: /private/bench/mail-medre-journal
