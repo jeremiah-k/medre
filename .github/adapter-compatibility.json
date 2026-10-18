@@ -38,5 +38,21 @@
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
+  },
+  {
+    "transport": "chatmail",
+    "repository": "jeremiah-k/medre-adapter-chatmail",
+    "ref": "3a0e942dc041a39f8145de4e10248f046323234f",
+    "extras": "",
+    "local_integration": false,
+    "distribution": "medre-adapter-chatmail"
+  },
+  {
+    "transport": "simplexchat",
+    "repository": "jeremiah-k/medre-adapter-simplexchat",
+    "ref": "152a1361696b131be06d09e58a043818046ad5fc",
+    "extras": "",
+    "local_integration": false,
+    "distribution": "medre-adapter-simplexchat"
   }
 ]
