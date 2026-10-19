@@ -1,4 +1,5 @@
-# Copy to a private lab directory alongside runtime.yaml, then edit endpoints.
+# Replace endpoint addresses AND these example native peer display names.
+# Prefixes describe rendered bodies; MeshCore firmware sender headers are separate.
 version: 1
 runtime_config: runtime.yaml
 timeout_seconds: 90
@@ -12,44 +13,76 @@ endpoints:
     peer:
       homeserver: https://matrix.example.org
       user_id: "@peer:matrix.example.org"
-      access_token: "" # Set the dedicated peer account's token.
+      access_token: ""
+    expected_prefixes:
+      mt: "[MeshPeer/Forx]: "
+      mc: "[MeshCorePeer/MeshCore lab]: "
+      lx: "[LXMFPeer/Reticulum lab]: "
+      xmpp: "[peer/XMPP lab]: "
+      chatmail: "[peer@example.org/Chatmail lab]: "
   mt:
     transport: meshtastic
     channel: "0"
     expected_sender: "123456789"
     peer:
       serial_port: /dev/serial/by-id/replace-with-peer-radio
-      # TCP alternative: host: 127.0.0.1, port: 4404.
+    expected_prefixes:
+      matrix: "Peer[M]: "
+      mc: "MeshCorePeer: "
+      lx: "LXMFPeer: "
+      xmpp: "peer: "
+      chatmail: "peer@example.org: "
   mc:
     transport: meshcore
     channel: "1"
     expected_sender: MEDRE-MC
     peer:
       ble_address: AA:BB:CC:DD:EE:02
-      # Serial alternative: serial_port: /dev/serial/by-id/peer, baudrate: 115200.
+    expected_prefixes:
+      matrix: "[Matrix lab] Peer: "
+      mt: "[Forx] MeshPeer: "
+      lx: "[Reticulum lab] LXMFPeer: "
+      xmpp: "[XMPP lab] peer: "
+      chatmail: "[Chatmail lab] peer@example.org: "
   lx:
     transport: lxmf
-    channel: abababababababababababababababab # Independent peer destination.
-    expected_sender: cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd # MEDRE destination.
+    channel: abababababababababababababababab
+    expected_sender: cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
     peer:
       identity_path: /private/bench/lx-peer.identity
       reticulum_config_dir: /private/bench/rns-peer
       storage_path: /private/bench/lx-peer-storage
+    expected_prefixes:
+      matrix: "[Matrix lab] Peer: "
+      mt: "[Forx] MeshPeer: "
+      mc: "[MeshCore lab] MeshCorePeer: "
+      xmpp: "[XMPP lab] peer: "
+      chatmail: "[Chatmail lab] peer@example.org: "
   xmpp:
     transport: xmpp
     channel: campaign@conference.example.org
     expected_sender: campaign@conference.example.org/medre
     peer:
       jid: peer@example.org/campaign
-      password: "" # Set the dedicated peer account's password.
+      password: ""
       nickname: peer
-      # Optional explicit connection: host: example.org, port: 5222.
+    expected_prefixes:
+      matrix: "[Matrix lab] Peer: "
+      mt: "[Forx] MeshPeer: "
+      mc: "[MeshCore lab] MeshCorePeer: "
+      lx: "[Reticulum lab] LXMFPeer: "
+      chatmail: "[Chatmail lab] peer@example.org: "
   chatmail:
     transport: chatmail
-    channel: "12" # Group ID in MEDRE's profile.
-    expected_sender: "14" # Bot contact ID in the peer's profile.
+    channel: "12"
+    expected_sender: "14"
     peer:
       accounts_dir: /private/bench/mail-peer
       account_id: 1
-      channel: "15" # The same group's ID in the peer's profile.
-      # Optional absolute rpc_server_path when the executable is outside PATH.
+      channel: "15"
+    expected_prefixes:
+      matrix: "[Matrix lab] Peer: "
+      mt: "[Forx] MeshPeer: "
+      mc: "[MeshCore lab] MeshCorePeer: "
+      lx: "[Reticulum lab] LXMFPeer: "
+      xmpp: "[XMPP lab] peer: "
