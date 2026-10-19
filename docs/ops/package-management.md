@@ -58,12 +58,15 @@ to `~/.config/medre/sources.yaml`), or `$MEDRE_HOME/sources.yaml`.
 Run `medre init` to create that file, then edit it, or pass `--sources PATH` to
 `init`, `sources`, `install`, or `remove`. Initialization keeps an existing valid
 catalog and never installs packages or generates a runtime bridge configuration.
-The core source remains authoritative in uv's tool receipt; it is not duplicated
-in this catalog. Ordinary commands do not create source files automatically.
-Overrides merge with the four defaults, which point to `jeremiah-k`'s adapter
+Ordinary upgrades use uv's recorded core source. An optional core requirement in
+this catalog is applied only by an explicit --sync-sources upgrade. Ordinary
+commands do not create source files automatically.
+Overrides merge with the seven defaults, which point to `jeremiah-k`'s adapter
 repositories on `main`. Set an alias to `null` to remove it from the catalog.
 
 ```yaml
+# Optional: deliberately choose this core source with upgrade --sync-sources.
+core: medre @ git+https://github.com/jeremiah-k/medre.git@main
 adapters:
   matrix: medre-adapter-matrix[e2e] @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@FULL_COMMIT_SHA
   meshtastic: medre-adapter-meshtastic==0.1.0
@@ -85,21 +88,71 @@ sources. Keep credentials out of requirement URLs. The source file is deployment
 configuration, separate from bridge YAML, and is read only by explicit management
 commands. Loading a bridge config or starting MEDRE never installs packages.
 
-## Update the tool
+## Upgrade core and adapters
 
 ```bash
-medre update --dry-run
-medre update
+medre upgrade --dry-run
+medre upgrade                      # Core, installed adapters and tool dependencies.
+medre update                       # The same command.
+medre upgrade --core-only
+medre upgrade --adapters-only
+medre adapters upgrade             # Same as --adapters-only.
+medre adapters update matrix       # Upgrade an installed adapter.
+medre upgrade matrix meshcore      # Select adapters by alias or distribution name.
 ```
 
-This delegates to `uv tool upgrade medre`, updating core and all packages within
-the requirements and settings recorded by uv. A pinned commit or version remains
-pinned. A floating branch can advance. Editing the source catalog alone does not
-change installed sources during an update; apply source changes with `install`.
-To switch the core repository or revision, deliberately reinstall with
-`uv tool install`, including the desired `--with` adapter requirements.
+Bulk upgrades delegate to uv's native tool upgrade, preserving saved installer
+settings and requirements. Scoped upgrades rebuild the complete supported request
+with uv's selective upgrade flags. Other explicit requests, extras, markers and
+source constraints remain present; uv can adjust shared dependencies to satisfy
+compatibility. uv can also re-resolve unselected floating Git sources and local
+source directories or archives. Scoped commands refuse those requests before
+changing anything: pin unselected Git sources to full commits, replace mutable
+local sources with immutable package requirements, or use a whole-tool upgrade.
+This preserves the meaning of core-only/adapter-only without leaving
+hidden pins in the receipt. Custom receipt settings that cannot be replayed cause scoped
+updates to refuse with guidance to use uv directly or a native bulk upgrade.
 
-Tool installations do not provide a deployment `uv.lock`. For reproducible live
+Adapters are identified from installed distribution metadata, including third-party
+providers, without importing their SDKs. A broken provider can be updated or
+removed without loading its CLI hooks. No installed adapters is a successful
+adapter-only no-op. A selection never installs an absent adapter. Core-only
+updates do not inspect adapter discovery metadata.
+
+Existing pins stay pinned. Floating Git branches can advance; exact commits and
+version constraints remain authoritative. Editing sources.yaml alone does not
+change installed sources. To apply catalog changes deliberately:
+
+```bash
+medre upgrade --sync-sources --dry-run
+medre upgrade --sync-sources
+medre adapters upgrade matrix --sync-sources --sources /private/sources.yaml
+```
+
+An optional core requirement selects a different core repository, revision or
+index constraint during source synchronization. Adapter-only commands retain the
+installed core request. Catalog requirements apply to selected installed
+packages with matching distribution names, preserving installed extras such as
+Matrix E2EE. Unrelated requests remain unchanged. If a provider changes its
+distribution name, install the replacement explicitly and remove the previous
+explicit requirement by its distribution name:
+
+```bash
+medre adapters install replacement
+medre adapters remove previous-provider
+```
+
+Distribution names still work after an alias is removed. A null alias never
+uninstalls anything; update does not delete profiles or guess package replacements.
+
+Preview commands without package/configuration writes using --dry-run. Real
+updates stream uv's output and preserve failure exit status. Windows retains the
+explicit command handoff described above. Source checkouts, uv deployment projects,
+pipx and ordinary pip environments receive ownership-specific guidance instead of
+having another installation modified. The updater never pulls a developer's Git
+checkout, edits deployment locks, restarts services, or changes bridge YAML.
+
+Tool installations do not provide a deployment uv.lock. For reproducible live
 bridges, prefer the [locked deployment workflow](adapter-installation.md).
 Back up persistent state before updating; MEDRE's pre-release schemas can change.
 

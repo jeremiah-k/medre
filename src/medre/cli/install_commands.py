@@ -11,6 +11,7 @@ from medre.tool_management import (
     ToolInstallation,
     ToolManagementError,
     initialize_sources,
+    load_source_catalog,
     load_sources,
     sources_path,
 )
@@ -29,28 +30,61 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 ) from None
             print(f"{'Created' if created else 'Kept existing catalog:'} {target}")
             print("Edit adapter sources here, then run 'medre adapters install ALIAS'.")
-            print("Core updates follow uv's installation receipt; run 'medre update'.")
+            print("Run 'medre upgrade' to update core and installed adapters.")
+            print("Use --sync-sources to apply deliberate catalog changes.")
             return
-        if args.command == "adapters":
-            sources = load_sources(Path(args.sources) if args.sources else None)
+        upgrading = args.command in ("upgrade", "update") or (
+            args.command == "adapters" and args.action in ("upgrade", "update")
+        )
+        if args.command == "adapters" and not upgrading:
             if args.action == "sources":
                 import yaml
 
-                print(
-                    f"# Adapter sources; override in {args.sources or sources_path()}"
+                catalog = load_source_catalog(
+                    Path(args.sources) if args.sources else None
                 )
-                print(yaml.safe_dump({"adapters": sources}, sort_keys=False), end="")
+                document: dict[str, object] = {"adapters": catalog.adapters}
+                if catalog.core is not None:
+                    document["core"] = catalog.core
+                print(
+                    f"# Package sources; override in {args.sources or sources_path()}"
+                )
+                print(yaml.safe_dump(document, sort_keys=False), end="")
                 return
+            sources = load_sources(Path(args.sources) if args.sources else None)
         installation = ToolInstallation.inspect()
-        if args.command == "update":
-            command = installation.update()
+        if upgrading:
+            from medre.self_upgrade import plan_upgrade
+
+            catalog = (
+                load_source_catalog(Path(args.sources) if args.sources else None)
+                if args.packages or args.sync_sources
+                else None
+            )
+            plan = plan_upgrade(
+                installation,
+                selections=tuple(args.packages),
+                core_only=getattr(args, "core_only", False),
+                adapters_only=args.command == "adapters"
+                or getattr(args, "adapters_only", False),
+                catalog=catalog,
+                sync_sources=args.sync_sources,
+            )
+            print(f"Tool environment: {installation.prefix}")
+            for note in plan.notes:
+                print(note)
+            if not plan.command:
+                return
+            print("Update: " + ", ".join(plan.packages))
+            command = list(plan.command)
         else:
             command = installation.change_adapters(
                 args.packages, sources, remove=args.action == "remove"
             )
         from .bridge_commands import _command_example
 
-        print(f"Tool environment: {installation.prefix}")
+        if not upgrading:
+            print(f"Tool environment: {installation.prefix}")
         print(_command_example(*command), flush=True)
         if args.dry_run:
             return
@@ -68,7 +102,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
         if result.returncode:
             raise SystemExit(result.returncode if result.returncode > 0 else 1)
         print(
-            "Installation complete. Run 'medre adapters' to inspect providers, then 'medre config check --config PATH' before restarting your bridge."
+            f"{'Upgrade' if upgrading else 'Installation'} complete. Run 'medre adapters' to inspect providers, then 'medre config check --config PATH' before restarting your bridge."
         )
     except ToolManagementError as exc:
         print(f"Installation error: {exc}", file=sys.stderr)

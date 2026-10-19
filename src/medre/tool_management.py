@@ -21,7 +21,15 @@ from medre.config.paths import resolve
 
 DEFAULT_SOURCES = {
     name: f"medre-adapter-{name} @ git+https://github.com/jeremiah-k/medre-adapter-{name}.git@main"
-    for name in ("matrix", "meshtastic", "meshcore", "lxmf")
+    for name in (
+        "matrix",
+        "meshtastic",
+        "meshcore",
+        "lxmf",
+        "xmpp",
+        "chatmail",
+        "simplexchat",
+    )
 }
 _NAME = r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
 _REQUIREMENT = re.compile(
@@ -32,6 +40,26 @@ _SELECTION = re.compile(rf"^({_NAME})(?:\[({_NAME}(?:,{_NAME})*)\])?$")
 
 class ToolManagementError(ValueError):
     """An operation cannot preserve the installation's ownership or settings."""
+
+
+def _environment_guidance() -> str:
+    """Identify likely ownership from this interpreter, never the current directory."""
+    prefix = Path(sys.prefix)
+    if (prefix / "pipx_metadata.json").is_file():
+        return (
+            "Detected a pipx environment; use 'pipx upgrade medre --include-injected'."
+        )
+    project = prefix.parent
+    if prefix.name in {".venv", "venv"} and (project / "uv.lock").is_file():
+        return (
+            f"Detected a uv project at {project}. Update editable source checkouts first; "
+            "then use 'uv lock --upgrade' and 'uv sync --locked' with the project's required extras. "
+            "Use 'medre dev sync' for a MEDRE development checkout."
+        )
+    return (
+        "For a pip or editable installation, update its original requirements or source checkout. "
+        "For managed self-upgrades, use the executable installed by 'uv tool install'."
+    )
 
 
 def package_name(requirement: str) -> str:
@@ -53,9 +81,17 @@ def sources_path() -> Path:
     return resolve().config_file.parent / "sources.yaml"
 
 
-def load_sources(
+@dataclass(frozen=True)
+class SourceCatalog:
+    """Optional core source and adapter aliases for explicit source changes."""
+
+    core: str | None
+    adapters: dict[str, str]
+
+
+def load_source_catalog(
     path: Path | None = None, *, defaults: dict[str, str] | None = None
-) -> dict[str, str]:
+) -> SourceCatalog:
     """Merge operator aliases over convenience defaults; reject ambiguous YAML."""
     target = path if path is not None else sources_path()
     result = (DEFAULT_SOURCES if defaults is None else defaults).copy()
@@ -63,7 +99,7 @@ def load_sources(
         text = target.read_text(encoding="utf-8")
     except FileNotFoundError:
         if path is None:
-            return result
+            return SourceCatalog(None, result)
         raise ToolManagementError(f"Sources file does not exist: {target}") from None
     except (OSError, UnicodeError):
         raise ToolManagementError(f"Cannot read sources file: {target}") from None
@@ -73,10 +109,15 @@ def load_sources(
         raise ToolManagementError(
             f"Invalid sources YAML: {target}. Use a mapping with an 'adapters' table; duplicate keys are rejected."
         ) from None
-    if set(document) != {"adapters"} or not isinstance(document["adapters"], dict):
+    if set(document) - {"core", "adapters"} or not isinstance(
+        document.get("adapters"), dict
+    ):
         raise ToolManagementError(
-            "Sources YAML must contain only an 'adapters' mapping."
+            "Sources YAML requires an 'adapters' mapping and an optional 'core' requirement."
         )
+    core = document.get("core")
+    if core is not None and package_name(core) != "medre":
+        raise ToolManagementError("The core source must name the medre distribution.")
     for alias, requirement in document["adapters"].items():
         if not isinstance(alias, str) or re.fullmatch(_NAME, alias) is None:
             raise ToolManagementError("Source aliases must be package-style names.")
@@ -86,7 +127,14 @@ def load_sources(
         if package_name(requirement) == "medre":
             raise ToolManagementError("An adapter source cannot replace MEDRE core.")
         result[alias] = requirement
-    return result
+    return SourceCatalog(core, result)
+
+
+def load_sources(
+    path: Path | None = None, *, defaults: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Read adapter aliases without applying the optional core source."""
+    return load_source_catalog(path, defaults=defaults).adapters
 
 
 def initialize_sources(path: Path | None = None) -> tuple[Path, bool]:
@@ -102,7 +150,8 @@ def initialize_sources(path: Path | None = None) -> tuple[Path, bool]:
     target.parent.mkdir(parents=True, exist_ok=True)
     content = (
         "# Adapter source aliases. Edit, then run medre adapters install ALIAS.\n"
-        "# Core source and updates remain recorded in uv's tool receipt.\n"
+        "# core: medre @ git+https://github.com/jeremiah-k/medre.git@main\n"
+        "# Source changes require medre upgrade --sync-sources.\n"
         + yaml.safe_dump({"adapters": DEFAULT_SOURCES}, sort_keys=False)
     )
     try:
@@ -250,7 +299,8 @@ class ToolInstallation:
         uv = shutil.which("uv")
         if uv is None:
             raise ToolManagementError(
-                "uv is not on PATH. Install uv, then retry this command."
+                "uv is not on PATH. Install uv, then retry this command. "
+                + _environment_guidance()
             )
         result = subprocess.run(
             [uv, "tool", "dir"], capture_output=True, text=True, check=False
@@ -263,7 +313,8 @@ class ToolInstallation:
         expected = Path(result.stdout.strip()) / "medre"
         if prefix.resolve() != expected.resolve():
             raise ToolManagementError(
-                "This MEDRE is not running from its persistent uv tool environment. Use the executable installed by 'uv tool install', or manage this project with 'uv add/remove' and 'uv sync --locked'."
+                "This MEDRE is not running from its persistent uv tool environment. "
+                + _environment_guidance()
             )
         try:
             receipt = tomllib.loads(
@@ -286,7 +337,7 @@ class ToolInstallation:
             "options",
         } or self.receipt.get("options"):
             raise ToolManagementError(
-                "This tool uses custom uv settings or constraints. Use uv directly to change adapters; 'medre update' can preserve these settings."
+                "This tool uses custom uv settings or constraints. Scoped updates and source changes require direct uv management; plain 'medre upgrade' preserves these settings."
             )
         entrypoints = self.receipt.get("entrypoints", [])
         if not isinstance(entrypoints, list) or any(
@@ -326,7 +377,14 @@ class ToolInstallation:
         requirements = self.requirements()
         desired = {package_name(r): r for r in requirements[1:]}
         for selection in selections:
-            name, requirement = selected_source(selection, sources)
+            if (
+                remove
+                and re.fullmatch(_NAME, selection)
+                and package_name(selection) in desired
+            ):
+                name, requirement = package_name(selection), ""
+            else:
+                name, requirement = selected_source(selection, sources)
             if remove:
                 if name not in desired:
                     raise ToolManagementError(
@@ -335,6 +393,14 @@ class ToolInstallation:
                 del desired[name]
             else:
                 desired[name] = requirement
+        return self.install_request([requirements[0], *desired.values()])
+
+    def install_request(self, requirements: list[str]) -> list[str]:
+        """Recreate a verified request without introducing temporary source pins."""
+        self.requirements()  # Refuse receipt settings that cannot be replayed.
+        names = [package_name(requirement) for requirement in requirements]
+        if not names or names[0] != "medre" or len(set(names)) != len(names):
+            raise ToolManagementError("Ambiguous MEDRE installation request.")
         # Preserve explicit requests; avoid introducing a patch-specific path pin.
         python = (
             self.receipt.get("python")
@@ -343,7 +409,7 @@ class ToolInstallation:
         if not isinstance(python, str):
             raise ToolManagementError("Invalid Python request in uv receipt.")
         command = [self.uv, "tool", "install", "--python", python]
-        for requirement in desired.values():
+        for requirement in requirements[1:]:
             command.extend(["--with", requirement])
         command.append(requirements[0])
         return command

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import importlib.metadata
 import platform
+import sys
 
 # Lightweight imports only — command modules are imported lazily inside
 # dispatch branches so that ``--help``, ``version``, and ``config sample``
@@ -73,7 +74,7 @@ def _recovery_page_limit(value: str) -> int:
     return limit
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParser:
     from medre.core.storage.backend import (
         DEFAULT_RECOVERY_PAGE_LIMIT,
         MAX_RECOVERY_PAGE_LIMIT,
@@ -244,10 +245,35 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sources", default=None, help="Catalog path (default: MEDRE config directory)"
     )
 
-    # update
+    # upgrade (update is the same command)
     update_p = sub.add_parser(
-        "update",
+        "upgrade",
+        aliases=["update"],
         help="Update MEDRE and adapters through the owning uv tool installation",
+    )
+    update_p.add_argument(
+        "packages",
+        nargs="*",
+        help="Installed adapter aliases or distribution names; omit to update everything",
+    )
+    scope = update_p.add_mutually_exclusive_group()
+    scope.add_argument(
+        "--core-only", action="store_true", help="Request an upgrade of core only"
+    )
+    scope.add_argument(
+        "--adapters-only",
+        action="store_true",
+        help="Request upgrades of installed adapters only",
+    )
+    update_p.add_argument(
+        "--sources",
+        metavar="PATH",
+        help="Source catalog for selected aliases or --sync-sources",
+    )
+    update_p.add_argument(
+        "--sync-sources",
+        action="store_true",
+        help="Apply configured sources to selected installed packages",
     )
     update_p.add_argument(
         "--dry-run",
@@ -262,7 +288,7 @@ def _build_parser() -> argparse.ArgumentParser:
     adapters_p.add_argument(
         "action",
         nargs="?",
-        choices=("check", "sources", "install", "remove"),
+        choices=("check", "sources", "install", "remove", "upgrade", "update"),
         default=None,
     )
     adapters_p.add_argument(
@@ -281,6 +307,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print the uv command without changing packages",
+    )
+    adapters_p.add_argument(
+        "--sync-sources",
+        action="store_true",
+        help="Apply configured sources during adapter upgrades",
     )
 
     # diagnostics
@@ -714,9 +745,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
-    from .contrib import register_adapter_contributors
+    parser.set_defaults(_adapter_cli_failures=())
+    if include_adapter_cli:
+        from .contrib import register_adapter_contributors
 
-    parser.set_defaults(_adapter_cli_failures=register_adapter_contributors(sub))
+        parser.set_defaults(_adapter_cli_failures=register_adapter_contributors(sub))
 
     # support (with sub-subcommands)
     support_p = sub.add_parser(
@@ -745,19 +778,54 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate command handler."""
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    package_actions = {"sources", "install", "remove", "upgrade", "update"}
+    adapter_action = None
+    if arguments and arguments[0] == "adapters":
+        tail = iter(arguments[1:])
+        for value in tail:
+            if value in {"--sources", "--config"}:
+                next(tail, None)
+            elif not value.startswith("-"):
+                adapter_action = value
+                break
+    managing_packages = bool(arguments) and (
+        arguments[0] in {"init", "upgrade", "update"}
+        or (arguments[0] == "adapters" and adapter_action in package_actions)
+    )
+    # Updating or removing a broken provider must not import that provider.
+    parser = _build_parser(include_adapter_cli=not managing_packages)
+    args = parser.parse_args(arguments)
+
+    if args.command in ("upgrade", "update"):
+        if args.core_only and args.packages:
+            parser.error("--core-only cannot select adapters")
+        if args.sources and not (args.packages or args.sync_sources):
+            parser.error("--sources requires selected adapters or --sync-sources")
 
     if args.command == "adapters":
         managing = args.action in ("install", "remove")
-        if bool(args.packages) != managing:
+        upgrading = args.action in ("upgrade", "update")
+        if (managing and not args.packages) or (
+            args.packages and not (managing or upgrading)
+        ):
             parser.error(
-                "adapters install/remove require source aliases; other adapter actions do not accept aliases"
+                "adapters install/remove require a package selection; only install, remove, and upgrade accept selections"
             )
-        if args.dry_run and not managing:
-            parser.error("--dry-run requires adapters install or remove")
-        if args.sources and args.action not in ("sources", "install", "remove"):
-            parser.error("--sources requires adapters sources, install, or remove")
+        if args.dry_run and not (managing or upgrading):
+            parser.error("--dry-run requires adapters install, remove, or upgrade")
+        if args.sync_sources and not upgrading:
+            parser.error("--sync-sources requires adapters upgrade")
+        if upgrading and args.sources and not (args.packages or args.sync_sources):
+            parser.error("--sources requires selected adapters or --sync-sources")
+        if args.sources and args.action not in (
+            "sources",
+            "install",
+            "remove",
+            "upgrade",
+            "update",
+        ):
+            parser.error("--sources requires an adapter package-management action")
         if args.config and args.action not in (None, "check"):
             parser.error(
                 "--config is for adapter inspection; use --sources for installation sources"
@@ -767,8 +835,9 @@ def main(argv: list[str] | None = None) -> None:
         from .dev_commands import _development
 
         _development(args)
-    elif args.command in ("init", "update") or (
-        args.command == "adapters" and args.action in ("sources", "install", "remove")
+    elif args.command in ("init", "update", "upgrade") or (
+        args.command == "adapters"
+        and args.action in ("sources", "install", "remove", "upgrade", "update")
     ):
         from .install_commands import _manage_installation
 
@@ -824,8 +893,8 @@ def main(argv: list[str] | None = None) -> None:
             _diagnostics(args.config, output_format=args.format)
     elif args.command == "routes":
         from .route_commands import (
-            _routes_list,
             _routes_explain,
+            _routes_list,
             _routes_plan,
             _routes_topology,
             _routes_validate,
