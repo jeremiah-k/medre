@@ -718,10 +718,13 @@ For a direct shell run, choose a private capture path explicitly:
 ```bash
 log_capture=/private/medre/medre.log
 umask 077
+touch -- "$log_capture"
+chmod 600 -- "$log_capture"
 medre run --config medre.yaml >> "$log_capture" 2>&1
 ```
 
-Create the capture directory beforehand. The command runs in the foreground;
+Create the capture directory beforehand and restrict access to it (mode 0700).
+The command runs in the foreground;
 use another terminal to inspect the file or send the normal shutdown signal.
 Config-loading and command-usage errors can appear on stderr before runtime
 logging is configured. Captures can contain room IDs, message identifiers, and

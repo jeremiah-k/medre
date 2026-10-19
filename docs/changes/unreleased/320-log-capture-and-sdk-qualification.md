@@ -7,3 +7,7 @@ profile databases and journals are distinguished from shared core storage.
 
 SDK parity guidance identifies provider-owned dependency pins, immutable core
 qualification pairs, and the native evidence boundaries of all seven adapters.
+
+Recovery examples now establish a private, run-unique log capture before
+redirecting output and require checking each adapter's result; aggregate
+readiness alone can mean partial startup.

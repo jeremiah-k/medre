@@ -154,6 +154,24 @@ On hard crash (kill -9, OOM, power loss):
 | Runtime counters (accounting)                    | No          | Process-local counters reset after restart                                                                                                                                                                                                                               |
 | Adapter connection state                         | No          | Adapters reconnect from scratch                                                                                                                                                                                                                                          |
 
+For direct shell restarts below, create a **new**, mode-0600 log capture per
+runtime attempt in an existing private directory. This prevents old readiness
+messages from being mistaken for the current run:
+
+```bash
+umask 077
+log_capture="$(mktemp /private/medre/medre-recovery.XXXXXXXX.log)"
+printf 'Log capture: %s\n' "$log_capture"
+```
+
+In a second terminal, set `log_capture` to that printed path before using
+any `grep` commands below. Create a new capture for each restart attempt.
+Replace `/private/medre/` with your private capture directory (mode 0700).
+MEDRE does not create that file automatically. For managed services, inspect
+the service manager or container logs instead. Structured JSON captures require
+JSON-aware filters rather than the text severity patterns used below. See
+[log output and capture](running-medre.md#log-output-and-capture).
+
 ### Crash Recovery Steps
 
 ```bash
@@ -169,8 +187,10 @@ sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
 medre run --config config.yaml >> "$log_capture" 2>&1
 
 # In another terminal:
-# 4. Verify startup — all adapters should report started
-grep "Runtime ready (" "$log_capture" | tail -1
+# 4. Inspect every adapter result for THIS run (partial readiness is possible)
+grep -E '^  (started |✗ )' "$log_capture"
+grep -F 'Runtime ready (' "$log_capture" | tail -1
+# Verify each configured adapter has a 'started' line and no 'failed' line.
 
 # 5. Check for adapter errors
 grep -E "\[(WARNING|ERROR)\]" "$log_capture" | tail -5
@@ -208,18 +228,15 @@ If the runtime was shut down cleanly (SIGTERM, SIGINT):
 # Restart
 medre run --config config.yaml >> "$log_capture" 2>&1
 
-# In another terminal, verify startup
-grep "Runtime ready (" "$log_capture" | tail -1
+# In another terminal, verify all configured adapters started
+# (a partially started runtime also emits "Runtime ready"):
+grep -E '^  (started |✗ )' "$log_capture"
+grep -F 'Runtime ready (' "$log_capture" | tail -1
 
 # No further action needed. Drained deliveries produced receipts.
 # Non-terminal outbox items were preserved as resumable work.
 ```
 
-For text-log examples below, set `log_capture` to a file explicitly captured
-from stdout as described in [log output and capture](running-medre.md#log-output-and-capture).
-MEDRE does not create that file automatically. For managed services, inspect the
-service manager or container logs instead. Structured JSON captures require
-JSON-aware filters rather than the text severity patterns used below.
 
 ## Adapter Failure Recovery
 

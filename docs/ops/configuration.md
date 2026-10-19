@@ -742,8 +742,10 @@ Runtime paths derived from the resolved state directory (`{state}`):
 | `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state                          |
 
 Core events, outbox state, and receipts share the global storage backend.
-Adapters may own native profile databases and auxiliary ledgers under their
-private state roots. Those transport-owned stores do not replace core storage.
+Adapter-private directories hold SDK-owned transport state, including native
+crypto/profile stores when required by the SDK. They must not contain a second
+MEDRE-owned events, outbox, or receipts database. See the storage-ownership
+boundary in [storage](../spec/storage.md).
 
 ## MEDRE_HOME (Single-Directory Mode)
 
