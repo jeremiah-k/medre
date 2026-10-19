@@ -28,7 +28,6 @@ transports uniformly:
 
 from __future__ import annotations
 
-import importlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +41,7 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.architecture_report import _SDK_PACKAGES
 from tests.helpers.import_scanner import import_lines as _import_lines
+from tests.helpers.import_scanner import load_for_source_scan
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -69,7 +69,7 @@ def _method_defs(source: str) -> list[str]:
 def _load_module(name: str):
     """Import a module by dotted name; skip if not importable."""
     try:
-        return importlib.import_module(name)
+        return load_for_source_scan(name)
     except Exception:
         return None
 

@@ -2,7 +2,7 @@
 """Capability truth audit tests: durable proof that capability declarations are
 authoritative runtime truth and do not overclaim.
 
-Machine-checked capability conformance proof across all four adapters
+Machine-checked capability conformance proof across all registered adapters
 and their JSON capability declarations: fake capabilities, JSON capability
 files, and source-declared capability surfaces must agree, with no
 overclaims. Audit coverage follows the complete declared field set so adding
@@ -36,13 +36,15 @@ from unittest.mock import patch
 
 import pytest
 
+from medre.adapter_registry import get_adapter_spec, registered_transports
 from medre.core.contracts.adapter import AdapterCapabilities
+from tests.helpers.adapter_capabilities import default_provider_capabilities
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+TRANSPORTS = registered_transports()
 
 
 PROFILES_DIR = (
@@ -67,7 +69,17 @@ def _load_json_caps(transport: str) -> dict[str, Any]:
     return data["capabilities"]
 
 
-_OPTIONAL_SDK_PREFIXES = ("nio", "meshtastic", "meshcore", "RNS", "LXMF")
+_OPTIONAL_SDK_PREFIXES = (
+    "nio",
+    "meshtastic",
+    "meshcore",
+    "RNS",
+    "LXMF",
+    "slixmpp",
+    "deltachat_rpc_client",
+    "deltachat_rpc_server",
+    "simplex_chat",
+)
 
 
 def _is_optional_sdk_import_error(exc: ImportError) -> bool:
@@ -124,6 +136,13 @@ def _get_real_caps(transport: str) -> AdapterCapabilities | None:
                 return None
             raise
         return _MESHCORE_CAPS_BASE
+    if transport in {"xmpp", "chatmail", "simplexchat"}:
+        try:
+            return default_provider_capabilities(transport)
+        except ImportError as exc:
+            if _is_optional_sdk_import_error(exc):
+                return None
+            raise
     raise ValueError(f"Unknown transport: {transport}")
 
 
@@ -145,6 +164,10 @@ def _get_fake_caps(transport: str) -> AdapterCapabilities:
         from medre.adapters.fakes.lxmf import _FAKE_LXMF_CAPABILITIES
 
         return _FAKE_LXMF_CAPABILITIES
+    if transport in {"xmpp", "chatmail", "simplexchat"}:
+        spec = get_adapter_spec(transport)
+        assert spec is not None and spec.fake_adapter is not None
+        return spec.fake_adapter.load()(adapter_id="audit_test")._capabilities
     raise ValueError(f"Unknown transport: {transport}")
 
 
@@ -248,7 +271,7 @@ def test_delivery_runtime_traits_are_not_planning_capabilities() -> None:
 
 
 def test_every_transport_profile_json_exists() -> None:
-    """All four transport capability JSON files exist."""
+    """Every registered transport has a capability declaration."""
     for transport in TRANSPORTS:
         path = PROFILES_DIR / f"{transport}-capabilities.json"
         assert path.exists(), f"Missing: {path}"

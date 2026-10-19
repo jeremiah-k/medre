@@ -20,7 +20,6 @@ See: Contract 49 (Routing and Bridge), Contract 50 (Runtime Topology),
 
 from __future__ import annotations
 
-import importlib
 import re
 from pathlib import Path
 
@@ -29,6 +28,7 @@ import pytest
 from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import _SDK_PACKAGES
 from tests.helpers.import_scanner import import_lines as _import_lines
+from tests.helpers.import_scanner import load_for_source_scan
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_cross_transport_boundaries style)
@@ -42,7 +42,7 @@ _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANS
 def _load_module(name: str):
     """Import a module by dotted name; skip if not importable."""
     try:
-        return importlib.import_module(name)
+        return load_for_source_scan(name)
     except Exception:
         return None
 

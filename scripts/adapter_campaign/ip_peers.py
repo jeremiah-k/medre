@@ -61,6 +61,9 @@ async def matrix(settings: dict) -> None:
                             sender=event["sender"],
                             channel=channel,
                             native_id=event["event_id"],
+                            formatted_body=event.get("content", {}).get(
+                                "formatted_body"
+                            ),
                         )
 
         async def send(text):

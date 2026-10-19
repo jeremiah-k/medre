@@ -9,11 +9,13 @@ in-memory storage.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
+from medre.config.adapters.matrix import MatrixConfig
 from medre.config.paths import MedrePaths, resolve
 from medre.core.events import EventKind
 from medre.runtime.app import RuntimeState
@@ -190,6 +192,17 @@ class TestFullFakeRuntimeHappyPath:
     async def test_full_pipeline_happy_path(self, tmp_paths: MedrePaths) -> None:
         """Complete happy-path through the runtime with every stage verified."""
         config, route = make_two_adapter_config_with_route()
+        # Pin this integration test's presentation input explicitly; provider
+        # defaults are covered by provider and campaign presentation tests.
+        config.adapters.matrix["mx_beta"] = replace(
+            config.adapters.matrix["mx_beta"],
+            config=MatrixConfig(
+                "mx_beta",
+                "https://matrix.test",
+                "@bridge:test",
+                relay_prefix="[{source_adapter_id}]: ",
+            ),
+        )
         builder = RuntimeBuilder(config, tmp_paths)
         app = builder.build()
         await app.start()
@@ -227,7 +240,7 @@ class TestFullFakeRuntimeHappyPath:
 
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
-            expected_text = "Full pipeline integration test"
+            expected_text = "[mx_alpha]: Full pipeline integration test"
             assert matrix_payload_content(payload)["body"] == expected_text
             assert payload.target_adapter == "mx_beta"
 

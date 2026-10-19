@@ -7,6 +7,7 @@ import hashlib
 import json
 import platform
 import traceback
+from html.parser import HTMLParser
 from importlib.metadata import version
 from pathlib import Path
 from uuid import uuid4
@@ -24,7 +25,15 @@ def write_report(directory: Path, report: dict) -> None:
     temporary.replace(directory / "results.json")
 
 
-def native_receipt(peer: Peer, endpoint: dict, marker: str) -> dict:
+def native_receipt(
+    peer: Peer,
+    endpoint: dict,
+    marker: str,
+    *,
+    source: str | None = None,
+    message: str | None = None,
+    max_text_bytes: int | None = None,
+) -> dict:
     channel = endpoint["peer"].get("channel", endpoint["channel"])
     # LXMF addresses the remote destination, not a shared room/channel.
     if endpoint["transport"] == "lxmf":
@@ -43,7 +52,75 @@ def native_receipt(peer: Peer, endpoint: dict, marker: str) -> dict:
     assert "café ✓" in hits[0]["text"], f"{peer.name}: UTF-8 body was altered"
     assert "\ufffd" not in hits[0]["text"], f"{peer.name}: invalid UTF-8 rendering"
     assert hits[0]["text"].count(marker) == 1, f"{peer.name}: duplicated rendered body"
-    return hits[0]
+    record = hits[0]
+    presented = record["text"]
+    if endpoint["transport"] == "meshcore":
+        wire_header = endpoint["expected_sender"] + ": "
+        assert presented.startswith(
+            wire_header
+        ), f"{peer.name}: native sender header differs"
+        presented = presented[len(wire_header) :]
+    if max_text_bytes is not None:
+        assert (
+            len(presented.encode("utf-8")) <= max_text_bytes
+        ), f"{peer.name}: radio byte budget exceeded"
+    if source in endpoint.get("expected_prefixes", {}):
+        assert (
+            message is not None
+        ), "Presentation verification requires the sent message"
+        expected = endpoint["expected_prefixes"][source] + message
+        if max_text_bytes is not None:
+            expected = expected.encode("utf-8")[:max_text_bytes].decode(
+                "utf-8", errors="ignore"
+            )
+        assert (
+            presented == expected
+        ), f"{peer.name}: rendered prefix or body differs from the presentation contract"
+    if record.get("formatted_body") is not None:
+        parser = _VisibleText()
+        parser.feed(record["formatted_body"])
+        parser.close()
+        assert (
+            "".join(parser.parts) == record["text"]
+        ), f"{peer.name}: HTML attribution/body differs from plain text"
+    return record
+
+
+class _VisibleText(HTMLParser):
+    """Extract displayed text, including HTML paragraph and line boundaries."""
+
+    _BLOCKS = frozenset({"p", "div", "blockquote", "pre", "li", "ul", "ol"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._pending_break = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br":
+            self.parts.append("\n")
+            self._pending_break = False
+        elif tag in self._BLOCKS and self.parts:
+            self._pending_break = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._BLOCKS and self.parts:
+            self._pending_break = True
+
+    def handle_data(self, data: str) -> None:
+        if data and self._pending_break and self.parts:
+            if not self.parts[-1].endswith("\n"):
+                self.parts.append("\n")
+        self._pending_break = False
+        self.parts.append(data)
+
+
+async def _radio_budget(app: object, target: str, endpoint: dict) -> int | None:
+    """Use the actual target's advertised on-wire text capacity."""
+    if endpoint["transport"] not in {"meshtastic", "meshcore"}:
+        return None
+    info = await app.adapters[target].health_check()
+    return info.capabilities.max_text_bytes
 
 
 async def run(plan: Plan, directory: Path) -> dict:
@@ -59,6 +136,10 @@ async def run(plan: Plan, directory: Path) -> dict:
         "expected_pairs": plan.pairs,
         "completed_pairs": [],
         "cases": [],
+        "presentation_expectations": {
+            name: endpoint.get("expected_prefixes", {})
+            for name, endpoint in plan.endpoints.items()
+        },
         "python": platform.python_version(),
     }
     write_report(directory, report)
@@ -136,6 +217,10 @@ async def run(plan: Plan, directory: Path) -> dict:
             # inside another's when one endpoint name prefixes another.
             marker = prefix + source + " "
             text = marker + "café ✓"
+            if plan.endpoints[source]["transport"] == "matrix":
+                # One ordinary and one byte-constrained target observe the same
+                # long body. Do not generate oversized ingress on a radio.
+                text += " " + "🌍é" * 64
             sent = await peer.send(text)
             targets = {
                 name: endpoint["channel"]
@@ -166,10 +251,20 @@ async def run(plan: Plan, directory: Path) -> dict:
                         )
                     )
             item = durable.result()
-            receipts = {
-                target: native_receipt(peers[target], plan.endpoints[target], marker)
-                for target in targets
-            }
+
+            receipts = {}
+            for target in targets:
+                endpoint = plan.endpoints[target]
+                budget = await _radio_budget(app, target, endpoint)
+                receipts[target] = native_receipt(
+                    peers[target],
+                    endpoint,
+                    marker,
+                    source=source,
+                    message=text,
+                    max_text_bytes=budget,
+                )
+
             transport = plan.endpoints[source]["transport"]
             if transport in {"matrix", "meshtastic", "lxmf"}:
                 ref = item["event"]["source_native_ref"]
@@ -180,6 +275,7 @@ async def run(plan: Plan, directory: Path) -> dict:
                 {
                     "source": source,
                     "marker": marker,
+                    "sent_text": text,
                     "native_send": sent,
                     "core": item,
                     "native_receipts": receipts,
@@ -211,7 +307,16 @@ async def run(plan: Plan, directory: Path) -> dict:
             )
             case["core"] = items[0]
             for target in targets:
-                native_receipt(peers[target], plan.endpoints[target], marker)
+                endpoint = plan.endpoints[target]
+                budget = await _radio_budget(app, target, endpoint)
+                native_receipt(
+                    peers[target],
+                    endpoint,
+                    marker,
+                    source=source,
+                    message=case["sent_text"],
+                    max_text_bytes=budget,
+                )
         assert set(map(tuple, report["completed_pairs"])) == set(plan.pairs)
         for peer in peers.values():
             peer.check()

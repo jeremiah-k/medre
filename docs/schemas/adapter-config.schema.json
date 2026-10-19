@@ -97,9 +97,9 @@
           "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "relay_prefix": {
-          "type": "string",
-          "default": "",
-          "description": "Target-local prefix template for Matrix outbound body text. Uses {placeholder} syntax resolved by the shared prefix formatter."
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Target-local Matrix prefix. Omitted/null selects full [sender/origin]: attribution (or [sender]: without an origin); an empty string disables it. A string is a custom generic template."
         }
       },
       "required": ["adapter_id", "homeserver", "user_id"],
@@ -177,9 +177,9 @@
           "description": "Timeout in milliseconds for sync operations."
         },
         "radio_relay_prefix": {
-          "type": "string",
-          "default": "{sender_short}: ",
-          "description": "Template prepended to messages relayed from Matrix to Meshtastic radio. Default preserves MMRelay wire parity for relayed text; set \"\" explicitly for prefix-free output."
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Target-local radio prefix. Omitted/null selects five display-name characters plus [M]: for Matrix sources and generic short-name attribution for others. An empty string disables it. The final prefix and body share max_text_bytes."
         },
         "mmrelay_compatibility": {
           "type": "boolean",

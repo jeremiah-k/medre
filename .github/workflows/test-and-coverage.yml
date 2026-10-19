@@ -20,7 +20,16 @@ jobs:
   merge-readiness:
     name: Merge readiness
     if: always()
-    needs: [adapter-merge-gate, quality, adapter-plan, core, test, adapter-contract, transport-local-integration]
+    needs:
+      [
+        adapter-merge-gate,
+        quality,
+        adapter-plan,
+        core,
+        test,
+        adapter-contract,
+        transport-local-integration,
+      ]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -239,7 +248,14 @@ jobs:
         run: |
           uv sync --locked --extra dev
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --test --python .venv/bin/python
+      - name: Prefetch the official SimpleX native release
+        if: matrix.provider.transport == 'simplexchat'
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/adapter-native-cache
+        run: .venv/bin/python -m simplex_chat install
       - name: Run adapter-owned unit and SDK contracts
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/adapter-native-cache
         working-directory: .adapter
         run: |
           ../.venv/bin/python -m pytest -q -ra \

@@ -1,7 +1,7 @@
 # medre-test-tier: compatibility
 """Cross-provider text routing through real storage with SDK-free adapters.
 
-Every ordered pair is named explicitly, including Chatmail. Missing providers
+Every ordered pair is named explicitly, including Chatmail and SimpleX. Missing providers
 skip their own cases; the native campaign requires all six unless --only is set.
 """
 
@@ -18,6 +18,8 @@ from medre.runtime.smoke_ingress import make_smoke_event
 from scripts.adapter_campaign.evidence import verify, wait_evidence
 from scripts.adapter_campaign.plan import TRANSPORTS, Plan, runtime_config
 
+FAKE_TRANSPORTS = TRANSPORTS | {"simplexchat"}
+
 CHANNELS = {
     "matrix": "!campaign:example.org",
     "meshtastic": "0",
@@ -25,11 +27,12 @@ CHANNELS = {
     "lxmf": "ab" * 16,
     "xmpp": "campaign@conference.example.org",
     "chatmail": "10",
+    "simplexchat": "group:1",
 }
 PAIRS = [
     (source, target)
-    for source in sorted(TRANSPORTS)
-    for target in sorted(TRANSPORTS)
+    for source in sorted(FAKE_TRANSPORTS)
+    for target in sorted(FAKE_TRANSPORTS)
     if source != target
 ]
 
@@ -49,6 +52,7 @@ def fake_plan(tmp_path: Path, transports: set[str]) -> Plan:
         "lxmf": {"connection_type": "fake"},
         "xmpp": {"jid": "bot@example.org", "rooms": [CHANNELS["xmpp"]]},
         "chatmail": {"chats": [10]},
+        "simplexchat": {"chats": ["group:1"]},
     }
     runtime_file.write_text(
         yaml.safe_dump(
@@ -135,11 +139,11 @@ async def test_every_directed_adapter_pair_stores_one_delivery(
         await app.stop()
 
 
-@pytest.mark.parametrize("source", sorted(TRANSPORTS))
+@pytest.mark.parametrize("source", sorted(FAKE_TRANSPORTS))
 async def test_source_fans_out_to_every_installed_adapter_without_self_delivery(
     source, tmp_path
 ):
-    installed = TRANSPORTS & set(registered_transports())
+    installed = FAKE_TRANSPORTS & set(registered_transports())
     if source not in installed or len(installed) < 2:
         pytest.skip("Install source and at least one target adapter")
     plan = fake_plan(tmp_path, installed)

@@ -118,3 +118,24 @@ def scan_multiple_dirs_for_plain_imports(
             continue
         violations.extend(scan_dir_for_plain_imports(root, package_roots))
     return violations
+
+
+def load_for_source_scan(name: str):
+    """Resolve entrypoint source without executing an operator command.
+
+    Other modules retain ordinary imports for tests that inspect classes.
+    An entrypoint contributes its complete source to boundary checks, including
+    prohibited imports, without parsing the inspecting process's arguments.
+    """
+    import importlib
+    import importlib.util
+    from types import ModuleType
+
+    if name.endswith(".__main__"):
+        spec = importlib.util.find_spec(name)
+        if spec is None or spec.origin is None:
+            raise ImportError(f"No entrypoint source for {name}")
+        module = ModuleType(name)
+        module.__file__ = spec.origin
+        return module
+    return importlib.import_module(name)
