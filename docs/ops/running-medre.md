@@ -724,6 +724,16 @@ Single global log file. No per-adapter log files. Log format controlled by the `
 - `format = "text"` — human-readable.
 - `format = "json"` — structured for log aggregation.
 
+At INFO, startup reports the configured route count and the expanded route
+count separately. Total adapter startup failure is labeled `Runtime startup
+failed` and does not report readiness. Individual expanded route registrations, adapter
+construction, and duplicate component startup details are available at DEBUG.
+Delivery messages distinguish `Delivery queued` (deferred adapter work) from
+`Handoff accepted` (synchronous adapter acceptance) and include the adapter,
+event, attempt, and confirmation level. Neither label claims remote receipt.
+JSON records retain the complete plan identifier and handoff disposition for
+correlation without adding long generated identifiers to the text message.
+
 MEDRE does not rotate logs internally. Use external log rotation (logrotate, Docker logging drivers, Kubernetes log management) for production deployments.
 
 ## Recovery Procedures

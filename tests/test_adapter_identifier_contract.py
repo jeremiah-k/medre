@@ -519,7 +519,9 @@ def test_generated_sample_config_round_trips(tmp_path: Path) -> None:
     config, _source, _paths = load_config(str(config_file))
 
     ids = {aid for _t, aid, _rtc in config.adapters.all_configs()}
-    assert ids == {"lxmf_1", "matrix_1", "meshcore_1", "meshtastic_1", "xmpp_1"}
+    from medre.adapter_registry import registered_transports
+
+    assert ids == {f"{transport}_1" for transport in registered_transports()}
     # The runtime derives the Matrix crypto store; the sample must not set
     # or suggest setting it with a {adapter_id} placeholder.
     assert next(iter(config.adapters.matrix.values())).config.store_path is None

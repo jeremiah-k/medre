@@ -65,6 +65,13 @@ changing the root config model.
 | `format`    | `"text"` | Log format preset (`"text"` or `"json"`)                  |
 | `overrides` | `{}`     | Per-logger namespace level overrides (e.g., suppress nio) |
 
+Runtime lifecycle summaries MUST use the configured logger and obey its level
+and format. Text output MUST prefix each physical log line, including
+multiline messages and tracebacks, with the record's timestamp, level, and
+logger name. JSON output MUST emit one JSON object per record and use the
+record's creation time in UTC, including when formatting is delayed. Text
+timestamps use the local timezone with an explicit UTC offset.
+
 ### 2.3 StorageConfig
 
 | Field     | Default    | Description                                                |

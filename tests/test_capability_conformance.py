@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
+from tests.helpers.adapter_capabilities import default_provider_capabilities
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -108,14 +109,14 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
         adapter = MeshtasticAdapter(config)
         return adapter._capabilities
 
-    if transport == "xmpp":
+    if transport in {"xmpp", "chatmail", "simplexchat"}:
         try:
-            from medre.adapters.xmpp.adapter import CAPABILITIES as _XMPP_CAPABILITIES
+            capabilities = default_provider_capabilities(transport)
         except ImportError as exc:
             if _is_optional_sdk_import_error(exc):
-                pytest.skip(f"XMPP SDK not available: {exc}")
+                pytest.skip(f"{transport} SDK not available: {exc}")
             raise
-        return _XMPP_CAPABILITIES
+        return capabilities
 
     if transport == "meshcore":
         try:

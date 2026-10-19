@@ -434,7 +434,8 @@ async def test_meshcore_contact_label_projects_into_label_when_present() -> None
         source_transport_id=pubkey_prefix,
         native_data={
             "meshcore": {
-                "schema_version": 1,
+                "schema_version": 2,
+                "is_direct_message": False,
                 "pubkey_prefix": pubkey_prefix,
                 "channel": "0",
                 "packet_id": "1700000001",
@@ -455,7 +456,7 @@ async def test_meshcore_contact_label_projects_into_label_when_present() -> None
     )
 
     enriched = result.relations[0]
-    assert enriched.metadata.get("original_sender_displayname") == "KG6XYZ"
+    assert enriched.metadata.get("original_sender_displayname") == "KG6XYZ (unverified)"
     assert enriched.metadata.get("original_sender") == pubkey_prefix
 
 

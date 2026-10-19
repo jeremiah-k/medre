@@ -672,14 +672,14 @@ def register_routes(
     # Step 5: Register routes in deterministic order.
     for route in registered_routes:
         router.add_route(route)
-        _logger.info(
+        _logger.debug(
             "Registered route %r: %s → %s",
             route.id,
             route.source.adapter,
             [t.adapter for t in route.targets],
         )
 
-    _logger.info("Registered %d route(s)", len(registered_routes))
+    _logger.info("Registered %d expanded route(s)", len(registered_routes))
 
     # Build per-route operational states.
 

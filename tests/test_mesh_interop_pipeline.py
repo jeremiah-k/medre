@@ -459,38 +459,32 @@ async def test_lxmf_delivery_embeds_medre_envelope(
 async def test_meshcore_wire_sender_name_flows_cross_mesh(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """MC group texts carry the sender's node name on the wire.
+    """Unverified channel sender claims survive as attribution without duplication.
 
-    The channel protocol has no sender identity, so the firmware
-    embeds "<name>: <text>" (user-observed live: MT relays showed the
-    sender while MC relays rendered an empty "{sender}").  The codec
-    lifts the wire name into the attribution label; far transports
-    must render it in a ``{sender}``-based prefix while the body
-    stays verbatim.
+    Firmware prepends ``name: `` to a channel packet; the adapter removes it
+    from the canonical body and marks the sender claim as unverified.
     """
     harness = _MeshInteropHarness(
         temp_storage, prefix_template="{sender}/{origin_label}: "
     )
     await harness.start()
     try:
-        body = "MEDRE-MC-B: wire-name ünïcode ✓\nline2"
-        await harness.mc.simulate_inbound(_mc_packet(body))
+        body = "wire-name ünïcode ✓\nline2"
+        await harness.mc.simulate_inbound(_mc_packet("MEDRE-MC-B: " + body))
+        expected = "MEDRE-MC-B (unverified)/mclab: " + body
         assert await wait_until(
             lambda: all(
-                any(body in delivered for delivered in harness.delivered_bodies(target))
+                any(
+                    expected in delivered
+                    for delivered in harness.delivered_bodies(target)
+                )
                 for target in _FAR_TARGETS[MC_ADAPTER]
             )
         )
         for target in _FAR_TARGETS[MC_ADAPTER]:
             bodies = harness.delivered_bodies(target)
-            matches = [b for b in bodies if body in b]
-            assert len(matches) == 1, (
-                f"mc->{target}: expected the wire-named body once, "
-                f"got {matches!r} of {bodies!r}"
-            )
-            assert matches[0].startswith("MEDRE-MC-B/mclab: "), (
-                f"mc->{target}: wire sender name missing from prefix: "
-                f"{matches[0]!r}"
-            )
+            matches = [b for b in bodies if expected in b]
+            assert len(matches) == 1, f"mc->{target}: expected one delivery: {bodies!r}"
+            assert matches[0].count("MEDRE-MC-B:") == 0
     finally:
         await harness.stop()

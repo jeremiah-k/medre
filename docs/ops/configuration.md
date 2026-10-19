@@ -176,6 +176,12 @@ logging:
 
 `level` controls MEDRE logs only — dependency libraries (nio, meshtastic, aiohttp, etc.) inherit the root logger level (`WARNING`) unless explicitly configured via `logging.overrides`.
 
+Runtime startup, readiness, and shutdown summaries use the same format and
+level as MEDRE logs. Text output timestamps every physical line, including
+traceback continuations, in the local timezone with a UTC offset. JSON output
+emits one object per record, including summaries, with the event's creation
+time in UTC. Setting `level: WARNING` hides informational summaries.
+
 #### `logging.overrides` — Troubleshooting Escape Hatch
 
 Per-logger level overrides for dependency libraries. Each key is a Python logger name and the value is a log level string. This is a troubleshooting tool — add overrides only when debugging an integration issue, then remove them.

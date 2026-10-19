@@ -787,7 +787,7 @@ class MedreApp:
             try:
                 await self.storage.initialize()
                 self._storage_initialized = True
-                _logger.info("Storage initialised")
+                _logger.debug("Storage initialised")
             except Exception as exc:
                 self._set_state(RuntimeState.FAILED)
                 from medre.core.storage.backend import PreReleaseSchemaMismatchError
@@ -848,7 +848,7 @@ class MedreApp:
         # 2. Start the pipeline runner.
         try:
             await self.pipeline_runner.start()
-            _logger.info("Pipeline runner started")
+            _logger.debug("Pipeline runner started")
         except Exception as exc:
             # Storage was already initialised; clean it up before raising.
             await self._cleanup_storage_safely()
@@ -982,7 +982,7 @@ class MedreApp:
                     self.adapter_start_duration_ms[adapter_id] = elapsed
                     self.started_adapter_ids.append(adapter_id)
                     self._set_adapter_state(adapter_id, AdapterState.READY)
-                    _logger.info(
+                    _logger.debug(
                         "Adapter %s.%s started in %.0fms",
                         transport,
                         adapter_id,

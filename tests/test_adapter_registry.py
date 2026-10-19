@@ -150,13 +150,18 @@ def test_support_bundle_field_metadata_is_registry_owned() -> None:
 
 
 def test_native_detection_priority_preserves_existing_precedence() -> None:
-    assert tuple(spec.transport for spec in native_detection_specs()) == (
+    legacy = (
         "meshcore",
         "matrix",
         "meshtastic",
         "lxmf",
         "xmpp",
     )
+    detected = tuple(spec.transport for spec in native_detection_specs())
+    # Additional providers can interleave at the same priority. The existing
+    # providers must retain relative precedence and no installed spec is lost.
+    assert tuple(transport for transport in detected if transport in legacy) == legacy
+    assert set(detected) == set(registered_transports())
 
 
 def test_cli_transport_inventory_derives_from_registry() -> None:

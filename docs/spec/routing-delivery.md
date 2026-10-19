@@ -1842,6 +1842,18 @@ and destination capabilities, readiness, native permissions, duplicate suppressi
 and actual transport acceptance were not established. This diagnostic cannot be
 used as delivery evidence or as an authority to replay messages.
 
+### 17.8 Startup and delivery log semantics
+
+A startup summary with failed adapter attempts and zero successful starts
+MUST report startup failure and MUST NOT label the runtime ready.
+
+An informational handoff log MUST distinguish a deferred adapter queue from
+synchronous adapter acceptance. `Delivery queued` indicates a deferred
+handoff; `Handoff accepted` indicates synchronous acceptance. Both report the
+adapter's confirmation level without asserting remote receipt. Structured log
+extras MUST retain the full plan identifier, event identifier, adapter
+identifier, attempt number, and handoff disposition for correlation.
+
 ## 18. Non-Goals
 
 This specification explicitly does **not** provide:
