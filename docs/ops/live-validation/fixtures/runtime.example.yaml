@@ -1,4 +1,4 @@
-# Dedicated lab adapter settings. The campaign supplies routes and core storage.
+# Dedicated lab settings. Replace placeholders before enabling native sends.
 adapters:
   matrix:
     matrix:
@@ -6,9 +6,11 @@ adapters:
       adapter_kind: real
       homeserver: https://matrix.example.org
       user_id: "@medre:matrix.example.org"
-      access_token: "" # Set the dedicated bot account's token.
-      room_allowlist: ["!campaign:matrix.example.org"]
+      access_token: ""
+      room_allowlist:
+        - "!campaign:matrix.example.org"
       encryption_mode: plaintext
+      origin_label: Matrix lab
   meshtastic:
     mt:
       enabled: true
@@ -17,6 +19,7 @@ adapters:
       serial_port: /dev/serial/by-id/replace-with-medre-radio
       default_channel: 0
       message_delay_seconds: 2.5
+      origin_label: Forx
   meshcore:
     mc:
       enabled: true
@@ -26,6 +29,8 @@ adapters:
       default_channel: 1
       identity: MEDRE-MC
       message_delay_seconds: 2.5
+      origin_label: MeshCore lab
+      meshcore_relay_prefix: "[{origin_label}] {sender}: "
   lxmf:
     lx:
       enabled: true
@@ -37,19 +42,25 @@ adapters:
       default_delivery_method: direct
       announce_interval_seconds: 8
       stamp_cost: 0
+      origin_label: Reticulum lab
+      lxmf_relay_prefix: "[{origin_label}] {sender}: "
   xmpp:
     xmpp:
       enabled: true
       adapter_kind: real
       jid: medre@example.org/bridge
-      password: "" # Set the dedicated bot account's password.
+      password: ""
       nickname: medre
-      rooms: [campaign@conference.example.org]
+      rooms:
+        - campaign@conference.example.org
+      origin_label: XMPP lab
   chatmail:
     chatmail:
       enabled: true
       adapter_kind: real
       accounts_dir: /private/bench/mail-medre
       account_id: 1
-      chats: [12]
+      chats:
+        - 12
       state_dir: /private/bench/mail-medre-journal
+      origin_label: Chatmail lab

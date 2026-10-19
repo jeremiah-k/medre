@@ -21,7 +21,14 @@ def emit(kind: str, **data) -> None:
 
 
 def receiver(settings: dict):
-    def received(*, text: str, sender: str, channel: str, native_id: str = ""):
+    def received(
+        *,
+        text: str,
+        sender: str,
+        channel: str,
+        native_id: str = "",
+        formatted_body: str | None = None,
+    ):
         # Retain only this campaign's bounded nonces, never unrelated traffic.
         if settings["marker_prefix"] in text:
             emit(
@@ -30,6 +37,11 @@ def receiver(settings: dict):
                 sender=sender,
                 channel=channel,
                 native_id=native_id,
+                **(
+                    {"formatted_body": formatted_body}
+                    if formatted_body is not None
+                    else {}
+                ),
             )
 
     return received

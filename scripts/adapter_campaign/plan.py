@@ -77,12 +77,12 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
     for name, endpoint in entries.items():
         if not isinstance(name, str) or adapter_id_problem(name):
             raise PlanError("Campaign adapter IDs must be valid MEDRE identifiers")
-        if not isinstance(endpoint, dict) or set(endpoint) != {
-            "transport",
-            "channel",
-            "expected_sender",
-            "peer",
-        }:
+        required = {"transport", "channel", "expected_sender", "peer"}
+        if (
+            not isinstance(endpoint, dict)
+            or not required <= set(endpoint)
+            or set(endpoint) - required - {"expected_prefixes"}
+        ):
             raise PlanError(
                 f"{name}: require transport, channel, expected_sender, peer"
             )
@@ -93,6 +93,17 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
             for key in ("channel", "expected_sender")
         ) or not isinstance(endpoint["peer"], dict):
             raise PlanError(f"{name}: channels and senders must be nonempty strings")
+        prefixes = endpoint.get("expected_prefixes", {})
+        if not isinstance(prefixes, dict) or any(
+            not isinstance(source, str)
+            or source not in entries
+            or not isinstance(prefix, str)
+            or (prefix and not prefix.isprintable())
+            for source, prefix in prefixes.items()
+        ):
+            raise PlanError(
+                f"{name}: expected_prefixes must map source IDs to printable prefixes"
+            )
         if only is None or endpoint["transport"] in only:
             selected[name] = endpoint
     transports = [entry["transport"] for entry in selected.values()]
@@ -106,6 +117,15 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
         raise PlanError(
             "Require exactly one endpoint per selected transport; default requires all six"
         )
+    # Delivery and presentation are independent qualification facts.
+    for source in selected:
+        for target, destination in selected.items():
+            if source != target and source not in destination.get(
+                "expected_prefixes", {}
+            ):
+                raise PlanError(
+                    f"{source} -> {target}: require an expected_prefixes entry on the target"
+                )
     radio = bool(expected & RADIOS)
     runtime_file = data.get("runtime_config")
     if not isinstance(runtime_file, str) or not runtime_file:
