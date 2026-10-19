@@ -182,6 +182,7 @@ class TestParserCommandsDocumented:
             "paths",
             "version",
             "update",
+            "upgrade",
             "init",
             "dev",
             "adapters",

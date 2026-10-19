@@ -1191,8 +1191,16 @@ medre dev test [--project PATH] [--editable ALIAS=PATH] ALIAS -- PYTEST_ARGUMENT
     with the core checkout interpreter from the adapter checkout directory.
     --evidence-dir PATH records that checkout's Git state before testing.
 
-medre update [--dry-run]
-    Update core and adapters within installed source pins.
+medre upgrade [ALIAS...] [--core-only | --adapters-only] [--sources PATH] [--sync-sources] [--dry-run]
+    Update everything by default, core only, or selected installed adapters.
+    --sync-sources deliberately applies the configured package sources.
+
+medre update [ALIAS...] [--core-only | --adapters-only] [--sources PATH] [--sync-sources] [--dry-run]
+    Alias of medre upgrade.
+
+medre adapters upgrade [ALIAS...] [--sources PATH] [--sync-sources] [--dry-run]
+    Update installed adapters without requesting a core upgrade.
+    medre adapters update is the same operation.
 
 medre diagnostics [--config PATH] [--refresh-health]
     Print adapter diagnostics snapshot. Without --refresh-health, reports

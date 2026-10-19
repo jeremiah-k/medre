@@ -321,16 +321,19 @@ def test_source_schema_accepts_catalog_and_disabled_defaults():
     jsonschema.Draft202012Validator.check_schema(schema)
     jsonschema.validate(
         {
+            "core": "medre[e2e] @ git+https://example.org/medre.git@main",
             "adapters": {
                 **tm.DEFAULT_SOURCES,
                 "community": "my-provider>=1",
                 "meshcore": None,
-            }
+            },
         },
         schema,
     )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"adapters": {}, "runtime": {}}, schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"adapters": {}, "core": "other-core"}, schema)
 
 
 def test_adapter_selection_cannot_replace_core():
