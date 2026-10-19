@@ -15,7 +15,7 @@ and SDK tests. Core's only optional extra is `dev`; its lockfile contains no
 transport SDK graph. Import adapter-owned wrappers directly; core has no
 legacy transport-named runtime wrapper facade.
 
-The four first-party distributions retain their original Python namespaces
+First-party distributions retain their original Python namespaces
 through `pkgutil.extend_path`. Community providers may use a separate top-level
 package instead; namespace layout is not part of discovery. The adapter's
 `medre` dependency range states the core interface versions it supports.
@@ -145,3 +145,18 @@ uses `scripts/ci/install_checkout_adapter.py` from the selected core baseline,
 so qualification extras share the manifest used by core and Docker CI. SDK
 versions remain in the owning adapter's package metadata. Core's pinned pair
 job is authoritative; standalone results qualify the recorded pair only.
+
+## Chatmail and SimpleX qualification
+
+The curated compatibility snapshot includes Chatmail and SimpleX Chat at their
+merged default-branch commits. Both provider suites run with their released
+native SDKs across Python 3.11–3.14. SimpleX native assets are prepared explicitly
+in a runner-local cache before the provider suite starts.
+
+Chatmail native contracts cover process crash/restart and exclusive profile
+ownership. Its opt-in two-profile group test also checks native reply references,
+RPC reconnect, offline recovery, SMTP acceptance and independent peer receipt.
+SimpleX native contracts check official group history, local queue persistence,
+restart deduplication and profile reuse after worker failure. Remote SimpleX peer
+delivery remains an explicit live qualification; local queue acceptance does not
+establish that receipt.
