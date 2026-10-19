@@ -130,3 +130,40 @@ def test_status_respects_operator_log_level(capsys: pytest.CaptureFixture[str]) 
     assert "Runtime ready" not in output
     assert "Adapter degraded" in output
     assert "[ERROR] medre: Startup failed" in output
+
+
+def test_shutdown_signal_during_console_flush_defers_logging(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A signal may interrupt stdout flush without recursively logging to it."""
+    import signal
+
+    from medre.cli import run_commands
+
+    class InterruptedStream(StringIO):
+        """Deliver one shutdown signal while a buffered flush is active."""
+
+        triggered = False
+        flushing = False
+
+        def flush(self) -> None:
+            """Reject recursive output while simulating an interrupted flush."""
+            if self.flushing:
+                raise RuntimeError("reentrant console flush")
+            self.flushing = True
+            try:
+                if not self.triggered:
+                    self.triggered = True
+                    run_commands._request_shutdown(signal.SIGTERM, None)
+                super().flush()
+            finally:
+                self.flushing = False
+
+    stream = InterruptedStream()
+    monkeypatch.setattr(run_commands, "shutdown_requested", False)
+    monkeypatch.setattr(sys, "stdout", stream)
+    setup_logging()
+    _print("Runtime ready")
+    assert run_commands.shutdown_requested
+    assert "Logging error" not in capsys.readouterr().err
