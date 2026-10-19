@@ -89,6 +89,11 @@ referenced as implemented behavior.
 When implemented, each extension stage MUST produce derived events with
 `parent_event_id` and lineage, and MUST NOT mutate the original stored event.
 
+The normative contract for these stages — the plugin type registry,
+capability authorization, typed stage decisions, derived-event admission,
+and failure semantics — is defined in [plugins.md](plugins.md). The
+stages remain reserved until the plugin execution runtime lands.
+
 ## 3. Data Flow Constraints
 
 1. Events flow in one direction through the pipeline. No cycles.
@@ -125,7 +130,7 @@ src/medre/
   config/         loader, model, env overrides, paths, sample generation
     adapters/     per-transport config dataclasses and credential helpers
     routes/       route configuration models
-  plugins/        scaffolding: Plugin protocol, PluginCapability enum
+  plugins/        declarative contracts, discovery, typed stage decisions
 ```
 
 ### 4.2 Import Rules

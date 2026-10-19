@@ -8,7 +8,8 @@ text inspection** (not runtime importing of optional SDKs) and cover:
 2. No live tests enabled by default (addopts + marker discipline).
 3. No admin server or admin handler subsystem.
 4. No webhook handler subsystem.
-5. No plugin loader/runtime/manager — only protocol scaffolding allowed.
+5. No plugin execution runtime — the declarative plugin contract and type
+   registry only; no runner, lifecycle manager, or pipeline wiring.
 6. No distributed dependencies (redis, celery, kafka, rabbitmq, zmq, …).
 7. No persistent queue infrastructure.
 8. No replay deduplication engine (only run_id tracking allowed).
@@ -443,90 +444,80 @@ class TestNoWebhookSubsystem:
 
 
 # ===================================================================
-# 5. No plugin loader/runtime/manager
+# 5. Plugin contract without a plugin execution runtime
 # ===================================================================
 
 
-class TestNoPluginRuntime:
-    """Beta must not contain a plugin loader, runtime, or manager.
+class TestNoPluginExecutionRuntime:
+    """The plugin package holds its declarative contract only.
 
-    ``medre.plugins.__init__`` provides only the protocol boundary
-    scaffolding (``Plugin`` protocol, ``PluginCapability`` enum,
-    ``validate_plugin_payload``).  No loader, lifecycle manager, or
-    registry may exist.
+    ``medre.plugins`` defines the type contract: capability vocabulary,
+    stages, typed decisions, ``PluginSpec``, configured instances with
+    operator grants, the runtime context, stage protocols, the reference
+    plugin, and the type registry with entry-point discovery. No execution
+    runtime may exist yet: no stage runner, lifecycle manager, or host that
+    executes plugin implementations in the pipeline, and no wiring of
+    plugin instances into runtime assembly, configuration loading, or the
+    CLI. Extending the contract package is a deliberate act: new modules
+    must be added to the allowlist below.
     """
 
-    _PLUGIN_RUNTIME_PATTERNS = (
-        "class PluginLoader",
-        "class PluginManager",
-        "class PluginRegistry",
-        "class PluginRuntime",
-        "class PluginHost",
-        "def load_plugins",
-        "def discover_plugins",
-        "def register_plugin",
-        "PluginLoader",
-        "PluginManager",
-        "PluginRegistry",
+    _PLUGIN_CONTRACT_MODULES = frozenset(
+        {
+            "__init__.py",
+            "capabilities.py",
+            "context.py",
+            "decisions.py",
+            "example.py",
+            "instances.py",
+            "registry.py",
+            "validation.py",
+            "spec.py",
+            "stages.py",
+        }
     )
 
-    def test_no_plugin_loader_files(self) -> None:
-        """No plugin loader/manager source files exist under plugins/."""
+    _EXECUTION_RUNTIME_PATTERNS = (
+        "class PluginRunner",
+        "class PluginManager",
+        "class PluginHost",
+        "class PluginLifecycle",
+        "class PluginExecutor",
+        "class PluginExecutionEngine",
+    )
+
+    def test_plugins_package_holds_contract_modules_only(self) -> None:
+        """No module may join the plugin package without updating this guard."""
         plugins_dir = _SRC_ROOT / "plugins"
-        plugin_files = [
-            p
-            for p in sorted(plugins_dir.glob("*.py"))
-            if p.name != "__init__.py" and p.name != "__pycache__"
-        ]
-        assert plugin_files == [], "Found non-scaffolding plugin files:\n" + "\n".join(
-            f.name for f in plugin_files
+        found = {p.name for p in plugins_dir.glob("*.py")}
+        unexpected = found - self._PLUGIN_CONTRACT_MODULES
+        assert unexpected == set(), (
+            "Unexpected modules under plugins/ (extend the contract "
+            "deliberately): " + ", ".join(sorted(unexpected))
         )
 
-    def test_plugins_init_is_scaffolding_only(self) -> None:
-        """plugins/__init__.py must only contain protocol scaffolding."""
-        source = _source_of("medre.plugins")
-
-        # Must contain the expected scaffolding symbols.
-        assert (
-            "class Plugin" in source
-        ), "plugins/__init__.py must define Plugin protocol"
-        assert (
-            "class PluginCapability" in source
-        ), "plugins/__init__.py must define PluginCapability enum"
-        assert (
-            "validate_plugin_payload" in source
-        ), "plugins/__init__.py must define validate_plugin_payload"
-
-        # Must NOT contain runtime/loader patterns.
-        violations: list[str] = []
-        for i, line in enumerate(source.splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith('"""'):
-                continue
-            for pattern in self._PLUGIN_RUNTIME_PATTERNS:
-                if pattern in stripped:
-                    violations.append(f"plugins/__init__.py:{i}: {stripped}")
-                    break
-
-        assert (
-            violations == []
-        ), "plugins/__init__.py contains plugin runtime patterns:\n" + "\n".join(
-            violations
-        )
-
-    def test_no_plugin_loader_imports(self) -> None:
-        """No source module imports a plugin loader/manager."""
-        violations: list[str] = []
+    def test_no_execution_runtime_classes(self) -> None:
+        """No source module defines a plugin execution runtime class."""
         for path in _all_source_py_files(_SRC_ROOT):
             source = _file_source(path)
-            lines = _import_lines(source)
-            for line in lines:
-                if "plugin_loader" in line or "plugin_manager" in line:
-                    rel = path.relative_to(_SRC_ROOT)
+            for pattern in self._EXECUTION_RUNTIME_PATTERNS:
+                assert (
+                    pattern not in source
+                ), f"{path.relative_to(_SRC_ROOT)}: {pattern}"
+
+    def test_no_plugin_wiring_outside_the_contract_package(self) -> None:
+        """Runtime, core, config, and CLI must not import medre.plugins yet."""
+        violations: list[str] = []
+        for path in _all_source_py_files(_SRC_ROOT):
+            rel = path.relative_to(_SRC_ROOT)
+            if rel.parts[0] == "plugins":
+                continue
+            for line in _import_lines(_file_source(path)):
+                if "medre.plugins" in line or "medre import plugins" in line:
                     violations.append(f"{rel}: {line}")
-        assert violations == [], "Found plugin loader/manager imports:\n" + "\n".join(
-            violations
-        )
+        assert (
+            violations == []
+        ), "Found plugin wiring outside the contract package:\n" + "\n".join(violations)
 
 
 # ===================================================================

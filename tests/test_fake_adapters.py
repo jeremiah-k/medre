@@ -10,13 +10,11 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fakes.presentation import (
-    FakePresentationAdapter,
     _MAX_FAKE_HISTORY as _PRESENTATION_HISTORY_CAP,
 )
-from medre.adapters.fakes.transport import (
-    FakeTransportAdapter,
-    _MAX_FAKE_HISTORY as _TRANSPORT_HISTORY_CAP,
-)
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import _MAX_FAKE_HISTORY as _TRANSPORT_HISTORY_CAP
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,
@@ -551,125 +549,6 @@ class TestDeliveryContract:
         event = _make_event()
         with pytest.raises(TypeError, match="RenderingResult only"):
             await adapter.deliver(event)
-
-
-# ===================================================================
-# Plugin boundary tests
-# ===================================================================
-
-
-class TestPluginBoundary:
-    """Prove that plugins cannot directly emit transport-native payloads.
-    Plugins must operate on canonical events and runtime APIs only.
-    """
-
-    def test_plugin_capability_enum_values(self) -> None:
-        """PluginCapability has the expected capabilities."""
-        from medre.plugins import PluginCapability
-
-        assert PluginCapability.READ_EVENTS.value == "read_events"
-        assert PluginCapability.EMIT_EVENTS.value == "emit_events"
-        assert PluginCapability.READ_ROUTES.value == "read_routes"
-        assert PluginCapability.MODIFY_ROUTES.value == "modify_routes"
-
-    def test_plugin_protocol_is_runtime_checkable(self) -> None:
-        """Plugin protocol supports isinstance() checks."""
-
-        class _MinimalPlugin:
-            name = "test"
-            version = "0.1.0"
-            capabilities = set()
-
-            async def initialize(self, ctx): ...
-            async def handle_event(self, event):
-                return []
-
-            async def shutdown(self): ...
-
-        from medre.plugins import Plugin
-
-        assert isinstance(_MinimalPlugin(), Plugin)
-
-    async def test_validate_plugin_payload_accepts_canonical_events(self) -> None:
-        """validate_plugin_payload passes for valid CanonicalEvent list."""
-        from medre.plugins import validate_plugin_payload
-
-        events = [_make_event(f"plugin-evt-{i}") for i in range(3)]
-        result = validate_plugin_payload(events, "test_plugin")
-        assert result == events
-
-    def test_validate_plugin_payload_rejects_raw_dict(self) -> None:
-        """validate_plugin_payload rejects raw dicts (e.g. Matrix JSON)."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        matrix_payload = {
-            "msgtype": "m.text",
-            "body": "hello matrix",
-            "room_id": "!abc:example.com",
-        }
-        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
-            validate_plugin_payload([matrix_payload], "evil_plugin")
-
-    def test_validate_plugin_payload_rejects_bytes(self) -> None:
-        """validate_plugin_payload rejects raw bytes (e.g. Meshtastic packet)."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        mesh_packet = b"\x94\x12\x00\x1a\xdd\x0a"
-        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
-            validate_plugin_payload([mesh_packet], "evil_plugin")
-
-    def test_validate_plugin_payload_rejects_string(self) -> None:
-        """validate_plugin_payload rejects raw strings."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
-            validate_plugin_payload(["raw text payload"], "evil_plugin")
-
-    def test_validate_plugin_payload_rejects_mixed_list(self) -> None:
-        """validate_plugin_payload rejects a list mixing events and native payloads."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        mixed = [_make_event("ok-evt"), {"matrix": "json"}]
-        with pytest.raises(PluginBoundaryError, match="non-canonical payload"):
-            validate_plugin_payload(mixed, "mixed_plugin")
-
-    def test_validate_plugin_payload_empty_list(self) -> None:
-        """validate_plugin_payload accepts an empty list."""
-        from medre.plugins import validate_plugin_payload
-
-        result = validate_plugin_payload([], "empty_plugin")
-        assert result == []
-
-    def test_plugin_boundary_error_is_type_error(self) -> None:
-        """PluginBoundaryError is a TypeError subclass."""
-        from medre.plugins import PluginBoundaryError
-
-        assert issubclass(PluginBoundaryError, TypeError)
-
-    def test_plugin_cannot_emit_matrix_event(self) -> None:
-        """Simulated plugin trying to emit a Matrix event is caught."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        # This is what a naive plugin might try to emit
-        matrix_native_event = {
-            "type": "m.room.message",
-            "content": {"msgtype": "m.text", "body": "hello"},
-            "room_id": "!room:server",
-        }
-        with pytest.raises(PluginBoundaryError):
-            validate_plugin_payload([matrix_native_event], "naive_plugin")
-
-    def test_plugin_cannot_emit_meshtastic_packet(self) -> None:
-        """Simulated plugin trying to emit a Meshtastic protobuf is caught."""
-        from medre.plugins import PluginBoundaryError, validate_plugin_payload
-
-        meshtastic_data = {
-            "portnum": 1,
-            "payload": b"\x01\x02\x03",
-            "to": "!abcdef",
-        }
-        with pytest.raises(PluginBoundaryError):
-            validate_plugin_payload([meshtastic_data], "naive_plugin")
 
 
 # ===================================================================

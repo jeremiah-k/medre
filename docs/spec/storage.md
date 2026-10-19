@@ -854,7 +854,7 @@ CREATE TABLE plugin_state (
 );
 ```
 
-Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
+Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins. The plugin subsystem contract is defined in [plugins.md](plugins.md) §11.
 
 > **Status:** Planned — not implemented; tracked for post-prerelease. The DDL
 > row is reserved today; no plugin subsystem reads or writes through it.
@@ -1813,7 +1813,7 @@ class StorageConfig:
 | Schema validation        | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                                                                                                                                                                                                                                                                                                                                                                           |
 | Durable admission        | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                                                                                                                                                                                                                                                                                                                                                                       |
 | Checkpoint safety        | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                                                                                                                                                                                                                                                                                                                                                                              |
-| Single database          | There **MUST NOT** be per-adapter MEDRE canonical storage databases; SDK-private protocol stores are separate.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Single database          | There **MUST NOT** be per-adapter MEDRE canonical storage databases; SDK-private protocol stores are separate.                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## 16. Storage Ownership Semantics
 

@@ -24,6 +24,7 @@ in a document under this tree.
 | [architecture.md](architecture.md)                         | System overview, pipeline stages, runtime orchestration         |
 | [event-model.md](event-model.md)                           | CanonicalEvent, relations, event kinds, schema versioning       |
 | [adapter-runtime.md](adapter-runtime.md)                   | Adapter protocol, lifecycle, capabilities, codec                |
+| [plugins.md](plugins.md)                                   | Plugin contract, discovery, capabilities, typed decisions       |
 | [routing-delivery.md](routing-delivery.md)                 | Route matching, fanout, delivery plans, receipts                |
 | [storage.md](storage.md)                                   | SQLite schema, append-only guarantees, replay semantics         |
 | [state-machines.md](state-machines.md)                     | Receipt and outbox transition graphs                            |
@@ -66,30 +67,32 @@ Transport profiles include machine-readable capability declarations
    runtime orchestration
 3. **Event Model** (`event-model.md`) — CanonicalEvent, relations, metadata
 4. **Adapter Runtime** (`adapter-runtime.md`) — adapter protocol and lifecycle
-5. **Routing & Delivery** (`routing-delivery.md`) — route matching, fanout,
+5. **Plugins** (`plugins.md`) — plugin contract, discovery, capabilities,
+   typed decisions
+6. **Routing & Delivery** (`routing-delivery.md`) — route matching, fanout,
    receipts
-6. **Storage** (`storage.md`) — SQLite schema, append-only guarantees, replay
+7. **Storage** (`storage.md`) — SQLite schema, append-only guarantees, replay
    semantics
-7. **State Machines** (`state-machines.md`) — receipt and outbox transition
+8. **State Machines** (`state-machines.md`) — receipt and outbox transition
    graphs
-8. **Delivery Lifecycle** (`delivery-lifecycle.md`) — lifecycle authority
+9. **Delivery Lifecycle** (`delivery-lifecycle.md`) — lifecycle authority
    hierarchy and vocabulary
-9. **Diagnostics & Evidence** (`diagnostics-evidence.md`) — observability,
-   snapshots
-10. **Durable Ingress** (`durable-ingress.md`) — admission boundary and
+10. **Diagnostics & Evidence** (`diagnostics-evidence.md`) — observability,
+    snapshots
+11. **Durable Ingress** (`durable-ingress.md`) — admission boundary and
     checkpoint ownership
-11. **Identity & Addressing** (`identity-addressing.md`) — identity model,
+12. **Identity & Addressing** (`identity-addressing.md`) — identity model,
     privacy boundaries
-12. **Metadata** (`metadata.md`) — namespaces, embedding modes
-13. **Configuration** (`configuration.md`) — YAML system, XDG paths, env
+13. **Metadata** (`metadata.md`) — namespaces, embedding modes
+14. **Configuration** (`configuration.md`) — YAML system, XDG paths, env
     overrides
-14. **Security & Privacy** (`security-privacy.md`) — credential handling,
+15. **Security & Privacy** (`security-privacy.md`) — credential handling,
     no-secret-leakage
-15. **Compatibility Boundaries** (`compatibility-boundaries.md`) — external
+16. **Compatibility Boundaries** (`compatibility-boundaries.md`) — external
     interoperability and prerelease rejection policy
-16. **Matrix Event Shape** (`matrix-event-shape.md`) — Matrix ingress/native
+17. **Matrix Event Shape** (`matrix-event-shape.md`) — Matrix ingress/native
     metadata contract
-17. **Conformance** (`conformance.md`) — what it means to conform, test
+18. **Conformance** (`conformance.md`) — what it means to conform, test
     categories
 
 Transport profiles and appendices are reference material; consult them as

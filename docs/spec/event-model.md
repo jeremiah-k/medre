@@ -464,7 +464,8 @@ with msgspec serialization (`isinstance(_FrozenDict(), dict)` is `True`).
 ## 5. Event Kind Registry
 
 Every `event_kind` is a plain `str` following `<domain>.<action>` naming.
-The registry is extensible by plugins via `plugin.custom`.
+The registry is extensible by plugins via `plugin.custom`. Plugin-derived events use this single kind with a sub-kind in the
+payload; the plugin contract is defined in [plugins.md](plugins.md).
 
 ### 5.1 Built-in Kinds
 
