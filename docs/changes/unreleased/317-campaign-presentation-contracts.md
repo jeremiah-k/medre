@@ -13,3 +13,6 @@ a separate qualification requirement.
 Native presentation expectations cover every selected directed pair. MeshCore
 wire sender headers are checked separately from relay attribution, and radio
 body budgets come from initialized runtime capabilities.
+
+Check Matrix plain/HTML visible paragraph and line boundaries independently of
+prefix expectations, and centralize native radio byte-budget lookup.

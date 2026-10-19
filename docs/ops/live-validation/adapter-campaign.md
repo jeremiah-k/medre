@@ -159,7 +159,7 @@ expected_prefixes:
 Use the actual instance IDs and peer display names in the dedicated lab. An
 explicit empty expectation verifies intentionally unprefixed output; omitting
 an expectation for either reference-bridge direction fails plan validation.
-Other platform pairs can also declare expected prefixes on their targets.
+Every other selected platform pair must also declare expected prefixes on its targets.
 
 The campaign verifies the complete expected visible text, rejects duplicate or
 incorrect prefixes, and compares Matrix formatted text with its plain body when

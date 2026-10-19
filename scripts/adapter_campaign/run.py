@@ -76,24 +76,51 @@ def native_receipt(
         assert (
             presented == expected
         ), f"{peer.name}: rendered prefix or body differs from the presentation contract"
-        if record.get("formatted_body") is not None:
-            parser = _VisibleText()
-            parser.feed(record["formatted_body"])
-            assert (
-                "".join(parser.parts) == record["text"]
-            ), f"{peer.name}: HTML attribution/body differs from plain text"
+    if record.get("formatted_body") is not None:
+        parser = _VisibleText()
+        parser.feed(record["formatted_body"])
+        parser.close()
+        assert (
+            "".join(parser.parts) == record["text"]
+        ), f"{peer.name}: HTML attribution/body differs from plain text"
     return record
 
 
 class _VisibleText(HTMLParser):
-    """Extract visible text for the campaign's plain, single-paragraph probes."""
+    """Extract displayed text, including HTML paragraph and line boundaries."""
+
+    _BLOCKS = frozenset({"p", "div", "blockquote", "pre", "li", "ul", "ol"})
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.parts = []
+        self.parts: list[str] = []
+        self._pending_break = False
 
-    def handle_data(self, data):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br":
+            self.parts.append("\n")
+            self._pending_break = False
+        elif tag in self._BLOCKS and self.parts:
+            self._pending_break = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._BLOCKS and self.parts:
+            self._pending_break = True
+
+    def handle_data(self, data: str) -> None:
+        if data and self._pending_break and self.parts:
+            if not self.parts[-1].endswith("\n"):
+                self.parts.append("\n")
+        self._pending_break = False
         self.parts.append(data)
+
+
+async def _radio_budget(app: object, target: str, endpoint: dict) -> int | None:
+    """Use the actual target's advertised on-wire text capacity."""
+    if endpoint["transport"] not in {"meshtastic", "meshcore"}:
+        return None
+    info = await app.adapters[target].health_check()
+    return info.capabilities.max_text_bytes
 
 
 async def run(plan: Plan, directory: Path) -> dict:
@@ -228,10 +255,7 @@ async def run(plan: Plan, directory: Path) -> dict:
             receipts = {}
             for target in targets:
                 endpoint = plan.endpoints[target]
-                budget = None
-                if endpoint["transport"] in {"meshtastic", "meshcore"}:
-                    info = await app.adapters[target].health_check()
-                    budget = info.capabilities.max_text_bytes
+                budget = await _radio_budget(app, target, endpoint)
                 receipts[target] = native_receipt(
                     peers[target],
                     endpoint,
@@ -284,10 +308,7 @@ async def run(plan: Plan, directory: Path) -> dict:
             case["core"] = items[0]
             for target in targets:
                 endpoint = plan.endpoints[target]
-                budget = None
-                if endpoint["transport"] in {"meshtastic", "meshcore"}:
-                    info = await app.adapters[target].health_check()
-                    budget = info.capabilities.max_text_bytes
+                budget = await _radio_budget(app, target, endpoint)
                 native_receipt(
                     peers[target],
                     endpoint,

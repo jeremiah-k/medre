@@ -43,6 +43,27 @@ def test_matrix_body_and_html_must_agree():
     assert native_receipt(peer, endpoint, "MR-proof", source="source", message=message)
 
 
+def test_matrix_html_validation_cannot_be_bypassed_without_prefix_expectation():
+    message = "MR-proof café ✓"
+    peer, endpoint = receipt(message, html="<p>MR-proof</p><p> café ✓</p>")
+    endpoint["expected_prefixes"] = {}
+    with pytest.raises(AssertionError, match="HTML attribution"):
+        native_receipt(peer, endpoint, "MR-proof", source=None)
+
+
+def test_matrix_html_distinguishes_visible_breaks_from_inline_formatting():
+    message = "MR-proof café ✓"
+    peer, endpoint = receipt(message, html="<p>MR-proof</p><p> café ✓</p>")
+    endpoint["expected_prefixes"]["source"] = ""
+    with pytest.raises(AssertionError, match="HTML attribution"):
+        native_receipt(peer, endpoint, "MR-proof", source="source", message=message)
+    peer.records[0]["formatted_body"] = "<p>MR-proof<br>café ✓</p>"
+    with pytest.raises(AssertionError, match="HTML attribution"):
+        native_receipt(peer, endpoint, "MR-proof", source="source", message=message)
+    peer.records[0]["formatted_body"] = "<p>MR-proof <strong>café</strong> ✓</p>"
+    assert native_receipt(peer, endpoint, "MR-proof", source="source", message=message)
+
+
 def test_radio_prefix_consumes_wire_budget_and_unicode_is_not_split():
     message = "MR-proof café ✓ " + "🌍" * 80
     expected = (
