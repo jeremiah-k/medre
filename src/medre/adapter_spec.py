@@ -7,10 +7,11 @@ entry-point discovery before that factory has finished being defined.
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from medre.registration import SymbolRef
 
 __all__ = [
     "AdapterSpec",
@@ -19,24 +20,6 @@ __all__ = [
     "SymbolRef",
     "NativeSetupField",
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class SymbolRef:
-    """Lazy reference to a Python symbol.
-
-    Keeping references lazy is important: config parsing and CLI discovery
-    must not import optional SDK-backed adapter modules merely to learn which
-    transports MEDRE supports.
-    """
-
-    module: str
-    name: str
-
-    def load(self) -> Any:
-        """Import and return the referenced symbol."""
-        module = importlib.import_module(self.module)
-        return getattr(module, self.name)
 
 
 @dataclass(frozen=True, slots=True)

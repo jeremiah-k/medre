@@ -12,12 +12,12 @@ new packages requires a process restart. The registry never downloads packages.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
 from medre.adapter_spec import AdapterSpec, DestinationSpec
+from medre.registration import REGISTRATION_NAME_RE, valid_registration_name
 
 __all__ = [
     "AdapterDiscoveryFailure",
@@ -33,12 +33,10 @@ __all__ = [
     "valid_transport_name",
 ]
 
-_TRANSPORT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
-
 
 def valid_transport_name(value: object) -> bool:
     """Whether a value follows the platform-neutral transport token grammar."""
-    return isinstance(value, str) and _TRANSPORT_NAME_RE.fullmatch(value) is not None
+    return valid_registration_name(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +123,7 @@ class AdapterTypeRegistry:
                     f"and secret: {sorted(overlap)}"
                 )
             for destination in spec.destinations:
-                if not _TRANSPORT_NAME_RE.fullmatch(destination.kind):
+                if not REGISTRATION_NAME_RE.fullmatch(destination.kind):
                     raise ValueError(f"invalid destination kind: {destination.kind!r}")
                 if destination.kind == "channel" or destination.kind in destinations:
                     raise ValueError(
