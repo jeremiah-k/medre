@@ -157,6 +157,21 @@ def test_no_adapters_is_a_successful_noop(tool, monkeypatch):
     assert upgrade.plan_upgrade(tool, adapters_only=True).command == ()
 
 
+def test_provider_discovery_skips_core_owned_entry_points(monkeypatch):
+    entries = [
+        SimpleNamespace(name="smoke", dist=SimpleNamespace(metadata={"Name": "medre"})),
+        SimpleNamespace(
+            name="matrix", dist=SimpleNamespace(metadata={"Name": "custom.matrix"})
+        ),
+    ]
+    monkeypatch.setattr(
+        upgrade.importlib.metadata, "entry_points", lambda **kw: entries
+    )
+    assert READ_INSTALLED_ADAPTERS() == {"custom-matrix": {"matrix"}}
+    with pytest.raises(tm.ToolManagementError, match="No installed adapter"):
+        upgrade._selection("medre", tm.SourceCatalog(None, {}), READ_INSTALLED_ADAPTERS())
+
+
 def test_provider_discovery_never_imports_a_native_sdk(monkeypatch):
     entry = SimpleNamespace(
         name="matrix",
@@ -207,6 +222,13 @@ def test_conflicting_flags_fail_before_ownership_inspection(monkeypatch, argumen
     with pytest.raises(SystemExit) as error:
         main(arguments)
     assert error.value.code == 2
+
+
+def test_adapter_check_rejects_selections_with_accurate_guidance(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["adapters", "check", "matrix"])
+    assert exc.value.code == 2
+    assert "only install, remove, and upgrade accept selections" in capsys.readouterr().err
 
 
 def test_source_catalog_accepts_core_without_selecting_it_as_adapter(tmp_path):
@@ -267,13 +289,17 @@ def test_bulk_repair_does_not_require_readable_provider_metadata(tool, monkeypat
     [
         {"name": "unselected", "git": "https://example.org/source?branch=main#abcdef"},
         {"name": "unselected", "directory": None},
+        {"name": "unselected", "path": None},
+        {"name": "unselected", "url": "file:///tmp/unselected.whl"},
+        "unselected @ file:///tmp/unselected.whl",
         "unselected @ git+https://example.org/source@main",
     ],
 )
 def test_unselected_mutable_sources_refuse_scoped_changes_before_mutation(tool, raw):
-    if isinstance(raw, dict) and raw.get("directory", "") is None:
-        # A local directory must stay absolute on every platform.
-        raw["directory"] = str(tool.prefix / "source")
+    if isinstance(raw, dict):
+        for source in ("directory", "path"):
+            if raw.get(source, "") is None:
+                raw[source] = str(tool.prefix / "source")
     tool.receipt["requirements"].append(raw)
     with pytest.raises(
         tm.ToolManagementError, match="cannot preserve the mutable source"

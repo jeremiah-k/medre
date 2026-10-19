@@ -106,9 +106,10 @@ settings and requirements. Scoped upgrades rebuild the complete supported reques
 with uv's selective upgrade flags. Other explicit requests, extras, markers and
 source constraints remain present; uv can adjust shared dependencies to satisfy
 compatibility. uv can also re-resolve unselected floating Git sources and local
-source directories. Scoped commands refuse those requests before changing
-anything: pin the unselected sources to full commits first, or use a whole-tool
-upgrade. This preserves the meaning of core-only/adapter-only without leaving
+source directories or archives. Scoped commands refuse those requests before
+changing anything: pin unselected Git sources to full commits, replace mutable
+local sources with immutable package requirements, or use a whole-tool upgrade.
+This preserves the meaning of core-only/adapter-only without leaving
 hidden pins in the receipt. Custom receipt settings that cannot be replayed cause scoped
 updates to refuse with guidance to use uv directly or a native bulk upgrade.
 

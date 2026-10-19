@@ -36,9 +36,8 @@ def installed_adapters() -> dict[str, set[str]]:
                 )
             name = package_name(entry.dist.metadata["Name"])
             if name == "medre":
-                raise ToolManagementError(
-                    "Core cannot be selected as an adapter package."
-                )
+                # Core-owned built-ins are not independently upgradeable adapters.
+                continue
             providers.setdefault(name, set()).add(entry.name)
     except (ValueError, TypeError, KeyError) as exc:
         if isinstance(exc, ToolManagementError):
@@ -104,14 +103,18 @@ def _verify_scoped_sources(installation: ToolInstallation, packages: list[str]) 
                 mutable = (
                     re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref) is None
                 )
-            mutable |= "directory" in raw
+            mutable |= "directory" in raw or "path" in raw
+            if "url" in raw:
+                mutable |= urlsplit(raw["url"]).scheme == "file"
         elif "git+" in raw:
             ref = urlsplit(raw.split("git+", 1)[1]).path.rsplit("@", 1)[-1]
             mutable = re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref) is None
+        elif "@" in raw:
+            mutable = urlsplit(raw.split("@", 1)[1].strip()).scheme == "file"
         if mutable:
             raise ToolManagementError(
                 f"A scoped upgrade cannot preserve the mutable source of {name}. "
-                "uv can refresh unselected Git branches and local directories. "
+                "uv can refresh unselected Git branches and local file or directory sources. "
                 "Choose an immutable source for that requirement, or run 'medre upgrade' for the whole environment. No packages changed."
             )
 

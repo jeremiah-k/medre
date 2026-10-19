@@ -27,7 +27,7 @@ Scoped updates MUST replay the complete supported request through `uv tool insta
 with `--upgrade-package` for selected distributions. They MUST NOT use the bulk
 upgrade operation to claim selective behavior, mutate site-packages directly,
 or persist temporary version/source pins. Resolution MAY adjust shared dependencies
-for compatibility. Scoped updates MUST refuse unselected mutable Git/directory
+for compatibility. Scoped updates MUST refuse unselected mutable Git, local file, and directory
 requests that uv would re-resolve; they MUST NOT silently advance them or leave
 synthetic overrides in the receipt. Unsupported saved settings MUST cause scoped
 or source-changing operations to refuse before mutation; native bulk updates

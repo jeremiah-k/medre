@@ -810,7 +810,7 @@ def main(argv: list[str] | None = None) -> None:
             args.packages and not (managing or upgrading)
         ):
             parser.error(
-                "adapters install/remove require source aliases; other adapter actions do not accept aliases"
+                "adapters install/remove require a package selection; only install, remove, and upgrade accept selections"
             )
         if args.dry_run and not (managing or upgrading):
             parser.error("--dry-run requires adapters install, remove, or upgrade")
