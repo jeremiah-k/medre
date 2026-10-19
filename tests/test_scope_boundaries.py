@@ -454,7 +454,8 @@ class TestNoPluginExecutionRuntime:
     ``medre.plugins`` defines the type contract: capability vocabulary,
     stages, typed decisions, ``PluginSpec``, configured instances with
     operator grants, the runtime context, stage protocols, the reference
-    plugin, and the type registry with entry-point discovery. No execution
+    plugin, and the type registry with entry-point discovery. Host-owned
+    storage of decisions and scoped state is permitted. No execution
     runtime may exist yet: no stage runner, lifecycle manager, or host that
     executes plugin implementations in the pipeline, and no wiring of
     plugin instances into runtime assembly, configuration loading, or the
@@ -471,6 +472,7 @@ class TestNoPluginExecutionRuntime:
             "example.py",
             "instances.py",
             "registry.py",
+            "records.py",
             "validation.py",
             "spec.py",
             "stages.py",
@@ -506,7 +508,7 @@ class TestNoPluginExecutionRuntime:
                 ), f"{path.relative_to(_SRC_ROOT)}: {pattern}"
 
     def test_no_plugin_wiring_outside_the_contract_package(self) -> None:
-        """Runtime, core, config, and CLI must not import medre.plugins yet."""
+        """Only host storage may import plugin records outside the contract."""
         violations: list[str] = []
         for path in _all_source_py_files(_SRC_ROOT):
             rel = path.relative_to(_SRC_ROOT)
@@ -514,6 +516,11 @@ class TestNoPluginExecutionRuntime:
                 continue
             for line in _import_lines(_file_source(path)):
                 if "medre.plugins" in line or "medre import plugins" in line:
+                    if rel.as_posix() in {
+                        "core/storage/backend.py",
+                        "core/storage/sqlite/_plugins.py",
+                    } and line.startswith("from medre.plugins.records import "):
+                        continue
                     violations.append(f"{rel}: {line}")
         assert (
             violations == []

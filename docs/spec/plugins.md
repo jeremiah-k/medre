@@ -25,21 +25,21 @@ events.
 
 ## 2. Status
 
-| Area                            | Status                                                   |
-| ------------------------------- | -------------------------------------------------------- |
-| Contract types and vocabularies | Implemented (`src/medre/plugins/`)                       |
-| Type registry and discovery     | Implemented (`src/medre/plugins/registry.py`)            |
-| Reference plugin                | Implemented (`src/medre/plugins/example.py`)             |
-| Pipeline execution of plugins   | Planned — not implemented                                |
-| Derived-event admission         | Planned — not implemented                                |
-| Durable execution records       | Planned — not implemented                                |
-| Instance configuration and CLI  | Planned — not implemented                                |
-| Decision authorization checks   | Implemented; pure host validator, runtime wiring planned |
+| Area                            | Status                                                    |
+| ------------------------------- | --------------------------------------------------------- |
+| Contract types and vocabularies | Implemented (`src/medre/plugins/`)                        |
+| Type registry and discovery     | Implemented (`src/medre/plugins/registry.py`)             |
+| Reference plugin                | Implemented (`src/medre/plugins/example.py`)              |
+| Pipeline execution of plugins   | Planned — not implemented                                 |
+| Atomic derived-event storage    | Implemented; host-only commit, pipeline admission planned |
+| Durable execution records       | Implemented; SQLite atomic decision/event/state commit    |
+| Instance configuration and CLI  | Planned — not implemented                                 |
+| Decision authorization checks   | Implemented; pure host validator, runtime wiring planned  |
 
 The extension stages remain reserved
 (see [architecture.md](architecture.md) §2). Until the execution runtime
-lands, plugin integration provides contracts, discovery, and host-side
-decision validation, not an executed pipeline behavior. Operators and plugin authors MUST NOT assume
+lands, plugin integration provides contracts, discovery, and host-owned storage,
+not an executed pipeline behavior. Operators and plugin authors MUST NOT assume
 that subscribing a plugin to a stage has any runtime effect.
 
 ## 3. Plugin Types and Configured Instances
@@ -272,6 +272,60 @@ between execution and commit leaves no partial derivation.
   uncommitted invocation may run again; external calls require a stable host
   execution key and plugin-specific idempotency, or must be read-only.
 
+### 9.1 Implemented Persistence Interface
+
+`StorageBackend.commit_plugin_execution` is host-owned. It accepts a
+`PluginExecutionRecord` and an optional buffered state snapshot. Plugins MUST
+NOT receive this interface or call it themselves.
+
+- The logical execution key is `(source_event_id, plugin_id, instance_id,
+stage, scope)`. `scope` is `live` or `replay:<run-id>`. The record ID adds
+  the attempt number; produced event IDs add the proposal ordinal instead.
+  Both identities are host-generated UUIDv5 values. They are idempotency
+  identities; SQLite event sequence and attempt number remain ordering
+  authorities, not UUID sorting.
+- The first attempt is 1. Transient failures and timeouts without an explicit
+  enrichment pass permit a subsequent consecutive attempt. Settled decisions
+  and contract/capability failures prohibit another attempt in the same scope.
+- Each source event and scope use one execution-plan digest. A changed order,
+  instance set, version, grant, or effective configuration MUST produce a
+  different plan digest; changing it during recovery requires explicit
+  replay. Retry attempts also retain their plugin version and config digest.
+- The host constructs bounded children from recorded proposals, stamping IDs,
+  timestamps, ancestry, and source context. Native refs are cleared. Same-kind
+  proposals retain source relations; kind changes start without relations.
+  Proposals cannot create unrelated native relations or attachment content.
+- Events, inline relations, and execution evidence commit in one SQLite
+  transaction with any buffered plugin-state update. Read-only decisions and
+  failed attempts MUST NOT create or advance an operational state snapshot;
+  only a successful buffered state write increments its revision. Children do
+  not receive transport ingress work: the execution host must resume their
+  forward cursor through the parent work item. This storage interface does
+  not execute or route plugins.
+- Exact repeated commits return the committed record and do not advance state
+  again. A different record at the same identity fails closed. A stale state
+  revision rejects the entire uncommitted result; the host must discard it,
+  reload state, and re-evaluate rather than reuse a decision computed from stale
+  state. Cancellation of an awaiting caller does not establish that the SQLite
+  worker rolled back; recovery reads evidence before attempting work again.
+- Failed invocations cannot persist state writes or derived events. Optional
+  enrichment may record an explicit `Pass` together with its failure; a failed
+  transform or policy may not invent success or a verdict.
+- Per-record storage bounds are 32 proposals and 256 KiB of JSON evidence;
+  state snapshots are at most 64 KiB. Derived ancestry is capped at depth 16.
+  The execution host must additionally enforce the source-wide expansion
+  budget and per-instance serialization before admitting work.
+
+Records carry `schema_version: 1` independently of plugin implementation
+versions. Unknown record or state-envelope versions MUST fail closed, not be
+interpreted as absent work or empty state.
+
+Records use the closed
+[plugin execution schema](../schemas/plugin-execution-record.schema.json).
+Config and state values are not diagnostic summaries: exports MUST NOT dump
+raw state, configuration, or proposal content without the existing privacy
+and sanitization policy. Digests are internal evidence, not public credentials.
+
 ## 10. Failure Taxonomy and Stage Consequences
 
 Failures are classified; classification decides consequence. A temporary
@@ -315,10 +369,11 @@ state and permitted reads only through core-owned APIs:
 - Operational plugin state (checkpoints, caches) is namespaced per
   `(plugin_id, instance_id, scope)` and isolated; a plugin MUST NOT read or write
   state belonging to another plugin.
-- The schema-reserved `plugin_state` table (see [storage.md](storage.md)
-  §4.6) is reserved for namespaced operational state. Durable decision records
-  are immutable execution evidence, not operational state; their storage
-  schema must be introduced under the existing authority and schema guards.
+- The `plugin_state` table (see [storage.md](storage.md)
+  §4.6) holds a bounded instance snapshot and revision. Its key encodes the
+  tuple `[instance_id, scope]` as canonical JSON; `plugin_id` remains a
+  separate key column. No unscoped KV access is exposed. Execution records
+  live in the separate append-only `plugin_execution_records` table.
 - Plugins MUST NOT receive raw SQLite connections or unrestricted
   `StorageBackend` access. `read_storage` grants scoped read APIs over
   canonical events and delivery evidence, nothing else.

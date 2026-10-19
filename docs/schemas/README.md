@@ -6,22 +6,22 @@ contract schemas mirror their projection helpers and normative specifications.
 
 ## Schema Files
 
-| Schema                               | Source Type                                                     | Description                                                                 |
-| ------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `canonical-event.schema.json`        | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
-| `canonical-event.schema.yaml`        | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
-| `attachment.schema.json` | `AttachmentDescriptor` | Retained/unavailable descriptors and retention-pending input |
-| `delivery-receipt.schema.json`       | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
-| `delivery-observation.schema.json`   | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
-| `delivery-result.schema.json`        | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
-| `lifecycle-drill-report.schema.json` | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
-| `runtime-snapshot.schema.json`       | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
-| `diagnostics.schema.json`            | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
-| `evidence-bundle.schema.json`        | Dict shape                                                      | `medre evidence` bundle structure                                           |
-| `adapter-config.schema.json`         | Per-transport configs                                           | Adapter configuration shapes                                                |
-| `routing-config.schema.json`         | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
-| `package-sources.schema.json` | Deployment source catalog | Adapter distribution aliases and source overrides |
-
+| Schema                                | Source Type                                                     | Description                                                                 |
+| ------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `canonical-event.schema.json`         | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
+| `canonical-event.schema.yaml`         | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
+| `attachment.schema.json`              | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                |
+| `delivery-receipt.schema.json`        | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
+| `delivery-observation.schema.json`    | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
+| `delivery-result.schema.json`         | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
+| `lifecycle-drill-report.schema.json`  | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
+| `runtime-snapshot.schema.json`        | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
+| `diagnostics.schema.json`             | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
+| `evidence-bundle.schema.json`         | Dict shape                                                      | `medre evidence` bundle structure                                           |
+| `adapter-config.schema.json`          | Per-transport configs                                           | Adapter configuration shapes                                                |
+| `routing-config.schema.json`          | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
+| `plugin-execution-record.schema.json` | `PluginExecutionRecord.to_data()`                               | Host decision, failure, and recovery evidence                               |
+| `package-sources.schema.json`         | Deployment source catalog                                       | Adapter distribution aliases and source overrides                           |
 
 ## Examples
 
@@ -35,6 +35,7 @@ against these schemas.
 | `examples/meshcore-native-metadata-example.json`   | MeshCore native metadata payload   |
 | `examples/lxmf-native-metadata-example.json`       | LXMF native metadata payload       |
 | `examples/delivery-observation-example.json`       | Post-handoff delivery observation  |
+| `examples/plugin-execution-record-example.json`    | Plugin execution record evidence   |
 
 ## Generation
 

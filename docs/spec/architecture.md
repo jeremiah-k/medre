@@ -130,7 +130,7 @@ src/medre/
   config/         loader, model, env overrides, paths, sample generation
     adapters/     per-transport config dataclasses and credential helpers
     routes/       route configuration models
-  plugins/        declarative contracts, discovery, typed stage decisions
+  plugins/        declarative contracts, discovery, decision and state records
 ```
 
 ### 4.2 Import Rules

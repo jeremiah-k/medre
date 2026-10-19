@@ -182,7 +182,9 @@ The plugin contract (`src/medre/plugins/`, specified in
 declarative `PluginSpec` type registry with entry-point discovery and
 quarantine, configured instances with operator capability grants, and typed
 stage decisions. Host-side decision validation separates observation,
-derivation, and suppression authority. Plugins observe canonical events, propose derived events
+derivation, and suppression authority. Host-owned storage atomically commits
+execution evidence, derived events, and scoped state; this does not activate
+plugins in the pipeline. Plugins observe canonical events, propose derived events
 through host admission, and evaluate scoped policy; they do not emit
 transport-native payloads and do not construct canonical events themselves.
 Declared capabilities are requests, not authorization: the runtime grants
@@ -200,8 +202,8 @@ assumed by plugin authors or operators:
 - No per-plugin rate limits.
 - No plugin-specific audit logging.
 
-Until that machinery exists, the contract and registry are not an executed plugin
-security boundary.
+Until that machinery exists, the contract, registry, and persistence seam
+are not an executed plugin security boundary.
 
 ## 6. Encryption Model
 

@@ -323,6 +323,19 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     PRIMARY KEY(window_start, source, outcome)
 );
 
+CREATE TABLE IF NOT EXISTS plugin_execution_records (
+    record_id TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    plugin_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK (stage IN ('enrich', 'transform', 'event_policy')),
+    scope TEXT NOT NULL,
+    attempt INTEGER NOT NULL CHECK (attempt >= 1),
+    record_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(source_event_id, plugin_id, instance_id, stage, scope, attempt)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -812,6 +825,54 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
                 r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
                 r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)"
             ),
+        ),
+    ),
+}
+
+
+# Additive plugin evidence is optional on a read-only legacy database. Once
+# present it must satisfy the same shape/authority checks as kernel tables.
+_PLUGIN_REQUIRED_COLUMNS = {
+    "plugin_execution_records": frozenset(
+        {
+            "record_id",
+            "source_event_id",
+            "plugin_id",
+            "instance_id",
+            "stage",
+            "scope",
+            "attempt",
+            "record_json",
+            "recorded_at",
+        }
+    ),
+}
+_PLUGIN_REQUIRED_FOREIGN_KEYS = {
+    "plugin_execution_records": frozenset(
+        {("source_event_id", "canonical_events", "event_id")}
+    ),
+}
+_PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS = {
+    "plugin_execution_records": frozenset(
+        {
+            ("record_id",),
+            (
+                "source_event_id",
+                "plugin_id",
+                "instance_id",
+                "stage",
+                "scope",
+                "attempt",
+            ),
+        }
+    ),
+}
+_PLUGIN_REQUIRED_CHECK_CONSTRAINTS = {
+    "plugin_execution_records": (
+        ("CHECK (attempt >= 1)", r"CHECK\s*\(\s*attempt\s*>=\s*1\s*\)"),
+        (
+            "CHECK (stage IN ('enrich', 'transform', 'event_policy'))",
+            r"CHECK\s*\(\s*stage\s+IN\s*\(\s*'enrich'\s*,\s*'transform'\s*,\s*'event_policy'\s*\)\s*\)",
         ),
     ),
 }

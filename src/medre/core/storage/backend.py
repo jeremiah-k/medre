@@ -11,6 +11,7 @@ satisfy, along with helper types used throughout the storage subsystem:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
@@ -35,6 +36,11 @@ from medre.core.ingress import (
     IngressProvenance,
     IngressWorkItem,
     StoredAttachmentContent,
+)
+from medre.plugins.records import (
+    PluginExecutionKey,
+    PluginExecutionRecord,
+    PluginStateSnapshot,
 )
 
 # ---------------------------------------------------------------------------
@@ -163,6 +169,14 @@ class DuplicateEventError(StorageError):
     check with :meth:`~StorageBackend.get` before calling
     :meth:`~StorageBackend.append`, or catch this exception.
     """
+
+
+class PluginExecutionConflictError(StorageError):
+    """A stale state snapshot or incompatible plugin attempt cannot be committed."""
+
+
+class PluginStateConflictError(PluginExecutionConflictError):
+    """An uncommitted result used a stale state snapshot; re-evaluation may retry."""
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +884,32 @@ class StorageBackend(Protocol):
         :class:`AsyncGenerator` because calling an async generator function
         returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
         one.
+        """
+        ...
+
+    # -- Host-owned plugin persistence --------------------------------------
+
+    async def get_plugin_state(
+        self, plugin_id: str, instance_id: str, *, scope: str = "live"
+    ) -> PluginStateSnapshot:
+        """Read a bounded operational snapshot isolated by type, instance, and scope."""
+        ...
+
+    async def get_plugin_execution(
+        self, key: PluginExecutionKey
+    ) -> PluginExecutionRecord | None:
+        """Return the latest durable attempt; recovery reuses settled decisions."""
+        ...
+
+    async def commit_plugin_execution(
+        self, record: PluginExecutionRecord, *, state: Mapping[str, Any] | None = None
+    ) -> PluginExecutionRecord:
+        """Atomically record evidence, derive canonical events, and CAS scoped state.
+
+        Exact repeat commits return the stored record without applying state
+        twice. Stale snapshots raise PluginStateConflictError, a retryable
+        PluginExecutionConflictError subtype; incompatible invocation evidence
+        raises PluginExecutionConflictError. Plugins never receive this interface.
         """
         ...
 

@@ -41,6 +41,7 @@ _ADDITIVE_DDL_TABLES = frozenset(
         "attachment_blobs",
         "event_attachment_associations",
         "inbound_pressure_observations",
+        "plugin_execution_records",
     }
 )
 

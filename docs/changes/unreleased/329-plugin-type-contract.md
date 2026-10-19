@@ -24,9 +24,8 @@ imports plugin implementations. SymbolRef and the registration token grammar
 move to medre.registration as the shared primitive for adapter and plugin
 declarations; existing adapter import paths are unchanged.
 
-Pipeline execution of plugins, derived-event admission, durable decision
-records, and the operator configuration and packaging surface remain
-planned; the extension stages stay reserved and the scope guard now bans the
+Pipeline execution of plugins, pipeline derived-event admission, and the
+operator configuration and packaging surface remain planned; the extension stages stay reserved and the scope guard now bans the
 plugin execution runtime and any wiring of medre.plugins into runtime
 assembly, configuration, or the CLI until those land. The superseded
 list-returning Plugin protocol, validate_plugin_payload, and

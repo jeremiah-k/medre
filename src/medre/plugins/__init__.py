@@ -9,9 +9,10 @@ observe and derive canonical events and evaluate scoped policy.
 This package defines the contract — capability vocabulary, stage
 subscriptions, typed decisions, the declarative ``PluginSpec``, configured
 instances with operator grants, the runtime context, and the stage
-protocols. Type discovery lives in ``medre.plugins.registry``. Pipeline
-execution, durable decision persistence, and operator configuration follow
-the contract in
+protocols. Type discovery lives in ``medre.plugins.registry``. Durable
+decision records and host persistence are defined in
+``medre.plugins.records`` and the core storage backend. Pipeline execution
+and operator configuration follow the contract in
 ``docs/spec/plugins.md``.
 """
 
