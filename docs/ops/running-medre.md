@@ -33,30 +33,29 @@ otherwise invisible in `routes validate` / `routes topology`.
 ### Expected Startup Output
 
 ```console
-Runtime starting with 2 adapter(s): bridge, radio
-  Routes: 1 enabled, 0 disabled (1 total)
-  Storage: sqlite
-  Limits: max_inflight_deliveries=100, max_inflight_replay_events=100, drain_timeout=10s
-INFO  medre.runtime: Starting 2 adapters
-INFO  medre.adapters.matrix.bridge: adapter_starting transport=matrix adapter_id=bridge
-INFO  medre.adapters.matrix.bridge: adapter_started transport=matrix adapter_id=bridge duration_ms=312
-INFO  medre.adapters.meshtastic.radio: adapter_starting transport=meshtastic adapter_id=radio
-INFO  medre.adapters.meshtastic.radio: adapter_started transport=meshtastic adapter_id=radio duration_ms=145
-INFO  medre.runtime: Assembly complete: 2/2 adapters started in 457ms
-Runtime started — 2 adapter(s) in 457ms
+2026-10-18T20:00:00-0500 [INFO] medre: MEDRE starting (bridge) with 2 adapter(s): matrix, radio
+2026-10-18T20:00:00-0500 [INFO] medre.runtime.route_engine: Registered 2 expanded route(s)
+2026-10-18T20:00:00-0500 [INFO] medre:   Routes: 1 enabled, 0 disabled (1 configured)
+2026-10-18T20:00:01-0500 [INFO] medre:   started matrix.matrix (312ms)
+2026-10-18T20:00:01-0500 [INFO] medre:   started meshtastic.radio (145ms)
+2026-10-18T20:00:01-0500 [INFO] medre: Runtime ready (2 adapter(s) running)
 ```
+
+This abbreviated text example omits config/state paths and component logs.
+Adapter startup durations depend on the SDK and connection. `Routes` counts
+configured routes; the registration line counts expanded executable legs.
 
 ### Startup Checklist
 
-| Element          | Where to look                      | Healthy sign           | Problem sign              |
-| ---------------- | ---------------------------------- | ---------------------- | ------------------------- |
-| Adapter count    | Console first line                 | Matches config         | Fewer (build failures)    |
-| Build failures   | Console `Build failures (N)` block | No block               | `✗` entries present       |
-| Routes           | Console `Routes:` line             | Expected count enabled | Zero enabled or errors    |
-| Storage backend  | Console `Storage:` line            | `sqlite`               | `memory` (no persistence) |
-| Limits           | Console `Limits:` line             | As configured          | Unexpected defaults       |
-| Per-adapter logs | `adapter_started` lines            | All started            | Any `adapter_failed`      |
-| Assembly summary | `Assembly complete` line           | `N/N adapters started` | `N/M started, K failed`   |
+| Element          | Where to look                               | Healthy sign           | Problem sign                       |
+| ---------------- | ------------------------------------------- | ---------------------- | ---------------------------------- |
+| Adapter count    | Console first line                          | Matches config         | Fewer (build failures)             |
+| Build failures   | Console `Build failures (N)` block          | No block               | `✗` entries present                |
+| Routes           | Console `Routes:` line                      | Expected count enabled | Zero enabled or errors             |
+| Storage backend  | Console `Storage:` line                     | `sqlite`               | `memory` (no persistence)          |
+| Limits           | Console `Limits:` line                      | As configured          | Unexpected defaults                |
+| Per-adapter logs | `started transport.adapter_id` summary      | All started            | Failed adapter entries or warnings |
+| Runtime summary  | `Runtime ready` or `Runtime startup failed` | Expected running count | Failed or degraded startup         |
 
 ### Degraded Startup
 
@@ -607,8 +606,7 @@ The container user needs read/write access to the device. Options: run as user i
 │           └── meshtastic/
 ├── data/
 ├── cache/
-└── logs/
-    └── medre.log
+└── logs/                 # reserved path; console logs use stdout
 ```
 
 ### Volume Ownership
@@ -642,7 +640,7 @@ docker run --user 1000:1000 \
 | Persistent state          | Mount volume at `MEDRE_HOME`                               |
 | SQLite durability         | WAL mode, file on mounted volume                           |
 | Matrix crypto persistence | Auto-derived store path under adapter root                 |
-| Log persistence           | `{log_dir}/medre.log` on mounted volume                    |
+| Log persistence           | Container logging driver or explicit stdout capture        |
 | Serial device access      | `--device` passthrough, correct permissions                |
 | Deterministic paths       | `MEDRE_HOME` set to fixed absolute path                    |
 | Adapter isolation         | Unique `adapter_id` per adapter, path separator validation |
@@ -708,26 +706,40 @@ MEDRE is best-effort. It explicitly does not provide:
    instead, but eventual delivery still depends on later processing and transport
    behavior.
 
-## Log File Location
+## Log Output and Capture
 
-```text
-{log_dir}/medre.log
+MEDRE writes runtime logs to stdout. It does not open a log file automatically.
+A service manager or container logging driver captures that stream according to
+its own retention policy. The resolved `log_dir` is a reserved directory; its
+existence does not mean a `medre.log` file is being written.
+
+For a direct shell run, choose a private capture path explicitly:
+
+```bash
+log_capture=/private/medre/medre.log
+umask 077
+touch -- "$log_capture"
+chmod 600 -- "$log_capture"
+medre run --config medre.yaml >> "$log_capture" 2>&1
 ```
 
-The resolved log directory depends on the active path mode:
+Create the capture directory beforehand and restrict access to it (mode 0700).
+The command runs in the foreground;
+use another terminal to inspect the file or send the normal shutdown signal.
+Config-loading and command-usage errors can appear on stderr before runtime
+logging is configured. Captures can contain room IDs, message identifiers, and
+SDK diagnostics; keep them private.
 
-- **XDG mode** (default): `~/.local/state/medre/logs/medre.log` (log directory is `{state}/logs`)
-- **MEDRE_HOME mode** (container): `$MEDRE_HOME/logs/medre.log` (log directory is a direct child of `MEDRE_HOME`)
-
-Single global log file. No per-adapter log files. Log format controlled by the `logging` section:
-
-- `format = "text"` — human-readable.
-- `format = "json"` — structured for log aggregation.
+Choose `logging.format: text` for timestamped human-readable records or
+`logging.format: json` for one JSON object per record. Text timestamps include
+the local UTC offset; JSON timestamps represent record creation in UTC.
+Lifecycle summaries use the same logger and level as runtime messages.
 
 At INFO, startup reports the configured route count and the expanded route
-count separately. Total adapter startup failure is labeled `Runtime startup
-failed` and does not report readiness. Individual expanded route registrations, adapter
-construction, and duplicate component startup details are available at DEBUG.
+count separately. Total adapter startup failure is labeled
+`Runtime startup failed` and does not report readiness. Individual expanded
+route registrations, adapter construction, and duplicate component startup
+details are available at DEBUG.
 Delivery messages distinguish `Delivery queued` (deferred adapter work) from
 `Handoff accepted` (synchronous adapter acceptance) and include the adapter,
 event, attempt, and confirmation level. Neither label claims remote receipt.

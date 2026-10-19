@@ -72,6 +72,10 @@ logger name. JSON output MUST emit one JSON object per record and use the
 record's creation time in UTC, including when formatting is delayed. Text
 timestamps use the local timezone with an explicit UTC offset.
 
+Signal handlers MUST NOT emit logs or perform stream I/O synchronously.
+Shutdown reporting belongs to the normal runtime lifecycle flow, so a signal
+interrupting an active console flush cannot re-enter the output stream.
+
 ### 2.3 StorageConfig
 
 | Field     | Default    | Description                                                |

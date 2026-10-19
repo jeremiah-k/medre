@@ -51,9 +51,9 @@ class _RunSignals:
 
 
 def _request_shutdown(signum: int, _frame: object) -> None:
+    """Set the shutdown flag without re-entering logging or stream I/O."""
     global shutdown_requested
     shutdown_requested = True
-    logger.info("Received signal %s — requesting shutdown", signal.Signals(signum).name)
 
 
 async def _start_interruptibly(app: Any) -> bool:

@@ -731,17 +731,21 @@ Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
 
 Runtime paths derived from the resolved state directory (`{state}`):
 
-| Path                                          | Description                   |
-| --------------------------------------------- | ----------------------------- |
-| `{state}/medre.sqlite`                        | Single global storage backend |
-| `{state}/logs/medre.log`                      | Global log file               |
-| `{state}/adapters/{adapter_id}/`              | Per-adapter state root        |
-| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store      |
-| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state    |
-| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state      |
-| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state          |
+| Path                                          | Description                                   |
+| --------------------------------------------- | --------------------------------------------- |
+| `{state}/medre.sqlite`                        | Single global storage backend                 |
+| `{state}/logs/`                               | Reserved log directory; no automatic log file |
+| `{state}/adapters/{adapter_id}/`              | Per-adapter state root                        |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store                      |
+| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state                    |
+| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state                      |
+| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state                          |
 
-There are no per-adapter databases. Adapter-local filesystem state is transport-owned.
+Core events, outbox state, and receipts share the global storage backend.
+Adapter-private directories hold SDK-owned transport state, including native
+crypto/profile stores when required by the SDK. They must not contain a second
+MEDRE-owned events, outbox, or receipts database. See the storage-ownership
+boundary in [storage](../spec/storage.md).
 
 ## MEDRE_HOME (Single-Directory Mode)
 
