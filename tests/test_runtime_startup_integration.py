@@ -473,3 +473,40 @@ class TestAppStartupStorageErrors:
             assert adapter.ctx.commit_checkpoint is None
         finally:
             await app.stop()
+
+
+def test_total_startup_failure_never_reports_runtime_ready() -> None:
+    """Never advertise readiness when every adapter startup attempt failed."""
+    from medre.runtime.summaries import startup_summary
+
+    summary = startup_summary(
+        [
+            ("matrix", "matrix", False, 0.1, "authentication failed"),
+            ("radio", "meshtastic", False, 0.2, "connection refused"),
+        ]
+    )
+    assert "Runtime ready" not in summary
+    assert "Runtime startup failed (0/2 adapter(s) running, 2 failed)" in summary
+    assert "authentication failed" in summary
+    assert "connection refused" in summary
+
+
+@pytest.mark.parametrize("successes", [(True, True), (True, False)])
+def test_successful_startup_summary_preserves_running_count(
+    successes: tuple[bool, bool],
+) -> None:
+    """Distinguish full readiness from partial startup with failed adapters."""
+    from medre.runtime.summaries import startup_summary
+
+    summary = startup_summary(
+        [
+            ("matrix", "matrix", successes[0], 0.1, None),
+            ("radio", "meshtastic", successes[1], 0.2, "connection refused"),
+        ]
+    )
+    expected = (
+        "Runtime ready (2 adapter(s) running)"
+        if all(successes)
+        else "Runtime ready (1/2 adapter(s) running, 1 failed)"
+    )
+    assert summary.endswith(expected)

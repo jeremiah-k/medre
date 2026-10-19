@@ -403,3 +403,47 @@ adapters:
         finally:
             await app.stop()
             assert app.state is RuntimeState.STOPPED
+
+
+@pytest.mark.parametrize("json_format", [False, True])
+def test_unexpected_startup_failure_obeys_error_format(
+    tmp_path: Path,
+    json_format: bool,
+) -> None:
+    """Core startup exceptions retain format, severity, exit code, and redaction."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from medre.cli import EXIT_STARTUP
+    from tests.helpers.cli import _run_cli_raw
+    from tests.helpers.compatibility_configs import CONFIG_WITH_ROUTES
+
+    config = tmp_path / "medre.yaml"
+    import yaml
+
+    document = yaml.safe_load(CONFIG_WITH_ROUTES)
+    document["logging"] = {
+        "level": "WARNING",
+        "format": "json" if json_format else "text",
+    }
+    config.write_text(yaml.safe_dump(document))
+    app = MagicMock()
+    app.adapters = {"main": MagicMock()}
+    app.build_failures = []
+    app.started_adapter_ids = []
+    app._failed_adapter_ids = ["main"]
+    app.start = AsyncMock(
+        side_effect=RuntimeError("storage failed access_token=private-startup-token")
+    )
+    with patch("medre.runtime.builder.RuntimeBuilder.build", return_value=app):
+        stdout, stderr, code = _run_cli_raw("run", "--config", str(config))
+    assert code == EXIT_STARTUP
+    assert not stderr
+    assert "private-startup-token" not in stdout
+    if json_format:
+        records = [json.loads(line) for line in stdout.splitlines()]
+        assert len(records) == 1
+        assert records[0]["level"] == "ERROR"
+        assert "Runtime startup failed: storage failed" in records[0]["message"]
+    else:
+        assert stdout.startswith("20")
+        assert "[ERROR] medre: Runtime startup failed: storage failed" in stdout
