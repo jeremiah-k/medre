@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from scripts.adapter_campaign.plan import load_plan
-from scripts.adapter_campaign.run import native_receipt
+from scripts.adapter_campaign.run import native_expectation, native_receipt
 
 
 def receipt(text, *, transport="matrix", html=None):
@@ -163,3 +163,17 @@ def test_non_reference_pair_requires_a_presentation_expectation(tmp_path):
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="expected_prefixes"):
         load_plan(path, {"xmpp", "chatmail"})
+
+
+def test_native_expectations_bind_source_and_peer_conversations():
+    _, endpoint = receipt("MR-proof café ✓")
+    endpoint["channel"] = "group:bot"
+    endpoint["peer"]["channel"] = "group:peer"
+    assert native_expectation(endpoint) == {
+        "transport": "matrix",
+        "source_channel": "group:bot",
+        "receipt_sender": "bot",
+        "receipt_channel": "group:peer",
+    }
+    endpoint["transport"] = "lxmf"
+    assert native_expectation(endpoint)["receipt_channel"] == "bot"

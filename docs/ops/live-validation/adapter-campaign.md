@@ -120,8 +120,9 @@ qualify restart recovery or native feature support.
 
 The output directory has mode 0700 and contains:
 
-- results.json with full/partial coverage, expected/completed pairs, package
-  versions, harness/config digests, native observations, and durable core evidence.
+- results.json with full/partial coverage, expected/completed pairs, fixture-derived
+  native sender/conversation and source-channel expectations, package versions,
+  harness/config digests, native observations, and durable core evidence.
 - medre.sqlite3 and isolated runtime paths for storage inspection.
 - One JSONL command/observation stream and private SDK stdout/stderr files per peer.
 - readiness.json with peer identities, interface state, and adapter diagnostics.
@@ -181,3 +182,61 @@ the configured byte budget without splitting UTF-8. Expected prefixes are saved
 in the report, alongside the original sent text and independent native receipts.
 This proves presentation as well as delivery; it does not require changing the
 runtime's prefixes to satisfy the test.
+
+## Repeat and analyze a campaign
+
+Keep a private lab directory containing runtime.yaml and campaign.yaml. Prefer
+relative runtime_config paths so copying the fixture does not silently select
+another lab's configuration. Profile and radio identity paths can remain
+absolute. Before each run, verify device ownership, server readiness, current
+published ports, certificate expiry, group membership, and independently known
+peer names. A running container alone does not establish server readiness.
+Do not change host services, pairing, networking, or trust stores to run a lab.
+
+Record the exact core/provider Git revisions and working-tree state before
+starting. Use the checkout-local dev profile to select sources explicitly.
+Finish synchronization and formatting first; keep the source and configuration
+unchanged while the campaign runs. Preview the topology before permitting sends,
+and use a fresh output directory for every attempt. Retain failed attempts so
+fixture failures and implementation defects remain distinguishable.
+
+Analyze a retained report without opening devices or native profiles:
+
+```bash
+uv run --no-sync python -m scripts.analyze_adapter_campaign /private/bench/run-001
+```
+
+The JSON summary checks every selected directed pair, nonempty and unambiguous
+source nonces, fixture-derived native receipt identities and source/destination
+channels, canonical source/outbox/receipt provenance, declared transport coverage,
+and clean owner shutdown.
+An incomplete, failed, malformed, or inconsistent report exits nonzero. Output
+contains counts and harness-authored findings, without message bodies or native
+credentials. This is an evidence consistency check, not a new native run or an
+independent revalidation of the original presentation expectations. Keep the
+original report and its source revisions together.
+
+Run provider-owned SDK and recovery tests separately from connectivity. Chatmail's
+live group tier exercises a real RPC process crash, reconnect, stopped-adapter
+recovery, quotes, and an independently observed reply. SimpleX's SDK tier checks
+local queue persistence, duplicate suppression, and worker failure; the shared
+native campaign supplies independent group receipts. Text qualification does
+not establish attachments, typing, read receipts, encryption in every transport,
+or recovery under sustained load.
+
+In environments containing SDK pytest plugins, select the required plugins
+explicitly to keep unrelated collection hooks out of a qualification run:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --no-sync pytest \
+  -p pytest_asyncio.plugin -p pytest_timeout tests/test_native_adapter_campaign_live.py \
+  -m 'live and hardware' -s -v
+```
+
+For another project, preserve the same boundaries: declarative topology and
+expected presentation, independent native peer drivers, durable evidence
+verification, bounded process ownership, and offline analysis. Replace the
+provider drivers and storage verifier rather than deriving expected results
+from the implementation under test. Commit sanitized templates and executable
+checks; keep profiles, tokens, message captures, SQLite databases, and run-specific
+reports outside Git.
