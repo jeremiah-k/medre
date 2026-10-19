@@ -139,20 +139,20 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State                                            | Survived? | Notes                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                                                                                                                        |
-| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                                                                                                                      |
-| Post-handoff delivery observations               | Partial   | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                                                                                                                         |
-| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                                                                                                                   |
-| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                                                                                                                             |
-| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
-| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
-| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                                                                                                                        |
-| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Missing/expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost.                                                                                            |
-| Active replay runs                               | Partial   | A **named** run's admitted target generations and `replay_run_id` survive in the outbox before the first receipt; process-local iteration/request state and unnamed run identity do not. Stale named-run claims are recovered through the normal outbox/retry lifecycle. |
-| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                                                                                                                               |
-| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                                                                                                                          |
+| State                                            | Survived?   | Notes                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical events                                 | Yes         | Written to SQLite before delivery                                                                                                                                                                                                                                        |
+| Delivery receipts                                | Yes         | Written after each delivery attempt                                                                                                                                                                                                                                      |
+| Post-handoff delivery observations               | Partial     | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                                                                                                                         |
+| Native message refs                              | Yes         | Persisted in SQLite alongside receipts                                                                                                                                                                                                                                   |
+| Receipt traceability (`source`, `replay_run_id`) | Yes         | Stored on receipts in SQLite                                                                                                                                                                                                                                             |
+| Matrix E2EE crypto keys                          | Yes         | On disk under adapter state root                                                                                                                                                                                                                                         |
+| LXMF identity files                              | Yes         | On disk under adapter state root                                                                                                                                                                                                                                         |
+| Logs (pre-crash)                                 | Conditional | Retained by the service manager, container driver, or explicit stdout capture                                                                                                                                                                                            |
+| In-flight deliveries                             | Partial     | No receipt, but an `in_progress` outbox row may survive. Missing/expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost.                                                                                            |
+| Active replay runs                               | Partial     | A **named** run's admitted target generations and `replay_run_id` survive in the outbox before the first receipt; process-local iteration/request state and unnamed run identity do not. Stale named-run claims are recovered through the normal outbox/retry lifecycle. |
+| Runtime counters (accounting)                    | No          | Process-local counters reset after restart                                                                                                                                                                                                                               |
+| Adapter connection state                         | No          | Adapters reconnect from scratch                                                                                                                                                                                                                                          |
 
 ### Crash Recovery Steps
 
@@ -166,13 +166,14 @@ sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"
 # Expected output: "ok"
 
 # 3. Restart the runtime
-medre run --config config.yaml
+medre run --config config.yaml >> "$log_capture" 2>&1
 
+# In another terminal:
 # 4. Verify startup — all adapters should report started
-grep "Assembly complete" {state}/logs/medre.log | tail -1
+grep "Runtime ready (" "$log_capture" | tail -1
 
 # 5. Check for adapter errors
-grep "adapter_failed" {state}/logs/medre.log | tail -5
+grep -E "\[(WARNING|ERROR)\]" "$log_capture" | tail -5
 
 # 6. Verify live health
 medre diagnostics --refresh-health --config config.yaml
@@ -205,14 +206,20 @@ If the runtime was shut down cleanly (SIGTERM, SIGINT):
 
 ```bash
 # Restart
-medre run --config config.yaml
+medre run --config config.yaml >> "$log_capture" 2>&1
 
-# Verify startup
-grep "Assembly complete" {state}/logs/medre.log | tail -1
+# In another terminal, verify startup
+grep "Runtime ready (" "$log_capture" | tail -1
 
 # No further action needed. Drained deliveries produced receipts.
 # Non-terminal outbox items were preserved as resumable work.
 ```
+
+For text-log examples below, set `log_capture` to a file explicitly captured
+from stdout as described in [log output and capture](running-medre.md#log-output-and-capture).
+MEDRE does not create that file automatically. For managed services, inspect the
+service manager or container logs instead. Structured JSON captures require
+JSON-aware filters rather than the text severity patterns used below.
 
 ## Adapter Failure Recovery
 
@@ -229,7 +236,7 @@ grep "Assembly complete" {state}/logs/medre.log | tail -1
 medre diagnostics --refresh-health --config config.yaml
 
 # Check logs for the specific adapter
-grep "ERROR.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -20
+grep -F "<adapter_id>" "$log_capture" | grep -E "\[(WARNING|ERROR)\]" | tail -20
 
 # Check delivery receipts for failures
 sqlite3 {state}/medre.sqlite "
@@ -268,10 +275,11 @@ If `failure_kind='adapter_transient'` and `next_retry_at` is set, the RetryWorke
 # 2. Fix the underlying cause
 
 # 3. Restart the runtime (no per-adapter restart exists)
-medre run --config config.yaml
+medre run --config config.yaml >> "$log_capture" 2>&1
 
+# In another terminal:
 # 4. Verify the adapter started successfully
-grep "adapter_started.*adapter_id=<adapter_id>" {state}/logs/medre.log | tail -1
+grep -F "<adapter_id>" "$log_capture" | grep "started " | tail -1
 
 # 5. Check for events that were missed during the outage
 #    See Orphan Detection below
@@ -871,8 +879,8 @@ receipt rows:
 | Count orphaned events      | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
 | Preview replay             | `medre replay --mode dry_run --config my-bridge.yaml`                                                                             |
 | Execute replay             | `medre replay --mode best_effort --config my-bridge.yaml`                                                                         |
-| Check recent errors        | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
-| Verify startup             | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
+| Check recent errors        | `grep ERROR "$log_capture" \| tail -20`                                                                                           |
+| Verify startup             | `grep "Runtime ready (" "$log_capture" \| tail -1`                                                                                |
 
 ## Caveats
 

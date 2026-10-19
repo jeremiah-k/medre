@@ -1,16 +1,34 @@
 # Adapter SDK Parity
 
-This reference documents how MEDRE stays honest against the exact adapter
-dependency pins. `pyproject.toml` is the version authority; the lockfile records
-the resolved artifacts. This document deliberately does not repeat current
-version tables or locked hashes. Dedicated SDK-contract test tiers
-import the real pinned packages so fake adapters cannot mask incompatible
-constructor signatures, enum values, protobuf fields, or lifecycle behavior.
+Each separately distributed adapter pins its native SDK dependencies in its
+own `pyproject.toml`. Core's `uv.lock` pins shared core/development dependencies;
+it does not install adapter SDKs. The committed compatibility manifest selects
+immutable provider revisions for qualification. Avoid duplicating version/hash
+tables here: provider metadata and lockfiles are the authorities.
 
-Each transport has an exact-pin optional-dependency group (`matrix`, `lxmf`,
-`meshtastic`, `meshcore`). The `lxmf` extra pins Reticulum explicitly in
-addition to `lxmf` itself, keeping installed-SDK contract CI aligned with the
-declared dependency set instead of resolving a newer transitive Reticulum release.
+Use `medre dev sync --sdk ALIAS` to prepare a checkout for native SDK tests, then
+`medre dev test ALIAS -- -m MARKER` to run that provider's tier. SDK-free tests
+and native contracts are separate: permissive fakes must not stand in for the
+real SDK constructors, protocol fields, process ownership, or delivery facts.
+
+## Qualification boundaries
+
+| Adapter      | Native evidence                                                                                                   | Explicit boundary                                                                                            |
+| ------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Matrix       | SDK contracts and an independent account in the private plaintext-room campaign.                                  | The plaintext campaign does not qualify an encrypted-room deployment or puppeting.                           |
+| Meshtastic   | SDK contracts and paired serial radios in the private-channel campaign.                                           | Serial evidence does not qualify BLE stability; native relations and recovery have separate tiers.           |
+| MeshCore     | SDK/local endpoint contracts and paired companion radios in the channel campaign.                                 | Plaintext text handoff does not establish recipient or read confirmation.                                    |
+| LXMF         | Real RNS/LXMF contracts and an independent destination over the configured RNode link.                            | Queue acceptance alone is insufficient; the campaign requires native peer receipt.                           |
+| XMPP         | Slixmpp contracts and an independent occupant in a private Prosody MUC.                                           | Typing, read receipts, attachments, OMEMO, and puppeting are unsupported rather than implicitly bridged.     |
+| Chatmail     | Native RPC group/quote/recovery contracts and an independent encrypted-group profile over the named mail fixture. | Loopback SMTP/IMAP does not qualify the official Chatmail Docker deployment.                                 |
+| SimpleX Chat | Official native profile/group/history contracts, local queue persistence, and worker restart tests.               | Independent-profile group receipt is not qualified by a self-owned group or the six-adapter native campaign. |
+
+The SDK-free cross-provider suite exercises text routing, rendering, addressing,
+core storage, and delivery provenance. Native campaigns add independent peer
+observations. Neither tier substitutes for attachment, relation, restart, or
+sustained-load qualification. Explicit prefix overrides and automatic defaults
+need distinct fixture expectations; a delivered nonce alone does not verify
+presentation.
 
 ## Matrix
 

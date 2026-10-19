@@ -731,17 +731,19 @@ Cache:     $XDG_CACHE_HOME/medre/     or  ~/.cache/medre/
 
 Runtime paths derived from the resolved state directory (`{state}`):
 
-| Path                                          | Description                   |
-| --------------------------------------------- | ----------------------------- |
-| `{state}/medre.sqlite`                        | Single global storage backend |
-| `{state}/logs/medre.log`                      | Global log file               |
-| `{state}/adapters/{adapter_id}/`              | Per-adapter state root        |
-| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store      |
-| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state    |
-| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state      |
-| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state          |
+| Path                                          | Description                                   |
+| --------------------------------------------- | --------------------------------------------- |
+| `{state}/medre.sqlite`                        | Single global storage backend                 |
+| `{state}/logs/`                               | Reserved log directory; no automatic log file |
+| `{state}/adapters/{adapter_id}/`              | Per-adapter state root                        |
+| `{state}/adapters/{adapter_id}/matrix/store/` | Matrix E2EE crypto store                      |
+| `{state}/adapters/{adapter_id}/meshtastic/`   | Meshtastic transport state                    |
+| `{state}/adapters/{adapter_id}/meshcore/`     | MeshCore transport state                      |
+| `{state}/adapters/{adapter_id}/lxmf/`         | LXMF transport state                          |
 
-There are no per-adapter databases. Adapter-local filesystem state is transport-owned.
+Core events, outbox state, and receipts share the global storage backend.
+Adapters may own native profile databases and auxiliary ledgers under their
+private state roots. Those transport-owned stores do not replace core storage.
 
 ## MEDRE_HOME (Single-Directory Mode)
 
