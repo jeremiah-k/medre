@@ -67,7 +67,12 @@ This mode is intended for container, Docker, Kubernetes, and portable deployment
 
 The SQLite database file **MUST** reside at `{state}/medre.sqlite`. When `StorageConfig.path` is `None`, the runtime resolves the database path from `MedrePaths.database_path`. When `StorageConfig.path` is set explicitly, the provided path **MUST** be used unchanged.
 
-There **MUST NOT** be per-adapter databases. All persisted state resides in the single global database.
+There **MUST NOT** be per-adapter **MEDRE-owned** storage databases.
+Canonical events, outbox work, receipts, native references, checkpoints, and
+replay state **MUST** reside in the single configured `StorageBackend`. This
+does not forbid transport SDKs from persisting their own opaque profiles,
+crypto sessions, or native caches in adapter-private state directories. Those
+SDK stores **MUST NOT** act as alternative MEDRE canonical storage backends.
 
 ### 2.4 Path Resolution is No-I/O
 
@@ -75,13 +80,19 @@ Path resolution is a pure computation. No filesystem I/O **SHALL** occur during 
 
 ### 2.5 Per-Adapter State Directories
 
-Every adapter receives a state root at `{state}/adapters/{adapter_id}/`. Transport-specific subdirectories follow the pattern `{state}/adapters/{adapter_id}/{transport}/`. These directories hold transport-owned state (e.g., Matrix crypto store) and **MUST NOT** contain databases.
+Every adapter receives a state root at `{state}/adapters/{adapter_id}/`.
+Transport-specific subdirectories follow the pattern
+`{state}/adapters/{adapter_id}/{transport}/`. These directories hold
+transport-owned state (e.g., Matrix E2EE crypto sessions and LXMF identities). If an SDK requires a private SQLite database,
+it **MAY** create one here for native protocol state only; it **MUST NOT**
+store MEDRE canonical events, outbox state, or delivery receipts. SDK-owned
+state has its own backup, lifecycle, and migration semantics.
 
 ### 2.6 Summary
 
 ```text
 {state}/medre.sqlite                                   — Global database (single backend)
-{log_dir}/medre.log                                    — Global log file
+{log_dir}/                                             — Reserved log directory; output goes to stdout
 {state}/adapters/{adapter_id}/                         — Per-adapter state root
 {state}/adapters/{adapter_id}/matrix/store/            — Matrix E2EE crypto store
 {state}/adapters/{adapter_id}/meshtastic/              — Meshtastic state
@@ -1802,7 +1813,7 @@ class StorageConfig:
 | Schema validation        | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                                                                                                                                                                                                                                                                                                                                                                           |
 | Durable admission        | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                                                                                                                                                                                                                                                                                                                                                                       |
 | Checkpoint safety        | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                                                                                                                                                                                                                                                                                                                                                                              |
-| Single database          | There **MUST NOT** be per-adapter databases.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Single database          | There **MUST NOT** be per-adapter MEDRE canonical storage databases; SDK-private protocol stores are separate.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## 16. Storage Ownership Semantics
 
