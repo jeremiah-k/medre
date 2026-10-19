@@ -29,9 +29,9 @@ logger = logging.getLogger("medre")
 shutdown_requested: bool = False
 
 
-def _print(line: str = "") -> None:
-    """Print a console status line immediately, even when output is captured."""
-    print(line, flush=True)
+def _print(line: str = "", *, level: int = logging.INFO) -> None:
+    """Emit lifecycle summaries through the configured timestamped logger."""
+    logger.log(level, "%s", line.lstrip("\n"))
 
 
 class _RunSignals:
@@ -202,10 +202,6 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 _print("Runtime startup interrupted")
                 return
         except Exception as exc:
-            # RuntimeStartupError means total failure (zero adapters).
-            # Print what we know and exit with a startup-specific code.
-            from medre.runtime.errors import RuntimeStartupError
-
             # Report per-adapter results from app state.
             for adapter_id in app.started_adapter_ids:
                 dur = time.monotonic() - run_start
@@ -232,14 +228,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
             summary = startup_summary(startup_results)
             _print(summary)
-            if isinstance(exc, RuntimeStartupError):
-                _print(f"\nRuntime startup failed: {sanitize_error(str(exc))}")
-                sys.exit(EXIT_STARTUP)
-            # Unexpected exception during startup (core subsystem failure).
-            print(
-                f"\nRuntime startup failed: {sanitize_error(str(exc))}",
-                file=sys.stderr,
-                flush=True,
+            _print(
+                f"Runtime startup failed: {sanitize_error(str(exc))}",
+                level=logging.ERROR,
             )
             sys.exit(EXIT_STARTUP)
 
@@ -297,7 +288,8 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             bs = app.boot_summary
             if bs.runtime_health == "degraded":
                 _print(
-                    f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started"
+                    f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
+                    level=logging.WARNING,
                 )
                 if bs.failed_adapter_ids:
                     _print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")

@@ -127,7 +127,9 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(
+                record.created, timezone.utc
+            ).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -149,6 +151,20 @@ class _JsonFormatter(logging.Formatter):
             entry["extra"] = sanitize_for_log(extra_fields)
 
         return json.dumps(entry, default=str)
+
+
+class _TextFormatter(logging.Formatter):
+    """Prefix every physical line, including tracebacks, with its event time."""
+
+    def __init__(self) -> None:
+        """Keep message formatting separate from per-line timestamp prefixes."""
+        super().__init__("%(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Include traceback text before prefixing each physical output line."""
+        message = super().format(record)
+        prefix = f"{self.formatTime(record, self.datefmt)} [{record.levelname}] {record.name}: "
+        return "\n".join(prefix + line for line in message.splitlines() or [""])
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +245,11 @@ def setup_logging(
 
     # 1. Locate or create the single MEDRE-managed handler on the root logger.
     root = logging.getLogger()
-    medre_handler: logging.Handler | None = None
+    medre_handler: logging.StreamHandler | None = None
     for h in root.handlers:
-        if getattr(h, _MEDRE_HANDLER_ATTR, False):
+        if isinstance(h, logging.StreamHandler) and getattr(
+            h, _MEDRE_HANDLER_ATTR, False
+        ):
             medre_handler = h
             break
 
@@ -240,6 +258,14 @@ def setup_logging(
         setattr(medre_handler, _MEDRE_HANDLER_ATTR, True)
         medre_handler.setLevel(logging.NOTSET)
         root.addHandler(medre_handler)
+
+    # Re-entrant CLI calls can redirect stdout between runs. Never retain a
+    # stale captured stream or flush a stream that its owner already closed.
+    if medre_handler.stream is not sys.stdout:
+        if getattr(medre_handler.stream, "closed", False):
+            medre_handler.stream = sys.stdout
+        else:
+            medre_handler.setStream(sys.stdout)
 
     if not any(
         getattr(f, _MEDRE_CORRELATION_FILTER_ATTR, False) for f in medre_handler.filters
@@ -252,12 +278,7 @@ def setup_logging(
     if json_format:
         medre_handler.setFormatter(_JsonFormatter())
     else:
-        medre_handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-                datefmt="%Y-%m-%dT%H:%M:%S%z",
-            )
-        )
+        medre_handler.setFormatter(_TextFormatter())
 
     # 3. Set root logger to WARNING as a fallback gate for unknown
     #    dependency loggers.  MEDRE records bypass this gate because the
