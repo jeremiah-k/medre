@@ -169,7 +169,9 @@ def test_provider_discovery_skips_core_owned_entry_points(monkeypatch):
     )
     assert READ_INSTALLED_ADAPTERS() == {"custom-matrix": {"matrix"}}
     with pytest.raises(tm.ToolManagementError, match="No installed adapter"):
-        upgrade._selection("medre", tm.SourceCatalog(None, {}), READ_INSTALLED_ADAPTERS())
+        upgrade._selection(
+            "medre", tm.SourceCatalog(None, {}), READ_INSTALLED_ADAPTERS()
+        )
 
 
 def test_provider_discovery_never_imports_a_native_sdk(monkeypatch):
@@ -228,7 +230,9 @@ def test_adapter_check_rejects_selections_with_accurate_guidance(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["adapters", "check", "matrix"])
     assert exc.value.code == 2
-    assert "only install, remove, and upgrade accept selections" in capsys.readouterr().err
+    assert (
+        "only install, remove, and upgrade accept selections" in capsys.readouterr().err
+    )
 
 
 def test_source_catalog_accepts_core_without_selecting_it_as_adapter(tmp_path):

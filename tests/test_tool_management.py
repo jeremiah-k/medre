@@ -169,6 +169,7 @@ def test_receipt_sources_round_trip_requested_intent(receipt, expected):
             "git": "https://example.com/radio",
         },
         {"name": "radio", "extras": "e2e"},
+        {"name": "radio", "url": 123},
     ],
 )
 def test_unreplayable_requirements_are_not_silently_discarded(tool, requirement):
