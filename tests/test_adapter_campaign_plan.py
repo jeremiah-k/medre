@@ -1,5 +1,6 @@
 """Native campaign gating and independent receipt assertions."""
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,9 @@ def manifest(tmp_path, **overrides):
                 "transport": name,
                 "channel": "test",
                 "expected_sender": "bot",
+                "expected_prefixes": {
+                    source: "" for source in TRANSPORTS if source != name
+                },
                 "peer": {},
             }
             for name in TRANSPORTS
@@ -47,6 +51,8 @@ def test_partial_plan_requires_explicit_selection(tmp_path):
     path = manifest(tmp_path)
     data = yaml.safe_load(path.read_text())
     del data["endpoints"]["chatmail"]
+    for entry in data["endpoints"].values():
+        entry["expected_prefixes"].pop("chatmail", None)
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="all six"):
         load_plan(path)
@@ -79,7 +85,7 @@ def test_invalid_partial_transport_selection_is_rejected(tmp_path, selected):
 def test_duplicate_transport_endpoints_do_not_qualify_as_full_coverage(tmp_path):
     path = manifest(tmp_path)
     data = yaml.safe_load(path.read_text())
-    data["endpoints"]["matrix2"] = {**data["endpoints"]["matrix"], "peer": {}}
+    data["endpoints"]["matrix2"] = {**deepcopy(data["endpoints"]["matrix"]), "peer": {}}
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="exactly one"):
         load_plan(path)

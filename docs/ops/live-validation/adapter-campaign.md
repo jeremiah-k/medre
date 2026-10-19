@@ -48,9 +48,9 @@ interop without qualifying the official Chatmail Docker deployment.
 
 ## Configure and run
 
-Copy [campaign.example.yaml](fixtures/campaign.example.yaml) and
-[runtime.example.yaml](fixtures/runtime.example.yaml) into a private directory,
-then replace the placeholders with lab endpoints. Keep the files outside Git.
+Copy [campaign.example.yaml](fixtures/campaign.example.yaml) as `campaign.yaml`
+and [runtime.example.yaml](fixtures/runtime.example.yaml) as `runtime.yaml` into
+a private directory, then replace the endpoint and peer-display-name placeholders. Keep the files outside Git.
 The campaign runtime config accepts ordinary MEDRE adapter settings. Its routes,
 core storage, retry policy, logging, and MEDRE paths are replaced for the run;
 explicit provider profile, identity, and storage paths retain their meaning.
@@ -96,7 +96,11 @@ has one canonical event, one terminal outbox item per target, and matching live
 sent receipts with attempt provenance. Queued receipts are retained as lifecycle
 history, including deferred radio and SMTP handoffs. Sender and conversation
 checks prevent an echo or an unrelated participant from satisfying native receipt.
-Short UTF-8 bodies verify the compatibility rendering path.
+Every selected directed pair requires a fixture-owned `expected_prefixes` entry
+on its target. Empty strings explicitly qualify prefix-free output. The oracle
+compares the complete visible body, including long Unicode truncation against
+the runtime radio capability budget. MeshCore native sender headers are checked
+separately from rendered body text and retained in raw peer observations.
 
 After the final turn, an observation window checks late duplicates and canonical
 echoes. Every peer and MEDRE must stop cleanly before the report becomes passed.
@@ -118,7 +122,9 @@ directory private. Credentials travel to child processes over stdin and are not
 recorded in command arguments or the JSON report.
 
 The default suite also runs test_all_adapter_campaign.py with SDK-free providers:
-30 individually named directed-pair cases and a fanout case for each source.
+42 individually named directed-pair cases and a fanout case for each source,
+including SimpleX Chat. The native campaign retains its six qualified transports;
+SimpleX independent-peer delivery requires its own native fixture and helper.
 Unavailable provider cases are explicitly skipped. This tier checks routing,
 renderers, storage, addressing, and delivery provenance; native receipt requires
 the opt-in campaign above.
@@ -133,3 +139,33 @@ cleanup also reaps the owned process before closing evidence streams.
 Every run creates an initial results report before collecting package versions
 and config hashes; a metadata failure produces a failed report and private
 failure trace.
+
+## Verify visible presentation
+
+Native receipt of a nonce alone does not qualify presentation. Each target in a
+Matrix–Meshtastic pair must declare `expected_prefixes`, keyed by the source
+adapter instance ID. The expectations come from the fixture's known peer names
+and configured rendering policy, independently of renderer output. For example:
+
+```yaml
+# Within endpoints.matrix (the Matrix target):
+expected_prefixes:
+  radio: "[Alice Radio/Forx]: "
+# Within endpoints.radio (the Meshtastic target):
+expected_prefixes:
+  matrix: "Alice[M]: "
+```
+
+Use the actual instance IDs and peer display names in the dedicated lab. An
+explicit empty expectation verifies intentionally unprefixed output; omitting
+an expectation for either reference-bridge direction fails plan validation.
+Every other selected platform pair must also declare expected prefixes on its targets.
+
+The campaign verifies the complete expected visible text, rejects duplicate or
+incorrect prefixes, and compares Matrix formatted text with its plain body when
+HTML is supplied. Matrix ingress includes a long Unicode body, so radio targets
+must preserve the expected prefix while truncating the final composed text to
+the configured byte budget without splitting UTF-8. Expected prefixes are saved
+in the report, alongside the original sent text and independent native receipts.
+This proves presentation as well as delivery; it does not require changing the
+runtime's prefixes to satisfy the test.
