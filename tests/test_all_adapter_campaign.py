@@ -2,7 +2,7 @@
 """Cross-provider text routing through real storage with SDK-free adapters.
 
 Every ordered pair is named explicitly, including Chatmail and SimpleX. Missing providers
-skip their own cases; the native campaign requires all six unless --only is set.
+skip their own cases; the native campaign requires all seven unless --only is set.
 """
 
 from copy import deepcopy
@@ -18,7 +18,7 @@ from medre.runtime.smoke_ingress import make_smoke_event
 from scripts.adapter_campaign.evidence import verify, wait_evidence
 from scripts.adapter_campaign.plan import TRANSPORTS, Plan, runtime_config
 
-FAKE_TRANSPORTS = TRANSPORTS | {"simplexchat"}
+FAKE_TRANSPORTS = TRANSPORTS
 
 CHANNELS = {
     "matrix": "!campaign:example.org",

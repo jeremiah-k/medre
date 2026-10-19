@@ -15,8 +15,9 @@ endpoints:
       user_id: "@peer:matrix.example.org"
       access_token: ""
     expected_prefixes:
+      sx: "[SimpleXPeer/SimpleX lab]: "
       mt: "[MeshPeer/Forx]: "
-      mc: "[MeshCorePeer/MeshCore lab]: "
+      mc: "[MeshCorePeer (unverified)/MeshCore lab]: "
       lx: "[LXMFPeer/Reticulum lab]: "
       xmpp: "[peer/XMPP lab]: "
       chatmail: "[peer@example.org/Chatmail lab]: "
@@ -27,8 +28,9 @@ endpoints:
     peer:
       serial_port: /dev/serial/by-id/replace-with-peer-radio
     expected_prefixes:
+      sx: "SimpleXPeer: "
       matrix: "Peer[M]: "
-      mc: "MeshCorePeer: "
+      mc: "MeshCorePeer (unverified): "
       lx: "LXMFPeer: "
       xmpp: "peer: "
       chatmail: "peer@example.org: "
@@ -39,6 +41,7 @@ endpoints:
     peer:
       ble_address: AA:BB:CC:DD:EE:02
     expected_prefixes:
+      sx: "[SimpleX lab] SimpleXPeer: "
       matrix: "[Matrix lab] Peer: "
       mt: "[Forx] MeshPeer: "
       lx: "[Reticulum lab] LXMFPeer: "
@@ -53,9 +56,10 @@ endpoints:
       reticulum_config_dir: /private/bench/rns-peer
       storage_path: /private/bench/lx-peer-storage
     expected_prefixes:
+      sx: "[SimpleX lab] SimpleXPeer: "
       matrix: "[Matrix lab] Peer: "
       mt: "[Forx] MeshPeer: "
-      mc: "[MeshCore lab] MeshCorePeer: "
+      mc: "[MeshCore lab] MeshCorePeer (unverified): "
       xmpp: "[XMPP lab] peer: "
       chatmail: "[Chatmail lab] peer@example.org: "
   xmpp:
@@ -67,9 +71,10 @@ endpoints:
       password: ""
       nickname: peer
     expected_prefixes:
+      sx: "[SimpleX lab] SimpleXPeer: "
       matrix: "[Matrix lab] Peer: "
       mt: "[Forx] MeshPeer: "
-      mc: "[MeshCore lab] MeshCorePeer: "
+      mc: "[MeshCore lab] MeshCorePeer (unverified): "
       lx: "[Reticulum lab] LXMFPeer: "
       chatmail: "[Chatmail lab] peer@example.org: "
   chatmail:
@@ -81,8 +86,25 @@ endpoints:
       account_id: 1
       channel: "15"
     expected_prefixes:
+      sx: "[SimpleX lab] SimpleXPeer: "
       matrix: "[Matrix lab] Peer: "
       mt: "[Forx] MeshPeer: "
-      mc: "[MeshCore lab] MeshCorePeer: "
+      mc: "[MeshCore lab] MeshCorePeer (unverified): "
       lx: "[Reticulum lab] LXMFPeer: "
       xmpp: "[XMPP lab] peer: "
+  sx:
+    transport: simplexchat
+    channel: "group:7"
+    # Bot's groupMemberId in the peer profile, not the bot's local membership ID.
+    expected_sender: "2"
+    peer:
+      database_prefix: /private/bench/simplex-peer/profile
+      user_id: 1
+      channel: "group:3"
+    expected_prefixes:
+      matrix: "[Matrix lab] Peer: "
+      mt: "[Forx] MeshPeer: "
+      mc: "[MeshCore lab] MeshCorePeer (unverified): "
+      lx: "[Reticulum lab] LXMFPeer: "
+      xmpp: "[XMPP lab] peer: "
+      chatmail: "[Chatmail lab] peer@example.org: "

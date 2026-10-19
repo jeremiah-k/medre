@@ -68,6 +68,7 @@ async def main() -> None:
     settings = json.loads(await asyncio.to_thread(sys.stdin.readline))
     from .ip_peers import chatmail, matrix, xmpp
     from .radio_peers import lxmf, meshcore, meshtastic
+    from .simplex_peer import simplexchat
 
     drivers = {
         "matrix": matrix,
@@ -76,6 +77,7 @@ async def main() -> None:
         "meshtastic": meshtastic,
         "meshcore": meshcore,
         "lxmf": lxmf,
+        "simplexchat": simplexchat,
     }
     await drivers[settings["transport"]](settings)
 

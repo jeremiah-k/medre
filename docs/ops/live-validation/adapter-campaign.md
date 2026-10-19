@@ -2,8 +2,8 @@
 
 Use the native campaign to pass messages from every adapter through MEDRE to
 independent peers on every other adapter. The default topology includes Matrix,
-Meshtastic, MeshCore, LXMF, XMPP, and Chatmail: six source sends exercise all 30
-directed pairs. Matrix rooms, XMPP MUCs, and Chatmail groups are the messaging
+Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat: seven source sends exercise all 42
+directed pairs. Matrix rooms, XMPP MUCs, Chatmail groups, and SimpleX groups are the messaging
 fixtures. Radio peers use the configured private channels or LXMF destinations.
 
 The runner preserves the native bench pattern: keep the runtime and peers alive
@@ -18,19 +18,18 @@ Install the selected providers and their native SDKs in the core development
 environment. Use [dev sync](../../dev/environment.md#work-on-adapters-at-any-location)
 for local editable checkouts at any location. Candidate sources belong in a local
 profile/catalog; do not change committed compatibility pins to run the bench.
-Chatmail can participate before its distribution enters the curated catalog by
-using an explicit local source entry.
 
 For each transport, provide one MEDRE endpoint and one independent native peer:
 
-| Transport  | MEDRE endpoint                                             | Independent peer                                     | Expected sender at the peer                                 |
-| ---------- | ---------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- |
-| Matrix     | Bot joined to a plaintext test room                        | Another joined account                               | Bot Matrix user ID.                                         |
-| Meshtastic | Private-channel radio                                      | Second radio on the same channel/preset              | Bot node number as a decimal string.                        |
-| MeshCore   | Companion radio                                            | Second companion on the same private channel         | Bot's wire-text sender prefix, without the colon and space. |
-| LXMF       | Delivery identity with an isolated Reticulum configuration | Second identity and separate Reticulum configuration | Bot delivery destination hash.                              |
-| XMPP       | Bot joined to an existing unlocked MUC                     | Another account with its own nickname                | Full `room@service/bot-nickname` occupant JID.              |
-| Chatmail   | Configured account in an accepted group                    | Another profile in the same accepted group           | Bot contact ID in the peer profile, as a decimal string.    |
+| Transport    | MEDRE endpoint                                             | Independent peer                                     | Expected sender at the peer                                 |
+| ------------ | ---------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- |
+| Matrix       | Bot joined to a plaintext test room                        | Another joined account                               | Bot Matrix user ID.                                         |
+| Meshtastic   | Private-channel radio                                      | Second radio on the same channel/preset              | Bot node number as a decimal string.                        |
+| MeshCore     | Companion radio                                            | Second companion on the same private channel         | Bot's wire-text sender prefix, without the colon and space. |
+| LXMF         | Delivery identity with an isolated Reticulum configuration | Second identity and separate Reticulum configuration | Bot delivery destination hash.                              |
+| XMPP         | Bot joined to an existing unlocked MUC                     | Another account with its own nickname                | Full `room@service/bot-nickname` occupant JID.              |
+| Chatmail     | Configured account in an accepted group                    | Another profile in the same accepted group           | Bot contact ID in the peer profile, as a decimal string.    |
+| SimpleX Chat | Initialized profile in an accepted group                   | Separate official-SDK profile in the same group      | Bot groupMemberId in the peer profile, as a decimal string. |
 
 Use dedicated test rooms, profiles, and channels. Each radio belongs exclusively
 to either MEDRE or its peer for the run. Stop other bridges using those devices.
@@ -45,6 +44,16 @@ peer's ID. Discover IDs with `medre-chatmail chats --groups --json` in each prof
 The native mail service can be a preconfigured Chatmail relay or a loopback
 SMTP/IMAP fixture. Record which service was used; the latter proves native core
 interop without qualifying the official Chatmail Docker deployment.
+
+SimpleX requires two explicitly initialized native profiles in the same accepted
+group. Provision them using the official client and exchange a private group
+link; keep the link and profile keys outside Git. The peer helper uses the
+official Python SDK directly, independently of MEDRE's adapter and worker.
+Set peer.database_prefix, peer.user_id, and peer.channel (for example group:3).
+Group IDs and member IDs are local to each profile: expected_sender is the
+bot's groupMemberId **as seen by the peer**, discoverable through the official
+SDK's api_list_members. The bot and peer must not open the same native database.
+Native receipt is separate evidence from the adapter's local_queue handoff.
 
 ## Configure and run
 
@@ -73,7 +82,7 @@ uv run --no-sync python -m scripts.adapter_campaign \
 The runner refuses an existing output directory. For a lab with only some
 endpoints ready, select an explicit subset, for example `--only matrix,xmpp,chatmail`.
 The report labels that run partial and lists exactly the six directed pairs it
-covered. Omitting --only requires exactly one endpoint for each of the six
+covered. Omitting --only requires exactly one endpoint for each of the seven
 transports. Missing endpoints or unavailable peers fail the run.
 
 The equivalent opt-in pytest entry point is:
@@ -106,6 +115,8 @@ After the final turn, an observation window checks late duplicates and canonical
 echoes. Every peer and MEDRE must stop cleanly before the report becomes passed.
 Radio runs enforce at least 2.5 seconds between source turns. This is a small
 connectivity campaign, not a load, restart, attachment, or relation conformance run.
+Run provider-owned recovery tiers separately; a successful text campaign cannot
+qualify restart recovery or native feature support.
 
 The output directory has mode 0700 and contains:
 
@@ -123,8 +134,9 @@ recorded in command arguments or the JSON report.
 
 The default suite also runs test_all_adapter_campaign.py with SDK-free providers:
 42 individually named directed-pair cases and a fanout case for each source,
-including SimpleX Chat. The native campaign retains its six qualified transports;
-SimpleX independent-peer delivery requires its own native fixture and helper.
+including SimpleX Chat. The native campaign uses independent peers for all seven
+providers; a missing SimpleX fixture requires an explicit six-transport --only
+selection and reports partial coverage.
 Unavailable provider cases are explicitly skipped. This tier checks routing,
 renderers, storage, addressing, and delivery provenance; native receipt requires
 the opt-in campaign above.
