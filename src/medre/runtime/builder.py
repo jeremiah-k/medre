@@ -670,7 +670,7 @@ class RuntimeBuilder:
             try:
                 adapter = self._build_single_adapter(transport, adapter_id, rtc)
                 adapters[adapter_id] = adapter
-                _logger.info("Constructed adapter %r (%s)", adapter_id, transport)
+                _logger.debug("Constructed adapter %r (%s)", adapter_id, transport)
             except Exception as exc:
                 wrapped = RuntimeConfigError(
                     f"Failed to build adapter {adapter_id!r} " f"({transport}): {exc}"

@@ -99,7 +99,11 @@ def startup_summary(
             lines.append(f"  \u2717 {transport}.{adapter_id}: failed ({err_msg})")
             failed += 1
 
-    if failed == 0:
+    if succeeded == 0:
+        lines.append(
+            f"Runtime startup failed (0/{failed} adapter(s) running, {failed} failed)"
+        )
+    elif failed == 0:
         lines.append(f"Runtime ready ({succeeded} adapter(s) running)")
     else:
         lines.append(

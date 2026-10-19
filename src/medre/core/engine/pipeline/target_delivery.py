@@ -926,12 +926,23 @@ class TargetDeliveryService:
             )
             error: str | None = None
             self._log.info(
-                "Delivered: event_id=%s -> adapter=%s plan=%s attempt=%d " "handoff=%s",
-                event.event_id,
+                "%s: adapter=%s event=%s attempt=%d confirmation=%s",
+                (
+                    "Delivery queued"
+                    if adapter_result.disposition == "deferred"
+                    else "Handoff accepted"
+                ),
                 adapter_id,
-                plan.plan_id,
+                event.event_id,
                 attempt_number,
-                adapter_result.disposition,
+                adapter_result.confirmation_level,
+                extra={
+                    "event_id": event.event_id,
+                    "adapter_id": adapter_id,
+                    "plan_id": plan.plan_id,
+                    "attempt_number": attempt_number,
+                    "handoff": adapter_result.disposition,
+                },
             )
         except asyncio.CancelledError:
             # CancelledError must propagate directly - never caught and

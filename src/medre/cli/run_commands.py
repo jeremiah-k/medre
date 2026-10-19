@@ -172,7 +172,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         _print(
             f"  Routes: {len(enabled_routes)} enabled, "
             f"{len(disabled_routes)} disabled "
-            f"({len(route_list)} total)"
+            f"({len(route_list)} configured)"
         )
 
     # Show storage backend.

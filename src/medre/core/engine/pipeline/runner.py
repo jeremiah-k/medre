@@ -428,7 +428,7 @@ class PipelineRunner:
             raise
 
         self._running = True
-        self._log.info("PipelineRunner started")
+        self._log.debug("PipelineRunner started")
 
     def _populate_renderer_platforms(self) -> None:
         """Register each adapter's platform with the rendering pipeline."""
