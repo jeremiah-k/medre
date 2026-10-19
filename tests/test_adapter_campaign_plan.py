@@ -33,10 +33,10 @@ def manifest(tmp_path, **overrides):
     return path
 
 
-def test_full_plan_names_all_thirty_directed_pairs(tmp_path):
+def test_full_plan_names_all_forty_two_directed_pairs(tmp_path):
     plan = load_plan(manifest(tmp_path))
     assert plan.full
-    assert len(plan.pairs) == len(set(plan.pairs)) == 30
+    assert len(plan.pairs) == len(set(plan.pairs)) == 42
     assert all(source != target for source, target in plan.pairs)
     assert plan.runtime_file == tmp_path / "private-runtime.yaml"
 
@@ -54,7 +54,7 @@ def test_partial_plan_requires_explicit_selection(tmp_path):
     for entry in data["endpoints"].values():
         entry["expected_prefixes"].pop("chatmail", None)
     path.write_text(yaml.safe_dump(data))
-    with pytest.raises(ValueError, match="all six"):
+    with pytest.raises(ValueError, match="all seven"):
         load_plan(path)
     plan = load_plan(path, {"matrix", "xmpp"})
     assert not plan.full
@@ -133,3 +133,41 @@ def test_cli_displays_only_harness_authored_validation_messages(
     monkeypatch.setattr(cli, "load_plan", parser_failure)
     assert cli.main(["--config", str(path)]) == 1
     assert "private-fixture" not in capsys.readouterr().out
+
+
+def test_simplex_bot_and_peer_cannot_share_native_database(tmp_path):
+    from scripts.adapter_campaign.plan import runtime_config
+
+    fixture = tmp_path / "lab"
+    fixture.mkdir()
+    path = manifest(fixture)
+    data = yaml.safe_load(path.read_text())
+    data["endpoints"] = {
+        name: value
+        for name, value in data["endpoints"].items()
+        if name in {"simplexchat", "xmpp"}
+    }
+    for endpoint in data["endpoints"].values():
+        endpoint["expected_prefixes"] = {source: "" for source in data["endpoints"]}
+    data["endpoints"]["simplexchat"]["peer"] = {"database_prefix": "/private/shared"}
+    path.write_text(yaml.safe_dump(data))
+    # Reject ownership overlap before a native peer can touch the profile.
+    (fixture / "private-runtime.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "adapters": {
+                    "simplexchat": {
+                        "simplexchat": {
+                            "adapter_kind": "real",
+                            "database_prefix": "/private/shared",
+                        }
+                    },
+                    "xmpp": {"xmpp": {"adapter_kind": "real"}},
+                }
+            }
+        )
+    )
+    plan = load_plan(path, {"simplexchat", "xmpp"})
+    assert plan.runtime_file == fixture / "private-runtime.yaml"
+    with pytest.raises(ValueError, match="separate native profiles"):
+        runtime_config(plan, tmp_path / "run")

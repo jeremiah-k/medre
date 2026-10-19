@@ -11,7 +11,9 @@ from medre.config.identifiers import adapter_id_problem
 from medre.config.loader import parse_runtime_config
 from medre.config.paths import resolve
 
-TRANSPORTS = frozenset({"matrix", "meshtastic", "meshcore", "lxmf", "xmpp", "chatmail"})
+TRANSPORTS = frozenset(
+    {"matrix", "meshtastic", "meshcore", "lxmf", "xmpp", "chatmail", "simplexchat"}
+)
 RADIOS = frozenset({"meshtastic", "meshcore", "lxmf"})
 
 
@@ -115,7 +117,7 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
         or len(transports) != len(expected)
     ):
         raise PlanError(
-            "Require exactly one endpoint per selected transport; default requires all six"
+            "Require exactly one endpoint per selected transport; default requires all seven"
         )
     # Delivery and presentation are independent qualification facts.
     for source in selected:
@@ -168,6 +170,19 @@ def runtime_config(plan: Plan, directory: Path, *, fake: bool = False):
                 raise PlanError(
                     "Chatmail bot and peer require separate profile directories"
                 )
+        if transport == "simplexchat" and not fake:
+            bot_prefix, peer_prefix = config.get("database_prefix"), peer.get(
+                "database_prefix"
+            )
+            if (
+                not isinstance(bot_prefix, str)
+                or not bot_prefix
+                or not isinstance(peer_prefix, str)
+                or not peer_prefix
+                or Path(bot_prefix + "_chat.db").resolve()
+                == Path(peer_prefix + "_chat.db").resolve()
+            ):
+                raise PlanError("SimpleX bot and peer require separate native profiles")
         selected.setdefault(transport, {})[name] = config
     data["adapters"] = selected
     data["storage"] = {"backend": "sqlite", "path": str(directory / "medre.sqlite3")}

@@ -25,6 +25,19 @@ def write_report(directory: Path, report: dict) -> None:
     temporary.replace(directory / "results.json")
 
 
+def native_expectation(endpoint: dict) -> dict[str, str]:
+    """Capture expected native identity from the fixture, not the outbox."""
+    channel = endpoint["peer"].get("channel", endpoint["channel"])
+    if endpoint["transport"] == "lxmf":
+        channel = endpoint["expected_sender"]
+    return {
+        "transport": endpoint["transport"],
+        "source_channel": endpoint["channel"],
+        "receipt_sender": endpoint["expected_sender"],
+        "receipt_channel": str(channel),
+    }
+
+
 def native_receipt(
     peer: Peer,
     endpoint: dict,
@@ -34,20 +47,17 @@ def native_receipt(
     message: str | None = None,
     max_text_bytes: int | None = None,
 ) -> dict:
-    channel = endpoint["peer"].get("channel", endpoint["channel"])
-    # LXMF addresses the remote destination, not a shared room/channel.
-    if endpoint["transport"] == "lxmf":
-        channel = endpoint["expected_sender"]
+    expected = native_expectation(endpoint)
     hits = [
         record
         for record in peer.records
         if record["kind"] == "received"
         and marker in record["text"]
-        and record["sender"] == endpoint["expected_sender"]
+        and record["sender"] == expected["receipt_sender"]
     ]
     assert len(hits) == 1, f"{peer.name}: missing or duplicate native delivery"
-    assert hits[0]["channel"] == str(
-        channel
+    assert (
+        hits[0]["channel"] == expected["receipt_channel"]
     ), f"{peer.name}: incorrect native conversation"
     assert "café ✓" in hits[0]["text"], f"{peer.name}: UTF-8 body was altered"
     assert "\ufffd" not in hits[0]["text"], f"{peer.name}: invalid UTF-8 rendering"
@@ -136,6 +146,12 @@ async def run(plan: Plan, directory: Path) -> dict:
         "expected_pairs": plan.pairs,
         "completed_pairs": [],
         "cases": [],
+        # Retain fixture-derived expectations separately from the delivery rows
+        # under audit. Never infer trusted destinations from the outbox itself.
+        "native_expectations": {
+            name: native_expectation(endpoint)
+            for name, endpoint in plan.endpoints.items()
+        },
         "presentation_expectations": {
             name: endpoint.get("expected_prefixes", {})
             for name, endpoint in plan.endpoints.items()

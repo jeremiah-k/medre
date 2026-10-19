@@ -64,3 +64,11 @@ adapters:
         - 12
       state_dir: /private/bench/mail-medre-journal
       origin_label: Chatmail lab
+  simplexchat:
+    sx:
+      enabled: true
+      adapter_kind: real
+      database_prefix: /private/bench/simplex-medre/profile
+      user_id: 1
+      chats: ["group:7"]
+      origin_label: SimpleX lab
