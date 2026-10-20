@@ -18,6 +18,7 @@ Two enums control how metadata is serialised and what is retained:
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 import msgspec
 from msgspec.structs import force_setattr
@@ -27,7 +28,7 @@ from msgspec.structs import force_setattr
 # ---------------------------------------------------------------------------
 
 
-class FrozenDict(dict):
+class FrozenDict(dict[Any, Any]):
     """Dict subclass that prevents all mutation after construction.
 
     Provides deep immutability for dict fields in
@@ -36,14 +37,14 @@ class FrozenDict(dict):
     ``True``, so the encoder/decoder handles it transparently).
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         data = dict(*args, **kwargs)
         super().__init__(
             (key, self._freeze_value(value)) for key, value in data.items()
         )
 
     @classmethod
-    def _freeze_value(cls, value):
+    def _freeze_value(cls, value: Any) -> Any:
         if isinstance(value, FrozenDict):
             return value
         if isinstance(value, dict):
@@ -52,28 +53,33 @@ class FrozenDict(dict):
             return tuple(cls._freeze_value(item) for item in value)
         return value
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, value: Any) -> None:
         raise TypeError("immutable mapping does not support item assignment")
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: Any) -> None:
         raise TypeError("immutable mapping does not support item deletion")
 
-    def clear(self):
+    def clear(self) -> None:
         raise TypeError("immutable mapping does not support clear()")
 
-    def pop(self, *args):
+    def pop(self, *args: Any) -> Any:
         raise TypeError("immutable mapping does not support pop()")
 
-    def popitem(self):
+    def popitem(self) -> tuple[Any, Any]:
         raise TypeError("immutable mapping does not support popitem()")
 
-    def setdefault(self, key, default=None):
+    def setdefault(self, key: Any, default: Any = None) -> Any:
         raise TypeError("immutable mapping does not support setdefault()")
 
-    def update(self, *args, **kwargs):
+    def update(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("immutable mapping does not support update()")
 
-    def __ior__(self, other):
+    def __or__(self, other: dict[Any, Any], /) -> dict[Any, Any]:
+        # Delegates to the inherited dict implementation so ``|`` keeps
+        # producing a fresh plain dict, exactly as before.
+        return super().__or__(other)
+
+    def __ior__(self, other: object, /) -> FrozenDict:
         raise TypeError("immutable mapping does not support item assignment")
 
 

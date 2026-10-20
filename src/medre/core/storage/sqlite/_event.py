@@ -9,7 +9,7 @@ Authority surface:
 
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.storage.backend import EventFilter
@@ -34,6 +34,25 @@ class _EventMixin:
     Accesses ``self._write_batch``, ``self._read_one``, ``self._read_all``,
     and ``self._relation_op`` from the base and sibling mixins via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _write_batch(
+            self, ops: list[tuple[str, tuple[Any, ...]]]
+        ) -> None: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
+
+        @staticmethod
+        def _relation_op(
+            event_id: str, relation: EventRelation
+        ) -> tuple[str, tuple[Any, ...]]: ...
 
     async def append(self, event: CanonicalEvent) -> None:
         """Persist a canonical event together with its inline relations.

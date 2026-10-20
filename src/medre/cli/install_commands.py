@@ -56,7 +56,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
         if upgrading:
             from medre.self_upgrade import plan_upgrade
 
-            catalog = (
+            upgrade_catalog = (
                 load_source_catalog(Path(args.sources) if args.sources else None)
                 if args.packages or args.sync_sources
                 else None
@@ -67,7 +67,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 core_only=getattr(args, "core_only", False),
                 adapters_only=args.command == "adapters"
                 or getattr(args, "adapters_only", False),
-                catalog=catalog,
+                catalog=upgrade_catalog,
                 sync_sources=args.sync_sources,
             )
             print(f"Tool environment: {installation.prefix}")

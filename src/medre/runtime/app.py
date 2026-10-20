@@ -25,7 +25,7 @@ import time as _time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from medre.adapter_registry import get_adapter_spec
 from medre.core.delivery_authority import effective_generation
@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from medre.core.planning.fallback_resolution import FallbackResolver
     from medre.core.planning.relation_resolution import RelationResolver
     from medre.core.rendering.renderer import RenderingPipeline
+    from medre.core.routing.models import Route
     from medre.core.routing.router import Router
     from medre.core.routing.stats import RouteStats
     from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -336,7 +337,7 @@ class MedreApp:
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
     _route_eligibility: RouteEligibility | None = field(default=None, init=False)
     _route_provenance: dict[str, str] = field(default_factory=dict, init=False)
-    _registered_routes: tuple = field(default=(), init=False)  # tuple[Route, ...]
+    _registered_routes: tuple[Route, ...] = field(default=(), init=False)
     _startup_readiness: RouteStartupReadiness | None = field(default=None, init=False)
     _event_buffer: EventBuffer | None = field(
         default=None, init=False
@@ -364,7 +365,7 @@ class MedreApp:
 
     # -- Post-init --------------------------------------------------------------
 
-    def __post_init__(self) -> None:  # type: ignore[override]
+    def __post_init__(self) -> None:
         """Initialise mutable containers that cannot use field defaults."""
         self._event_buffer = EventBuffer()
 
@@ -1000,7 +1001,7 @@ class MedreApp:
                     # start.  Cleanup errors are logged but suppressed
                     # so that the original start-failure error is preserved.
                     try:
-                        outcome, _ = await self._stop_adapter_with_deadline(
+                        stop_outcome, _ = await self._stop_adapter_with_deadline(
                             adapter=adapter,
                             adapter_id=adapter_id,
                             transport=transport,
@@ -1036,13 +1037,13 @@ class MedreApp:
                             cleanup_exc,
                         )
                     else:
-                        if outcome == "timeout":
+                        if stop_outcome == "timeout":
                             _logger.debug(
                                 "Timeout stopping adapter %s.%s after start failure",
                                 transport,
                                 adapter_id,
                             )
-                        elif outcome == "abandoned":
+                        elif stop_outcome == "abandoned":
                             _logger.debug(
                                 "Abandoned adapter %s.%s after start failure "
                                 "(event loop will reclaim when shutting down)",
@@ -1496,7 +1497,7 @@ class MedreApp:
         # Drain remaining in-flight work within the shared shutdown deadline.
         capacity_drain_abandoned = False
         if self._capacity_controller is not None:
-            drain_snap: dict | None = None
+            drain_snap: dict[str, Any] | None = None
             while _time.monotonic() < drain_deadline:
                 drain_snap = self._capacity_controller.snapshot()
                 if (
@@ -1561,7 +1562,7 @@ class MedreApp:
             _logger.debug("Adapter %s.%s stopping", transport, adapter_id)
             self._set_adapter_state(adapter_id, AdapterState.STOPPING)
             try:
-                outcome, exc = await self._stop_adapter_with_deadline(
+                outcome, stop_exc = await self._stop_adapter_with_deadline(
                     adapter=adapter,
                     adapter_id=adapter_id,
                     transport=transport,
@@ -1597,12 +1598,12 @@ class MedreApp:
                     adapter_id,
                     timeout,
                 )
-                if exc is not None:
-                    errors.append((adapter_id, exc))
+                if stop_exc is not None:
+                    errors.append((adapter_id, stop_exc))
             else:  # outcome == "abandoned" or "error"
                 self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                if exc is not None:
-                    errors.append((adapter_id, exc))
+                if stop_exc is not None:
+                    errors.append((adapter_id, stop_exc))
 
         # Also stop any adapters that were in self.adapters but not in
         # started_adapter_ids (e.g. if start() was never called, or start()
@@ -2041,6 +2042,7 @@ class MedreApp:
         in-flight deliveries are tracked by the pipeline runner.
         """
         from medre.core.events.canonical import DeliveryReceipt
+        from medre.core.events.delivery import DeliverySource
         from medre.core.planning.delivery_plan import DeliveryFailureKind
 
         abandoned = self.pipeline_runner.drain_abandoned_deliveries()
@@ -2081,7 +2083,7 @@ class MedreApp:
                 created_at=now,
                 attempt_number=attempt_number,
                 parent_receipt_id=None,
-                source=inflight.source,
+                source=cast(DeliverySource, inflight.source),
                 replay_run_id=inflight.replay_run_id,
                 outbox_id=inflight.outbox_id,
             )
@@ -2591,7 +2593,8 @@ class MedreApp:
         )
         pending = getattr(self, "_pressure_pending", None)
         if pending is None:
-            pending = self._pressure_pending = {}
+            fresh: dict[tuple[str, str, int], tuple[int, int, int]] = {}
+            pending = self._pressure_pending = fresh
         # Capture the aligned window at refusal time: a flush delayed
         # across a minute boundary must not merge refusals from different
         # windows into the later aggregate.
@@ -2761,7 +2764,7 @@ class MedreApp:
             AttachmentRuntimeSeam,
             AttachmentTransferPermits,
         )
-        from medre.core.storage.sqlite.storage import StorageAttachmentAccess
+        from medre.core.storage.sqlite._attachments import StorageAttachmentAccess
 
         self._attachment_permits = None
         self._attachment_limits = None

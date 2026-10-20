@@ -18,14 +18,16 @@ Derived helpers:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from medre.core.events.canonical import (
     DeliveryObservation,
     DeliveryReceipt,
     NativeMessageRef,
 )
-from medre.core.evidence.capability import derive_capability_evidence
+from medre.core.evidence.capability import (
+    CapabilityEvidence,
+    derive_capability_evidence,
+)
 from medre.core.evidence.failure_taxonomy import compute_retryable as _compute_retryable
 from medre.core.evidence.failure_taxonomy import (
     derive_failure_kind_detail as _derive_failure_kind_detail,
@@ -125,7 +127,7 @@ def _derive_capability_evidence(
     capability_field: str | None = None,
     capability_reason: str | None = None,
     delivery_strategy: str | None = None,
-) -> dict[str, Any]:
+) -> CapabilityEvidence:
     """Return sanitized report-facing capability evidence for one receipt.
 
     The core helper owns structured-field derivation; runtime reporting adds
@@ -197,7 +199,7 @@ def delivery_receipt_to_report_dict(
         receipt.status,
         _next_retry_at,
     )
-    cap_evidence: dict[str, Any] = _derive_capability_evidence(
+    cap_evidence: CapabilityEvidence = _derive_capability_evidence(
         receipt.error,
         receipt.failure_kind,
         receipt.status,

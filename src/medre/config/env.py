@@ -55,7 +55,7 @@ import dataclasses
 import os
 import re
 from dataclasses import dataclass, field, fields
-from typing import Any, Self, get_args, get_origin, get_type_hints
+from typing import Any, Self, cast, get_args, get_origin, get_type_hints
 
 from medre.adapter_registry import get_adapter_spec, registered_transports
 from medre.config.errors import ConfigValidationError
@@ -66,7 +66,7 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
-from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet, route_directionality
 from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
@@ -450,7 +450,8 @@ def _get_field_type(transport: str, field_name: str) -> type | None:
     hint = hints.get(field_name)
     if hint is None:
         return None
-    return _unwrap_optional_type(hint)
+    # Reflection boundary: the unwrapped annotation object is a type.
+    return cast("type | None", _unwrap_optional_type(hint))
 
 
 def _is_set_type(hint: type | None) -> bool:
@@ -515,7 +516,7 @@ class ParsedAdapterEnvValue:
 
 
 def _parse_adapter_env_vars(
-    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+    environ: dict[str, str] | os._Environ[str],
 ) -> dict[str, dict[str, ParsedAdapterEnvValue]]:
     """Parse ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` vars from *environ*.
 
@@ -573,7 +574,7 @@ def _parse_adapter_env_vars(
 
 
 def _parse_route_env_vars(
-    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+    environ: dict[str, str] | os._Environ[str],
 ) -> dict[str, dict[str, ParsedAdapterEnvValue]]:
     """Parse ``MEDRE_ROUTE__<TOKEN>__<FIELD>`` vars from *environ*.
 
@@ -646,7 +647,7 @@ def _parse_route_env_vars(
 
 
 def _parse_retry_env_vars(
-    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+    environ: dict[str, str] | os._Environ[str],
 ) -> dict[str, ParsedAdapterEnvValue]:
     """Parse ``MEDRE_RETRY__<FIELD>`` vars from *environ*.
 
@@ -704,7 +705,7 @@ def _parse_retry_env_vars(
 
 
 def _parse_attachment_env_vars(
-    environ: dict[str, str] | os._Environ[str],  # type: ignore[attr-defined]
+    environ: dict[str, str] | os._Environ[str],
 ) -> dict[str, ParsedAdapterEnvValue]:
     """Parse ``MEDRE_ATTACHMENTS__<FIELD>`` vars from *environ*.
 
@@ -1210,7 +1211,7 @@ def apply_instance_env_overrides(
             )
 
         # Coerce each config field from its env-var string value.
-        config_kwargs: dict[str, Any] = {}
+        config_kwargs = {}
         for field_name in config_field_names:
             parsed = field_map[field_name]
             field_type = _get_field_type(transport, field_name)
@@ -1304,7 +1305,7 @@ def _build_route_data_from_env_fields(
         route_data: dict[str, Any] = {
             "source_adapters": list(existing.source_adapters),
             "dest_adapters": list(existing.dest_adapters),
-            "directionality": existing.directionality.value,
+            "directionality": route_directionality(existing).value,
             "priority": existing.priority,
             "ownership": existing.ownership,
             "enabled": existing.enabled,

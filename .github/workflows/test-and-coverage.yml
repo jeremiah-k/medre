@@ -76,6 +76,10 @@ jobs:
       - run: uvx --from ruff==0.17.0 ruff check src tests scripts
       - run: uvx --from black==26.10.1 black --check --target-version py311 src tests scripts
       - run: git show --format= --check HEAD
+      - name: Check core source with strict mypy
+        run: |
+          uv sync --locked --extra dev
+          uv run --no-sync mypy --no-incremental src/medre
 
   adapter-plan:
     runs-on: ubuntu-latest

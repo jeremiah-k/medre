@@ -32,8 +32,9 @@ import os
 import re
 import sqlite3
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, ParamSpec, Self, TypeVar
 
 from medre.core.storage.backend import (
     DuplicateEventError,
@@ -89,6 +90,9 @@ from medre.core.storage.sqlite.schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ParamT = ParamSpec("_ParamT")
+_RetT = TypeVar("_RetT")
 
 
 def _skip_sql_quoted_or_comment(sql: str, index: int) -> int | None:
@@ -203,7 +207,12 @@ class _SQLiteStorageBase:
 
     # -- Internal helpers ---------------------------------------------------
 
-    async def _run_in_thread(self, func, *args, **kwargs):
+    async def _run_in_thread(
+        self,
+        func: Callable[_ParamT, _RetT],
+        *args: _ParamT.args,
+        **kwargs: _ParamT.kwargs,
+    ) -> _RetT:
         """Run a synchronous function in the private executor."""
         if self._closed:
             raise RuntimeError("SQLiteStorage is closed.")
@@ -469,7 +478,7 @@ class _SQLiteStorageBase:
         await self._run_in_thread(sync_create_indexes, self._require_db())
 
     @classmethod
-    async def open_readonly(cls, db_path: str) -> SQLiteStorage:
+    async def open_readonly(cls, db_path: str) -> Self:
         """Open an existing database in strict read-only mode.
 
         Does **not** create the database file, tables, indexes, or metadata

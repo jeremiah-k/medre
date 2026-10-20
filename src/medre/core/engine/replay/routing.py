@@ -5,17 +5,21 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
-from typing import AbstractSet, Any
+from typing import TYPE_CHECKING, AbstractSet, Any, cast
 
 import msgspec
 
 from medre.core.engine.replay.helpers import _elapsed_ms
+from medre.core.engine.replay.protocols import _RealPipelineProtocol
 from medre.core.engine.replay.types import (
     ReplayRequest,
     ReplayResult,
     ReplayRouteAttribution,
 )
 from medre.core.events import CanonicalEvent
+
+if TYPE_CHECKING:
+    from medre.core.observability.metrics import Diagnostician
 
 _logger = logging.getLogger(__name__)
 
@@ -186,6 +190,11 @@ class _ReplayRoutingMixin:
     host class via MRO.
     """
 
+    if TYPE_CHECKING:
+
+        _pipeline: _RealPipelineProtocol | None
+        _diagnostician: Diagnostician | None
+
     async def _stage_route(
         self,
         event: CanonicalEvent,
@@ -258,7 +267,7 @@ class _ReplayRoutingMixin:
             if isinstance(result, tuple) and len(result) == 2:
                 event, routes = result
             else:
-                routes = result  # type: ignore[assignment]
+                routes = cast("list[tuple[Any, Any]]", result)
 
             # Filter by explicit route_ids when provided.
             if requested_route_ids:

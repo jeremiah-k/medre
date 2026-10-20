@@ -952,7 +952,7 @@ def build_route_adapter_boundary_report(
             )
         )
 
-    def sort_key(v):
+    def sort_key(v: BoundaryViolation) -> tuple[str, str, int]:
         return (v.source, v.target, v.line)
 
     return RouteAdapterBoundaryReport(

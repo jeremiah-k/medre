@@ -12,8 +12,9 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
@@ -232,7 +233,8 @@ def _receipt_requirement(value: object) -> str:
         raise ToolManagementError(
             "Unsupported uv requirement settings; manage this installation with uv directly."
         )
-    name = value["name"]
+    # Guarded by the ``isinstance(value.get("name"), str)`` check above.
+    name: str = value["name"]
     extras = value.get("extras", [])
     if not isinstance(extras, list) or any(
         not isinstance(e, str) or re.fullmatch(_NAME, e) is None for e in extras
@@ -272,7 +274,12 @@ def _receipt_requirement(value: object) -> str:
         if "subdirectory" in value:
             name += _subdirectory_fragment(value["subdirectory"])
     elif "path" in value or "directory" in value:
-        path = Path(value.get("path", value.get("directory")))
+        # Receipt entries are JSON-decoded; one of the two keys is present
+        # by the receipt schema, and a missing pair still fails closed in
+        # ``Path`` exactly as before.
+        path = Path(
+            cast("str | PathLike[str]", value.get("path", value.get("directory")))
+        )
         if not path.is_absolute():
             raise ToolManagementError(
                 "Relative paths in uv receipts require direct uv management."

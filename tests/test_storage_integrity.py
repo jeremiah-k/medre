@@ -887,3 +887,11 @@ class TestPublicCountMethods:
     ) -> None:
         """count_receipts_by_source returns 0 for a source that has no matches."""
         assert await temp_storage.count_receipts_by_source("nonexistent") == 0
+
+
+def test_public_readonly_return_annotation_resolves_at_runtime() -> None:
+    from typing import Self, get_type_hints
+
+    hints = get_type_hints(SQLiteStorage.open_readonly)
+    assert hints["db_path"] is str
+    assert hints["return"] is Self

@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from medre.core.engine.replay.helpers import _elapsed_ms
+from medre.core.engine.replay.protocols import _StubPipelineProtocol
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent
 from medre.core.planning.capabilities import resolve_adapter_capabilities
 from medre.core.planning.capability_decision import resolver as _resolver
+
+if TYPE_CHECKING:
+    from medre.core.engine.replay.protocols import _RealPipelineProtocol
+    from medre.core.observability.metrics import Diagnostician
+    from medre.core.supervision.accounting import RuntimeAccounting
+    from medre.core.supervision.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
 # Capability filter result types
@@ -198,7 +205,7 @@ def _filter_plans_by_capability(
     # Replay can process many plans targeting the same adapter; resolving
     # capabilities is deterministic per adapter so caching is safe.
     _caps_cache: dict[str, Any] = {}
-    _decision_cache: dict[tuple[str, str], Any] = {}
+    _decision_cache: dict[tuple[str | None, str], Any] = {}
 
     kept: list[Any] = []
     suppressed: list[_CapabilitySuppressedPlan] = []
@@ -282,6 +289,13 @@ class _ReplayDeliveryMixin:
     Existing rows are never rewritten as another generation and receipts remain
     append-only.
     """
+
+    if TYPE_CHECKING:
+
+        _pipeline: _RealPipelineProtocol | None
+        _diagnostician: Diagnostician | None
+        _capacity_controller: CapacityController | None
+        _accounting: RuntimeAccounting | None
 
     async def _stage_deliver(
         self,
@@ -440,7 +454,11 @@ class _ReplayDeliveryMixin:
                 # Note: the stub protocol does not carry source/replay_run_id
                 # metadata.  This path is test-only; real replay delivery
                 # always uses deliver_to_targets with source="replay".
-                receipts = await self._pipeline.deliver(event, plan_result)
+                # The data-shape check above is the runtime validation that
+                # a stub pipeline collaborator is in use here.
+                receipts = await cast(_StubPipelineProtocol, self._pipeline).deliver(
+                    event, plan_result
+                )
                 replay_output = _replay_delivery_envelope(receipts)
 
             # Mixed BEST_EFFORT outcome: some plans delivered, others

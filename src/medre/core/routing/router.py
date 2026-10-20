@@ -13,10 +13,30 @@ intended to be called from the framework's event processing pipeline.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Protocol
 
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 from medre.core.routing.models import Route, RouteSource, RouteTarget
+
+
+class RouteMatchableEvent(Protocol):
+    """Structural subset of a canonical event that the source matcher reads.
+
+    :class:`~medre.core.events.canonical.CanonicalEvent` satisfies this;
+    offline tooling (route explanation) may supply any object carrying the
+    same three fields.
+    """
+
+    @property
+    def source_adapter(self) -> str: ...
+
+    @property
+    def event_kind(self) -> str: ...
+
+    @property
+    def source_channel_id(self) -> str | None: ...
+
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -48,7 +68,7 @@ class RouteConflictError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def _source_matches(source: RouteSource, event: CanonicalEvent) -> bool:
+def _source_matches(source: RouteSource, event: RouteMatchableEvent) -> bool:
     """Return ``True`` if *source* matches *event*.
 
     A source matches when **all** non-``None`` filters pass:
@@ -194,7 +214,7 @@ class Router:
 
     # -- Query ------------------------------------------------------------
 
-    def match(self, event: CanonicalEvent) -> list[Route]:
+    def match(self, event: RouteMatchableEvent) -> list[Route]:
         """Return all routes whose source filter matches *event*.
 
         Only enabled routes are considered. Routes are returned in
@@ -204,7 +224,8 @@ class Router:
         Parameters
         ----------
         event:
-            The canonical event to match against.
+            The canonical event to match against.  Any object carrying the
+            matcher's three source fields satisfies this structurally.
 
         Returns
         -------

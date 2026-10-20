@@ -63,7 +63,7 @@ Design constraints
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from medre.core.lifecycle.states import VALID_TRANSITIONS, AdapterState
 
@@ -130,7 +130,8 @@ def _enum_value(obj: Any) -> str | None:
     if obj is None:
         return None
     if hasattr(obj, "value"):
-        return obj.value
+        # Enum-like boundary: ``.value`` is the plain string form.
+        return cast(str, obj.value)
     if isinstance(obj, str):
         return obj
     return str(obj)
@@ -390,9 +391,9 @@ class AdapterStatusEvidence:
 def build_adapter_status_evidence(
     adapter_id: str,
     *,
-    config: Any | dict | None = None,
+    config: Any | dict[str, Any] | None = None,
     lifecycle_state: Any | str | None = None,
-    health: Any | str | dict | None = None,
+    health: Any | str | dict[str, Any] | None = None,
     transport: str | None = None,
     failure_category: str | None = None,
     failure_reason: str | None = None,

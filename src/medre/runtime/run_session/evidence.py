@@ -48,7 +48,7 @@ async def _poll_for_receipts(
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         try:
-            receipts = await storage.list_receipts_for_event(event_id)
+            receipts: list[Any] = await storage.list_receipts_for_event(event_id)
             observed = {
                 (receipt.route_id, receipt.target_adapter)
                 for receipt in receipts
@@ -68,7 +68,8 @@ async def _poll_for_receipts(
 
     # Final attempt.
     try:
-        return await storage.list_receipts_for_event(event_id)
+        final_receipts: list[Any] = await storage.list_receipts_for_event(event_id)
+        return final_receipts
     except Exception:
         # cleanup-silent: deadline expired; return [] so the caller
         # surfaces "no receipts" rather than the storage error.

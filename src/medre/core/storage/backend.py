@@ -11,7 +11,7 @@ satisfy, along with helper types used throughout the storage subsystem:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
@@ -54,7 +54,7 @@ from medre.core.ingress import (
 
 
 @cache
-def _get_is_terminal_outbox_status():  # type: ignore[no-untyped-def]
+def _get_is_terminal_outbox_status() -> Callable[[str], bool]:
     from medre.core.engine.pipeline.delivery_state import (
         is_terminal_outbox_status,
     )
@@ -63,7 +63,7 @@ def _get_is_terminal_outbox_status():  # type: ignore[no-untyped-def]
 
 
 @cache
-def _get_is_claimable_outbox_status():  # type: ignore[no-untyped-def]
+def _get_is_claimable_outbox_status() -> Callable[[str], bool]:
     from medre.core.engine.pipeline.delivery_state import (
         is_claimable_outbox_status,
     )

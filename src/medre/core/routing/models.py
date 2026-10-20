@@ -15,7 +15,7 @@ which is mutable to allow runtime enable/disable toggling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from medre.core.events.metadata import FrozenDict
 
@@ -88,7 +88,7 @@ class RouteDestination:
     kind: str
     destination_hash: str | None
     destination_name: str | None
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Deep-freeze metadata so RouteDestination values are recursively

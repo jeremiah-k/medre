@@ -20,11 +20,14 @@ with no I/O and no dependency on config, runtime, or adapter packages.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 __all__ = [
     "BLOCKED_VALUE_CUTOFF",
     "RouteDecision",
     "RoutePolicy",
+    "RoutePolicyEvent",
+    "RoutePolicyTarget",
     "evaluate_route_policy",
 ]
 
@@ -161,14 +164,50 @@ def _allow(policy: RoutePolicy) -> RouteDecision:
 
 
 # ---------------------------------------------------------------------------
+# Structural event/target views used by the evaluator
+# ---------------------------------------------------------------------------
+
+
+class RoutePolicyEvent(Protocol):
+    """Duck-typed view of the event attributes the evaluator reads.
+
+    :class:`~medre.core.events.canonical.CanonicalEvent` satisfies this
+    structurally; tests may supply any object carrying the same fields.
+    """
+
+    @property
+    def source_adapter(self) -> str: ...
+
+    @property
+    def source_transport_id(self) -> str: ...
+
+    @property
+    def source_channel_id(self) -> str | None: ...
+
+
+class RoutePolicyTarget(Protocol):
+    """Duck-typed view of the route-target attributes the evaluator reads.
+
+    :class:`~medre.core.routing.models.RouteTarget` satisfies this
+    structurally; tests may supply any object carrying the same fields.
+    """
+
+    @property
+    def adapter(self) -> str | None: ...
+
+    @property
+    def channel(self) -> str | None: ...
+
+
+# ---------------------------------------------------------------------------
 # Evaluator
 # ---------------------------------------------------------------------------
 
 
 def evaluate_route_policy(
     policy: RoutePolicy,
-    event: object,
-    target: object,
+    event: RoutePolicyEvent,
+    target: RoutePolicyTarget,
 ) -> RouteDecision:
     """Evaluate *policy* against *event* and *target*, returning a decision.
 
@@ -202,7 +241,7 @@ def evaluate_route_policy(
       room identifiers typically appear there).
     """
     # -- Source adapter -------------------------------------------------------
-    src_adapter: str = event.source_adapter  # type: ignore[union-attr]
+    src_adapter: str = event.source_adapter
     if (
         policy.allowed_source_adapters
         and src_adapter not in policy.allowed_source_adapters
@@ -214,7 +253,7 @@ def evaluate_route_policy(
         )
 
     # -- Dest adapter ---------------------------------------------------------
-    dst_adapter: str | None = target.adapter  # type: ignore[union-attr]
+    dst_adapter: str | None = target.adapter
     if policy.allowed_dest_adapters and (
         dst_adapter is None or dst_adapter not in policy.allowed_dest_adapters
     ):
@@ -225,7 +264,7 @@ def evaluate_route_policy(
         )
 
     # -- Sender ---------------------------------------------------------------
-    sender: str = event.source_transport_id  # type: ignore[union-attr]
+    sender: str = event.source_transport_id
     if policy.sender_allowlist and sender not in policy.sender_allowlist:
         return _deny(
             _REASON_SENDER,
@@ -234,7 +273,7 @@ def evaluate_route_policy(
         )
 
     # -- Room -----------------------------------------------------------------
-    source_channel_id: str | None = event.source_channel_id  # type: ignore[union-attr]
+    source_channel_id: str | None = event.source_channel_id
     if policy.room_allowlist and (
         source_channel_id is None or source_channel_id not in policy.room_allowlist
     ):
@@ -245,7 +284,7 @@ def evaluate_route_policy(
         )
 
     # -- Channel --------------------------------------------------------------
-    target_channel: str | None = target.channel  # type: ignore[union-attr]
+    target_channel: str | None = target.channel
     effective_channel = (
         target_channel if target_channel is not None else source_channel_id
     )

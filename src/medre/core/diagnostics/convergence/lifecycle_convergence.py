@@ -61,7 +61,7 @@ def build_lifecycle_convergence_findings(
 
     if now_fn is None:
 
-        def _default_now():
+        def _default_now() -> datetime:
             return datetime.now(timezone.utc)
 
         now_fn = _default_now

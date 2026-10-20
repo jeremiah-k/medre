@@ -29,7 +29,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Iterable, Protocol
+from typing import Any, Iterable, Protocol
 
 __all__ = [
     "CapacityController",
@@ -120,6 +120,11 @@ class CapacityController:
         :class:`~medre.config.model.RuntimeLimits` satisfies this
         protocol without a direct import dependency.
     """
+
+    # Tag for run-session synthetic capacity scenarios: marks a controller
+    # instance as scenario-owned so cleanup releases only that reservation
+    # and never live runtime work.  Defaults to ``False`` (runtime-owned).
+    _run_session_synthetic_capacity_slot: bool = False
 
     def __init__(self, limits: _Limits) -> None:
         self._delivery_sem = asyncio.Semaphore(limits.max_inflight_deliveries)
@@ -542,7 +547,7 @@ class CapacityController:
 
     # -- Diagnostics ----------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         """Return a deterministic, JSON-safe snapshot of capacity counters.
 
         Keys are alphabetically sorted and contain no secrets or raw

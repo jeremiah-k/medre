@@ -17,6 +17,8 @@ Authority surface:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from medre.core.events import NativeMessageRef
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
@@ -54,6 +56,18 @@ class _NativeRefMixin:
     Accesses ``self._read_one``, ``self._read_all``, and ``self._write``
     from the base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         """Persist a native-to-canonical message mapping.
@@ -97,7 +111,7 @@ class _NativeRefMixin:
             _RESOLVE_NATIVE_REF,
             (adapter, native_channel_id, native_message_id),
         )
-        return row["event_id"] if row else None
+        return str(row["event_id"]) if row else None
 
     async def get_native_ref(
         self,

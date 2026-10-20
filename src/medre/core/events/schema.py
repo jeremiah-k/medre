@@ -27,7 +27,7 @@ publishes a stable release contract.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, TypeGuard
 
 import msgspec
 
@@ -70,7 +70,7 @@ class SchemaVersion(msgspec.Struct, frozen=True):
             raise ValueError("version must be a positive integer")
 
 
-def _is_valid_schema_version(value: object) -> bool:
+def _is_valid_schema_version(value: object) -> TypeGuard[int]:
     """Return whether *value* is a supported schema-version identifier."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 

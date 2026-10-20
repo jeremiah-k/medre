@@ -14,8 +14,10 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.tool_management import (
@@ -336,7 +338,11 @@ def _test_installed_adapter(
     # Restrict discovery to this interpreter's installed site-packages.
     installed = {}
     for distribution in importlib.metadata.distributions(path=site.getsitepackages()):
-        raw_name = distribution.metadata.get("Name")
+        # ``PackageMetadata`` is a message-style mapping at runtime but the
+        # stdlib protocol types only ``__getitem__``; read through the
+        # mapping view it actually implements.
+        metadata = cast(Mapping[str, str], distribution.metadata)
+        raw_name = metadata.get("Name")
         if not isinstance(raw_name, str):
             continue
         try:

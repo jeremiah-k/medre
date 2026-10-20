@@ -94,7 +94,7 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
             native_thread_id=row.get("target_native_thread_id"),
         )
     return EventRelation(
-        relation_type=row["relation_type"],  # type: ignore[arg-type]
+        relation_type=row["relation_type"],
         target_event_id=row["target_event_id"],
         target_native_ref=target_native_ref,
         key=row["key"],
@@ -116,7 +116,7 @@ def _row_to_delivery_observation(row: dict[str, Any]) -> DeliveryObservation:
         outbox_id=row["outbox_id"],
         attempt_number=row["attempt_number"],
         adapter_message_id=row.get("adapter_message_id"),
-        state=row["state"],  # type: ignore[arg-type]
+        state=row["state"],
         confirmation_level=row.get("confirmation_level") or "unknown",
         error=row.get("error"),
         metadata=_decode_json(row.get("metadata") or "{}"),
@@ -139,8 +139,8 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         target_adapter=row["target_adapter"],
         target_channel=row.get("target_channel"),
         route_id=row.get("route_id", ""),
-        status=row["status"],  # type: ignore[arg-type]
-        receipt_kind=row.get("receipt_kind"),  # type: ignore[arg-type]
+        status=row["status"],
+        receipt_kind=row.get("receipt_kind"),
         error=row["error"],
         failure_kind=row.get("failure_kind"),
         capability_level=row.get("capability_level"),

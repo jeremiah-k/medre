@@ -28,16 +28,18 @@ dev = [
   "pytest-cov==7.1.0",
   "coverage==7.16.2",
   "build==1.6.1",
-  "setuptools==84.0.0",
+  "setuptools==84.2.0",
   "jsonschema==4.26.0",
   "packaging==26.3",
+  "mypy==2.4.0",
+  "types-PyYAML==6.0.12.20260906",
 ]
 
 [project.scripts]
 medre = "medre.cli:main"
 
 [build-system]
-requires = ["setuptools==84.0.0"]
+requires = ["setuptools==84.2.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -98,3 +100,10 @@ ignore = [
   "ASYNC240",
   "ASYNC250",
 ]
+
+[tool.mypy]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+python_version = "3.11"
+strict = true
+explicit_package_bases = true
+follow_imports = "silent"

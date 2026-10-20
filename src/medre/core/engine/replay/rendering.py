@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from medre.core.engine.replay.helpers import _elapsed_ms
+from medre.core.engine.replay.protocols import _RealPipelineProtocol
 from medre.core.engine.replay.types import ReplayMode, ReplayResult
 from medre.core.events import CanonicalEvent
+
+if TYPE_CHECKING:
+    from medre.core.observability.metrics import Diagnostician
 
 _logger = logging.getLogger(__name__)
 
@@ -15,10 +21,16 @@ _logger = logging.getLogger(__name__)
 class _ReplayRenderingMixin:
     """Mixin providing the render stage for replay execution."""
 
-    def _explicit_pipeline_method(self, name: str):
+    if TYPE_CHECKING:
+
+        _pipeline: _RealPipelineProtocol | None
+        _diagnostician: Diagnostician | None
+
+    def _explicit_pipeline_method(self, name: str) -> Callable[..., Any] | None:
         """Return a real/explicit pipeline method without mock phantom attrs."""
         if self._pipeline is None:
             return None
+        candidate: Callable[..., Any] | None
         if getattr(type(self._pipeline), name, None) is not None:
             candidate = getattr(self._pipeline, name)
         else:

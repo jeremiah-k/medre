@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import os
 import sys
 import warnings
 from dataclasses import fields, replace
 from pathlib import Path
+from typing import Any
 
 from medre.adapter_registry import get_adapter_spec
 from medre.adapter_spec import AdapterSpec, NativeSetupField
@@ -83,9 +85,9 @@ def _next_output_path(path: Path, suffix: str) -> Path:
     return candidate
 
 
-def _config_native(args) -> None:
+def _config_native(args: argparse.Namespace) -> None:
     """Collect provider-declared values, validate, and create a new private YAML."""
-    document: dict = {}
+    document: dict[str, Any] = {}
     saved = False
     saving = False
     output = Path(args.output).expanduser().absolute()

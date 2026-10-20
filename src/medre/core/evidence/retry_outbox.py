@@ -330,7 +330,7 @@ def _build_receipt_only_summary(receipt: Any) -> RetryOutboxItemSummary:
 # ---------------------------------------------------------------------------
 
 
-def _item_sort_key(s: RetryOutboxItemSummary) -> tuple:
+def _item_sort_key(s: RetryOutboxItemSummary) -> tuple[str | int, ...]:
     return (
         s.event_id or "",
         s.delivery_plan_id or "",

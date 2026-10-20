@@ -3,14 +3,28 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from medre.core.engine.replay.helpers import _elapsed_ms
+from medre.core.engine.replay.protocols import _StubPipelineProtocol
 from medre.core.engine.replay.types import ReplayResult
 from medre.core.events import CanonicalEvent
 
 
 class _ReplayPlanningMixin:
+    """Replay planning stage mixin.
+
+    Relies on ``self._pipeline`` and ``self._diagnostician`` being set by
+    the concrete base class via MRO.
+    """
+
+    if TYPE_CHECKING:
+        from medre.core.engine.replay.protocols import _RealPipelineProtocol
+        from medre.core.observability.metrics import Diagnostician
+
+        _pipeline: _RealPipelineProtocol | None
+        _diagnostician: Diagnostician | None
+
     async def _stage_plan(
         self,
         event: CanonicalEvent,
@@ -103,7 +117,11 @@ class _ReplayPlanningMixin:
                 "cannot build delivery plans for event_id=" + event.event_id
             )
         try:
-            plans = await self._pipeline.plan_delivery(event, route_result)
+            # Stub pipelines expose plan_delivery outside the real pipeline
+            # protocol; the hasattr guard above is the runtime validation.
+            plans = await cast(_StubPipelineProtocol, self._pipeline).plan_delivery(
+                event, route_result
+            )
             return (
                 ReplayResult(
                     event_id=event.event_id,

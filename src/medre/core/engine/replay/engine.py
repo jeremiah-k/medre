@@ -229,7 +229,7 @@ class ReplayEngine(
                         yield result
         else:
             event_filter = _request_to_filter(request)
-            async for event in self._storage.query(event_filter):  # type: ignore[union-attr]
+            async for event in self._storage.query(event_filter):
                 if self._cancel_event.is_set():
                     _logger.info("Replay cancelled --- stopping event iteration")
                     return

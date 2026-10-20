@@ -8,6 +8,7 @@ but are never serialized back into it. No adapters or SDKs are instantiated.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from medre.adapter_registry import get_adapter_spec
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
@@ -138,10 +139,10 @@ class BridgeAuthoring:
 
     def precheck(
         self, request: BridgeRequest, *, require_contexts: bool = True
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Validate template-specific replacement constraints before prompting."""
         precheck_bridge(self.config, request, require_contexts=require_contexts)
-        original: dict | None = None
+        original: dict[str, Any] | None = None
         if request.replace_route:
             # Do not flatten arbitrary route policy, structured destinations,
             # retry settings or operator extensions into a text-only bridge.

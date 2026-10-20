@@ -45,12 +45,12 @@ class EventMetrics:
     {'ingressed': {'message.created': 1}, 'stored': {'message.created': 1}, ...}
     """
 
-    events_ingressed: Counter = field(default_factory=Counter)
-    events_stored: Counter = field(default_factory=Counter)
-    events_routed: Counter = field(default_factory=Counter)
-    events_delivered: Counter = field(default_factory=Counter)
-    events_dropped: Counter = field(default_factory=Counter)
-    events_failed: Counter = field(default_factory=Counter)
+    events_ingressed: Counter[str] = field(default_factory=Counter)
+    events_stored: Counter[str] = field(default_factory=Counter)
+    events_routed: Counter[str] = field(default_factory=Counter)
+    events_delivered: Counter[str] = field(default_factory=Counter)
+    events_dropped: Counter[str] = field(default_factory=Counter)
+    events_failed: Counter[str] = field(default_factory=Counter)
 
     # -- Recording methods --------------------------------------------------
 
@@ -80,7 +80,7 @@ class EventMetrics:
 
     # -- Reporting ----------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, dict[str, int]]:
         """Return a plain-dict copy of all counters for reporting.
 
         Returns
@@ -119,13 +119,13 @@ class Diagnostician:
     {'discord': 1}
     """
 
-    planner_failures: Counter = field(default_factory=Counter)
-    renderer_failures: Counter = field(default_factory=Counter)
-    storage_failures: Counter = field(default_factory=Counter)
-    adapter_failures: Counter = field(default_factory=Counter)
-    replay_skips: Counter = field(default_factory=Counter)
-    replay_downgrades: Counter = field(default_factory=Counter)
-    correlation_misses: Counter = field(default_factory=Counter)
+    planner_failures: Counter[str] = field(default_factory=Counter)
+    renderer_failures: Counter[str] = field(default_factory=Counter)
+    storage_failures: Counter[str] = field(default_factory=Counter)
+    adapter_failures: Counter[str] = field(default_factory=Counter)
+    replay_skips: Counter[str] = field(default_factory=Counter)
+    replay_downgrades: Counter[str] = field(default_factory=Counter)
+    correlation_misses: Counter[str] = field(default_factory=Counter)
 
     # -- Recording methods --------------------------------------------------
 
@@ -240,7 +240,7 @@ class Diagnostician:
 
     # -- Reporting ----------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, dict[str, int]]:
         """Return a plain-dict copy of all diagnostic counters.
 
         Returns
@@ -281,10 +281,10 @@ class RouteMetrics:
     {'route-a': {'delivered': 1, 'failed': 0, 'skipped': 0, 'loop_prevented': 0}, ...}
     """
 
-    route_delivered: Counter = field(default_factory=Counter)
-    route_failed: Counter = field(default_factory=Counter)
-    route_skipped: Counter = field(default_factory=Counter)
-    route_loop_prevented: Counter = field(default_factory=Counter)
+    route_delivered: Counter[str] = field(default_factory=Counter)
+    route_failed: Counter[str] = field(default_factory=Counter)
+    route_skipped: Counter[str] = field(default_factory=Counter)
+    route_loop_prevented: Counter[str] = field(default_factory=Counter)
 
     # -- Recording methods --------------------------------------------------
 

@@ -66,6 +66,7 @@ def _config_check(config_path: str | None) -> None:
     from medre.config.env import apply_env_overrides
     from medre.config.errors import ConfigValidationError
     from medre.config.loader import load_config
+    from medre.config.routes import route_directionality
 
     try:
         config, source, paths = load_config(config_path)
@@ -180,7 +181,7 @@ def _config_check(config_path: str | None) -> None:
     else:
         for route in route_list:
             status = "enabled" if route.enabled else "disabled"
-            direction = route.directionality.value
+            direction = route_directionality(route).value
             sources = ", ".join(route.source_adapters)
             dests = ", ".join(route.dest_adapters)
             on_off = "[ON]" if route.enabled else "[OFF]"

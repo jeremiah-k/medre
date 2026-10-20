@@ -30,7 +30,7 @@ import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
@@ -164,9 +164,11 @@ def _resolve_paths(
 
 def _adapter_health_from_snap(snap: dict[str, Any]) -> dict[str, Any]:
     """Extract adapter health entries from the runtime snapshot."""
-    _health = snap.get("health") or {}
-    _live = _health.get("live_health") or {}
-    return _live.get("adapters", {})
+    _health: dict[str, Any] = snap.get("health") or {}
+    _live: dict[str, Any] = _health.get("live_health") or {}
+    # Snapshot dicts are decoded wire-shaped data; the adapters entry is the
+    # per-adapter health mapping when present.
+    return cast("dict[str, Any]", _live.get("adapters", {}))
 
 
 # ---------------------------------------------------------------------------
@@ -571,14 +573,14 @@ async def run_bridge_session(
                     observed = _observed_failure_kind(all_receipts, use_receipts=True)
                 else:
                     observed = _observed_failure_kind(all_outcomes)
-                expected = _expected_failure_kind(scenario)
-                passed = observed == expected and scenario_error is None
+                expected_kind = _expected_failure_kind(scenario)
+                passed = observed == expected_kind and scenario_error is None
                 fail_reasons = []
                 if scenario_error is not None:
                     fail_reasons.append(f"Scenario setup failed: {scenario_error}")
-                if observed != expected:
+                if observed != expected_kind:
                     fail_reasons.append(
-                        f"Expected failure_kind={expected}, observed={observed}"
+                        f"Expected failure_kind={expected_kind}, observed={observed}"
                     )
         else:
             # Happy path: all steps must succeed.

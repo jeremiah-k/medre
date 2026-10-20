@@ -285,10 +285,7 @@ class RelationEnricher:
                 if not skip_native:
                     # Look up stored native refs for the target event.
                     try:
-                        list_native_refs = cast(
-                            Callable[[str], Awaitable[list[NativeMessageRef]]],
-                            list_fn,
-                        )
+                        list_native_refs = list_fn
                         refs = await list_native_refs(target_event_id)
                     except Exception:
                         self._log.debug(
@@ -386,10 +383,7 @@ class RelationEnricher:
                 or not _cur_meta.get("original_sender")
             ):
                 try:
-                    target_event = await cast(
-                        Callable[[str], Awaitable[CanonicalEvent | None]],
-                        get_fn,
-                    )(target_event_id)
+                    target_event = await get_fn(target_event_id)
                     if target_event is not None:
                         target_payload = getattr(target_event, "payload", None)
                         extracted_text: str | None = None

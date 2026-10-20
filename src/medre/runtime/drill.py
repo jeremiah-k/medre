@@ -87,10 +87,10 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timezone
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Protocol, cast
 from unittest.mock import patch
 
 from medre.adapter_registry import iter_adapter_specs
@@ -162,6 +162,24 @@ _DRILL_LIMITATIONS: list[str] = [
 # ---------------------------------------------------------------------------
 # Report builder
 # ---------------------------------------------------------------------------
+
+
+#: Shape shared by every drill entry point: two positional path arguments,
+#: optional ``paths`` keyword for synthetic drills, and a JSON-safe report.
+#: The argument list is ``...`` because the dispatch table mixes both forms.
+_DrillRunner = Callable[..., Awaitable[dict[str, Any]]]
+
+
+class _StopPatchable(Protocol):
+    """Writable stop hook used by the startup-failure drill."""
+
+    stop: Callable[[], Awaitable[None]]
+
+
+class _ClosePatchable(Protocol):
+    """Writable storage-close hook used by the startup-failure drill."""
+
+    close: Callable[[], Awaitable[None]]
 
 
 def _base_report(
@@ -454,7 +472,7 @@ async def _drill_adapter_permanent_failure(
         async def _failing_deliver(result: Any) -> Any:
             raise AdapterPermanentError("drill: simulated permanent failure")
 
-        adapter.deliver = _failing_deliver  # type: ignore[assignment]
+        adapter.deliver = _failing_deliver  # type: ignore[method-assign]
 
         steps.append(_step("patch_adapter", "ok", target_adapter=patched_aid))
         report["target_adapters"] = [patched_aid]
@@ -598,7 +616,7 @@ async def _drill_adapter_transient_failure(
                 transient=True,
             )
 
-        adapter.deliver = _transient_deliver  # type: ignore[assignment]
+        adapter.deliver = _transient_deliver  # type: ignore[method-assign]
 
         steps.append(
             _step(
@@ -679,7 +697,7 @@ async def _drill_adapter_transient_failure(
             recovery_ok = False
             recovery_receipt_status: str | None = None
             if original_deliver is not None:
-                adapter.deliver = original_deliver  # type: ignore[assignment]
+                adapter.deliver = original_deliver  # type: ignore[method-assign]
                 recovery_event = make_smoke_event(
                     source_adapter,
                     "drill: adapter_transient_failure recovery",
@@ -1250,7 +1268,7 @@ async def _drill_degraded_live_health(
                 health="degraded",
             )
 
-        adapter.health_check = _degraded_health  # type: ignore[assignment]
+        adapter.health_check = _degraded_health  # type: ignore[method-assign]
         patch_ts = datetime.now(timezone.utc).isoformat()
         steps.append(
             _step(
@@ -1816,7 +1834,7 @@ async def _drill_all_adapters_start_fail(
             pipeline_stop_called = True
             await original_pipeline_stop()
 
-        app.pipeline_runner.stop = _track_pipeline_stop
+        cast(_StopPatchable, app.pipeline_runner).stop = _track_pipeline_stop
 
         if app.storage is not None:
             original_storage_close = app.storage.close
@@ -1826,7 +1844,7 @@ async def _drill_all_adapters_start_fail(
                 storage_close_called = True
                 await original_storage_close()
 
-            app.storage.close = _track_storage_close
+            cast(_ClosePatchable, app.storage).close = _track_storage_close
 
         # Attempt start — should raise RuntimeStartupError.
         startup_error_caught = False
@@ -1960,7 +1978,7 @@ async def _drill_all_adapters_start_fail(
     return report
 
 
-_SYNTHETIC_DRILL_RUNNERS: dict[str, Any] = {
+_SYNTHETIC_DRILL_RUNNERS: dict[str, _DrillRunner] = {
     "bad_route_config": _drill_bad_route_config,
     "all_adapters_build_fail": _drill_all_adapters_build_fail,
     "partial_degraded_startup": _drill_partial_degraded_startup,
@@ -1968,7 +1986,7 @@ _SYNTHETIC_DRILL_RUNNERS: dict[str, Any] = {
 }
 
 
-_DRILL_RUNNERS: dict[str, Any] = {
+_DRILL_RUNNERS: dict[str, _DrillRunner] = {
     "renderer_failure": _drill_renderer_failure,
     "adapter_permanent_failure": _drill_adapter_permanent_failure,
     "adapter_transient_failure": _drill_adapter_transient_failure,

@@ -8,13 +8,24 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Protocol
 
 from medre.config.errors import ConfigValidationError
 from medre.config.model import RuntimeConfig
 from medre.core.events.kinds import KNOWN_KINDS
-from medre.core.policies.route_policy import evaluate_route_policy
+from medre.core.policies.route_policy import RoutePolicyEvent, evaluate_route_policy
 from medre.core.routing.router import Router
 from medre.runtime.route_engine import build_runtime_routes
+
+if TYPE_CHECKING:
+    from medre.core.routing.models import Route, RouteTarget
+
+
+class _ExplainedEvent(RoutePolicyEvent, Protocol):
+    """Route-policy event plus the kind gate the explainer evaluates."""
+
+    @property
+    def event_kind(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -44,7 +55,7 @@ class RouteExplanation:
         "suppression, and native transport delivery require separate evidence."
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Return a stable JSON-safe report without runtime objects."""
         return asdict(self)
 
@@ -114,7 +125,13 @@ def explain_routes(
     )
 
 
-def _explain_target(route, event, target, *, sender_id: str | None) -> dict:
+def _explain_target(
+    route: Route,
+    event: _ExplainedEvent,
+    target: RouteTarget,
+    *,
+    sender_id: str | None,
+) -> dict[str, Any]:
     """Reuse the pure production allowlist evaluator when inputs are known."""
     outcome = "policy_allowed"
     reason = None

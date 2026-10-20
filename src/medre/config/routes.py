@@ -76,6 +76,22 @@ def _validate_route_id(route_id: str, *, section_path: str) -> None:
         )
 
 
+def route_directionality(config: RouteConfig) -> RouteDirectionality:
+    """Return *config*'s normalized directionality as the enum.
+
+    ``RouteConfig.__post_init__`` coerces the config-string input form, so
+    the attribute is always a :class:`RouteDirectionality` after
+    construction; the union in the field annotation exists only to admit
+    the YAML string input form.  Readers that need enum operations or the
+    wire ``value`` string use this accessor instead of touching the
+    attribute directly.
+    """
+    directionality = config.directionality
+    if isinstance(directionality, RouteDirectionality):
+        return directionality
+    return RouteDirectionality(directionality)
+
+
 # ---------------------------------------------------------------------------
 # Bridge policy
 # ---------------------------------------------------------------------------
@@ -833,7 +849,7 @@ def _validate_context_map_route(rc: RouteConfig) -> None:
         raise ConfigValidationError(
             f"Route {rc.route_id!r}: context_map entries with "
             f"'dest_destination' ({structured_keys}) require directionality "
-            f"'source_to_dest'; {rc.directionality.value!r} would need "
+            f"'source_to_dest'; {route_directionality(rc).value!r} would need "
             "inbound identity semantics a structured destination cannot "
             "provide",
             section_path=section_path,
@@ -856,7 +872,7 @@ def _validate_context_map_route(rc: RouteConfig) -> None:
             raise ConfigValidationError(
                 f"Route {rc.route_id!r}: context_map has duplicate "
                 f"dest_context value(s) {sorted(dupes)}, and directionality "
-                f"{rc.directionality.value!r} creates reverse (dest→source) "
+                f"{route_directionality(rc).value!r} creates reverse (dest→source) "
                 "legs. Duplicate dest_context values are valid fan-in only "
                 "for forward-only ('source_to_dest') routes, where each "
                 "source context keeps its own forward leg; on a route with "
@@ -1628,7 +1644,7 @@ class RouteConfigSet:
         can still describe disabled routes without activating their references.
         """
         known = set(adapter_ids)
-        errors = []
+        errors: list[str] = []
         for route in self.routes:
             for side, endpoints in (
                 ("source", route.source_adapters),

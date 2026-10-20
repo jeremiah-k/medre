@@ -40,22 +40,32 @@ from medre.core.storage.sqlite.ingress_sql import SELECT_INGRESS_WORK_STATE
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _serialize_metadata
 from medre.core.storage.sqlite.statements import _INSERT_EVENT
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import ParamSpec, TypeVar
+
+    _P = ParamSpec("_P")
+    _T = TypeVar("_T")
+
 
 class _IngressMixin:
     """Atomic durable ingress and checkpoint methods for ``SQLiteStorage``."""
 
     if TYPE_CHECKING:
+
         _db_path: str
         _lock: threading.Lock
 
-        async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
+        async def _run_in_thread(
+            self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+        ) -> _T: ...
 
         @staticmethod
         def _relation_op(
             event_id: str, relation: EventRelation
         ) -> tuple[str, tuple[Any, ...]]: ...
 
-        def _require_db(self) -> Any: ...
+        def _require_db(self) -> sqlite3.Connection: ...
 
         async def _read_one(
             self, sql: str, params: tuple[Any, ...] = ()
@@ -138,7 +148,7 @@ class _IngressMixin:
 
         now = _now_iso()
         suppress = suppress_routing or provenance == "history"
-        work_status = "suppressed_history" if suppress else "pending"
+        work_status: IngressWorkStatus = "suppressed_history" if suppress else "pending"
 
         attachment_plan: AttachmentAdmissionPlan | None = None
         event_ops = self._event_admission_ops(event)
