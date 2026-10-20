@@ -77,6 +77,23 @@ async def test_decision_children_and_state_survive_reopen(tmp_path) -> None:
         await recovered.close()
 
 
+async def test_derived_event_uses_its_payload_schema_version(temp_storage) -> None:
+    source = await _admit(temp_storage)
+    record = make_record(
+        decision=Derive(
+            (DerivedEvent("plugin.custom", {"subtype": "example"}, schema_version=3),)
+        )
+    )
+    await temp_storage.commit_plugin_execution(record)
+    child = await temp_storage.get(record.produced_event_ids[0])
+    assert child is not None
+    assert source.schema_version == 1
+    assert child.schema_version == 3
+    assert child.event_kind == "plugin.custom"
+    assert child.parent_event_id == source.event_id
+    assert await temp_storage.get_plugin_execution(record.key) == record
+
+
 async def test_exact_commit_retry_does_not_increment_state(temp_storage) -> None:
     await _admit(temp_storage)
     values = {"seen": 1}

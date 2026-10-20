@@ -129,7 +129,7 @@ def test_failure_cannot_imply_policy_consent_or_transform_success(
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"schema_version": 2},
+        {"schema_version": 1},
         {"schema_version": True},
         {"attempt": True},
         {"attempt": 0},

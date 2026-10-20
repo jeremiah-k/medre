@@ -72,6 +72,7 @@ def _materialize(
             source,
             event_id=event_id,
             event_kind=proposal.kind,
+            schema_version=proposal.schema_version,
             timestamp=record.recorded_at,
             parent_event_id=source.event_id,
             lineage=source.lineage + (source.event_id,),

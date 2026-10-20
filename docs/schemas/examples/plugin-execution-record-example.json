@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_event_id": "evt-1",
   "plugin_id": "text_stats",
   "instance_id": "one",

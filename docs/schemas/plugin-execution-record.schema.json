@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 2
     },
     "source_event_id": {
       "type": "string",
@@ -153,9 +153,13 @@
         },
         "payload": {
           "type": "object"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
         }
       },
-      "required": ["kind", "payload"]
+      "required": ["kind", "schema_version", "payload"]
     },
     "pass": {
       "type": "object",

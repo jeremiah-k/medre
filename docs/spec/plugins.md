@@ -227,14 +227,17 @@ not an error message for operators to parse programmatically.
 
 ## 8. Derived-Event Admission
 
-Derived events are proposals (`DerivedEvent`: a registered event kind plus a
-JSON-safe, deeply frozen payload). The host constructs the canonical event
+Derived events are proposals (`DerivedEvent`: a registered event kind, its
+own positive payload `schema_version`, and a JSON-safe, deeply frozen payload).
+A proposal's schema version defaults to 1 but MUST NOT inherit the triggering
+source event's schema version. The host constructs the canonical event
 from a proposal and MUST admit it through the same invariants as any other
 event; derivation confers no bypass of admission, deduplication, storage,
 relation, or provenance handling.
 
 - The host assigns `event_id`, sets `parent_event_id` to the source event,
-  appends to `lineage`, and stamps timestamps. A plugin MUST NOT set its own
+  appends to `lineage`, and stamps timestamps and the proposal's declared
+  payload schema version. A plugin MUST NOT set its own
   lineage.
 - Kinds come from the closed event-kind registry. Plugin-specific events use
   the single `plugin.custom` kind with a sub-kind in the payload; plugins
@@ -392,8 +395,8 @@ stage, scope)`. `scope` is `live` or `replay:<run-id>`. The record ID adds
   The execution host must additionally enforce the source-wide expansion
   budget and per-instance serialization before admitting work.
 
-Records carry `schema_version: 1` independently of plugin implementation
-versions. Unknown record or state-envelope versions MUST fail closed, not be
+Execution records carry `schema_version: 2`, independent of a proposal's
+`schema_version` and of the plugin implementation version. Unknown record or state-envelope versions MUST fail closed, not be
 interpreted as absent work or empty state.
 
 Records use the closed

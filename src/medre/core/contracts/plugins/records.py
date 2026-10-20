@@ -36,7 +36,7 @@ from medre.core.contracts.plugins.stages import PluginStage
 from medre.core.observability.sanitization import sanitize_error
 from medre.registration import valid_registration_name
 
-PLUGIN_RECORD_SCHEMA_VERSION = 1
+PLUGIN_RECORD_SCHEMA_VERSION = 2
 MAX_PLUGIN_EMISSIONS = 32
 MAX_PLUGIN_STATE_BYTES = 65536
 MAX_PLUGIN_RECORD_BYTES = 262144
@@ -169,7 +169,11 @@ def decision_data(decision: PluginDecision | None) -> dict[str, Any] | None:
     return {
         "kind": "derive" if isinstance(decision, Derive) else "supersede",
         "events": [
-            {"kind": proposal.kind, "payload": proposal.payload}
+            {
+                "kind": proposal.kind,
+                "schema_version": proposal.schema_version,
+                "payload": proposal.payload,
+            }
             for proposal in proposals
         ],
     }

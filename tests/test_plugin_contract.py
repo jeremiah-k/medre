@@ -651,3 +651,12 @@ def test_context_services_without_implementations_are_reserved(capability) -> No
     )
     with pytest.raises(ValueError, match="reserved capability"):
         PluginTypeRegistry((spec,))
+
+
+def test_derived_payload_version_is_independent_and_validated() -> None:
+    proposal = DerivedEvent("plugin.custom", {"subtype": "stats"}, schema_version=3)
+    assert proposal.schema_version == 3
+    assert DerivedEvent("plugin.custom").schema_version == 1
+    for version in (0, -1, True, "2", 1.2):
+        with pytest.raises(ValueError, match="schema_version"):
+            DerivedEvent("plugin.custom", schema_version=version)

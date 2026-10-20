@@ -54,15 +54,20 @@ class DerivedEvent:
     """Proposed content for one derived canonical event.
 
     ``kind`` must be a registered event kind permitted for plugin output; plugin-specific events use the
-    single ``plugin.custom`` kind with a sub-kind in the payload. MEDRE
-    constructs the canonical event from this proposal and owns its identity,
-    lineage, timestamps, admission, and routing.
+    single ``plugin.custom`` kind with a sub-kind in the payload. The proposal
+    declares its own payload ``schema_version`` (default 1), which does not
+    inherit the source event's unrelated schema version. MEDRE constructs the
+    canonical event and owns its identity, lineage, timestamps, admission,
+    and routing.
     """
 
     kind: str
     payload: Mapping[str, Any] = field(default_factory=dict)
+    schema_version: int = 1
 
     def __post_init__(self) -> None:
+        if type(self.schema_version) is not int or self.schema_version < 1:
+            raise ValueError("derived event schema_version must be a positive integer")
         if not isinstance(self.kind, str) or self.kind not in PLUGIN_OUTPUT_KINDS:
             raise ValueError(
                 f"DerivedEvent.kind must be a registered event kind permitted for plugin output; got {self.kind!r}"
