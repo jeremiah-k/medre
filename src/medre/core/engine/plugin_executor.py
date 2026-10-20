@@ -11,14 +11,28 @@ import asyncio
 import hashlib
 import logging
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeVar
 
-from medre.core.contracts.plugins.context import Plugin, PluginContext
-from medre.core.contracts.plugins.decisions import Deny, Derive, Pass, Supersede
+from medre.core.contracts.plugins.context import (
+    EnrichPlugin,
+    Plugin,
+    PluginContext,
+    PolicyPlugin,
+    TransformPlugin,
+)
+from medre.core.contracts.plugins.decisions import (
+    Deny,
+    Derive,
+    EnrichOutcome,
+    Pass,
+    PolicyOutcome,
+    Supersede,
+    TransformOutcome,
+)
 from medre.core.contracts.plugins.instances import (
     PluginInstanceConfig,
     missing_required_grants,
@@ -46,6 +60,8 @@ from medre.core.storage.backend import (
     PluginStateConflictError,
     StorageBackend,
 )
+
+_Result = TypeVar("_Result")
 
 PLUGIN_HOST_CONTRACT_VERSION = 1
 _LOG = logging.getLogger(__name__)
@@ -172,7 +188,7 @@ class _Instance:
     state: _StateAccess
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     quarantined: bool = False
-    pending: asyncio.Task | None = None
+    pending: asyncio.Task[object] | None = None
 
 
 class PluginExecutor:
@@ -259,7 +275,9 @@ class PluginExecutor:
     def plan_digest(self) -> str:
         return self._plan_digest
 
-    async def _bounded(self, instance: _Instance, coroutine) -> Any:
+    async def _bounded(
+        self, instance: _Instance, coroutine: Coroutine[Any, Any, _Result]
+    ) -> _Result:
         if instance.pending is not None and not instance.pending.done():
             coroutine.close()
             raise PluginExecutionDeferredError(
@@ -270,7 +288,7 @@ class PluginExecutor:
 
         # Consume late outcomes, including tasks that ignore cancellation. No
         # late return value can be admitted after its invocation is invalidated.
-        def consume(done: asyncio.Task) -> None:
+        def consume(done: asyncio.Task[_Result]) -> None:
             if not done.cancelled():
                 done.exception()
 
@@ -298,8 +316,11 @@ class PluginExecutor:
                     continue
                 instance.context.shutdown_event.clear()
 
-                async def initialize(item=instance):
-                    await item.binding.implementation.initialize(item.context)
+                async def initialize(item: _Instance = instance) -> None:
+                    implementation = item.binding.implementation
+                    if implementation is None:
+                        raise TypeError("enabled plugin has no implementation")
+                    await implementation.initialize(item.context)
 
                 # Include partially initialized implementations in cleanup.
                 self._started.append(instance)
@@ -315,8 +336,11 @@ class PluginExecutor:
             instance.context.shutdown_event.set()
             try:
 
-                async def shutdown(item=instance):
-                    await item.binding.implementation.shutdown()
+                async def shutdown(item: _Instance = instance) -> None:
+                    implementation = item.binding.implementation
+                    if implementation is None:
+                        raise TypeError("enabled plugin has no implementation")
+                    await implementation.shutdown()
 
                 await self._bounded(instance, shutdown())
             except Exception:
@@ -395,8 +419,21 @@ class PluginExecutor:
             failure, reason, decision = None, "", None
             try:
 
-                async def invoke():
-                    return await getattr(binding.implementation, _METHODS[stage])(event)
+                async def invoke() -> EnrichOutcome | TransformOutcome | PolicyOutcome:
+                    implementation = binding.implementation
+                    if stage is PluginStage.ENRICH and isinstance(
+                        implementation, EnrichPlugin
+                    ):
+                        return await implementation.enrich(event)
+                    if stage is PluginStage.TRANSFORM and isinstance(
+                        implementation, TransformPlugin
+                    ):
+                        return await implementation.transform(event)
+                    if stage is PluginStage.EVENT_POLICY and isinstance(
+                        implementation, PolicyPlugin
+                    ):
+                        return await implementation.evaluate(event)
+                    raise TypeError("plugin does not implement its declared stage")
 
                 try:
                     decision = await self._bounded(instance, invoke())

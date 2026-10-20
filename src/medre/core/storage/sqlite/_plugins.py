@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 import msgspec
 
@@ -267,12 +267,21 @@ def _commit(
             raise
 
 
+_Params = ParamSpec("_Params")
+_Return = TypeVar("_Return")
+
+
 class _PluginsMixin:
     if TYPE_CHECKING:
         _lock: threading.Lock
 
         def _require_db(self) -> sqlite3.Connection: ...
-        async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
+        async def _run_in_thread(
+            self,
+            func: Callable[_Params, _Return],
+            *args: _Params.args,
+            **kwargs: _Params.kwargs,
+        ) -> _Return: ...
         async def _read_one(
             self, sql: str, params: tuple[Any, ...] = ()
         ) -> dict[str, Any] | None: ...

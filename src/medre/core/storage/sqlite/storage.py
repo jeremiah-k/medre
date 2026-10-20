@@ -451,22 +451,34 @@ class _SQLiteStorageBase:
             "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('plugin_execution_records', 'plugin_execution_plans')"
         )
         present = {row["name"] for row in rows}
-        for validator, requirements in (
-            (self._validate_schema_shape, _PLUGIN_REQUIRED_COLUMNS),
-            (self._validate_schema_foreign_keys, _PLUGIN_REQUIRED_FOREIGN_KEYS),
-            (
-                self._validate_schema_unique_constraints,
-                _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS,
-            ),
-            (self._validate_schema_checks, _PLUGIN_REQUIRED_CHECK_CONSTRAINTS),
-        ):
-            await validator(
-                {
-                    table: value
-                    for table, value in requirements.items()
-                    if table in present
-                }
-            )
+        await self._validate_schema_shape(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_COLUMNS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_foreign_keys(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_FOREIGN_KEYS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_unique_constraints(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_checks(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_CHECK_CONSTRAINTS.items()
+                if table in present
+            }
+        )
 
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.

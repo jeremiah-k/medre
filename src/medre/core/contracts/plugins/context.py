@@ -91,7 +91,7 @@ class Plugin(Protocol):
     carry behavior only.
     """
 
-    async def initialize(self, context: PluginContext) -> None:
+    async def initialize(self, context: PluginContext, /) -> None:
         """Initialize with the runtime-provided context for this instance."""
         ...
 
@@ -104,18 +104,18 @@ class Plugin(Protocol):
 class EnrichPlugin(Protocol):
     """Enrichment stage: additive derivation; the original event continues."""
 
-    async def enrich(self, event: CanonicalEvent) -> EnrichOutcome: ...
+    async def enrich(self, event: CanonicalEvent, /) -> EnrichOutcome: ...
 
 
 @runtime_checkable
 class TransformPlugin(Protocol):
     """Transform stage: derive additional or superseding events."""
 
-    async def transform(self, event: CanonicalEvent) -> TransformOutcome: ...
+    async def transform(self, event: CanonicalEvent, /) -> TransformOutcome: ...
 
 
 @runtime_checkable
 class PolicyPlugin(Protocol):
     """Event-policy stage: scoped delivery verdicts; never an edit."""
 
-    async def evaluate(self, event: CanonicalEvent) -> PolicyOutcome: ...
+    async def evaluate(self, event: CanonicalEvent, /) -> PolicyOutcome: ...
