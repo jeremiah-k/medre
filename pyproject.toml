@@ -102,6 +102,7 @@ ignore = [
 ]
 
 [tool.mypy]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 python_version = "3.11"
 strict = true
 explicit_package_bases = true

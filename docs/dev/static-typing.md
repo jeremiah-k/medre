@@ -35,6 +35,8 @@ unresolved import — including a
 misspelled MEDRE-owned module — fails the gate instead of degrading to `Any`.
 Caller-provided `MYPYPATH` entries are kept after the workspace roots, so
 external stub paths stay usable without shadowing the trees under check.
+Core declares its own `src` root through `mypy_path`, so standalone mypy
+commands and CI share the same module identities as the workspace check.
 The SDK exemptions must be removed or
 replaced with precise typed SDK boundaries before claiming full strict typing.
 Do **not** silence local error codes globally, use `Any` to bypass a concrete
@@ -61,11 +63,10 @@ semantics.
    provider CI jobs, add precise stubs or SDK-specific protocols for untyped
    APIs, and remove the missing-import exemption when packages/stubs are
    available. Keep adapter discovery SDK-free.
-2. **CI enforcement.** Make the strict gate mandatory in CI; the pinned
-   mypy tool already ships in the locked `dev` extra with `pyproject.toml`
-   and `uv.lock` updated together. A CI job needs only core's own tree
-   (`uv run --no-sync mypy src/medre` under the repository configuration);
-   the multi-repository checker remains the local developer gate.
+2. **Adapter CI enforcement.** Core's required quality job runs
+   `uv run --no-sync mypy --no-incremental src/medre` under its repository
+   configuration. Extend mandatory provider checks to the independent adapter
+   workflows; the multi-repository checker remains the local developer gate.
 
 This is not a request to change transport runtime behavior merely to appease a
 checker. Guard optional lifecycle state honestly, narrow at validation
