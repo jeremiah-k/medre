@@ -14,9 +14,9 @@ delivery_lifecycle
     and outbox finalization decisions.
 """
 
+from medre.core.engine.pipeline.delivery_coordinator import InflightDelivery
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.runner import (
-    InflightDelivery,
     PhaseSnapshot,
     PipelineConfig,
     PipelineRunner,

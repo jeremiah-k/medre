@@ -3,13 +3,29 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from medre.core.engine.replay.helpers import _elapsed_ms
 from medre.core.engine.replay.types import ReplayResult
 from medre.core.events import CanonicalEvent, is_registered
 
+if TYPE_CHECKING:
+    from medre.core.observability.metrics import Diagnostician
+    from medre.core.storage.backend import StorageBackend
+
 
 class _ReplayStoreMixin:
+    """Replay store stage mixin.
+
+    Relies on ``self._storage`` and ``self._diagnostician`` being set by
+    the concrete base class via MRO.
+    """
+
+    if TYPE_CHECKING:
+
+        _storage: StorageBackend
+        _diagnostician: Diagnostician | None
+
     async def _stage_store(self, event: CanonicalEvent) -> ReplayResult:
         """Verify that *event* still exists in storage and is well-formed.
 

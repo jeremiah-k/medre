@@ -11,32 +11,58 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol, TypedDict
 
 from medre.core.events.canonical import (
     DELIVERY_CAPABILITY_LEVELS,
     DELIVERY_STRATEGY_METHODS,
-    DeliveryConfirmationLevel,
     DeliveryReceipt,
     DeliveryReceiptKind,
+)
+from medre.core.events.delivery import (
+    DeliveryConfirmationLevel,
     DeliverySource,
 )
 
 if TYPE_CHECKING:
 
     class _PlanStrategyView(Protocol):
-        method: str
+        @property
+        def method(self) -> str: ...
 
     class _PlanCapabilityView(Protocol):
         """Read-only structural view of the plan fields the sanitizer reads."""
 
-        capability_level: str | None
-        capability_field: str | None
-        capability_reason: str | None
-        primary_strategy: _PlanStrategyView
+        @property
+        def capability_level(self) -> str | None: ...
+
+        @property
+        def capability_field(self) -> str | None: ...
+
+        @property
+        def capability_reason(self) -> str | None: ...
+
+        @property
+        def primary_strategy(self) -> _PlanStrategyView: ...
+
+
+class CapabilityReceiptFields(TypedDict):
+    """Structured capability-decision fields for receipt construction.
+
+    Returned by :func:`capability_receipt_fields` and
+    :func:`plan_capability_receipt_fields` so ``**``-unpacking at
+    :func:`build_delivery_receipt` call sites maps each key to its
+    matching keyword parameter.
+    """
+
+    capability_level: str | None
+    capability_field: str | None
+    capability_reason: str | None
+    delivery_strategy: str | None
 
 
 __all__ = [
+    "CapabilityReceiptFields",
     "build_delivery_receipt",
     "capability_receipt_fields",
     "plan_capability_receipt_fields",
@@ -47,7 +73,7 @@ def capability_receipt_fields(
     *,
     receipt: DeliveryReceipt | None = None,
     metadata: Mapping[str, Any] | None = None,
-) -> dict[str, str | None]:
+) -> CapabilityReceiptFields:
     """Return safe structured capability fields for receipt lineage.
 
     A prior immutable receipt is authoritative when available.  Deferred
@@ -93,7 +119,9 @@ def capability_receipt_fields(
     }
 
 
-def plan_capability_receipt_fields(plan: _PlanCapabilityView) -> dict[str, str | None]:
+def plan_capability_receipt_fields(
+    plan: _PlanCapabilityView,
+) -> CapabilityReceiptFields:
     """Return a plan's structured capability decision, validated for receipts.
 
     Planner-failure evidence must remain persistable even when a malformed plan

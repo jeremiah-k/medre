@@ -12,6 +12,8 @@ Authority surface:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from medre.core.events import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DELIVERY_OBSERVATION_STATE_VALUES,
@@ -86,6 +88,16 @@ def _observation_insert_params(observation: DeliveryObservation) -> tuple[object
 
 class _ObservationMixin:
     """Post-handoff delivery observation methods for SQLiteStorage."""
+
+    if TYPE_CHECKING:
+
+        async def _write_rowcount(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     async def append_delivery_observation(
         self, observation: DeliveryObservation

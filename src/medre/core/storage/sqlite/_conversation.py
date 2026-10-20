@@ -7,7 +7,7 @@ membership after late relation targets become resolvable.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import (
     ConversationMembership,
@@ -18,6 +18,18 @@ from medre.core.storage.sqlite.serde import _now_iso
 
 class _ConversationMixin:
     """Conversation projection methods for :class:`SQLiteStorage`."""
+
+    if TYPE_CHECKING:
+
+        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _write_rowcount(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
 
     async def put_conversation_membership(
         self, membership: ConversationMembership

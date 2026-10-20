@@ -51,6 +51,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.events.delivery import DeliverySource
 from medre.core.events.kinds import EventKind
 from medre.core.ingress import (
     AdmissionResult,
@@ -975,7 +976,10 @@ class PipelineRunner:
             )
             capability_raw = evidence.get("capability_level")
             capability: Literal["native", "fallback", "unsupported"] = (
-                capability_raw
+                cast(
+                    Literal["native", "fallback", "unsupported"],
+                    capability_raw,
+                )
                 if isinstance(capability_raw, str)
                 and capability_raw in {"native", "fallback", "unsupported"}
                 else "native"
@@ -1382,7 +1386,7 @@ class PipelineRunner:
         capability_field: str | None = None,
         capability_reason: str | None = None,
         delivery_strategy: str | None = None,
-        source: str = "live",
+        source: DeliverySource = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
         """Build and persist a lightweight suppression/rejection receipt.
@@ -1424,7 +1428,7 @@ class PipelineRunner:
         capability_field: str | None = None,
         capability_reason: str | None = None,
         delivery_strategy: str | None = None,
-        source: str = "live",
+        source: DeliverySource = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
         """Late-bind suppression persistence for delivery coordination."""

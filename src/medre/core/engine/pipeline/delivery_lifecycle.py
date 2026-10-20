@@ -80,7 +80,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from medre.core.contracts.adapter import MAX_ADAPTER_RETRY_AFTER_SECONDS
 from medre.core.contracts.delivery import (
@@ -114,6 +114,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.events.delivery import DeliverySource
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -125,6 +126,21 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     TerminalOutboxFinalization,
 )
+
+
+class RetryReceiptFields(TypedDict):
+    """Retry-policy fields for receipt construction.
+
+    Returned by :meth:`DeliveryLifecycleService.extract_retry_fields` so
+    ``**``-unpacking at :func:`build_delivery_receipt` call sites maps
+    each key to its matching keyword parameter.
+    """
+
+    retry_max_attempts: int | None
+    retry_backoff_base: float | None
+    retry_max_delay: float | None
+    retry_jitter: bool | None
+
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -441,7 +457,7 @@ class DeliveryLifecycleService:
     # -- Retry field extraction ---------------------------------------------
 
     @staticmethod
-    def extract_retry_fields(plan: DeliveryPlan) -> dict[str, Any]:
+    def extract_retry_fields(plan: DeliveryPlan) -> RetryReceiptFields:
         """Extract retry policy fields for receipt construction.
 
         Parameters
@@ -451,7 +467,7 @@ class DeliveryLifecycleService:
 
         Returns
         -------
-        dict[str, Any]
+        RetryReceiptFields
             Keys: ``retry_max_attempts``, ``retry_backoff_base``,
             ``retry_max_delay``, ``retry_jitter``.  Values are ``None``
             when no retry policy is configured.
@@ -803,7 +819,7 @@ class DeliveryLifecycleService:
         capability_field: str | None = None,
         capability_reason: str | None = None,
         delivery_strategy: str | None = None,
-        source: str = "live",
+        source: DeliverySource = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt:
         """Build and persist a lightweight suppression/rejection receipt.

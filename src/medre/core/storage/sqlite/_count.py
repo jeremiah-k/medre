@@ -6,12 +6,20 @@ aggregation queries that never mutate storage.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 
 class _CountMixin:
     """Count methods for SQLiteStorage.
 
     Accesses ``self._read_one`` from the base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events.
@@ -53,7 +61,7 @@ class _CountMixin:
             Count of rows in ``native_message_refs``.
         """
         row = await self._read_one("SELECT COUNT(*) AS cnt FROM native_message_refs")
-        return row["cnt"] if row else 0
+        return int(row["cnt"]) if row else 0
 
     async def count_receipts_by_source(self, source: str) -> int:
         """Return the number of delivery receipts matching *source*.
@@ -73,7 +81,7 @@ class _CountMixin:
             "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE source = ?",
             (source,),
         )
-        return row["cnt"] if row else 0
+        return int(row["cnt"]) if row else 0
 
     async def count_replay_runs(self) -> int:
         """Return the number of distinct durable replay run IDs.

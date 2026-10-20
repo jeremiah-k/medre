@@ -19,6 +19,7 @@ Authority surface:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
@@ -106,6 +107,18 @@ class _ReceiptMixin:
     Accesses ``self._read_one``, ``self._read_all``, and ``self._write``
     from the base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         """Append a delivery receipt record.
@@ -313,4 +326,4 @@ class _ReceiptMixin:
                )""",
             (now.isoformat(), max_attempts),
         )
-        return row["cnt"] if row else 0
+        return int(row["cnt"]) if row else 0

@@ -9,7 +9,7 @@ Authority surface:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from medre.core.events import EventRelation
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _row_to_relation
@@ -27,6 +27,14 @@ class _RelationMixin:
     Accesses ``self._write`` and ``self._read_all`` from the base class
     via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     @staticmethod
     def _relation_op(

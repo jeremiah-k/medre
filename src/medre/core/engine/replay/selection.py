@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from medre.core.engine.replay.helpers import _event_matches_filters, _request_to_filter
 from medre.core.engine.replay.types import ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent
+
+if TYPE_CHECKING:
+    from medre.core.observability.metrics import Diagnostician
+    from medre.core.storage.backend import StorageBackend
+    from medre.core.supervision.accounting import RuntimeAccounting
 
 
 class _ReplaySelectionMixin:
@@ -15,6 +21,12 @@ class _ReplaySelectionMixin:
     Relies on ``self._storage``, ``self._diagnostician``, and
     ``self._accounting`` being set by the concrete base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        _storage: StorageBackend
+        _diagnostician: Diagnostician | None
+        _accounting: RuntimeAccounting | None
 
     async def count_matching(self, request: ReplayRequest) -> int:
         """Return the number of events matching *request* without replaying.
@@ -53,7 +65,7 @@ class _ReplaySelectionMixin:
                     count += 1
         else:
             event_filter = _request_to_filter(request)
-            async for _ in self._storage.query(event_filter):  # type: ignore[union-attr]
+            async for _ in self._storage.query(event_filter):
                 count += 1
 
         return count
