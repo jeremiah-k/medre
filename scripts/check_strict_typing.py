@@ -4,9 +4,13 @@ Usage: python scripts/check_strict_typing.py [--workspace PATH] [--all]
 
 The default is a passing gate for the contracts and transport packages already
 migrated. --all audits every package and fails until the remaining migrations
-are complete. Optional transport SDK imports are exempt per module, so any
-other unresolved import — including a misspelled MEDRE-owned module — fails
-the gate instead of degrading to Any.
+are complete. Repositories that declare [tool.mypy] in their pyproject.toml
+supply their own semantics (strictness, Python target, and their optional
+transport SDK exemptions); the checker passes only --no-incremental and the
+selected paths. Repositories without such a section get equivalent flags and
+a generated per-module SDK exemption configuration, so any other unresolved
+import — including a misspelled MEDRE-owned module — fails the gate instead
+of degrading to Any.
 """
 
 from __future__ import annotations
@@ -59,6 +63,13 @@ def _sdk_exemption_config(modules: tuple[str, ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _declares_mypy_config(repo: Path) -> bool:
+    pyproject = repo / "pyproject.toml"
+    if not pyproject.is_file():
+        return False
+    return "[tool.mypy]" in pyproject.read_text(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -93,31 +104,43 @@ def main(argv: list[str] | None = None) -> int:
             src_paths.append(caller_paths)
         env["MYPYPATH"] = os.pathsep.join(src_paths)
         print(f"\n== {name} ==", flush=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".ini", delete=False
-        ) as config_file:
-            config_file.write(_sdk_exemption_config(_OPTIONAL_SDK_MODULES[name]))
-        try:
-            check = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "mypy",
-                    "--strict",
-                    "--python-version=3.11",
-                    "--explicit-package-bases",
-                    "--follow-imports=silent",
-                    "--config-file",
-                    config_file.name,
-                    "--no-incremental",
-                    *paths,
-                ],
-                cwd=repo,
-                env=env,
-                check=False,
-            )
-        finally:
-            os.unlink(config_file.name)
+        if _declares_mypy_config(repo):
+            # The repository's own [tool.mypy] supplies the semantics; mypy
+            # discovers it from the working directory.
+            argv = [
+                sys.executable,
+                "-m",
+                "mypy",
+                "--no-incremental",
+                *paths,
+            ]
+            check = subprocess.run(argv, cwd=repo, env=env, check=False)
+        else:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ini", delete=False
+            ) as config_file:
+                config_file.write(_sdk_exemption_config(_OPTIONAL_SDK_MODULES[name]))
+            try:
+                check = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "mypy",
+                        "--strict",
+                        "--python-version=3.11",
+                        "--explicit-package-bases",
+                        "--follow-imports=silent",
+                        "--config-file",
+                        config_file.name,
+                        "--no-incremental",
+                        *paths,
+                    ],
+                    cwd=repo,
+                    env=env,
+                    check=False,
+                )
+            finally:
+                os.unlink(config_file.name)
         result |= int(check.returncode != 0)
     return result
 

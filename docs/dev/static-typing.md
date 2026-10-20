@@ -10,19 +10,26 @@ Restore core and the seven independent adapter distributions as sibling
 repositories. From the MEDRE core checkout run:
 
 ```console
-python -m pip install mypy==2.4.0 msgspec==0.22.0
-python scripts/check_strict_typing.py
-python scripts/check_strict_typing.py --all
+uv sync --locked --extra dev
+uv run --no-sync python scripts/check_strict_typing.py
+uv run --no-sync python scripts/check_strict_typing.py --all
 ```
+
+The pinned mypy tool ships in the locked `dev` extra; `msgspec` is a core
+runtime dependency of every synced environment.
 
 The first command is the currently passing gate; `--all` is a deliberately
 **failing inventory** until every source tree is migrated. Both run the real
 `mypy --strict` checker and analyze imported core symbols for adapters through
-`MYPYPATH`, not by replacing MEDRE core with an untyped stub. They use
-`--follow-imports=silent` to avoid reporting errors outside the selected
-repository. A generated per-module configuration exempts only the optional
-transport SDK modules declared in the checker, because those SDKs are not part
-of the offline typing toolchain; any other unresolved import — including a
+`MYPYPATH`, not by replacing MEDRE core with an untyped stub. Each repository
+declares its typing semantics in its own `pyproject.toml` under `[tool.mypy]`:
+the 3.11 target, strict mode, explicit package bases, silent follow-imports,
+and per-module exemptions for exactly that repository's optional transport
+SDKs, because those SDKs are not part of the offline typing toolchain. The
+checker runs mypy from each repository root so the repository's own
+configuration applies; repositories that have not declared the section get
+equivalent flags with a generated exemption configuration. Any other
+unresolved import — including a
 misspelled MEDRE-owned module — fails the gate instead of degrading to `Any`.
 Caller-provided `MYPYPATH` entries are kept after the workspace roots, so
 external stub paths stay usable without shadowing the trees under check.
@@ -77,8 +84,8 @@ errors are real outstanding work; a clean gate does not erase them.
    available. Keep adapter discovery SDK-free.
 5. **Testing and CI.** Promote passing source slices to the gate after normal
    focused unit tests. Once core and all adapters are clean, make whole-tree
-   strict typing mandatory in CI and add the pinned mypy tool to the locked
-   development environment with `pyproject.toml` and `uv.lock` updated together.
+   strict typing mandatory in CI; the pinned mypy tool already ships in the
+   locked `dev` extra with `pyproject.toml` and `uv.lock` updated together.
 
 This is not a request to change transport runtime behavior merely to appease a
 checker. Guard optional lifecycle state honestly, narrow at validation
