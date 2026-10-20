@@ -333,7 +333,8 @@ values are never admitted. `stop()` reports incomplete cleanup rather than
 claiming success while a plugin task remains active.
 A quarantined instance produces a host `quarantined` disposition without invoking
 its implementation: optional enrichment may explicitly pass, while required
-stages remain deferred. This is distinct from a fresh contract violation.
+stages fail without routing and consume the bounded ingress failure budget. This
+is distinct from a fresh contract violation.
 The instance quarantine latch lasts for that executor lifetime. A newly assembled
 executor performs fresh readiness evaluation; committed source dispositions
 remain settled across restarts and cannot be bypassed in the same scope.

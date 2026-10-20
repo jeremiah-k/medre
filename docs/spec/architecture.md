@@ -129,13 +129,14 @@ src/medre/
 
 ### 4.2 Import Rules
 
-| Layer                 | May Import From                                                       | Must Not Import From                                |
-| --------------------- | --------------------------------------------------------------------- | --------------------------------------------------- |
-| `adapter_registry.py` | stdlib only; concrete modules are lazy symbol strings                 | concrete adapter/config SDK imports                 |
-| `core/`               | `core/`; SDK-free `medre.registration` primitives                     | `adapters/`, `config/`, `runtime/`, `medre.plugins` |
-| `config/`             | `config/`, `medre.adapter_registry`                                   | `adapters/`, `runtime/`                             |
-| `adapters/`           | `core.*`, `config.adapters.*`, `medre.adapter_registry`               | Other adapter packages, `runtime/`                  |
-| `runtime/`            | `core.*`, `config.*`, `medre.adapter_registry`; adapter assembly refs | —                                                   |
+| Layer                 | May Import From                                                                        | Must Not Import From                                |
+| --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `adapter_registry.py` | stdlib only; concrete modules are lazy symbol strings                                  | concrete adapter/config SDK imports                 |
+| `core/`               | `core/`; SDK-free `medre.registration` primitives                                      | `adapters/`, `config/`, `runtime/`, `medre.plugins` |
+| `config/`             | `config/`, `medre.adapter_registry`                                                    | `adapters/`, `runtime/`                             |
+| `adapters/`           | `core.*`, `config.adapters.*`, `medre.adapter_registry`                                | Other adapter packages, `runtime/`                  |
+| `runtime/`            | `core.*`, `config.*`, `medre.adapter_registry`, `medre.plugins`; adapter assembly refs | —                                                   |
+| `plugins/`            | `core.*`, SDK-free `medre.registration` primitives                                     | `adapters/`, `config/`, `runtime/`                  |
 
 ### 4.3 Key Invariants
 
