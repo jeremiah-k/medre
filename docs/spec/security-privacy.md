@@ -193,7 +193,8 @@ capabilities. Plugins are trusted in-process code; capability gating is an
 API-level restriction, not a security sandbox.
 
 Explicitly assembled execution enforces implemented grants, stage outcomes,
-transform kind flow, bounded expansion, per-instance serialization, and durable
+stage-neutral subscription and emission kind limits, bounded expansion,
+per-instance serialization, and durable
 decision recovery. Derived events use ordinary compiled routes and delivery
 authority. Route/identity/storage/telemetry context services remain reserved and
 cannot be granted; runtime YAML/CLI activation and plugin-specific operator

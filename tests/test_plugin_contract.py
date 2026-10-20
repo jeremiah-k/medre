@@ -243,25 +243,22 @@ def test_transform_requires_kind_declarations() -> None:
         make_plugin_spec("sensor"),
         stages=frozenset({PluginStage.TRANSFORM}),
     )
-    with pytest.raises(ValueError, match="transform_inputs and transform_outputs"):
+    with pytest.raises(ValueError, match="input_kinds"):
         PluginTypeRegistry((spec,))
 
 
-def test_kind_declarations_require_transform_stage() -> None:
-    spec = replace(
-        make_plugin_spec("sensor"),
-        transform_inputs=("message.text",),
-    )
-    with pytest.raises(ValueError, match="without subscribing to the transform"):
-        PluginTypeRegistry((spec,))
+def test_input_kinds_are_supported_for_every_stage() -> None:
+    spec = replace(make_plugin_spec("sensor"), input_kinds=("message.text",))
+    PluginTypeRegistry((spec,))
 
 
 def test_transform_kinds_must_be_registered() -> None:
     spec = replace(
         make_plugin_spec("sensor"),
         stages=frozenset({PluginStage.TRANSFORM}),
-        transform_inputs=("message.text",),
-        transform_outputs=("message.invented",),
+        capabilities={PluginCapability.READ_EVENTS, PluginCapability.EMIT_EVENTS},
+        input_kinds=("message.text",),
+        output_kinds=("message.invented",),
     )
     with pytest.raises(ValueError, match="unregistered event kind"):
         PluginTypeRegistry((spec,))
@@ -471,8 +468,9 @@ def test_plugins_cannot_propose_core_evidence(kind) -> None:
     spec = replace(
         make_plugin_spec("sensor"),
         stages={PluginStage.TRANSFORM},
-        transform_inputs=("message.created",),
-        transform_outputs=(kind,),
+        capabilities={PluginCapability.READ_EVENTS, PluginCapability.EMIT_EVENTS},
+        input_kinds=("message.created",),
+        output_kinds=(kind,),
     )
     with pytest.raises(ValueError, match="core-owned"):
         PluginTypeRegistry((spec,))
@@ -558,8 +556,8 @@ def test_replacement_requires_suppression_as_well_as_emission() -> None:
         make_plugin_spec("sensor"),
         stages={PluginStage.TRANSFORM},
         capabilities={PluginCapability.READ_EVENTS, PluginCapability.EMIT_EVENTS},
-        transform_inputs=("message.created",),
-        transform_outputs=("message.created",),
+        input_kinds=("message.created",),
+        output_kinds=("message.created",),
     )
     PluginTypeRegistry((spec,))
     proposal = DerivedEvent("message.created", {"text": "replacement"})
@@ -597,8 +595,8 @@ def test_declared_kind_flow_is_checked() -> None:
         make_plugin_spec("sensor"),
         stages={PluginStage.TRANSFORM},
         capabilities={PluginCapability.READ_EVENTS, PluginCapability.EMIT_EVENTS},
-        transform_inputs=("message.created",),
-        transform_outputs=("message.text",),
+        input_kinds=("message.created",),
+        output_kinds=("message.text",),
     )
     instance = _plugin_instance(spec)
     with pytest.raises(ValueError, match="input kind"):

@@ -49,18 +49,16 @@ def validate_plugin_decision(
     if stage not in spec.stages:
         raise ValueError("plugin instance did not subscribe to this stage")
     _validate_stage_outcome(stage, decision)
-    if stage is PluginStage.TRANSFORM and event_kind not in spec.transform_inputs:
-        raise ValueError("transform input kind is outside its declaration")
+    if spec.input_kinds and event_kind not in spec.input_kinds:
+        raise ValueError("plugin input kind is outside its declaration")
     if isinstance(decision, (Derive, Supersede)):
         if PluginCapability.EMIT_EVENTS not in capabilities:
             raise PluginCapabilityError("plugin derivation requires emit_events")
         proposals = (
             decision.events if isinstance(decision, Derive) else (decision.replacement,)
         )
-        if stage is PluginStage.TRANSFORM and any(
-            proposal.kind not in spec.transform_outputs for proposal in proposals
-        ):
-            raise ValueError("transform output kind is outside its declaration")
+        if any(proposal.kind not in spec.output_kinds for proposal in proposals):
+            raise ValueError("plugin output kind is outside its declaration")
     if isinstance(decision, (Deny, Supersede)) or stage is PluginStage.EVENT_POLICY:
         if PluginCapability.SUPPRESS_EVENTS not in capabilities:
             raise PluginCapabilityError(

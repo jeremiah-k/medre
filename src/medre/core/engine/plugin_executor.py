@@ -511,9 +511,8 @@ class PluginExecutor:
                     stage, instance = self._positions[cursor]
                     cursor += 1
                     if (
-                        stage is PluginStage.TRANSFORM
-                        and event.event_kind
-                        not in instance.binding.spec.transform_inputs
+                        instance.binding.spec.input_kinds
+                        and event.event_kind not in instance.binding.spec.input_kinds
                     ):
                         continue
                     if on_stage is not None:

@@ -91,37 +91,47 @@ Discovery failure semantics mirror the adapter registry:
 
 ## 5. PluginSpec Declarations
 
-| Field               | Requirement                                                                 |
-| ------------------- | --------------------------------------------------------------------------- |
-| `plugin_id`         | Registration token; equals the entry-point name                             |
-| `version`           | Non-empty implementation version; recorded in durable decisions             |
-| `capabilities`      | Non-empty set of declared requirements (§6)                                 |
-| `stages`            | Non-empty set of stage subscriptions: `enrich`, `transform`, `event_policy` |
-| `plugin`            | Lazy `SymbolRef` to a zero-arg factory returning the implementation         |
-| `transform_inputs`  | Input event kinds; required iff subscribed to `transform`                   |
-| `transform_outputs` | Output event kinds; required iff subscribed to `transform`                  |
-| `config`            | Optional lazy `SymbolRef` to the type's typed config model                  |
-| `logger_levels`     | Optional dependency logger level requests (adapter rules apply)             |
+| Field           | Requirement                                                        |
+| --------------- | ------------------------------------------------------------------ |
+| `plugin_id`     | Registration token; equals the entry-point name                    |
+| `version`       | Non-empty implementation version; recorded in durable decisions    |
+| `capabilities`  | Non-empty set of declared requirements (§6)                        |
+| `stages`        | Non-empty subscribed stages: `enrich`, `transform`, `event_policy` |
+| `plugin`        | Lazy `SymbolRef` to a zero-arg implementation factory              |
+| `input_kinds`   | Registered event kinds to receive; empty means all kinds for       |
+|                 | enrichment/policy, but transforms MUST select explicit inputs      |
+| `output_kinds`  | Registered event kinds the plugin may derive; required iff         |
+|                 | declaring `emit_events`, and never permitted without that grant    |
+| `config`        | Optional lazy `SymbolRef` to a typed config model                  |
+| `logger_levels` | Optional dependency logger levels (adapter restrictions apply)     |
 
 Validation rules:
 
-- Every declared capability MUST be a `PluginCapability` member that this
-  host implements (§6); declaring a reserved capability quarantines the type.
-- Every plugin MUST declare `read_events`: every stage subscription
-  processes canonical events.
-- Transform kind declarations MUST name registered event kinds from the
-  closed registry (see [event-model.md](event-model.md) §5), and MUST be
-  present exactly when the type subscribes to the transform stage.
-- Plugin output kinds MUST exclude `delivery.*` and `system.*`: plugins
-  cannot manufacture core delivery, audit, or lifecycle evidence. Such events
-  may be observed as inputs.
-- Declaration containers MUST be immutable snapshots. Registry validation
-  MUST validate lazy references structurally without importing their targets.
-- Logger declarations MUST NOT target `root`, `medre`, or any `medre.*`
-  logger, MUST NOT repeat a logger, and MUST name valid levels.
+- Every declared capability MUST be supported by this host. Declaring a
+  reserved capability quarantines the type rather than ignoring its request.
+- Every plugin MUST declare `read_events`. Transforms MUST declare
+  `emit_events` and at least one `input_kinds` entry.
+- Every plugin that declares `emit_events` MUST declare at least one output
+  kind. A read-only plugin MUST NOT declare output kinds.
+- `input_kinds` applies identically to every subscribed stage. An empty
+  selection means all registered kinds for enrichment and policy; a filtered
+  event MUST NOT invoke the plugin or record a synthetic policy decision.
+- Every proposed derived event MUST have a kind in the plugin's `output_kinds`,
+  including proposals emitted at **enrichment** stages. Stages do not confer
+  an implicit permission to emit arbitrary kinds. `output_kinds` MUST exclude
+  `delivery.*` and `system.*` to keep core evidence core-owned.
+- Input/output declarations MUST name registered kinds in the closed event-kind
+  registry ([event-model.md](event-model.md) §5). Stage and kind filtering
+  MUST be enforced by the host, not only documented for plugin authors.
+- Declaration containers MUST be immutable snapshots; lazy references MUST
+  be validated structurally without importing their targets.
+- Logger declarations MUST NOT target `root`, `medre`, or `medre.*`, MUST NOT
+  repeat a logger, and MUST name valid levels.
 
-A transform MUST declare its input and output kinds so route planning and
-replay can reason about kind flow without loading implementations.
+These type-level declarations are the plugin's maximum claim, not a complete
+operator policy. An operator chooses which type and instance to activate and
+which capabilities to grant. Type-declared kinds bound the code's behavior;
+route configuration remains authoritative for transport delivery.
 
 ## 6. Capabilities: Declaration and Authorization
 
@@ -193,6 +203,9 @@ event in place.
 
 The original-event routing rule is normative and explicit:
 
+- Plugins are invoked only for kinds in `input_kinds` when that tuple is
+  nonempty. This filtering also applies to event-policy subscriptions; an
+  unmatched event has no verdict from that plugin, not an implicit `Allow`.
 - `Derive` is additive. The original event continues through the remaining
   stages and routing, and each derived event also continues. Deriving MUST
   NOT suppress or replace the original.
@@ -475,6 +488,51 @@ reference implementation and conformance fixture: it subscribes to the
 enrichment stage, derives word and character counts for `message.created`
 and `message.text` events carrying text as a
 `plugin.custom` event with a `text_stats` sub-kind in the payload, and
-requires only `read_events` and `emit_events`. It declares no configuration
-and no external dependency. MEDRE registers no providers itself, so the
+requires only `read_events` and `emit_events`. Its declared input kinds are
+`message.created` and `message.text`; its only declared output kind is
+`plugin.custom`. It declares no configuration and no external dependency. MEDRE registers no providers itself, so the
 reference plugin is deliberately not exposed through an entry point.
+
+## 15. Boundary of the Current Host and Future Services
+
+The canonical stage host is intentionally an event processor, **not** a generic
+adapter command dispatcher, arbitrary message sender, web server, or workflow
+scheduler. Plugins MUST NOT use synthetic ingress, forged native references, or
+raw adapter SDK calls to bypass the authority of transport adapters.
+
+The following examples describe separate potential host services; these are
+**not implemented** by the current `PluginContext` or `PluginExecutor`:
+
+- **Cross-platform responder:** the current `Derive` operation creates a
+  canonical descendant routed by existing configured routes, retaining the
+  triggering event's source context. It does not select an arbitrary reply
+  destination or establish a new bot sender identity. A future outbound-intent
+  interface needs an operator-granted destination scope, explicit actor,
+  relation and target semantics, durable idempotency, and normal outbox,
+  rendering, and adapter handoff. Derivation is not equivalent to sending.
+- **Curated Meshtastic/mtjk operations:** canonical event enrichment is not a
+  device command. The operation vocabulary may include bounded reads and
+  permitted commands beyond remote administration. A future interface needs a
+  narrowly typed operation vocabulary, device/resource grants, sender
+  authentication independent of displayed names, command-specific audit and
+  confirmation, timeout and retry policy, and execution by the owning
+  Meshtastic adapter. No plugin should directly receive a live mtjk client.
+- **Statistics dashboard:** deriving `plugin.custom` summaries and buffering
+  bounded plugin state are possible today, but they are not a query, cursor,
+  streaming, or HTTP API. A dashboard should use a separate read-only,
+  authorization-aware host query/stream service, with bounded pagination,
+  redaction, retention and backpressure. Hosting a website must not block
+  the event-processing stages.
+
+If a plugin requires periodic tasks, external I/O, or long-running services,
+their lifecycle and durable effect queues need an explicitly specified host
+contract. The synchronous decision result is not a license to perform
+unrecorded network side effects. Future services should reuse configured
+instance identity, grants, evidence, replay limits, and operator-owned package
+management without overloading `emit_events` into universal authority.
+
+Development examples and interface selection guidance live in
+[plugin-design.md](../dev/plugin-design.md). Kind subscriptions are event
+selection, not per-channel, actor, device, or destination authorization. Plugins
+MUST NOT treat a displayed sender name or retained source context as proof of
+operation authority.

@@ -80,8 +80,8 @@ def configuration_digest(spec: PluginSpec, instance: PluginInstanceConfig) -> st
         "config": instance.config,
         "grants": sorted(cap.value for cap in capabilities),
         "stages": sorted(stage.value for stage in spec.stages),
-        "transform_inputs": sorted(spec.transform_inputs),
-        "transform_outputs": sorted(spec.transform_outputs),
+        "input_kinds": sorted(spec.input_kinds),
+        "output_kinds": sorted(spec.output_kinds),
     }
     return hashlib.sha256(canonical_json(data).encode()).hexdigest()
 

@@ -26,7 +26,9 @@ class PluginSpec:
     ``capabilities`` declares what plugin implementations require; operators
     grant capabilities per configured instance, and the runtime grants only
     the intersection (see ``docs/spec/plugins.md``). ``version`` identifies
-    the plugin implementation in durable decision records. ``plugin`` loads
+    the plugin implementation in durable decision records. ``input_kinds``
+    scopes stage subscriptions (empty means all for enrichment/policy), while
+    ``output_kinds`` bounds every derived proposal from any stage. ``plugin`` loads
     to a zero-argument factory returning an object satisfying the stage
     protocols declared in ``stages``.
     """
@@ -36,8 +38,8 @@ class PluginSpec:
     capabilities: frozenset[PluginCapability]
     stages: frozenset[PluginStage]
     plugin: SymbolRef
-    transform_inputs: tuple[str, ...] = ()
-    transform_outputs: tuple[str, ...] = ()
+    input_kinds: tuple[str, ...] = ()
+    output_kinds: tuple[str, ...] = ()
     config: SymbolRef | None = None
     logger_levels: tuple[tuple[str, str], ...] = ()
 
@@ -45,8 +47,8 @@ class PluginSpec:
         # Snapshot every caller-owned container before registry validation.
         object.__setattr__(self, "capabilities", frozenset(self.capabilities))
         object.__setattr__(self, "stages", frozenset(self.stages))
-        object.__setattr__(self, "transform_inputs", tuple(self.transform_inputs))
-        object.__setattr__(self, "transform_outputs", tuple(self.transform_outputs))
+        object.__setattr__(self, "input_kinds", tuple(self.input_kinds))
+        object.__setattr__(self, "output_kinds", tuple(self.output_kinds))
         object.__setattr__(
             self, "logger_levels", tuple(tuple(pair) for pair in self.logger_levels)
         )
@@ -110,26 +112,26 @@ def validate_plugin_spec(spec: PluginSpec) -> None:
         raise ValueError(
             f"plugin {plugin_id!r} must declare suppress_events for event_policy"
         )
-    declares_transform_kinds = bool(spec.transform_inputs and spec.transform_outputs)
-    if PluginStage.TRANSFORM in stages and not declares_transform_kinds:
+    if PluginStage.TRANSFORM in stages and not spec.input_kinds:
         raise ValueError(
-            f"plugin {plugin_id!r} must declare transform_inputs and "
-            "transform_outputs when subscribing to the transform stage"
+            f"plugin {plugin_id!r} must declare input_kinds for the transform stage"
         )
-    if PluginStage.TRANSFORM not in stages and (
-        spec.transform_inputs or spec.transform_outputs
+    if (
+        PluginStage.TRANSFORM in stages
+        and PluginCapability.EMIT_EVENTS not in capabilities
     ):
-        raise ValueError(
-            f"plugin {plugin_id!r} declares transform kinds without "
-            "subscribing to the transform stage"
-        )
-    for kind in (*spec.transform_inputs, *spec.transform_outputs):
+        raise ValueError("transform stage requires emit_events")
+    if PluginCapability.EMIT_EVENTS in capabilities and not spec.output_kinds:
+        raise ValueError("emit_events requires declared output_kinds")
+    if spec.output_kinds and PluginCapability.EMIT_EVENTS not in capabilities:
+        raise ValueError("output_kinds requires emit_events")
+    for kind in (*spec.input_kinds, *spec.output_kinds):
         if not isinstance(kind, str) or not is_registered(kind):
             raise ValueError(
                 f"plugin {plugin_id!r} declares unregistered event " f"kind: {kind!r}"
             )
-    if any(kind not in PLUGIN_OUTPUT_KINDS for kind in spec.transform_outputs):
-        raise ValueError("transform outputs must not contain core-owned evidence kinds")
+    if any(kind not in PLUGIN_OUTPUT_KINDS for kind in spec.output_kinds):
+        raise ValueError("plugin outputs must not contain core-owned evidence kinds")
     logger_names = set()
     for logger_name, level in spec.logger_levels:
         if (

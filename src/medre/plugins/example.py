@@ -64,4 +64,6 @@ def plugin_spec() -> PluginSpec:
         ),
         stages=frozenset({PluginStage.ENRICH}),
         plugin=SymbolRef(__name__, "TextStatsPlugin"),
+        input_kinds=(EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED),
+        output_kinds=(EventKind.PLUGIN_CUSTOM,),
     )

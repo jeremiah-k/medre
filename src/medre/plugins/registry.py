@@ -59,7 +59,7 @@ class PluginTypeRegistry:
 
         Raises :class:`ValueError` for invalid or duplicate plugin
         identifiers, reserved or missing capabilities, invalid stage or
-        transform-kind declarations, or invalid dependency logger
+        input/output kind declarations, or invalid dependency logger
         declarations.
         """
         object.__setattr__(self, "failures", tuple(failures))

@@ -45,16 +45,20 @@ class ScriptedPlugin:
 
 
 def binding(name, stage=PluginStage.ENRICH, action=None, *, required=True, grants=None):
-    caps = {PluginCapability.READ_EVENTS, PluginCapability.EMIT_EVENTS}
+    caps = {PluginCapability.READ_EVENTS}
+    if stage in {PluginStage.ENRICH, PluginStage.TRANSFORM}:
+        caps.add(PluginCapability.EMIT_EVENTS)
     if stage in {PluginStage.TRANSFORM, PluginStage.EVENT_POLICY}:
         caps.add(PluginCapability.SUPPRESS_EVENTS)
     spec = replace(
         make_plugin_spec(name),
         stages={stage},
         capabilities=caps,
-        transform_inputs=("message.created",) if stage is PluginStage.TRANSFORM else (),
-        transform_outputs=(
-            ("message.created",) if stage is PluginStage.TRANSFORM else ()
+        input_kinds=("message.created",) if stage is PluginStage.TRANSFORM else (),
+        output_kinds=(
+            ("message.created", "plugin.custom")
+            if PluginCapability.EMIT_EVENTS in caps
+            else ()
         ),
     )
     instance = PluginInstanceConfig(
