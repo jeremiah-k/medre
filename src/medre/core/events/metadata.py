@@ -18,6 +18,7 @@ Two enums control how metadata is serialised and what is retained:
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 import msgspec
 from msgspec.structs import force_setattr
@@ -36,7 +37,7 @@ class FrozenDict(dict):
     ``True``, so the encoder/decoder handles it transparently).
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         data = dict(*args, **kwargs)
         super().__init__(
             (key, self._freeze_value(value)) for key, value in data.items()

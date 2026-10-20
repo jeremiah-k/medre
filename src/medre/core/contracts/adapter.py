@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from medre.core.contracts.delivery import AdapterHandoffResult, DeliveryFeedback
 from medre.core.events.canonical import CanonicalEvent
@@ -541,7 +541,7 @@ class AdapterContract(ABC):
             start = start.replace(
                 microsecond=(start.microsecond // granularity) * granularity
             )
-        return event.timestamp < start
+        return bool(event.timestamp < start)
 
     async def publish_inbound(self, event: CanonicalEvent) -> None:
         """Publish a canonical event into the inbound pipeline.
@@ -584,7 +584,7 @@ class AdapterContract(ABC):
         admission owns content identity, measured length, quota, and the
         atomic event/content association.
         """
-        ctx = getattr(self, "ctx", None)
+        ctx = cast(AdapterContext | None, getattr(self, "ctx", None))
         if ctx is None or ctx.admit_inbound is None:
             raise RuntimeError("durable ingress admission is not wired")
         return await ctx.admit_inbound(event, provenance, attachment=attachment)
