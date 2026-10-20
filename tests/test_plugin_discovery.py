@@ -142,3 +142,30 @@ def test_reserved_capability_provider_is_quarantined(
     assert not tuple(registry)
     assert len(registry.failures) == 1
     assert "reserved capability" in registry.failures[0].reason
+
+
+def test_kernel_imports_do_not_load_plugin_author_package_or_discovery() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            """
+import builtins
+original = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if name == "medre.plugins" or name.startswith("medre.plugins."):
+        raise AssertionError("core imported the outer plugin package")
+    return original(name, *args, **kwargs)
+builtins.__import__ = guarded
+from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.core.engine.plugin_executor import PluginExecutor
+from medre.core.contracts.plugins.spec import PluginSpec
+assert SQLiteStorage and PluginExecutor and PluginSpec
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr

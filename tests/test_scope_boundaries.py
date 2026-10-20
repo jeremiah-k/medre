@@ -8,8 +8,9 @@ text inspection** (not runtime importing of optional SDKs) and cover:
 2. No live tests enabled by default (addopts + marker discipline).
 3. No admin server or admin handler subsystem.
 4. No webhook handler subsystem.
-5. No plugin execution runtime — the declarative plugin contract and type
-   registry only; no runner, lifecycle manager, or pipeline wiring.
+5. One explicit plugin execution owner — the kernel PluginExecutor wired
+   through explicit assembly; no additional runner/manager and no implicit
+   YAML/CLI activation.
 6. No distributed dependencies (redis, celery, kafka, rabbitmq, zmq, …).
 7. No persistent queue infrastructure.
 8. No replay deduplication engine (only run_id tracking allowed).
@@ -444,23 +445,17 @@ class TestNoWebhookSubsystem:
 
 
 # ===================================================================
-# 5. Plugin contract without a plugin execution runtime
+# 5. Explicit plugin execution and kernel-owned contracts
 # ===================================================================
 
 
-class TestNoPluginExecutionRuntime:
-    """The plugin package holds its declarative contract only.
+class TestPluginExecutionBoundaries:
+    """Discovery stays outside the kernel and operator activation is explicit.
 
-    ``medre.plugins`` defines the type contract: capability vocabulary,
-    stages, typed decisions, ``PluginSpec``, configured instances with
-    operator grants, the runtime context, stage protocols, the reference
-    plugin, and the type registry with entry-point discovery. Host-owned
-    storage of decisions and scoped state is permitted. No execution
-    runtime may exist yet: no stage runner, lifecycle manager, or host that
-    executes plugin implementations in the pipeline, and no wiring of
-    plugin instances into runtime assembly, configuration loading, or the
-    CLI. Extending the contract package is a deliberate act: new modules
-    must be added to the allowlist below.
+    Contract types live under core/contracts/plugins and are publicly
+    re-exported through medre.plugins. Only runtime/plugins.py may import the
+    outer discovery registry. The core executor owns stage execution;
+    additional managers and implicit YAML/CLI activation remain forbidden.
     """
 
     _PLUGIN_CONTRACT_MODULES = frozenset(
@@ -499,16 +494,21 @@ class TestNoPluginExecutionRuntime:
         )
 
     def test_no_execution_runtime_classes(self) -> None:
-        """No source module defines a plugin execution runtime class."""
+        """Stage execution has one explicit kernel owner."""
         for path in _all_source_py_files(_SRC_ROOT):
             source = _file_source(path)
             for pattern in self._EXECUTION_RUNTIME_PATTERNS:
+                if (
+                    path.relative_to(_SRC_ROOT).as_posix()
+                    == "core/engine/plugin_executor.py"
+                ):
+                    continue
                 assert (
                     pattern not in source
                 ), f"{path.relative_to(_SRC_ROOT)}: {pattern}"
 
     def test_no_plugin_wiring_outside_the_contract_package(self) -> None:
-        """Only host storage may import plugin records outside the contract."""
+        """Only explicit assembly may import outer discovery from other layers."""
         violations: list[str] = []
         for path in _all_source_py_files(_SRC_ROOT):
             rel = path.relative_to(_SRC_ROOT)
@@ -516,10 +516,9 @@ class TestNoPluginExecutionRuntime:
                 continue
             for line in _import_lines(_file_source(path)):
                 if "medre.plugins" in line or "medre import plugins" in line:
-                    if rel.as_posix() in {
-                        "core/storage/backend.py",
-                        "core/storage/sqlite/_plugins.py",
-                    } and line.startswith("from medre.plugins.records import "):
+                    if rel.as_posix() == "runtime/plugins.py" and line.startswith(
+                        "from medre.plugins.registry import "
+                    ):
                         continue
                     violations.append(f"{rel}: {line}")
         assert (

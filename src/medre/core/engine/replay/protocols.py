@@ -37,6 +37,10 @@ class _RealPipelineProtocol(Protocol):
     collaborators; ``render_replay_event`` is the sole replay rendering hook.
     """
 
+    def validate_replay_stages(self, stages: tuple[str, ...]) -> None:
+        """Validate stages before selection; optional on lightweight stubs."""
+        ...
+
     async def route_event(
         self,
         event: CanonicalEvent,

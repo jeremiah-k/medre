@@ -16,7 +16,7 @@ projection and its `conversation_projection_state`, `native_message_refs`,
 `delivery_receipts`, `delivery_outbox`,
 `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
 `attachment_blobs` and `event_attachment_associations` tables,
-`plugin_state` and `plugin_execution_records` tables,
+`plugin_state`, `plugin_execution_plans`, and `plugin_execution_records` tables,
 and schema metadata.
 
 The following tables are **planned — not implemented; tracked for
@@ -872,7 +872,25 @@ verifies the proposed state's digest against the immutable record. There is
 no public unscoped KV writer. Failed invocations MUST NOT update state values
 or revisions.
 
-#### 4.6.2 plugin_execution_records
+#### 4.6.2 plugin_execution_plans
+
+```sql
+CREATE TABLE plugin_execution_plans (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    scope TEXT NOT NULL,
+    plan_digest TEXT NOT NULL CHECK (length(plan_digest) = 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(event_id, scope)
+);
+```
+
+This append-only binding freezes the effective execution plan before plugin
+invocation, including an empty plan. `bind_plugin_plan` is idempotent for an
+identical digest and rejects changed semantics. It is additive under schema
+version 1; read-only inspection accepts its absence. Existing execution records
+also constrain a binding when upgrading a persistence-only database.
+
+#### 4.6.3 plugin_execution_records
 
 ```sql
 CREATE TABLE plugin_execution_records (
@@ -903,8 +921,8 @@ Read-only inspection accepts its absence on a database predating plugin
 persistence and MUST NOT create it. An existing table with missing columns,
 foreign keys, unique identities, or checks is rejected, never rebuilt.
 
-These are host persistence interfaces, not plugin runtime activation. Pipeline
-execution and operator configuration remain unimplemented. See
+These are host persistence interfaces. Explicit programmatic execution uses
+them before ordinary routing; runtime YAML and CLI activation remain separate. See
 [plugins.md](plugins.md) §9 for retry, replay, forward-cursor, and cancellation
 semantics.
 
@@ -1882,6 +1900,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                                                               |
 | `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                                                               |
 | `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                            | None                                          | Forever                                                               |
+| `plugin_execution_plans`        | Plugin execution host                                                              | None                                                              | None                                          | Append-only recovery-plan binding                                     |
 | `plugin_execution_records`      | Plugin execution host                                                              | None                                                              | None                                          | Append-only decision evidence                                         |
 | `plugin_state`                  | Plugin execution host via atomic commit                                            | Plugin execution host via atomic commit                           | None                                          | Mutable operational instance snapshot; execution evidence is separate |
 | `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                      | None                                          | Forever                                                               |

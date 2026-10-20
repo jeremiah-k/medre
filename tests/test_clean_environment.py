@@ -327,6 +327,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.config.errors",
         "medre.core",
         "medre.core.contracts",
+        "medre.core.contracts.plugins",
         "medre.core.events",
         "medre.core.routing",
         "medre.core.engine",

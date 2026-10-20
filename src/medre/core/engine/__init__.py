@@ -5,7 +5,7 @@ storage, routing, planning, and adapter delivery:
 
 * :class:`PipelineRunner` -- orchestrates the full event pipeline.
 * :class:`PipelineConfig` -- configuration dataclass for the runner.
-* :class:`PipelinePhase` -- enumeration of the six implemented pipeline stages.
+* :class:`PipelinePhase` -- enumeration of base and optional canonical-plugin phases.
 
 Replay runtime lives in :mod:`medre.core.engine.replay` (now a package).
 Import explicitly from submodules, e.g.

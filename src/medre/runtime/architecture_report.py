@@ -303,6 +303,7 @@ def render_dependency_graph_report(report: DependencyGraphReport) -> str:
 _SDK_PACKAGES = adapter_sdk_packages()
 
 _CORE_FORBIDDEN = (
+    "medre.plugins",
     "medre.runtime",
     "medre.adapters",
     "medre.cli",

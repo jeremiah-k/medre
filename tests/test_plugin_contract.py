@@ -1,13 +1,9 @@
 """Plugin contract types: capabilities, decisions, instances, reference plugin."""
 
 from dataclasses import replace
-
-
 from datetime import datetime, timezone
 
-
 import pytest
-
 
 from medre.plugins import (
     HOST_GRANTABLE_CAPABILITIES,
@@ -24,8 +20,6 @@ from medre.plugins import (
     missing_required_grants,
     unexpected_grants,
 )
-
-
 from medre.plugins.context import (
     EnrichPlugin,
     Plugin,
@@ -33,20 +27,10 @@ from medre.plugins.context import (
     PolicyPlugin,
     TransformPlugin,
 )
-
-
 from medre.plugins.example import TextStatsPlugin, plugin_spec
-
-
 from medre.plugins.registry import PluginTypeRegistry
-
-
 from medre.registration import SymbolRef
-
-
 from tests.helpers.pipeline import make_event
-
-
 from tests.helpers.plugin_spec import make_plugin_spec
 
 
@@ -69,9 +53,11 @@ def test_host_grantable_capabilities_exclude_route_mutation() -> None:
     """MODIFY_ROUTES stays reserved; every other capability is grantable."""
     assert PluginCapability.MODIFY_ROUTES not in HOST_GRANTABLE_CAPABILITIES
     assert HOST_GRANTABLE_CAPABILITIES == frozenset(
-        capability
-        for capability in PluginCapability
-        if capability is not PluginCapability.MODIFY_ROUTES
+        {
+            PluginCapability.READ_EVENTS,
+            PluginCapability.EMIT_EVENTS,
+            PluginCapability.SUPPRESS_EVENTS,
+        }
     )
 
 
@@ -649,3 +635,21 @@ def test_disabled_instance_cannot_return_an_authorized_decision() -> None:
             "message.created",
             Pass(),
         )
+
+
+@pytest.mark.parametrize(
+    "capability",
+    [
+        PluginCapability.READ_ROUTES,
+        PluginCapability.READ_IDENTITY,
+        PluginCapability.READ_STORAGE,
+        PluginCapability.ACCESS_TELEMETRY,
+    ],
+)
+def test_context_services_without_implementations_are_reserved(capability) -> None:
+    spec = replace(
+        make_plugin_spec("sensor"),
+        capabilities={PluginCapability.READ_EVENTS, capability},
+    )
+    with pytest.raises(ValueError, match="reserved capability"):
+        PluginTypeRegistry((spec,))

@@ -24,6 +24,7 @@ from medre.plugins.context import (
     EnrichPlugin,
     Plugin,
     PluginContext,
+    PluginState,
     PolicyPlugin,
     TransformPlugin,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "PluginCapabilityError",
     "validate_plugin_decision",
     "PluginContext",
+    "PluginState",
     "PluginInstanceConfig",
     "PluginSpec",
     "PluginStage",

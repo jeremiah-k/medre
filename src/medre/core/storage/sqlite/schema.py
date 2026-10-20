@@ -323,6 +323,14 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     PRIMARY KEY(window_start, source, outcome)
 );
 
+CREATE TABLE IF NOT EXISTS plugin_execution_plans (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    scope TEXT NOT NULL,
+    plan_digest TEXT NOT NULL CHECK (length(plan_digest) = 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(event_id, scope)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_execution_records (
     record_id TEXT PRIMARY KEY,
     source_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -833,6 +841,9 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
 # Additive plugin evidence is optional on a read-only legacy database. Once
 # present it must satisfy the same shape/authority checks as kernel tables.
 _PLUGIN_REQUIRED_COLUMNS = {
+    "plugin_execution_plans": frozenset(
+        {"event_id", "scope", "plan_digest", "created_at"}
+    ),
     "plugin_execution_records": frozenset(
         {
             "record_id",
@@ -848,11 +859,13 @@ _PLUGIN_REQUIRED_COLUMNS = {
     ),
 }
 _PLUGIN_REQUIRED_FOREIGN_KEYS = {
+    "plugin_execution_plans": frozenset({("event_id", "canonical_events", "event_id")}),
     "plugin_execution_records": frozenset(
         {("source_event_id", "canonical_events", "event_id")}
     ),
 }
 _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS = {
+    "plugin_execution_plans": frozenset({("event_id", "scope")}),
     "plugin_execution_records": frozenset(
         {
             ("record_id",),
@@ -868,6 +881,12 @@ _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS = {
     ),
 }
 _PLUGIN_REQUIRED_CHECK_CONSTRAINTS = {
+    "plugin_execution_plans": (
+        (
+            "CHECK (length(plan_digest) = 64)",
+            r"CHECK\s*\(\s*length\s*\(\s*plan_digest\s*\)\s*=\s*64\s*\)",
+        ),
+    ),
     "plugin_execution_records": (
         ("CHECK (attempt >= 1)", r"CHECK\s*\(\s*attempt\s*>=\s*1\s*\)"),
         (

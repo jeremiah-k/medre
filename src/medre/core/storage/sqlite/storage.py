@@ -438,17 +438,26 @@ class _SQLiteStorageBase:
     async def _validate_plugin_storage_schema(self) -> None:
         # Read-only inspection accepts databases predating this additive table.
         # Writable initialization creates it; existing partial shapes fail closed.
-        row = await self._read_one(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='plugin_execution_records'"
+        rows = await self._read_all(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('plugin_execution_records', 'plugin_execution_plans')"
         )
-        if row is None:
-            return
-        await self._validate_schema_shape(_PLUGIN_REQUIRED_COLUMNS)
-        await self._validate_schema_foreign_keys(_PLUGIN_REQUIRED_FOREIGN_KEYS)
-        await self._validate_schema_unique_constraints(
-            _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS
-        )
-        await self._validate_schema_checks(_PLUGIN_REQUIRED_CHECK_CONSTRAINTS)
+        present = {row["name"] for row in rows}
+        for validator, requirements in (
+            (self._validate_schema_shape, _PLUGIN_REQUIRED_COLUMNS),
+            (self._validate_schema_foreign_keys, _PLUGIN_REQUIRED_FOREIGN_KEYS),
+            (
+                self._validate_schema_unique_constraints,
+                _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS,
+            ),
+            (self._validate_schema_checks, _PLUGIN_REQUIRED_CHECK_CONSTRAINTS),
+        ):
+            await validator(
+                {
+                    table: value
+                    for table, value in requirements.items()
+                    if table in present
+                }
+            )
 
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.

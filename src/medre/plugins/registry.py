@@ -18,14 +18,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from medre.plugins.capabilities import (
-    HOST_GRANTABLE_CAPABILITIES,
-    PluginCapability,
-)
-from medre.plugins.decisions import PLUGIN_OUTPUT_KINDS
-from medre.plugins.spec import PluginSpec
-from medre.plugins.stages import PluginStage
-from medre.registration import SymbolRef, valid_registration_name
+from medre.core.contracts.plugins.spec import PluginSpec, validate_plugin_spec
 
 __all__ = [
     "PLUGIN_REGISTRY",
@@ -69,116 +62,14 @@ class PluginTypeRegistry:
         transform-kind declarations, or invalid dependency logger
         declarations.
         """
-        from medre.core.events.kinds import is_registered
-        from medre.core.observability.log_levels import VALID_LEVEL_NAMES
-
         object.__setattr__(self, "failures", tuple(failures))
         ordered = tuple(specs)
         by_plugin: dict[str, PluginSpec] = {}
         for spec in ordered:
-            if not isinstance(spec, PluginSpec):
-                raise TypeError("registry entries must be PluginSpec declarations")
+            validate_plugin_spec(spec)
             plugin_id = spec.plugin_id
-            if not valid_registration_name(plugin_id):
-                raise ValueError(f"invalid plugin id: {plugin_id!r}")
             if plugin_id in by_plugin:
                 raise ValueError(f"duplicate plugin id: {plugin_id!r}")
-            if not isinstance(spec.version, str) or not spec.version.strip():
-                raise ValueError(f"plugin {plugin_id!r} must declare a version")
-            for field, reference in (("plugin", spec.plugin), ("config", spec.config)):
-                if field == "config" and reference is None:
-                    continue
-                if (
-                    not isinstance(reference, SymbolRef)
-                    or not isinstance(reference.module, str)
-                    or not reference.module
-                    or not all(
-                        part.isidentifier() for part in reference.module.split(".")
-                    )
-                    or not isinstance(reference.name, str)
-                    or not reference.name.isidentifier()
-                ):
-                    raise ValueError(
-                        f"plugin {plugin_id!r} has an invalid {field} SymbolRef"
-                    )
-            capabilities = spec.capabilities
-            if not capabilities:
-                raise ValueError(
-                    f"plugin {plugin_id!r} must declare at least one capability"
-                )
-            for capability in capabilities:
-                if not isinstance(capability, PluginCapability):
-                    raise ValueError(
-                        f"invalid capability declaration for {plugin_id!r}: "
-                        f"{capability!r}"
-                    )
-                if capability not in HOST_GRANTABLE_CAPABILITIES:
-                    raise ValueError(
-                        f"plugin {plugin_id!r} declares reserved capability "
-                        f"{capability.value!r}; routing authority remains with "
-                        "the compiled operator configuration"
-                    )
-            if PluginCapability.READ_EVENTS not in capabilities:
-                raise ValueError(
-                    f"plugin {plugin_id!r} must declare read_events; every "
-                    "stage subscription processes canonical events"
-                )
-            stages = spec.stages
-            if not stages:
-                raise ValueError(
-                    f"plugin {plugin_id!r} must subscribe to at least one stage"
-                )
-            for stage in stages:
-                if not isinstance(stage, PluginStage):
-                    raise ValueError(
-                        f"invalid stage subscription for {plugin_id!r}: {stage!r}"
-                    )
-            if (
-                PluginStage.EVENT_POLICY in stages
-                and PluginCapability.SUPPRESS_EVENTS not in capabilities
-            ):
-                raise ValueError(
-                    f"plugin {plugin_id!r} must declare suppress_events for event_policy"
-                )
-            declares_transform_kinds = bool(
-                spec.transform_inputs and spec.transform_outputs
-            )
-            if PluginStage.TRANSFORM in stages and not declares_transform_kinds:
-                raise ValueError(
-                    f"plugin {plugin_id!r} must declare transform_inputs and "
-                    "transform_outputs when subscribing to the transform stage"
-                )
-            if PluginStage.TRANSFORM not in stages and (
-                spec.transform_inputs or spec.transform_outputs
-            ):
-                raise ValueError(
-                    f"plugin {plugin_id!r} declares transform kinds without "
-                    "subscribing to the transform stage"
-                )
-            for kind in (*spec.transform_inputs, *spec.transform_outputs):
-                if not isinstance(kind, str) or not is_registered(kind):
-                    raise ValueError(
-                        f"plugin {plugin_id!r} declares unregistered event "
-                        f"kind: {kind!r}"
-                    )
-            if any(kind not in PLUGIN_OUTPUT_KINDS for kind in spec.transform_outputs):
-                raise ValueError(
-                    "transform outputs must not contain core-owned evidence kinds"
-                )
-            logger_names = set()
-            for logger_name, level in spec.logger_levels:
-                if (
-                    not isinstance(logger_name, str)
-                    or not logger_name
-                    or logger_name in {"root", "medre"}
-                    or logger_name.startswith("medre.")
-                    or logger_name in logger_names
-                    or level not in VALID_LEVEL_NAMES
-                ):
-                    raise ValueError(
-                        f"invalid dependency logger declaration for {plugin_id!r}"
-                    )
-                logger_names.add(logger_name)
             by_plugin[plugin_id] = spec
         object.__setattr__(self, "_specs", ordered)
         object.__setattr__(self, "_by_plugin", MappingProxyType(by_plugin))

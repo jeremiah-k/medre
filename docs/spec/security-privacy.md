@@ -184,7 +184,7 @@ quarantine, configured instances with operator capability grants, and typed
 stage decisions. Host-side decision validation separates observation,
 derivation, and suppression authority. Host-owned storage atomically commits
 execution evidence, derived events, and scoped state; this does not activate
-plugins in the pipeline. Plugins observe canonical events, propose derived events
+plugins without explicit assembly. Plugins observe canonical events, propose derived events
 through host admission, and evaluate scoped policy; they do not emit
 transport-native payloads and do not construct canonical events themselves.
 Declared capabilities are requests, not authorization: the runtime grants
@@ -192,18 +192,13 @@ only the intersection of declared, operator-granted, and host-supported
 capabilities. Plugins are trusted in-process code; capability gating is an
 API-level restriction, not a security sandbox.
 
-The following boundary machinery does **not** exist yet and MUST NOT be
-assumed by plugin authors or operators:
-
-- No plugin execution in the pipeline: the extension stages remain reserved.
-- No runtime capability-grant enforcement: the pure decision validator must
-  be invoked by the execution host.
-- No route-permission enforcement for plugin-derived events.
-- No per-plugin rate limits.
-- No plugin-specific audit logging.
-
-Until that machinery exists, the contract, registry, and persistence seam
-are not an executed plugin security boundary.
+Explicitly assembled execution enforces implemented grants, stage outcomes,
+transform kind flow, bounded expansion, per-instance serialization, and durable
+decision recovery. Derived events use ordinary compiled routes and delivery
+authority. Route/identity/storage/telemetry context services remain reserved and
+cannot be granted; runtime YAML/CLI activation and plugin-specific operator
+diagnostics remain separate work. Trusted Python plugins can still block the
+event loop or cause external effects; deadline cancellation is cooperative.
 
 ## 6. Encryption Model
 

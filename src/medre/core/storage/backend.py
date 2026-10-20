@@ -17,6 +17,11 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.contracts.plugins.records import (
+    PluginExecutionKey,
+    PluginExecutionRecord,
+    PluginStateSnapshot,
+)
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
@@ -36,11 +41,6 @@ from medre.core.ingress import (
     IngressProvenance,
     IngressWorkItem,
     StoredAttachmentContent,
-)
-from medre.plugins.records import (
-    PluginExecutionKey,
-    PluginExecutionRecord,
-    PluginStateSnapshot,
 )
 
 # ---------------------------------------------------------------------------
@@ -888,6 +888,12 @@ class StorageBackend(Protocol):
         ...
 
     # -- Host-owned plugin persistence --------------------------------------
+
+    async def bind_plugin_plan(
+        self, event_id: str, scope: str, plan_digest: str
+    ) -> None:
+        """Bind immutable recovery identity before any plugin invocation."""
+        ...
 
     async def get_plugin_state(
         self, plugin_id: str, instance_id: str, *, scope: str = "live"

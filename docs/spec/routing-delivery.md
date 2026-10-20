@@ -28,11 +28,16 @@ class RouteSource:
 
 Matching rules:
 
-| Field         | Match behavior                                                                                            |
-| ------------- | --------------------------------------------------------------------------------------------------------- |
-| `adapter`     | Exact match on adapter instance name. `None` is a wildcard matching any adapter.                          |
-| `event_kinds` | Non-empty: event MUST have an `event_kind` present in this list. Empty: wildcard matching any event kind. |
-| `channel`     | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel.                |
+| Field         | Match behavior                                                                                                               |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `adapter`     | Exact match on adapter instance name. `None` is a wildcard matching any adapter.                                             |
+| `event_kinds` | Non-empty: event MUST have an `event_kind` present in this list. Empty: wildcard matching every kind except `plugin.custom`. |
+| `channel`     | Exact match on the event's `source_channel_id`. `None` is a wildcard matching any channel.                                   |
+
+Observational `plugin.custom` events require explicit source-kind selection:
+`policy.allowed_event_types: [plugin.custom]` in runtime configuration. Empty
+kind filters exclude them. Explicit custom-only routes and catch-all routes do
+not overlap on custom events. Adapter and channel filters remain authoritative.
 
 All three fields are ANDed together. A source matches only when every non-None field matches the corresponding event field.
 
@@ -199,7 +204,7 @@ A `BridgePolicy` is an optional frozen dataclass attached to a route. All fields
 | `channel_allowlist`       | Channel/conversation IDs allowed to bridge           |
 | `sender_allowlist`        | Sender identifiers allowed to bridge                 |
 
-An empty tuple means "allow all" for that dimension. `BridgePolicy` is frozen after construction. It MUST be set at configuration load time and MUST NOT be mutated at runtime.
+An empty tuple means "allow all" for that dimension, subject to the source-match rule requiring explicit opt-in for `plugin.custom`. `BridgePolicy` is frozen after construction. It MUST be set at configuration load time and MUST NOT be mutated at runtime.
 
 ## 3. Route Matching Semantics
 
@@ -210,7 +215,7 @@ The routing engine evaluates **all enabled routes** against each derived event. 
 1. Filter out routes where `enabled` is `false`.
 2. For each remaining route, evaluate `source` against the event:
    - `adapter`: event's `source_adapter` MUST equal this value, unless `None` (wildcard).
-   - `event_kinds`: when non-empty, the event's `event_kind` MUST be present; an empty tuple is a wildcard matching any event kind.
+   - `event_kinds`: when non-empty, the event's `event_kind` MUST be present; an empty tuple is a wildcard matching every kind except `plugin.custom`.
    - `channel`: event's `source_channel_id` MUST equal this value, unless `None` (wildcard).
 3. Collect all matching routes.
 
@@ -1404,7 +1409,7 @@ When the runtime loads route configuration:
 1. Config route IDs MUST be unique, and expansion MUST produce unique runtime route IDs.
 2. Every enabled route's `source_adapters` and `dest_adapters` references MUST resolve to an adapter ID in the assembled runtime configuration.
 3. Both adapter sides MUST be non-empty and MUST NOT overlap within a single config route.
-4. `BridgePolicy.allowed_event_types` MAY be empty; empty compiles to an empty `RouteSource.event_kinds` tuple and therefore means "match any event kind". A non-empty tuple restricts source matching to those event kinds.
+4. `BridgePolicy.allowed_event_types` MAY be empty; empty compiles to an empty `RouteSource.event_kinds` tuple and therefore means "match every event kind except `plugin.custom`". A non-empty tuple restricts source matching to those event kinds.
 5. Every expanded runtime route MUST have at least one target.
 6. `channel` and `destination` on the same `RouteTarget` MUST NOT both be set when `destination.kind` is `"channel"` or `"matrix_room"`.
 7. Unknown route/policy keys are rejected at config load time; policy allowlists MUST be arrays of strings and bare strings are rejected.

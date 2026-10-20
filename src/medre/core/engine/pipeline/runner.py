@@ -89,6 +89,8 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
+    from medre.core.contracts.plugins.stages import PluginStage
+    from medre.core.engine.plugin_executor import PluginExecutor
     from medre.core.supervision.capacity import CapacityController
 
 # ---------------------------------------------------------------------------
@@ -163,6 +165,7 @@ class PipelineConfig:
     runtime_accounting: RuntimeAccounting | None = None
     route_retry_policies: dict[str, RetryPolicy] = field(default_factory=dict)
     project_sender_metadata_fn: SenderProjectionFn | None = None
+    plugin_executor: PluginExecutor | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +708,9 @@ class PipelineRunner:
             )
             return []
 
+        if self._config.plugin_executor is not None:
+            return await self._process_with_plugins(event.event_id)
+
         # Stages 5-6 – route, plan, deliver
         # ── Phase: ROUTE ────────────────────────────────────────────────
         self._current_phase = PipelinePhase.ROUTE
@@ -879,11 +885,56 @@ class PipelineRunner:
             )
             return []
 
+        if self._config.plugin_executor is not None:
+            return await self._process_with_plugins(event.event_id)
+        return await self._route_admitted_event(event)
+
+    async def _process_with_plugins(self, event_id: str) -> list[DeliveryOutcome]:
+        from medre.core.engine.plugin_executor import PluginExecutionDeferredError
+
+        executor = self._config.plugin_executor
+        assert executor is not None
+
+        def observe(stage: PluginStage) -> None:
+            phase = PipelinePhase(stage.value)
+            self._current_phase = phase
+            self._phase_counts[phase] += 1
+
+        try:
+            events = await executor.process(event_id, on_stage=observe)
+        except PluginExecutionDeferredError as exc:
+            raise DurableIngressDeferredError(
+                event_id, ("plugin_execution_deferred",)
+            ) from exc
+
+        outcomes: list[DeliveryOutcome] = []
+        for stored in events:
+            event = await self._resolve_relations(stored)
+            await self._repair_conversation_after_event_available(event.event_id)
+            event = await self._conversation_projection.project_event(event)
+            if await self._is_reaction_to_reaction(event):
+                continue
+            with correlation_scope(
+                trace_id=event.trace_id,
+                event_id=event.event_id,
+                conversation_id=event.conversation_id,
+                source="live",
+            ):
+                outcomes.extend(await self._route_admitted_event(event))
+        return outcomes
+
+    async def _route_admitted_event(
+        self, event: CanonicalEvent
+    ) -> list[DeliveryOutcome]:
+        self._current_phase = PipelinePhase.ROUTE
+        self._phase_counts[PipelinePhase.ROUTE] += 1
         event, deliveries = await self.route_event(event)
         if not deliveries:
             self._log.info("No routes matched for event_id=%s", event.event_id)
             return []
 
+        self._current_phase = PipelinePhase.DELIVER
+        self._phase_counts[PipelinePhase.DELIVER] += 1
         outcomes = await self.deliver_to_targets(event, deliveries)
         deferred_reasons: list[str] = []
         for outcome in outcomes:
@@ -1221,6 +1272,24 @@ class PipelineRunner:
         await self._delivery_feedback.record(feedback)
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
+
+    def validate_replay_stages(self, stages: tuple[str, ...]) -> None:
+        """Reject replay paths that cannot preserve plugin qualification yet.
+
+        Historical storage inspection and rendering remain read-only. Routing
+        replay needs a separately qualified frontier rather than direct access
+        to an original event that a plugin may have denied or superseded.
+        """
+        if self._config.plugin_executor is not None and set(stages) & {
+            "transform",
+            "route",
+            "plan",
+            "deliver",
+        }:
+            raise ValueError(
+                "Plugin-qualified routing replay is not implemented; "
+                "use strict inspection or historical re-rendering"
+            )
 
     async def route_event(
         self,

@@ -87,7 +87,8 @@ class BridgePolicy:
 
     All fields default to empty tuples, meaning "no restriction".
     An empty tuple is interpreted as "allow everything" for that
-    dimension.
+    dimension. During source matching, ``plugin.custom`` observations still
+    require explicit selection in ``allowed_event_types``.
 
     Attributes
     ----------

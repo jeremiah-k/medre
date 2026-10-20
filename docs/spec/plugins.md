@@ -7,7 +7,7 @@ authority, and distribution of plugins.
 
 ## 1. Scope and Relationship to Adapters
 
-Adapters and plugins share registration machinery (`medre.registration`), declarative SDK-free
+Adapters and plugins share registration primitives (`medre.registration`), declarative SDK-free
 discovery, quarantine semantics, and operator-owned distribution, but they
 carry separate contracts with separate typed registries:
 
@@ -25,22 +25,25 @@ events.
 
 ## 2. Status
 
-| Area                            | Status                                                    |
-| ------------------------------- | --------------------------------------------------------- |
-| Contract types and vocabularies | Implemented (`src/medre/plugins/`)                        |
-| Type registry and discovery     | Implemented (`src/medre/plugins/registry.py`)             |
-| Reference plugin                | Implemented (`src/medre/plugins/example.py`)              |
-| Pipeline execution of plugins   | Planned — not implemented                                 |
-| Atomic derived-event storage    | Implemented; host-only commit, pipeline admission planned |
-| Durable execution records       | Implemented; SQLite atomic decision/event/state commit    |
-| Instance configuration and CLI  | Planned — not implemented                                 |
-| Decision authorization checks   | Implemented; pure host validator, runtime wiring planned  |
+| Area                            | Status                                                     |
+| ------------------------------- | ---------------------------------------------------------- |
+| Contract types and vocabularies | Implemented (`core/contracts/plugins/`; public re-exports) |
+| Type registry and discovery     | Implemented (`src/medre/plugins/registry.py`)              |
+| Reference plugin                | Implemented (`src/medre/plugins/example.py`)               |
+| Pipeline execution of plugins   | Implemented for explicit programmatic assembly             |
+| Derived-event admission         | Implemented; atomic storage and forward continuation       |
+| Durable execution records       | Implemented; SQLite atomic decision/event/state commit     |
+| Instance configuration and CLI  | Planned — not implemented                                  |
+| Decision authorization checks   | Implemented and invoked by the core executor               |
 
-The extension stages remain reserved
-(see [architecture.md](architecture.md) §2). Until the execution runtime
-lands, plugin integration provides contracts, discovery, and host-owned storage,
-not an executed pipeline behavior. Operators and plugin authors MUST NOT assume
-that subscribing a plugin to a stage has any runtime effect.
+The core executor is wired through `PipelineConfig.plugin_executor` into inline
+and durable pipeline processing. Assembly owns startup and shutdown; it MUST
+start the executor before accepting work and drain ingress before stopping it.
+`runtime.plugins.build_plugin_executor` validates effective configuration and
+validates all configured instances before loading any enabled implementation.
+Factories defer resource acquisition to `initialize`, where lifecycle cleanup
+is host-owned. Installing a package or declaring an entry point
+does not activate plugins; runtime YAML and CLI activation remain unimplemented.
 
 ## 3. Plugin Types and Configured Instances
 
@@ -103,7 +106,7 @@ Discovery failure semantics mirror the adapter registry:
 Validation rules:
 
 - Every declared capability MUST be a `PluginCapability` member that this
-  host can grant (§6); declaring a reserved capability quarantines the type.
+  host implements (§6); declaring a reserved capability quarantines the type.
 - Every plugin MUST declare `read_events`: every stage subscription
   processes canonical events.
 - Transform kind declarations MUST name registered event kinds from the
@@ -136,11 +139,11 @@ runtime grants only the intersection of:
 | `read_events`      | Observe canonical events delivered to a subscribed stage |
 | `emit_events`      | Propose derived events                                   |
 | `suppress_events`  | Authorize policy verdicts and superseding replacements   |
-| `read_routes`      | Read the compiled route view                             |
+| `read_routes`      | Reserved; compiled route reads are unimplemented         |
 | `modify_routes`    | Reserved — not grantable (see below)                     |
-| `read_identity`    | Read reconciled canonical actor identity                 |
-| `read_storage`     | Read canonical events and delivery evidence              |
-| `access_telemetry` | Read diagnostic telemetry                                |
+| `read_identity`    | Reserved; reconciled identity reads are unimplemented    |
+| `read_storage`     | Reserved; event/evidence reads are unimplemented         |
+| `access_telemetry` | Reserved; telemetry reads are unimplemented              |
 
 Authorization rules:
 
@@ -169,11 +172,12 @@ snapshots; strings such as `"false"` MUST NOT enable an instance.
 
 ## 7. Execution Contract
 
-Plugins subscribe to the reserved extension stages between `STORE` and
+Plugins subscribe to the canonical extension stages between `STORE` and
 `ROUTE` (see [architecture.md](architecture.md) §2). Stage execution order
 is fixed: `ENRICH` → `TRANSFORM` → `EVENT_POLICY`. Within a stage,
-subscribed instances run in a deterministic order defined by the execution
-runtime.
+subscribed instances run in the explicit assembly order. Implementations MUST
+be independently owned per instance. The host serializes invocations and commits
+per instance, while state revisions fence competing writers.
 
 Each stage hands the plugin the current canonical event and receives a
 typed decision. Plugins never return bare lists of events and never edit an
@@ -242,6 +246,13 @@ relation, or provenance handling.
   proposal identity ensures a repeated execution of a committed decision
   does not duplicate events (§9).
 
+The explicit executor accepts named replay scopes, but `ReplayEngine` does not
+integrate the plugin-qualified frontier yet. With a plugin executor configured,
+routing, planning, and delivery replay MUST reject the request before selecting
+events or invoking transports. Strict inspection and historical re-rendering
+remain available. This restriction also applies to dry-run routing: it MUST NOT
+report an unqualified original as eligible for delivery.
+
 ## 9. Durable Execution Records and Recovery
 
 Every plugin execution produces a durable decision record containing at
@@ -272,7 +283,60 @@ between execution and commit leaves no partial derivation.
   uncommitted invocation may run again; external calls require a stable host
   execution key and plugin-specific idempotency, or must be read-only.
 
-### 9.1 Implemented Persistence Interface
+### 9.1 Frozen Execution Plans
+
+Before invoking a plugin, including when the configured plan is empty, the host
+MUST bind the source event and execution scope to its plan digest. The digest
+includes ordered instances, enabled state, effective normalized configuration,
+versions, implementation references, required/optional disposition, and limits.
+Recovery compares this binding before any implementation call. A changed plan
+requires a separately named replay scope; it MUST NOT silently gate partially
+processed work under different semantics.
+
+The executor walks original events before descendants in deterministic order.
+Every child resumes the forward position after its producer. It buffers the
+qualified frontier until all required transformations and policies finish;
+a required failure prevents routing the frontier. Each returned event then
+uses normal relation projection, route planning, outbox ownership, and delivery.
+
+Transient invocations have bounded attempts and a retry delay, both in the plan.
+Exhaustion retains source work with its existing failure evidence and raises
+a processing failure, which consumes the ingress poison-work budget. Required
+settled failures, incompatible plans, missing continuations, and invalid stored
+evidence also consume that budget; they MUST NOT use attempt-free operational
+deferral. Rows reach terminal `failed` after the bounded ingress failure budget.
+Only retry-delay windows, pending cancellation, executor shutdown, and stale
+uncommitted state snapshots use operational deferral. Storage faults use normal
+bounded processing retries. Optional
+status is permitted only for enrichment-only instances. Other stage failures
+cannot authorize a pass. A timeout cancels the invocation task without waiting
+indefinitely for acknowledgement; that instance cannot run again while the task
+is alive, and its invocation state becomes inaccessible immediately. Late return
+values are never admitted. `stop()` reports incomplete cleanup rather than
+claiming success while a plugin task remains active.
+A quarantined instance produces a host `quarantined` disposition without invoking
+its implementation: optional enrichment may explicitly pass, while required
+stages remain deferred. This is distinct from a fresh contract violation.
+The instance quarantine latch lasts for that executor lifetime. A newly assembled
+executor performs fresh readiness evaluation; committed source dispositions
+remain settled across restarts and cannot be bypassed in the same scope.
+
+`PluginContext.config` is a frozen JSON mapping with typed model defaults applied
+at assembly. `PluginContext.state.read()` returns a frozen invocation snapshot;
+`write(mapping)` buffers a bounded replacement committed only with successful
+decisions. `PluginContext.current_execution()` exposes the immutable logical invocation
+key and its stable `idempotency_key` for plugin-owned external protocols. The
+key includes replay scope but excludes attempt number, so retries can deduplicate
+external effects. The host cannot guarantee an external service honors that key.
+State reads/writes and execution-key reads outside an active invocation, including late child
+tasks, fail. Initialization and shutdown cannot mutate durable state.
+
+`plugin.custom` output is stored by default. Routes MUST explicitly name
+`plugin.custom` in their source-kind selection to deliver it; catch-all bridge
+routes do not broadcast observational enrichment. Explicit custom-only routes
+and catch-all routes consequently do not overlap on custom events.
+
+### 9.2 Implemented Persistence Interface
 
 `StorageBackend.commit_plugin_execution` is host-owned. It accepts a
 `PluginExecutionRecord` and an optional buffered state snapshot. Plugins MUST
@@ -286,7 +350,7 @@ stage, scope)`. `scope` is `live` or `replay:<run-id>`. The record ID adds
   authorities, not UUID sorting.
 - The first attempt is 1. Transient failures and timeouts without an explicit
   enrichment pass permit a subsequent consecutive attempt. Settled decisions
-  and contract/capability failures prohibit another attempt in the same scope.
+  and contract/capability/quarantined dispositions prohibit another attempt in the same scope.
 - Each source event and scope use one execution-plan digest. A changed order,
   instance set, version, grant, or effective configuration MUST produce a
   different plan digest; changing it during recovery requires explicit
@@ -300,8 +364,7 @@ stage, scope)`. `scope` is `live` or `replay:<run-id>`. The record ID adds
   failed attempts MUST NOT create or advance an operational state snapshot;
   only a successful buffered state write increments its revision. Children do
   not receive transport ingress work: the execution host must resume their
-  forward cursor through the parent work item. This storage interface does
-  not execute or route plugins.
+  forward cursor through the parent work item. The executor resumes this continuation before routing.
 - Exact repeated commits return the committed record and do not advance state
   again. A different record at the same identity fails closed. A stale state
   revision rejects the entire uncommitted result; the host must discard it,
@@ -332,13 +395,13 @@ Failures are classified; classification decides consequence. A temporary
 failure MUST NOT permanently quarantine a plugin. Operator-disabled and
 discovery-quarantined states describe readiness, not invented invocations.
 
-| Class                | Examples                                   |
-| -------------------- | ------------------------------------------ |
-| Transient failure    | Timeout, unavailable dependency, exception |
-| Contract violation   | Invalid decision type, unregistered kind   |
-| Capability violation | Use of an ungranted service                |
-| Operator-disabled    | `enabled: false` on the instance           |
-| Quarantined          | Discovery failure or repeated violations   |
+| Class                | Examples                                               |
+| -------------------- | ------------------------------------------------------ |
+| Transient failure    | Timeout, unavailable dependency, exception             |
+| Contract violation   | Invalid decision type, unregistered kind               |
+| Capability violation | Use of an ungranted service                            |
+| Operator-disabled    | `enabled: false` on the instance                       |
+| Quarantined          | Discovery failure or any contract/capability violation |
 
 Stage consequences follow the authority of each stage:
 
@@ -375,8 +438,9 @@ state and permitted reads only through core-owned APIs:
   separate key column. No unscoped KV access is exposed. Execution records
   live in the separate append-only `plugin_execution_records` table.
 - Plugins MUST NOT receive raw SQLite connections or unrestricted
-  `StorageBackend` access. `read_storage` grants scoped read APIs over
-  canonical events and delivery evidence, nothing else.
+  `StorageBackend` access. `read_storage` is a reserved capability; a future
+  bounded read-only query service may expose authorized event and delivery
+  evidence views, but no such plugin service exists in this release slice.
 
 ## 12. Security Boundary
 

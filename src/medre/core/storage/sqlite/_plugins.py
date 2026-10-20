@@ -15,14 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import msgspec
 
-from medre.core.events import CanonicalEvent
-from medre.core.storage.backend import (
-    EventNotFoundError,
-    PluginExecutionConflictError,
-    PluginStateConflictError,
-    StorageError,
-)
-from medre.plugins.records import (
+from medre.core.contracts.plugins.records import (
     MAX_PLUGIN_DEPTH,
     PluginExecutionKey,
     PluginExecutionRecord,
@@ -30,6 +23,13 @@ from medre.plugins.records import (
     canonical_json,
     state_digest,
     validate_scope,
+)
+from medre.core.events import CanonicalEvent
+from medre.core.storage.backend import (
+    EventNotFoundError,
+    PluginExecutionConflictError,
+    PluginStateConflictError,
+    StorageError,
 )
 from medre.registration import valid_registration_name
 
@@ -97,6 +97,49 @@ ORDER BY attempt DESC LIMIT 1
 """
 
 
+def _ensure_plan(
+    db: sqlite3.Connection, event_id: str, scope: str, digest: str
+) -> None:
+    existing = db.execute(
+        "SELECT plan_digest FROM plugin_execution_plans WHERE event_id=? AND scope=?",
+        (event_id, scope),
+    ).fetchone()
+    if existing is not None:
+        if existing[0] != digest:
+            raise PluginExecutionConflictError(
+                "plugin execution plan changed; use an explicit replay scope"
+            )
+        return
+    # Records created by the persistence-only interface are authoritative too.
+    previous = db.execute(
+        "SELECT record_json FROM plugin_execution_records WHERE source_event_id=? AND scope=? LIMIT 1",
+        (event_id, scope),
+    ).fetchone()
+    if previous is not None and _decode_record(previous[0]).plan_digest != digest:
+        raise PluginExecutionConflictError(
+            "plugin execution plan changed; use an explicit replay scope"
+        )
+    from medre.core.storage.sqlite.serde import _now_iso
+
+    db.execute(
+        "INSERT INTO plugin_execution_plans (event_id, scope, plan_digest, created_at) VALUES (?, ?, ?, ?)",
+        (event_id, scope, digest, _now_iso()),
+    )
+
+
+def _bind_plan(
+    db: sqlite3.Connection, lock: threading.Lock, event_id: str, scope: str, digest: str
+) -> None:
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            _ensure_plan(db, event_id, scope, digest)
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+
+
 def _commit(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -108,6 +151,9 @@ def _commit(
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE")
+            _ensure_plan(
+                db, record.key.source_event_id, record.key.scope, record.plan_digest
+            )
             existing = db.execute(
                 "SELECT record_json FROM plugin_execution_records WHERE record_id=?",
                 (record.record_id,),
@@ -230,6 +276,26 @@ class _PluginsMixin:
         def _event_admission_ops(
             self, event: CanonicalEvent
         ) -> list[tuple[str, tuple[Any, ...]]]: ...
+
+    async def bind_plugin_plan(
+        self, event_id: str, scope: str, plan_digest: str
+    ) -> None:
+        """Freeze the plan before execution, including an empty plan."""
+        import re
+
+        validate_scope(scope)
+        if not isinstance(plan_digest, str) or not re.fullmatch(
+            r"[a-f0-9]{64}", plan_digest
+        ):
+            raise ValueError("plan digest must be a SHA-256 hex digest")
+        try:
+            await self._run_in_thread(
+                _bind_plan, self._require_db(), self._lock, event_id, scope, plan_digest
+            )
+        except PluginExecutionConflictError:
+            raise
+        except sqlite3.Error as exc:
+            raise StorageError("plugin execution plan binding failed") from exc
 
     async def get_plugin_state(
         self, plugin_id: str, instance_id: str, *, scope: str = "live"

@@ -89,7 +89,8 @@ def test_failures_roundtrip_and_classify_settlement(failure) -> None:
     )
     assert "private" not in record.failure_reason
     assert record.settled == (
-        failure in {PluginFailure.CONTRACT, PluginFailure.CAPABILITY}
+        failure
+        in {PluginFailure.CONTRACT, PluginFailure.CAPABILITY, PluginFailure.QUARANTINED}
     )
     assert (
         PluginExecutionRecord.from_data(json.loads(canonical_json(record.to_data())))

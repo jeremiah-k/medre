@@ -44,7 +44,8 @@
     },
     "plan_digest": {
       "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Digest of the ordered effective plan bound before invocation, including an empty plan."
     },
     "recorded_at": {
       "type": "string",
@@ -88,12 +89,14 @@
       ]
     },
     "failure": {
+      "description": "Classified invocation outcome, not an ingress-work status. Required settled failures and exhausted retries consume the bounded processing-failure budget; only operational pauses defer without spending it.",
       "enum": [
         null,
         "transient",
         "timeout",
         "contract_violation",
-        "capability_violation"
+        "capability_violation",
+        "quarantined"
       ]
     },
     "failure_reason": {

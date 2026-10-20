@@ -32,7 +32,7 @@ class RouteSource:
     """Specification of what events a route matches.
 
     Each field acts as a filter.  A ``None`` value means "match any";
-    an empty ``event_kinds`` tuple also means "match any event kind".
+    an empty ``event_kinds`` tuple matches every kind except ``plugin.custom``.
 
     Attributes
     ----------
@@ -41,7 +41,7 @@ class RouteSource:
         adapter.
     event_kinds:
         Tuple of event kind strings to match.  An empty tuple matches
-        all event kinds.
+        every kind except ``plugin.custom``, which needs explicit selection.
     channel:
         Source channel / conversation ID, or ``None`` to match any
         channel.
