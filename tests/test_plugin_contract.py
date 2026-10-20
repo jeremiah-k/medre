@@ -498,6 +498,47 @@ def test_invalid_config_reference_is_rejected_without_import() -> None:
         PluginTypeRegistry((spec,))
 
 
+def test_spec_validation_rejects_non_declarations_and_raw_stages() -> None:
+    from medre.plugins.spec import validate_plugin_spec
+
+    with pytest.raises(TypeError, match="PluginSpec declarations"):
+        validate_plugin_spec("sensor")
+    spec = replace(make_plugin_spec("sensor"), stages={"enrich"})
+    with pytest.raises(ValueError, match="invalid stage subscription"):
+        validate_plugin_spec(spec)
+
+
+def test_decision_validation_requires_stage_enums() -> None:
+    from medre.plugins import validate_plugin_decision
+
+    spec = make_plugin_spec("sensor")
+    with pytest.raises(TypeError, match="stage must be a PluginStage"):
+        validate_plugin_decision(
+            spec,
+            _plugin_instance(spec),
+            "enrich",
+            "message.created",
+            Pass(),
+        )
+
+
+def test_execution_identity_requires_an_active_invocation() -> None:
+    import asyncio
+    import logging
+
+    from medre.plugins import PluginCapabilityError
+
+    context = PluginContext(
+        "sensor",
+        "main",
+        logging.getLogger("test"),
+        datetime.now,
+        asyncio.Event(),
+    )
+    with pytest.raises(PluginCapabilityError, match="no active plugin invocation"):
+        context.current_execution()
+
+
 def _plugin_instance(spec):
     return PluginInstanceConfig(spec.plugin_id, "main", grants=spec.capabilities)
 

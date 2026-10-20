@@ -126,3 +126,30 @@ async def test_all_instance_configs_are_validated_before_implementation_loading(
             ],
             registry=PluginTypeRegistry([spec]),
         )
+
+
+def test_duplicate_instances_are_rejected_before_implementation_loading(
+    temp_storage, monkeypatch
+) -> None:
+    item = binding("sample")
+    monkeypatch.setattr(
+        SymbolRef,
+        "load",
+        lambda _: pytest.fail("unexpected implementation load"),
+    )
+    with pytest.raises(ValueError, match="duplicate plugin instance identity"):
+        build_plugin_executor(
+            temp_storage,
+            [item.instance, item.instance],
+            registry=PluginTypeRegistry([item.spec]),
+        )
+
+
+def test_configured_values_require_declared_configuration_fields(temp_storage) -> None:
+    item = binding("sample")
+    with pytest.raises(ValueError, match="no configuration fields"):
+        build_plugin_executor(
+            temp_storage,
+            [replace(item.instance, config={"label": "extra"})],
+            registry=PluginTypeRegistry([item.spec]),
+        )

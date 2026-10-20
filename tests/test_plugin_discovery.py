@@ -11,6 +11,9 @@ import pytest
 from medre.plugins.capabilities import PluginCapability
 from medre.plugins.registry import (
     _discover_installed_plugins,
+    get_plugin_spec,
+    iter_plugin_specs,
+    plugin_discovery_failures,
     registered_plugins,
 )
 from medre.plugins.stages import PluginStage
@@ -56,6 +59,29 @@ def test_entry_point_discovery_matches_public_registry() -> None:
     assert tuple(spec.plugin_id for spec in _discover_installed_plugins()) == (
         registered_plugins()
     )
+
+
+def test_registry_lookups_report_absent_types_with_known_vocabulary() -> None:
+    from medre.plugins.registry import PluginTypeRegistry
+
+    spec = make_plugin_spec("present")
+    registry = PluginTypeRegistry((spec,))
+    assert registry.get("absent") is None
+    assert registry.get("present") is spec
+    with pytest.raises(KeyError, match="unknown plugin type 'absent'"):
+        registry.require("absent")
+    with pytest.raises(KeyError, match="known plugin types: present"):
+        registry.require("absent")
+
+
+def test_module_accessors_expose_the_public_registry() -> None:
+    assert isinstance(plugin_discovery_failures(), tuple)
+    specs = iter_plugin_specs()
+    assert isinstance(specs, tuple)
+    assert all(spec.plugin_id for spec in specs)
+    assert get_plugin_spec("definitely-not-registered") is None
+    for spec in specs:
+        assert get_plugin_spec(spec.plugin_id) is not None
 
 
 def test_discovery_needs_no_installed_providers(

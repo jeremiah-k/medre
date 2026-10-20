@@ -142,6 +142,14 @@ def test_failure_cannot_imply_policy_consent_or_transform_success(
         {"failure_reason": "unexpected"},
         {"decision": None, "failure": "timeout", "failure_reason": "deadline"},
         {"failure": PluginFailure.TIMEOUT, "failure_reason": " "},
+        {"key": "forged"},
+        {"plan_digest": "not-a-digest"},
+        {"failure_reason": 5},
+        {
+            "failure": PluginFailure.TIMEOUT,
+            "failure_reason": "deadline",
+            "state_digest": "a" * 64,
+        },
     ],
 )
 def test_invalid_record_values_are_rejected(overrides) -> None:
@@ -191,6 +199,56 @@ def test_identity_excludes_version_and_config_but_separates_scope_instances_and_
 def test_invalid_scopes_are_rejected(scope) -> None:
     with pytest.raises(ValueError, match="scope"):
         replace(make_record().key, scope=scope)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"source_event_id": "  "},
+        {"plugin_id": "not a token"},
+        {"instance_id": ""},
+        {"stage": "enrich"},
+    ],
+)
+def test_invalid_invocation_identities_are_rejected(overrides) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        replace(make_record().key, **overrides)
+
+
+@pytest.mark.parametrize("ordinal", [-1, True, 2.0])
+def test_derived_event_ordinals_must_be_non_negative_integers(ordinal) -> None:
+    with pytest.raises(ValueError, match="proposal ordinal"):
+        make_record().key.derived_event_id(ordinal)
+
+
+def test_tampered_decision_kinds_are_rejected_during_decoding() -> None:
+    data = json.loads(canonical_json(make_record().to_data()))
+    data["decision"] = {"kind": "quarantine", "events": []}
+    with pytest.raises(ValueError, match="unknown plugin decision kind"):
+        PluginExecutionRecord.from_data(data)
+    supersede = json.loads(canonical_json(make_record().to_data()))
+    supersede["decision"] = {
+        "kind": "supersede",
+        "events": [
+            {"kind": "message.created", "schema_version": 1, "payload": {"text": "a"}},
+            {"kind": "message.created", "schema_version": 1, "payload": {"text": "b"}},
+        ],
+    }
+    with pytest.raises(ValueError, match="exactly one proposal"):
+        PluginExecutionRecord.from_data(supersede)
+
+
+@pytest.mark.parametrize("revision", [-1, True])
+def test_state_snapshot_revisions_must_be_non_negative_integers(revision) -> None:
+    with pytest.raises(ValueError, match="state revision"):
+        PluginStateSnapshot(revision, {})
+
+
+def test_stage_authority_rejects_non_stage_values() -> None:
+    from medre.core.contracts.plugins.decisions import _validate_stage_outcome
+
+    with pytest.raises(TypeError, match="stage must be a PluginStage"):
+        _validate_stage_outcome("enrich", Pass())
 
 
 @pytest.mark.parametrize(
