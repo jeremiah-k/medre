@@ -20,8 +20,13 @@ The first command is the currently passing gate; `--all` is a deliberately
 `mypy --strict` checker and analyze imported core symbols for adapters through
 `MYPYPATH`, not by replacing MEDRE core with an untyped stub. They use
 `--follow-imports=silent` to avoid reporting errors outside the selected
-repository and `--ignore-missing-imports` because optional transport SDKs are
-not part of the offline typing toolchain. These exemptions must be removed or
+repository. A generated per-module configuration exempts only the optional
+transport SDK modules declared in the checker, because those SDKs are not part
+of the offline typing toolchain; any other unresolved import — including a
+misspelled MEDRE-owned module — fails the gate instead of degrading to `Any`.
+Caller-provided `MYPYPATH` entries are kept after the workspace roots, so
+external stub paths stay usable without shadowing the trees under check.
+The SDK exemptions must be removed or
 replaced with precise typed SDK boundaries before claiming full strict typing.
 Do **not** silence local error codes globally, use `Any` to bypass a concrete
 known type, or add broad per-module ignores to make this migration look complete.
