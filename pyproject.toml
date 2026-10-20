@@ -32,6 +32,7 @@ dev = [
   "jsonschema==4.26.0",
   "packaging==26.3",
   "mypy==2.4.0",
+  "types-PyYAML==6.0.12.20260906",
 ]
 
 [project.scripts]
