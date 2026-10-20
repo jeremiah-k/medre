@@ -396,3 +396,38 @@ async def test_failed_attempt_keeps_state_revision_and_allows_unchanged_retry(
     await temp_storage.commit_plugin_execution(retry)
     assert await temp_storage.get_plugin_execution(retry.key) == retry
     assert (await temp_storage.get_plugin_state("text_stats", "one")).revision == 0
+
+
+async def test_near_cap_failure_reason_does_not_poison_other_instances(
+    temp_storage,
+) -> None:
+    from medre.core.observability.sanitization import (
+        _MAX_ERROR_DETAIL_LEN,
+        REDACTED_TOKEN,
+    )
+
+    await _admit(temp_storage)
+    reason = (
+        "!" * (_MAX_ERROR_DETAIL_LEN - len(REDACTED_TOKEN)) + "token=" + "secret" * 50
+    )
+    record = make_record(
+        decision=None, failure=PluginFailure.TRANSIENT, failure_reason=reason
+    )
+    await temp_storage.commit_plugin_execution(record)
+    assert await temp_storage.get_plugin_execution(record.key) == record
+    await temp_storage.commit_plugin_execution(
+        make_record(key=replace(record.key, instance_id="two"))
+    )
+
+
+async def test_truncated_empty_secret_assignment_survives_sqlite_recovery(
+    temp_storage,
+) -> None:
+    await _admit(temp_storage)
+    record = make_record(
+        decision=None,
+        failure=PluginFailure.TRANSIENT,
+        failure_reason="!" * 500 + "token=" + " " * 100,
+    )
+    await temp_storage.commit_plugin_execution(record)
+    assert await temp_storage.get_plugin_execution(record.key) == record

@@ -259,3 +259,53 @@ def test_schema_rejects_policy_failure_consent() -> None:
     )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.Draft202012Validator(schema).validate(data)
+
+
+@pytest.mark.parametrize("offset", [-2, -1, 0, 1])
+def test_long_redacted_failure_reasons_roundtrip(offset) -> None:
+    from medre.core.observability.sanitization import (
+        _MAX_ERROR_DETAIL_LEN,
+        REDACTED_TOKEN,
+        sanitize_error,
+    )
+
+    reason = (
+        "!" * (_MAX_ERROR_DETAIL_LEN - len(REDACTED_TOKEN) + offset)
+        + "token="
+        + "secret" * 50
+    )
+    record = make_record(
+        decision=None, failure=PluginFailure.TRANSIENT, failure_reason=reason
+    )
+    assert len(record.failure_reason) <= _MAX_ERROR_DETAIL_LEN
+    assert "secret" not in record.failure_reason
+    assert sanitize_error(record.failure_reason) == record.failure_reason
+    assert replace(record) == record
+    assert (
+        PluginExecutionRecord.from_data(json.loads(canonical_json(record.to_data())))
+        == record
+    )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "!" * 500 + "token=" + " " * 100,
+        "!" * 505 + "token=x",
+        "!" * 499 + "password:" + " " * 100,
+    ],
+)
+def test_failure_reason_truncation_cannot_create_an_unstable_secret_match(
+    reason,
+) -> None:
+    from medre.core.observability.sanitization import sanitize_error
+
+    record = make_record(
+        decision=None, failure=PluginFailure.TRANSIENT, failure_reason=reason
+    )
+    assert len(record.failure_reason) <= 512
+    assert sanitize_error(record.failure_reason) == record.failure_reason
+    assert (
+        PluginExecutionRecord.from_data(json.loads(canonical_json(record.to_data())))
+        == record
+    )
