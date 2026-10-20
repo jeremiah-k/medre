@@ -21,18 +21,19 @@ Public symbols
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from medre.core.diagnostics.replay_metrics import ReplayMetrics
-    from medre.core.routing.stats import RouteStats
+
+from medre.core.routing.stats import RouteStats
 
 
 def build_diagnostics_snapshot(
     route_stats: RouteStats,
     replay_metrics: ReplayMetrics,
-    capacity_snapshot: dict | None = None,
-) -> dict:
+    capacity_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a unified, deterministic diagnostics snapshot.
 
     Parameters
@@ -58,7 +59,7 @@ def build_diagnostics_snapshot(
           Each value is a dict with ``delivered``, ``failed``, ``skipped``,
           ``loop_prevented``, and optional ``last_error``.
     """
-    snap: dict = {
+    snap: dict[str, Any] = {
         "routes": route_stats.snapshot(),
         "replay": replay_metrics.snapshot(),
     }

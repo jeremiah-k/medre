@@ -440,7 +440,7 @@ def capture_route_topology(
     raw_routes: dict[str, Any] = getattr(router, "_routes", {})
 
     # Build live stats lookup when route_stats is provided.
-    stats_snapshot: dict[str, dict] = {}
+    stats_snapshot: dict[str, dict[str, Any]] = {}
     if route_stats is not None and hasattr(route_stats, "snapshot"):
         stats_snapshot = route_stats.snapshot()
 

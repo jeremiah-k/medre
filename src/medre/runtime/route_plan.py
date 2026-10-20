@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from medre.config.errors import ConfigValidationError
 from medre.config.route_expansion import EXPANSION_ID_PATTERNS_HINT, expand_route_config
-from medre.config.routes import RouteDirectionality
+from medre.config.routes import RouteDirectionality, route_directionality
 from medre.core.routing.router import find_route_conflicts
 from medre.runtime.route_engine import RouteValidationError, check_route_loops
 
@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from medre.config.model import RuntimeConfig
     from medre.config.route_expansion import ExpandedRouteLeg
     from medre.config.routes import RouteConfig
+    from medre.core.routing.models import Route
 
 __all__ = [
     "AdapterSummary",
@@ -237,7 +238,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
 
     # -- Per-route expansion ------------------------------------------------
     route_entries: list[RoutePlanEntry] = []
-    all_expanded_routes: list = []  # list[Route] for loop detection
+    all_expanded_routes: list[Route] = []  # for loop detection
     seen_expanded_ids: dict[str, str] = {}  # expanded_id -> config_route_id
 
     for rc in config.routes.routes:
@@ -246,7 +247,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 RoutePlanEntry(
                     route_id=rc.route_id,
                     enabled=False,
-                    directionality=rc.directionality.value,
+                    directionality=route_directionality(rc).value,
                     priority=rc.priority,
                     ownership=rc.ownership,
                     legs=[],
@@ -267,7 +268,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 RoutePlanEntry(
                     route_id=rc.route_id,
                     enabled=True,
-                    directionality=rc.directionality.value,
+                    directionality=route_directionality(rc).value,
                     priority=rc.priority,
                     ownership=rc.ownership,
                     legs=[],
@@ -286,7 +287,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 RoutePlanEntry(
                     route_id=rc.route_id,
                     enabled=True,
-                    directionality=rc.directionality.value,
+                    directionality=route_directionality(rc).value,
                     priority=rc.priority,
                     ownership=rc.ownership,
                     legs=[],
@@ -314,7 +315,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 RoutePlanEntry(
                     route_id=rc.route_id,
                     enabled=True,
-                    directionality=rc.directionality.value,
+                    directionality=route_directionality(rc).value,
                     priority=rc.priority,
                     ownership=rc.ownership,
                     legs=[],
@@ -342,7 +343,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
             RoutePlanEntry(
                 route_id=rc.route_id,
                 enabled=True,
-                directionality=rc.directionality.value,
+                directionality=route_directionality(rc).value,
                 priority=rc.priority,
                 ownership=rc.ownership,
                 legs=legs,

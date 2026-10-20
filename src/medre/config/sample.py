@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from medre.adapter_registry import iter_adapter_specs
 from medre.adapter_spec import AdapterSample
 from medre.config._yaml import dump_yaml_config
@@ -58,8 +60,8 @@ def generate_sample_config() -> str:
     self-describing; numbering counts per provider, leaving room for further
     instances of the same provider under ``adapters.<provider>``.
     """
-    groups = {}
-    samples = []
+    groups: dict[str, dict[str, dict[str, Any]]] = {}
+    samples: list[tuple[str, str, AdapterSample]] = []
     for spec in iter_adapter_specs():
         if spec.sample_config is None or spec.fake_adapter is None:
             continue

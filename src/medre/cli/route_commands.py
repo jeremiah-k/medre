@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
-from medre.config.routes import RouteConfigSet, RouteDirectionality
+from medre.config.routes import (
+    RouteConfigSet,
+    RouteDirectionality,
+    route_directionality,
+)
 
 from .exit_codes import EXIT_CONFIG, EXIT_OK
 from .json import to_json
+
+if TYPE_CHECKING:
+    from medre.runtime.route_plan import RoutePlan
 
 if TYPE_CHECKING:
     from medre.runtime.route_plan import RoutePlanLeg
@@ -112,7 +119,7 @@ def _routes_validate(config_path: str | None) -> None:
     for route in route_list:
         rid = route.route_id
         status = "enabled" if route.enabled else "disabled"
-        direction = route.directionality.value
+        direction = route_directionality(route).value
         sources = ", ".join(route.source_adapters)
         dests = ", ".join(route.dest_adapters)
         marker = "[ON]" if route.enabled else "[OFF]"
@@ -283,7 +290,7 @@ def _routes_list(config_path: str | None) -> None:
     print("Configured routes:")
     for route in route_list:
         status = "enabled" if route.enabled else "disabled"
-        direction = route.directionality.value
+        direction = route_directionality(route).value
         sources = ", ".join(route.source_adapters)
         dests = ", ".join(route.dest_adapters)
 
@@ -361,7 +368,7 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
     sys.exit(EXIT_CONFIG if _plan_has_errors(plan) else EXIT_OK)
 
 
-def _plan_has_errors(plan) -> bool:
+def _plan_has_errors(plan: RoutePlan) -> bool:
     """True if route expansion or exclusive-ownership validation fails."""
     return bool(plan.conflicts) or any(entry.error is not None for entry in plan.routes)
 
@@ -402,7 +409,7 @@ def _format_origin_label(value: str | None, source: str) -> str:
     return f"{shown} ({source})"
 
 
-def _render_route_plan(plan) -> None:
+def _render_route_plan(plan: RoutePlan) -> None:
     """Print the human-readable route plan."""
     print("Route Plan (offline — no adapter I/O)")
     print("=" * 38)
@@ -553,7 +560,9 @@ def _routes_explain(
         )
         print(f"  CANDIDATE {item.route_id} -> {destinations}")
         for target in item.targets:
-            detail = target["policy"]
+            # ``policy`` is always a concrete outcome string from the
+            # explainer; the leg dict types the value loosely.
+            detail = cast(str, target["policy"])
             if target["reason"]:
                 detail += f" ({target['reason']})"
             print(f"    {target['adapter']}: {detail}")

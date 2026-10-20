@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from typing import cast
 
 from .exit_codes import EXIT_FAILED, EXIT_OK
 from .json import to_json
@@ -19,7 +20,9 @@ def _transport_for_adapter(adapter_id: str, config: object) -> str:
         if any(
             getattr(rtc, "adapter_id", key) == adapter_id for key, rtc in group.items()
         ):
-            return transport
+            # ``groups`` is read reflectively off the config object; the
+            # transport key is a plain string.
+            return cast(str, transport)
     return "unknown"
 
 

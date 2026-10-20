@@ -11,13 +11,14 @@ import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
 
 from medre.adapter_registry import get_adapter_spec, iter_adapter_specs
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.env import _is_secret_field
 from medre.config.errors import ConfigValidationError
 from medre.config.paths import resolve
-from medre.config.routes import RouteDirectionality
+from medre.config.routes import RouteDirectionality, route_directionality
 from medre.core.observability.sanitization import (
     BROAD_SECRET_TOKENS,
     REDACTED_TOKEN,
@@ -157,7 +158,7 @@ def _write_new_config(path: Path, text: str) -> None:
         raise
 
 
-def _error_detail(exc: Exception, document: dict) -> str:
+def _error_detail(exc: Exception, document: dict[str, Any]) -> str:
     """Redact known values even when a provider quotes an unlabelled secret."""
     declared = {
         field.lower()
@@ -215,7 +216,7 @@ def _error_detail(exc: Exception, document: dict) -> str:
 def _config_bridge(args: argparse.Namespace) -> None:
     """Select endpoints and contexts, preview, then save a validated draft."""
     interactive = sys.stdin.isatty()
-    document: dict = {}
+    document: dict[str, Any] = {}
     saved = False
     saving = False
     try:
@@ -304,7 +305,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 None,
             )
             if existing is not None:
-                existing_direction = existing.directionality.value
+                existing_direction = route_directionality(existing).value
         direction = _choose(
             args.direction,
             ["bidirectional", "source_to_dest", "dest_to_source"],
@@ -317,7 +318,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
                 "dest_to_source": f"{dest} → {source} only",
             },
         )
-        contexts = args.contexts
+        contexts: list[tuple[str, str]] | None = args.contexts
         if contexts is None:
             if not interactive:
                 raise ConfigValidationError(
@@ -362,7 +363,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
 
             source_prompt = context_prompt(source)
             dest_prompt = context_prompt(dest)
-            contexts: list[tuple[str, str]] = []
+            contexts = []
             while True:
                 context = _ask(source_prompt)
                 if not context:
@@ -429,7 +430,7 @@ def _config_bridge(args: argparse.Namespace) -> None:
             BridgeRequest(
                 source,
                 dest,
-                tuple(tuple(pair) for pair in contexts),
+                tuple(contexts),
                 RouteDirectionality(direction),
                 args.route_id,
                 source_label,

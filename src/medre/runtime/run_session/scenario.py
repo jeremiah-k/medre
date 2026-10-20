@@ -154,7 +154,7 @@ async def _inject_scenario(
         ) -> Any:
             raise AdapterPermanentError("run-session: simulated permanent failure")
 
-        adapter.deliver = _failing_deliver  # type: ignore[assignment]
+        adapter.deliver = _failing_deliver  # type: ignore[method-assign]
 
     elif scenario == "adapter_transient_failure":
         target_aid = None
@@ -176,7 +176,7 @@ async def _inject_scenario(
                 transient=True,
             )
 
-        adapter.deliver = _transient_deliver  # type: ignore[assignment]
+        adapter.deliver = _transient_deliver  # type: ignore[method-assign]
 
     elif scenario == "capacity_rejection":
         cc = app._capacity_controller
@@ -244,7 +244,7 @@ async def _inject_scenario(
                 health="degraded",
             )
 
-        adapter.health_check = _degraded_health  # type: ignore[assignment]
+        adapter.health_check = _degraded_health  # type: ignore[method-assign]
         await app.refresh_live_health()
 
     return None

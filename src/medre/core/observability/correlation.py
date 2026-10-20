@@ -50,8 +50,9 @@ def correlation_scope(**fields: str | None) -> Iterator[CorrelationContext]:
     unknown = set(fields) - set(CorrelationContext.__dataclass_fields__)
     if unknown:
         raise ValueError(f"unknown correlation fields: {sorted(unknown)}")
-    token = _CONTEXT.set(replace(current_correlation(), **fields))
+    merged = replace(current_correlation(), **fields)
+    token = _CONTEXT.set(merged)
     try:
-        yield _CONTEXT.get()
+        yield merged
     finally:
         _CONTEXT.reset(token)

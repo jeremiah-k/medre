@@ -42,6 +42,7 @@ from medre.core.events.canonical import (
     CanonicalEvent,
     EventRelation,
     NativeMessageRef,
+    NativeRef,
     RelationTargetFact,
 )
 from medre.core.events.kinds import EventKind
@@ -102,7 +103,7 @@ def _usable_relation_native_ref(
     *,
     target_adapter: str,
     target_channel: str | None,
-):
+) -> NativeRef | None:
     """Return the relation's own native ref when it matches the destination scope.
 
     A ref is usable when its adapter equals *target_adapter* and — when
@@ -393,6 +394,10 @@ class RelationBindingAuthority:
                 target_event_kind=target_kind,
             )
 
+        # Mutations require a callable get authority, so the earlier
+        # ``target_event is None and callable(get_fn)`` guard already
+        # returned ``unresolved_target`` for a missing target.
+        assert target_event is not None  # guarded above
         original_facts = _identity_facts(target_event)
         mutation_facts = _identity_facts(event)
         if not _identity_complete(original_facts):

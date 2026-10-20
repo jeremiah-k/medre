@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from bisect import insort
-from typing import Protocol, runtime_checkable
+from typing import Awaitable, Protocol, runtime_checkable
 
 from medre.core.events.canonical import CanonicalEvent
 
@@ -69,6 +69,22 @@ class EventMiddleware(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Subscriber handler protocol
+# ---------------------------------------------------------------------------
+
+
+class EventHandler(Protocol):
+    """Structural view of an async subscriber callable.
+
+    Any callable accepting one :class:`~medre.core.events.canonical.CanonicalEvent`
+    and returning an awaitable that resolves to ``None`` satisfies this —
+    including plain ``async def`` functions.
+    """
+
+    def __call__(self, event: CanonicalEvent, /) -> Awaitable[None]: ...
+
+
+# ---------------------------------------------------------------------------
 # Subscription
 # ---------------------------------------------------------------------------
 
@@ -92,11 +108,11 @@ class Subscription:
     def __init__(
         self,
         event_type: str,
-        handler: object,
+        handler: EventHandler,
         bus: EventBus,
     ) -> None:
         self.event_type: str = event_type
-        self.handler: object = handler
+        self.handler: EventHandler = handler
         self._bus: EventBus = bus
         self._active: bool = True
 
@@ -177,7 +193,7 @@ class EventBus:
     def subscribe(
         self,
         event_type: str,
-        handler: object,
+        handler: EventHandler,
     ) -> Subscription:
         """Subscribe *handler* to events whose kind matches *event_type*.
 
@@ -351,12 +367,12 @@ class EventBus:
 
     @staticmethod
     async def _invoke_handler(
-        handler: object,
+        handler: EventHandler,
         event: CanonicalEvent,
     ) -> None:
         """Call a single handler, trapping exceptions."""
         try:
-            await handler(event)  # type: ignore[misc]
+            await handler(event)
         except Exception:
             _logger.exception(
                 "Subscriber %r raised an exception handling event %s",

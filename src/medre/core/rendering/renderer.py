@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 #: :attr:`~medre.core.planning.delivery_plan.DeliveryStrategy.method`.
 #: Re-exported from the planning layer to avoid duplicate Literal definitions.
 from medre.core.planning.delivery_plan import (
-    DeliveryStrategyMethod,
+    DeliveryStrategyMethod as DeliveryStrategyMethod,
 )
 
 #: Capability level for renderer discrimination.  Renderers preserve

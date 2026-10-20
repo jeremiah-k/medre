@@ -18,6 +18,7 @@ import re
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from medre.adapter_registry import iter_adapter_specs, registered_transports
 from medre.adapter_spec import AdapterSpec
@@ -127,7 +128,9 @@ _ATTACHMENTS_KNOWN_KEYS: frozenset[str] = frozenset(
 _STORAGE_KNOWN_KEYS: frozenset[str] = frozenset({"backend", "path"})
 
 
-def _get_section_dict(data: dict, key: str, *, section_path: str | None = None) -> dict:
+def _get_section_dict(
+    data: dict[str, Any], key: str, *, section_path: str | None = None
+) -> dict[str, Any]:
     """Return a config section as a dict, validating its type.
 
     A missing key or an explicit ``null`` both return ``{}`` (treated as
@@ -148,7 +151,7 @@ def _get_section_dict(data: dict, key: str, *, section_path: str | None = None) 
 
 
 def _reject_unknown_keys(
-    section: dict,
+    section: dict[str, Any],
     known: frozenset[str],
     *,
     section_path: str,
@@ -368,7 +371,7 @@ def load_config(
 # ---------------------------------------------------------------------------
 
 
-def parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
+def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConfig:
     """Construct a :class:`RuntimeConfig` from a parsed YAML dict.
 
     The *data* argument is a plain ``dict`` produced by the strict YAML
@@ -544,7 +547,7 @@ def parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     )
 
 
-def _validate_retry_section(retry_data: dict) -> None:
+def _validate_retry_section(retry_data: dict[str, Any]) -> None:
     """Validate [retry] section fields for type and range.
 
     Produces clean ``ConfigValidationError`` messages so operators get
@@ -556,11 +559,11 @@ def _validate_retry_section(retry_data: dict) -> None:
     """
     _reject_unknown_keys(retry_data, _GLOBAL_RETRY_KNOWN_KEYS, section_path="retry")
 
-    _RETRY_INT_FIELDS = {
+    _RETRY_INT_FIELDS: dict[str, tuple[str, float]] = {
         "batch_size": ("batch size", 1),
         "max_attempts": ("max attempts", 1),
     }
-    _RETRY_FLOAT_FIELDS = {
+    _RETRY_FLOAT_FIELDS: dict[str, tuple[str, float]] = {
         "interval_seconds": ("polling interval", 0.0),
     }
     _RETRY_BOOL_FIELDS = {"enabled"}
@@ -618,7 +621,7 @@ def _validate_retry_section(retry_data: dict) -> None:
             )
 
 
-def _validate_logging_section(log_data: dict) -> None:
+def _validate_logging_section(log_data: dict[str, Any]) -> None:
     """Validate [logging] section types and values from raw config data.
 
     Validates that *level*, *format*, and *overrides* have correct types
@@ -707,7 +710,7 @@ def _validate_logging_section(log_data: dict) -> None:
 
 
 def _parse_adapter_section(
-    data: dict,
+    data: dict[str, Any],
     spec: AdapterSpec,
     paths: MedrePaths,
 ) -> dict[str, GenericAdapterRuntimeConfig]:
@@ -723,7 +726,12 @@ def _parse_adapter_section(
             section_path=f"adapters.{transport}",
         )
 
-    wrapper_cls = (
+    # Dynamically loaded surface: when the spec declares a ``runtime_config``
+    # symbol, ``load()`` yields the adapter-distribution-provided wrapper
+    # class whose ``from_dict`` constructor is guaranteed by the registry
+    # contract (``AdapterSpec.runtime_config``). Its static shape lives
+    # outside this package, so the boundary is intentionally ``Any``.
+    wrapper_cls: Any = (
         spec.runtime_config.load()
         if spec.runtime_config is not None
         else GenericAdapterRuntimeConfig
@@ -788,7 +796,7 @@ def _reject_env_placeholder(field: str, value: str) -> None:
         )
 
 
-def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
+def _expand_paths_in_dict(d: dict[str, Any], paths: MedrePaths) -> dict[str, Any]:
     """Recursively expand ``{placeholder}`` tokens in string values.
 
     Path-designated fields (``path``/``*_path``/``*_dir``/``*_file``) are expanded
@@ -797,7 +805,7 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
     template tokens (renderer variables) untouched, and reject surviving
     ``${ENV_VAR}`` references with a config error.
     """
-    result: dict = {}
+    result: dict[str, Any] = {}
     for k, v in d.items():
         is_path_field = isinstance(k, str) and (
             k == "path" or k.endswith(_PATH_FIELD_SUFFIXES)
@@ -817,7 +825,7 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
         elif isinstance(v, dict):
             result[k] = _expand_paths_in_dict(v, paths)
         elif isinstance(v, list):
-            expanded_items: list = []
+            expanded_items: list[Any] = []
             for i, item in enumerate(v):
                 if isinstance(item, dict):
                     expanded_items.append(_expand_paths_in_dict(item, paths))

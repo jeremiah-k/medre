@@ -1133,7 +1133,7 @@ class RetryWorker:
                 return
             capacity_acquired = True
 
-        renewal_task: asyncio.Task | None = None
+        renewal_task: asyncio.Task[None] | None = None
 
         try:
             # Dispatch-begin boundary: durably reserve the next attempt
@@ -1168,6 +1168,10 @@ class RetryWorker:
                     item.outbox_id,
                 )
                 return
+            # The reservation is non-None from here on.  Capture the pinned
+            # value: mypy re-widens try-modified variables inside except
+            # handlers, and the persistence-error path reads it from there.
+            reserved_attempt_number: int = reserved_attempt
 
             # Keep the claim lease alive for as long as this dispatch runs.
             # Without renewal, a transport call outliving the claim lease
@@ -1256,7 +1260,7 @@ class RetryWorker:
                 self._record_lifecycle_persistence_error(
                     item,
                     lifecycle_exc,
-                    attempt_number=reserved_attempt,
+                    attempt_number=reserved_attempt_number,
                 )
             else:
                 self._record_retry_finalization(

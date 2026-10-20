@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, fields
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 from medre.core.engine.pipeline.delivery_state import (
     NON_TERMINAL_OUTBOX_STATUSES as _NON_TERMINAL_OUTBOX_STATUSES,
@@ -140,7 +140,8 @@ def _runtime_state_str(runtime_state: Any) -> str | None:
     if isinstance(runtime_state, str):
         return runtime_state
     if hasattr(runtime_state, "value"):
-        return runtime_state.value
+        # Enum-like boundary: ``.value`` is the plain string form.
+        return cast(str, runtime_state.value)
     return str(runtime_state)
 
 
@@ -152,7 +153,8 @@ def _extract_event_type(event: Any) -> str | None:
     if isinstance(et, str):
         return et
     if hasattr(et, "value"):
-        return et.value
+        # Enum-like boundary: ``.value`` is the plain string form.
+        return cast(str, et.value)
     return str(et)
 
 
@@ -415,7 +417,7 @@ def build_shutdown_evidence(
     else:
         # Try to treat as mapping-like.
         try:
-            oc = {str(k): int(v) for k, v in outbox_counts.items()}  # type: ignore[union-attr]
+            oc = {str(k): int(v) for k, v in outbox_counts.items()}
         except Exception:
             oc = None
 

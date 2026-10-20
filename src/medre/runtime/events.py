@@ -30,8 +30,9 @@ from __future__ import annotations
 import enum
 import time as _time
 from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
@@ -251,7 +252,9 @@ class EventBuffer:
     @property
     def maxlen(self) -> int:
         """Return the maximum number of events retained."""
-        return self._events.maxlen  # type: ignore[no-any-return]
+        # ``deque`` types ``maxlen`` as ``int | None``; the constructor here
+        # only accepts ``int``, so the value is always an ``int``.
+        return cast(int, self._events.maxlen)
 
     def emit(
         self,
@@ -276,7 +279,7 @@ class EventBuffer:
     def __len__(self) -> int:
         return len(self._events)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[RuntimeEvent]:
         return iter(self._events)
 
     def snapshot(self) -> dict[str, Any]:
