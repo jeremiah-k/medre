@@ -9,7 +9,12 @@ from dataclasses import replace
 import msgspec
 import pytest
 
-from medre.core.events import NativeRef
+from medre.core.events import (
+    EventMetadata,
+    NativeMetadata,
+    NativeRef,
+    RoutingMetadata,
+)
 from medre.core.storage.backend import (
     EventNotFoundError,
     PluginExecutionConflictError,
@@ -92,6 +97,29 @@ async def test_derived_event_uses_its_payload_schema_version(temp_storage) -> No
     assert child.event_kind == "plugin.custom"
     assert child.parent_event_id == source.event_id
     assert await temp_storage.get_plugin_execution(record.key) == record
+
+
+async def test_derived_children_drop_source_native_and_routing_metadata(
+    temp_storage,
+) -> None:
+    source = msgspec.structs.replace(
+        make_storage_event(),
+        metadata=EventMetadata(
+            native=NativeMetadata(data={"opaque": "adapter"}),
+            routing=RoutingMetadata(matched_routes=("route-a",)),
+            custom={"sentinel": "keep-me"},
+        ),
+    )
+    await temp_storage.append(source)
+    record = make_record(
+        decision=Derive((DerivedEvent("plugin.custom", {"subtype": "s"}),))
+    )
+    await temp_storage.commit_plugin_execution(record)
+    child = await temp_storage.get(record.produced_event_ids[0])
+    assert child is not None
+    assert child.metadata.native is None
+    assert child.metadata.routing is None
+    assert child.metadata.custom == {"sentinel": "keep-me"}
 
 
 async def test_exact_commit_retry_does_not_increment_state(temp_storage) -> None:

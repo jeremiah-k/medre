@@ -373,9 +373,12 @@ stage, scope)`. `scope` is `live` or `replay:<run-id>`. The record ID adds
   different plan digest; changing it during recovery requires explicit
   replay. Retry attempts also retain their plugin version and config digest.
 - The host constructs bounded children from recorded proposals, stamping IDs,
-  timestamps, ancestry, and source context. Native refs are cleared. Same-kind
-  proposals retain source relations; kind changes start without relations.
-  Proposals cannot create unrelated native relations or attachment content.
+  timestamps, ancestry, and source context. Native refs are cleared. Derived
+  events carry source metadata stripped of the adapter-owned `native` namespace
+  and source `routing` metadata; other namespaces remain as source context.
+  Same-kind proposals retain source relations; kind changes start without
+  relations. Proposals cannot create unrelated native relations or attachment
+  content.
 - Events, inline relations, and execution evidence commit in one SQLite
   transaction with any buffered plugin-state update. Read-only decisions and
   failed attempts MUST NOT create or advance an operational state snapshot;

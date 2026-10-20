@@ -79,6 +79,9 @@ def _materialize(
             depth=source.depth + 1,
             payload=proposal.payload,
             source_native_ref=None,
+            metadata=msgspec.structs.replace(
+                source.metadata, native=None, routing=None
+            ),
             relations=source.relations if source.event_kind == proposal.kind else (),
             root_event_id=source.root_event_id or source.event_id,
             conversation_id=source.conversation_id
