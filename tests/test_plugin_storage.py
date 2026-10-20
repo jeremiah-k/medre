@@ -292,6 +292,22 @@ async def test_corrupt_evidence_is_not_treated_as_absent_work(temp_storage) -> N
         await temp_storage.get_plugin_execution(record.key)
 
 
+async def test_unreadable_plan_evidence_is_a_storage_failure(temp_storage) -> None:
+    await _admit(temp_storage)
+    record = make_record()
+    await temp_storage.commit_plugin_execution(record)
+    data = record.to_data()
+    data["produced_event_ids"] = ["forged"]
+    # Test-only fault injection: production exposes no record update method.
+    await temp_storage._write(
+        "UPDATE plugin_execution_records SET record_json=? WHERE record_id=?",
+        (json.dumps(data), record.record_id),
+    )
+    await temp_storage._write("DELETE FROM plugin_execution_plans")
+    with pytest.raises(StorageError, match="plan evidence is unreadable"):
+        await temp_storage.bind_plugin_plan("evt-1", "live", "b" * 64)
+
+
 async def test_additive_record_table_preserves_existing_database(tmp_path) -> None:
     path = str(tmp_path / "legacy.sqlite")
     storage = SQLiteStorage(path)

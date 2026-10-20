@@ -298,6 +298,8 @@ class _PluginsMixin:
             )
         except PluginExecutionConflictError:
             raise
+        except (TypeError, ValueError, KeyError) as exc:
+            raise StorageError("plugin execution plan evidence is unreadable") from exc
         except sqlite3.Error as exc:
             raise StorageError("plugin execution plan binding failed") from exc
 
