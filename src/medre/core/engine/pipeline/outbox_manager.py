@@ -12,6 +12,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from medre.core.contracts.delivery import DeferredHandoffFailed
 from medre.core.delivery_authority import (
@@ -130,7 +131,7 @@ class OutboxManager:
             _lease_until = (
                 _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
             ).isoformat()
-            _dest_meta: dict | None = None
+            _dest_meta: dict[str, object] | None = None
             if target.destination is not None:
                 _dest_meta = {
                     "destination_kind": target.destination.kind,
@@ -279,7 +280,7 @@ class OutboxManager:
     def start_lease_renewal(
         self,
         ctx: OutboxContext,
-    ) -> asyncio.Task | None:
+    ) -> asyncio.Task[None] | None:
         """Start a background task that periodically renews the outbox lease.
 
         Returns the :class:`asyncio.Task` managing the renewal loop, or
@@ -317,7 +318,7 @@ class OutboxManager:
         return None
 
     @staticmethod
-    async def cancel_renewal(task: asyncio.Task | None) -> None:
+    async def cancel_renewal(task: asyncio.Task[None] | None) -> None:
         """Cancel a lease renewal task cleanly."""
         if task is not None:
             task.cancel()
@@ -370,6 +371,7 @@ class OutboxManager:
         """
         provenance = feedback.attempt_provenance
         try:
+            outbox_terminal: Literal["dead_lettered", "cancelled", "abandoned"]
             if feedback.outcome == "exhausted":
                 failure_kind = "adapter_transient"
                 outbox_terminal = "dead_lettered"

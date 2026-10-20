@@ -22,10 +22,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from medre.core.contracts.adapter import AdapterSendError
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.delivery import DeliverySource
 
 if TYPE_CHECKING:
     from medre.core.routing.models import RouteTarget
@@ -494,7 +495,7 @@ class RetryExecutor:
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=previous_receipt_id,
-            source=source,
+            source=cast(DeliverySource, source),
             replay_run_id=replay_run_id,
             retry_max_attempts=(
                 self._policy.max_attempts if self._policy is not None else None
@@ -580,7 +581,7 @@ class RetryExecutor:
             created_at=now,
             attempt_number=attempt_number,
             parent_receipt_id=previous_receipt_id,
-            source=source,
+            source=cast(DeliverySource, source),
             replay_run_id=replay_run_id,
             outbox_id=outbox_id,
             retry_max_attempts=self._policy.max_attempts,

@@ -150,6 +150,10 @@ src/medre/
   `adapters/` or `runtime/`.
 - **Config package follows the same no-adapters, no-SDK rule as core.**
 
+Import-time call analysis MUST distinguish lambda creation from invocation.
+It examines eagerly evaluated defaults and decorators, skips deferred lambda
+bodies, and includes immediately invoked lambda bodies exactly once.
+
 ## 5. Adapter Roles
 
 | Role             | Description                                                               | Examples                          |

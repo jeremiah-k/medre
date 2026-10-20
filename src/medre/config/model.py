@@ -155,9 +155,9 @@ def _is_int_keyed_dict(hint: Any) -> bool:
         args = get_args(hint)
         return bool(args) and args[0] is int
     # Handle Union types — both typing.Union and types.UnionType (PEP 604).
-    args = getattr(hint, "__args__", None)
-    if args is not None:
-        return any(_is_int_keyed_dict(a) for a in args)
+    union_args = getattr(hint, "__args__", None)
+    if union_args is not None:
+        return any(_is_int_keyed_dict(a) for a in union_args)
     return False
 
 
@@ -579,7 +579,9 @@ class AdapterConfigSet:
 
     def __getattr__(self, name: str) -> dict[str, AdapterRuntimeConfig]:
         """Expose installed transport groups by name."""
-        groups = object.__getattribute__(self, "_groups")
+        groups: dict[str, dict[str, AdapterRuntimeConfig]] = object.__getattribute__(
+            self, "_groups"
+        )
         if name in groups:
             return groups[name]
         raise AttributeError(name)

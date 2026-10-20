@@ -395,7 +395,7 @@ def sync_admit_ingress(
     work_status: str,
     now_iso: str,
     attachment_plan: "AttachmentAdmissionPlan | None" = None,
-) -> tuple[str, bool, "object | None"]:
+) -> tuple[str, bool, "AttachmentAdmissionFact | None"]:
     """Atomically admit an event/native ref/work marker plus attachment bytes.
 
     Existing native identities are repaired with a missing work row in the

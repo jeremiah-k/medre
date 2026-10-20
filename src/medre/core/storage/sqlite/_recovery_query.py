@@ -26,7 +26,7 @@ unique and stable).
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import (
     DEFAULT_RECOVERY_PAGE_LIMIT,
@@ -202,6 +202,12 @@ class _RecoveryQueryMixin:
 
     Accesses ``self._read_all`` from the base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     async def query_unresolved_deliveries(
         self,

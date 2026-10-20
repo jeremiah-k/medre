@@ -158,7 +158,7 @@ class RouteStats:
 
     # -- Snapshot ----------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, dict[str, int | str]]:
         """Return a deterministic ordered snapshot of all counters.
 
         Returns
@@ -170,7 +170,7 @@ class RouteStats:
             ``capability_suppressed``, and optional
             ``last_error``.
         """
-        result: dict[str, dict] = {}
+        result: dict[str, dict[str, int | str]] = {}
         for route_id in sorted(self._counters):
             c = self._counters[route_id]
             entry: dict[str, int | str] = {

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time as _time
 from dataclasses import dataclass
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Per-route replay counters (frozen, immutable snapshots)
@@ -202,7 +203,7 @@ class ReplayMetrics:
 
     # -- Snapshot --------------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         """Return a deterministic ordered snapshot of all replay counters.
 
         Returns

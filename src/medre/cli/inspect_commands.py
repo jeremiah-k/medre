@@ -37,10 +37,11 @@ async def _inspect_event(
     is augmented with the corresponding data sections.  When no flags are
     set, the original event-only JSON is printed (default behaviour).
     """
+    _exit_code: int | None = None
+
     # Fast path: no augmentation flags — preserve exact existing behaviour.
     if not (timeline or evidence or recovery):
         storage = await _open_readonly_storage(storage_path)
-        _exit_code: int | None = None
         try:
             event = await storage.get(event_id)
             if event is None:
@@ -59,7 +60,6 @@ async def _inspect_event(
 
     # Augmented path: build a compound result.
     storage = await _open_readonly_storage(storage_path)
-    _exit_code: int | None = None
     try:
         event = await storage.get(event_id)
         if event is None:

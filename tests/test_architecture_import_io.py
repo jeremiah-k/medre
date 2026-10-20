@@ -15,6 +15,8 @@ import ast
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from medre.runtime.architecture_ast import resolve_call_name
 from tests.helpers.ast_imports import (
     extract_aliases,
@@ -400,3 +402,32 @@ class TestBareMatchingPrecision:
             assert any("urllib.request.urlopen" in v for v in violations)
         finally:
             Path(tmp.name).unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("def f(*, callback=lambda: expensive_call()): pass", []),
+        ("async def f(*, callback=lambda: expensive_call()): pass", []),
+        ("def f(callback=lambda: expensive_call()): pass", []),
+        ("callback = lambda *, nested=lambda: expensive_call(): None", []),
+        (
+            "def f(*, callback=lambda cache=warmup(): expensive_call()): pass",
+            ["warmup"],
+        ),
+        ("callback = lambda *, cache=warmup(): expensive_call()", ["warmup"]),
+        ("def f(*, value=(lambda: expensive_call())()): pass", ["expensive_call"]),
+        (
+            "callback = lambda *, value=(lambda: expensive_call())(): None",
+            ["expensive_call"],
+        ),
+    ],
+)
+def test_definition_defaults_distinguish_lambda_creation_from_invocation(
+    source: str, expected: list[str]
+) -> None:
+    calls = top_level_calls(ast.parse(source))
+    relevant = [
+        call.func for call in calls if call.func in {"warmup", "expensive_call"}
+    ]
+    assert relevant == expected

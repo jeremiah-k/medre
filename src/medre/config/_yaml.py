@@ -47,7 +47,7 @@ class _ConfigDumper(yaml.SafeDumper):
         return True
 
 
-def dump_yaml_config(data: dict) -> str:
+def dump_yaml_config(data: dict[str, Any]) -> str:
     """Serialize configuration without aliases, preserving mapping order."""
     return yaml.dump(data, Dumper=_ConfigDumper, sort_keys=False, allow_unicode=True)
 
@@ -94,13 +94,13 @@ class _StrictSafeLoader(yaml.SafeLoader):
 
     # -- Scanner overrides: reject anchors and aliases entirely ------------
 
-    def fetch_anchor(self) -> None:  # type: ignore[override]
+    def fetch_anchor(self) -> None:
         """Reject ``&anchor`` definitions at scan time."""
         raise StrictYAMLError(
             _format_mark(self.get_mark(), "YAML anchors (&) are not supported")
         )
 
-    def fetch_alias(self) -> None:  # type: ignore[override]
+    def fetch_alias(self) -> None:
         """Reject ``*alias`` references at scan time."""
         raise StrictYAMLError(
             _format_mark(self.get_mark(), "YAML aliases (*) are not supported")
@@ -108,7 +108,7 @@ class _StrictSafeLoader(yaml.SafeLoader):
 
     # -- Constructor override: reject merge keys and duplicate keys --------
 
-    def construct_mapping(  # type: ignore[override]
+    def construct_mapping(
         self, node: yaml.MappingNode, deep: bool = False
     ) -> dict[Any, Any]:
         """Build a mapping, rejecting merge keys and duplicate keys.

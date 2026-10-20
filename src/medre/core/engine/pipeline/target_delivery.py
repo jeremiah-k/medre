@@ -75,14 +75,11 @@ from medre.core.planning.capabilities import resolve_adapter_capabilities
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
+    DeliveryStrategyMethod,
 )
 from medre.core.planning.relation_binding import mutation_binding_suppression_error
 from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
-from medre.core.rendering.renderer import (
-    DeliveryStrategyMethod,
-    RenderingPipeline,
-    RenderingResult,
-)
+from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 

@@ -6,6 +6,7 @@ import logging
 import sys
 import zipfile
 from datetime import datetime, timezone
+from typing import Any
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
@@ -16,7 +17,9 @@ from .json import to_json
 logger = logging.getLogger("medre")
 
 
-def _metrics_projection(snapshot: dict, runtime_diagnostics: dict) -> dict:
+def _metrics_projection(
+    snapshot: dict[str, Any], runtime_diagnostics: dict[str, Any]
+) -> dict[str, Any]:
     """Return the bounded, identifier-free subset exported as metrics."""
     accounting = snapshot.get("accounting") or {}
     capacity = snapshot.get("capacity") or {}

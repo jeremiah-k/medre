@@ -245,7 +245,10 @@ def setup_logging(
 
     # 1. Locate or create the single MEDRE-managed handler on the root logger.
     root = logging.getLogger()
-    medre_handler: logging.StreamHandler | None = None
+    # The stream type is genuinely dynamic: re-entrant CLI calls swap
+    # stdout between runs, so the handler is kept at its loosest honest
+    # parameterisation.
+    medre_handler: logging.StreamHandler[Any] | None = None
     for h in root.handlers:
         if isinstance(h, logging.StreamHandler) and getattr(
             h, _MEDRE_HANDLER_ATTR, False

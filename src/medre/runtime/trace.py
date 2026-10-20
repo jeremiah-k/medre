@@ -232,17 +232,17 @@ def assemble_event_timeline(
         entries.append(_outbox_generation_entry(item, index))
 
     # Native message refs — materialisation evidence.
-    for i, nref in enumerate(native_refs):
+    for i, msg_ref in enumerate(native_refs):
         entries.append(
             _timeline_entry(
-                timestamp=nref.created_at,
+                timestamp=msg_ref.created_at,
                 ordinal=i + 1,
                 entry_type="native_ref",
                 data={
-                    **native_ref_to_report_dict(nref),
-                    "id": nref.id,
-                    "event_id": nref.event_id,
-                    "native_thread_id": nref.native_thread_id,
+                    **native_ref_to_report_dict(msg_ref),
+                    "id": msg_ref.id,
+                    "event_id": msg_ref.event_id,
+                    "native_thread_id": msg_ref.native_thread_id,
                 },
             )
         )

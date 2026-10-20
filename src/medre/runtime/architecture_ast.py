@@ -279,6 +279,12 @@ def top_level_calls(
 
     def _process_node(node: ast.AST) -> None:
         """Process a single node: record if it's a Call, then recurse into it."""
+        if isinstance(node, ast.Lambda):
+            # Creating a lambda evaluates its defaults, not its deferred body.
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    _process_node(default)
+            return
         if isinstance(node, ast.Call):
             result.append(
                 CallRecord(
@@ -287,6 +293,8 @@ def top_level_calls(
                     file=file_path,
                 )
             )
+            if isinstance(node.func, ast.Lambda):
+                _process_node(node.func.body)
         _walk(node)
 
     def _walk(node: ast.AST) -> None:
@@ -315,16 +323,16 @@ def top_level_calls(
                     _process_node(dec)
                 for default in child.args.defaults:
                     _process_node(default)
-                for default in child.args.kw_defaults:
-                    if default is not None:  # kw_defaults can have None entries
-                        _process_node(default)
+                for kw_default in child.args.kw_defaults:
+                    if kw_default is not None:  # kw_defaults can hold None entries
+                        _process_node(kw_default)
                 # Do NOT walk function body
             elif isinstance(child, ast.Lambda):
                 for default in child.args.defaults:
                     _process_node(default)
-                for default in child.args.kw_defaults:
-                    if default is not None:
-                        _process_node(default)
+                for kw_default in child.args.kw_defaults:
+                    if kw_default is not None:
+                        _process_node(kw_default)
             else:
                 _walk(child)
 
@@ -476,8 +484,8 @@ def resolve_call_name(func_name: str, aliases: dict[str, str]) -> str:
     Returns:
         Resolved fully qualified name, or func_name unchanged if no alias matches.
     """
+    seen: set[str] = set()
     if "." not in func_name:
-        seen: set[str] = set()
         current = func_name
         while current in aliases and current not in seen:
             seen.add(current)
@@ -487,7 +495,6 @@ def resolve_call_name(func_name: str, aliases: dict[str, str]) -> str:
     parts = func_name.split(".")
     root = parts[0]
     if root in aliases:
-        seen: set[str] = set()
         current = root
         while current in aliases and current not in seen:
             seen.add(current)

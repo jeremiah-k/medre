@@ -278,8 +278,8 @@ def format_relay_prefix(
         missing_variables: list[str] = []
         unknown_variables: list[str] = []
 
-        def _replace(m: re.Match) -> str:  # type: ignore[type-arg]
-            name = m.group(1)
+        def _replace(m: re.Match[str]) -> str:
+            name: str = m.group(1)
             if name in _ALL_KNOWN_NAMES:
                 value = var_map.get(name, "")
                 variables_used.append(name)
@@ -403,4 +403,4 @@ def build_relay_attribution(
     if source_origin_label is not None:
         fields["source_origin_label"] = source_origin_label
 
-    return RelayAttribution(**fields)  # type: ignore[arg-type]
+    return RelayAttribution(**fields)

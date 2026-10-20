@@ -570,9 +570,9 @@ def register_routes(
     if not routes:
         _logger.info("No enabled routes to register")
         # Build route_states for disabled routes only.
-        route_states: dict[str, RouteOperationalState] = {}
+        route_states_disabled: dict[str, RouteOperationalState] = {}
         for rid in sorted(disabled_config_ids):
-            route_states[rid] = RouteOperationalState.DISABLED
+            route_states_disabled[rid] = RouteOperationalState.DISABLED
         eligibility = RouteEligibility(
             configured=tuple(sorted(enabled_config_ids)),
             registered=(),
@@ -580,7 +580,7 @@ def register_routes(
             degraded=(),
             skipped=(),
             unavailable=(),
-            route_states=route_states,
+            route_states=route_states_disabled,
         )
         return RouteRegistrationResult((), eligibility, provenance)
 

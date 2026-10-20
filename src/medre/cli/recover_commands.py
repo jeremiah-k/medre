@@ -374,7 +374,7 @@ async def _build_event_recovery_runbook(
 
 def _target_label(entry: dict[str, Any]) -> str:
     """Human label for a failed-target entry: adapter[/channel] [route=..]."""
-    label = entry["target_adapter"]
+    label: str = entry["target_adapter"]
     if entry.get("target_channel"):
         label += f"/{entry['target_channel']}"
     if entry.get("route_id"):

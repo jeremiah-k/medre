@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
@@ -321,7 +321,7 @@ def _to_iso_or_none(value: Any) -> str | None:
             from datetime import timezone
 
             value = value.replace(tzinfo=timezone.utc)
-        return value.isoformat()
+        return cast(str, value.isoformat())
     except (AttributeError, TypeError):
         return str(value) if value else None
 
@@ -372,6 +372,7 @@ def build_delivery_outcome_ledger(
         # generation.  When mutable outbox state exists, older authoritative
         # receipts remain immutable history only; they must not donate failure,
         # capability, retry, or transport evidence to the newer generation.
+        current_attempt_number: int | None
         if outbox is not None:
             generation_evidence = current_attempt or outbox
             failure_kind = (current_attempt or {}).get("failure_kind") or outbox.get(

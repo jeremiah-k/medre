@@ -366,7 +366,7 @@ class TestNoPersistenceImports:
 
     def test_minimal_imports_only(self) -> None:
         """Module should import only datetime, timezone, uuid, typing, and
-        DeliveryReceipt."""
+        receipt event types from their defining modules."""
         mod = importlib.import_module("medre.core.engine.pipeline.receipt_factory")
         source_lines = [
             line.strip()
@@ -380,6 +380,7 @@ class TestNoPersistenceImports:
             "from datetime",
             "from typing",
             "from medre.core.events.canonical",
+            "from medre.core.events.delivery",
         )
         for line in source_lines:
             assert line.startswith(

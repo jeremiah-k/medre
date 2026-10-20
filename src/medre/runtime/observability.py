@@ -15,6 +15,8 @@ Public symbols
 
 from __future__ import annotations
 
+from typing import Any
+
 from medre.core.diagnostics.replay_metrics import ReplayMetrics
 from medre.core.diagnostics.snapshot import build_diagnostics_snapshot
 from medre.core.routing.stats import RouteStats
@@ -45,7 +47,7 @@ class DiagnosticsCollector:
     def __init__(self) -> None:
         self._route_stats = RouteStats()
         self._replay_metrics = ReplayMetrics()
-        self._capacity_snapshot: dict | None = None
+        self._capacity_snapshot: dict[str, Any] | None = None
 
     # -- Route-level recording (delegates to RouteStats) ----------------------
 
@@ -109,13 +111,13 @@ class DiagnosticsCollector:
 
     # -- Capacity snapshot injection -------------------------------------------
 
-    def set_capacity_snapshot(self, snapshot: dict) -> None:
+    def set_capacity_snapshot(self, snapshot: dict[str, Any]) -> None:
         """Inject a capacity controller snapshot for inclusion in diagnostics."""
         self._capacity_snapshot = snapshot
 
     # -- Snapshot -------------------------------------------------------------
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         """Return a unified, deterministic diagnostics snapshot.
 
         See :func:`~medre.core.diagnostics.snapshot.build_diagnostics_snapshot`

@@ -40,7 +40,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
-from medre.core.events.delivery import normalize_delivery_provenance
+from medre.core.events.delivery import DeliverySource, normalize_delivery_provenance
 from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -79,7 +79,7 @@ class _PersistSuppressionReceiptFn(Protocol):
         capability_field: str | None = None,
         capability_reason: str | None = None,
         delivery_strategy: str | None = None,
-        source: str = "live",
+        source: DeliverySource = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt: ...
 
@@ -182,7 +182,7 @@ class _DeliveryContext:
     event: CanonicalEvent
     route: Route
     plan: DeliveryPlan
-    source: str
+    source: DeliverySource
     replay_run_id: str | None
     cached_get_fn: _GetEventFn | None
     cached_list_fn: _ListNativeRefsFn | None
@@ -312,7 +312,7 @@ class DeliveryCoordinator:
         route: Route,
         plan: DeliveryPlan,
         *,
-        source: str,
+        source: DeliverySource,
         replay_run_id: str | None,
         cached_get_fn: _GetEventFn | None,
         cached_list_fn: _ListNativeRefsFn | None,

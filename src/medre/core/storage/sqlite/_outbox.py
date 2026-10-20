@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_state import (
@@ -52,6 +52,14 @@ from medre.core.storage.sqlite.serde import (
     _row_to_outbox_item,
 )
 
+if TYPE_CHECKING:
+    import threading
+    from collections.abc import Callable
+    from typing import ParamSpec, TypeVar
+
+    _P = ParamSpec("_P")
+    _T = TypeVar("_T")
+
 
 class _OutboxMixin:
     """Delivery outbox methods for SQLiteStorage.
@@ -60,6 +68,30 @@ class _OutboxMixin:
     ``self._run_in_thread``, ``self._require_db``, and ``self._lock`` from the
     base class via MRO.
     """
+
+    if TYPE_CHECKING:
+
+        _lock: threading.Lock
+
+        async def _run_in_thread(
+            self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+        ) -> _T: ...
+
+        def _require_db(self) -> sqlite3.Connection: ...
+
+        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _write_rowcount(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
 
     async def create_outbox_item(
         self,
@@ -267,9 +299,9 @@ class _OutboxMixin:
                 raise StorageError(f"Outbox create failed: {exc}") from exc
             if allocate_new_generation:
                 raise
-            existing = await self._read_one(select_sql, select_params)
-            if existing is not None:
-                adopted = await self.get_outbox_item(existing["outbox_id"])
+            existing_row = await self._read_one(select_sql, select_params)
+            if existing_row is not None:
+                adopted = await self.get_outbox_item(existing_row["outbox_id"])
                 if adopted is None:
                     raise StorageError(
                         "Existing outbox row could not be re-read"

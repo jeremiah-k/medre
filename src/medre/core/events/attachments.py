@@ -337,13 +337,13 @@ class AttachmentDescriptor:
                     )
                 strict[key] = coerced
             else:
-                coerced = _optional_int(raw)
-                if coerced is None:
+                coerced_int = _optional_int(raw)
+                if coerced_int is None:
                     raise AttachmentDescriptorError(
                         f"attachment {key} must be a nonnegative integer, "
                         f"got {raw!r}"
                     )
-                strict[key] = coerced
+                strict[key] = coerced_int
         return strict
 
     @classmethod

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from medre.core.storage.backend import (
     DeferredHandoffFinalization,
@@ -21,16 +21,26 @@ from medre.core.storage.sqlite.connection import (
     sync_finalize_outbox_terminal,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import ParamSpec, TypeVar
+
+    _P = ParamSpec("_P")
+    _T = TypeVar("_T")
+
 
 class _DeliveryFinalizationMixin:
     """Cross-table finalization methods for ``SQLiteStorage``."""
 
     if TYPE_CHECKING:
+
         _lock: threading.Lock
 
-        def _require_db(self) -> Any: ...
+        def _require_db(self) -> sqlite3.Connection: ...
 
-        async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
+        async def _run_in_thread(
+            self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+        ) -> _T: ...
 
     async def finalize_deferred_handoff(
         self,
