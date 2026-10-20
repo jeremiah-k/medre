@@ -2,15 +2,14 @@
 
 Usage: python scripts/check_strict_typing.py [--workspace PATH] [--all]
 
-The default is a passing gate for the contracts and transport packages already
-migrated. --all audits every package and fails until the remaining migrations
-are complete. Repositories that declare [tool.mypy] in their pyproject.toml
-supply their own semantics (strictness, Python target, and their optional
-transport SDK exemptions); the checker passes only --no-incremental and the
-selected paths. Repositories without such a section get equivalent flags and
-a generated per-module SDK exemption configuration, so any other unresolved
-import — including a misspelled MEDRE-owned module — fails the gate instead
-of degrading to Any.
+The default is a passing gate over the contracts slice and the seven adapter
+source trees. --all audits whole trees and keeps failing until the core
+migration completes. Every repository declares its typing semantics in its
+own pyproject.toml under [tool.mypy] — strictness, the 3.11 target, and
+per-module exemptions for exactly that repository's optional transport SDKs —
+and the checker runs mypy from each repository root so that configuration
+applies. Any other unresolved import — including a misspelled MEDRE-owned
+module — fails the gate instead of degrading to Any.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ import argparse
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 _READY: dict[str, tuple[str, ...]] = {
@@ -31,43 +29,11 @@ _READY: dict[str, tuple[str, ...]] = {
     "medre-adapter-lxmf": ("src/medre",),
     "medre-adapter-meshcore": ("src/medre",),
     "medre-adapter-meshtastic": ("src/medre",),
+    "medre-adapter-matrix": ("src/medre",),
+    "medre-adapter-xmpp": ("src/medre",),
+    "medre-adapter-chatmail": ("src/medre",),
+    "medre-adapter-simplexchat": ("src/medre",),
 }
-_REMAINING = (
-    "medre-adapter-matrix",
-    "medre-adapter-xmpp",
-    "medre-adapter-chatmail",
-    "medre-adapter-simplexchat",
-)
-
-# Optional transport SDK modules per repository: absent from the offline
-# typing toolchain, so their imports resolve as Any instead of failing the
-# gate. Every repository the gate checks declares its set here, and any
-# undeclared unresolved module is a hard error.
-_OPTIONAL_SDK_MODULES: dict[str, tuple[str, ...]] = {
-    "medre": (),
-    "medre-adapter-lxmf": ("LXMF", "RNS"),
-    "medre-adapter-meshcore": ("bleak", "meshcore"),
-    "medre-adapter-meshtastic": ("meshtastic", "pubsub"),
-    "medre-adapter-matrix": ("aiohttp", "nio"),
-    "medre-adapter-xmpp": ("slixmpp",),
-    "medre-adapter-chatmail": ("deltachat_rpc_client",),
-    "medre-adapter-simplexchat": ("simplex_chat",),
-}
-
-
-def _sdk_exemption_config(modules: tuple[str, ...]) -> str:
-    lines = ["[mypy]"]
-    for module in modules:
-        lines.append(f"[mypy-{module},{module}.*]")
-        lines.append("ignore_missing_imports = True")
-    return "\n".join(lines) + "\n"
-
-
-def _declares_mypy_config(repo: Path) -> bool:
-    pyproject = repo / "pyproject.toml"
-    if not pyproject.is_file():
-        return False
-    return "[tool.mypy]" in pyproject.read_text(encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,17 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--workspace", type=Path, default=Path(__file__).resolve().parents[2]
     )
-    parser.add_argument(
-        "--all", action="store_true", help="audit all source files and adapters"
-    )
+    parser.add_argument("--all", action="store_true", help="audit whole source trees")
     args = parser.parse_args(argv)
     workspace = args.workspace.resolve()
     core = workspace / "medre"
-    targets = (
-        {name: ("src/medre",) for name in (*_READY, *_REMAINING)}
-        if args.all
-        else _READY
-    )
+    targets = {name: ("src/medre",) for name in _READY} if args.all else _READY
     result = 0
     for name, paths in targets.items():
         repo = workspace / name
@@ -104,43 +64,20 @@ def main(argv: list[str] | None = None) -> int:
             src_paths.append(caller_paths)
         env["MYPYPATH"] = os.pathsep.join(src_paths)
         print(f"\n== {name} ==", flush=True)
-        if _declares_mypy_config(repo):
-            # The repository's own [tool.mypy] supplies the semantics; mypy
-            # discovers it from the working directory.
-            argv = [
+        # The repository's own [tool.mypy] supplies the semantics; mypy
+        # discovers it from the working directory.
+        check = subprocess.run(
+            [
                 sys.executable,
                 "-m",
                 "mypy",
                 "--no-incremental",
                 *paths,
-            ]
-            check = subprocess.run(argv, cwd=repo, env=env, check=False)
-        else:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".ini", delete=False
-            ) as config_file:
-                config_file.write(_sdk_exemption_config(_OPTIONAL_SDK_MODULES[name]))
-            try:
-                check = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "mypy",
-                        "--strict",
-                        "--python-version=3.11",
-                        "--explicit-package-bases",
-                        "--follow-imports=silent",
-                        "--config-file",
-                        config_file.name,
-                        "--no-incremental",
-                        *paths,
-                    ],
-                    cwd=repo,
-                    env=env,
-                    check=False,
-                )
-            finally:
-                os.unlink(config_file.name)
+            ],
+            cwd=repo,
+            env=env,
+            check=False,
+        )
         result |= int(check.returncode != 0)
     return result
 
