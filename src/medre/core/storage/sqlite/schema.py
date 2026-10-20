@@ -422,7 +422,11 @@ CREATE INDEX IF NOT EXISTS idx_observations_event
 CREATE INDEX IF NOT EXISTS idx_observations_outbox
     ON delivery_observations(outbox_id, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
-    ON durable_ingress_work(status, updated_at, created_at);
+    ON durable_ingress_work(status, lease_until, created_at);
+-- Use a distinct name so existing databases receive the fair-order access path.
+CREATE INDEX IF NOT EXISTS idx_ingress_work_ready_order
+    ON durable_ingress_work(updated_at, created_at, event_id)
+    WHERE status NOT IN ('completed', 'failed');
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
 -- share the same (event_id, delivery_plan_id, target_adapter, attempt_number) tuple.

@@ -26,8 +26,12 @@ CLAIM_INGRESS_SELECT = """
 SELECT event_id, provenance, status, attempts, last_error,
        created_at, updated_at, locked_at, lease_until, worker_id
 FROM durable_ingress_work
-WHERE status = 'pending'
-   OR (status = 'processing' AND lease_until IS NOT NULL AND lease_until <= ?)
+WHERE status NOT IN ('completed', 'failed')
+  AND CASE status
+        WHEN 'pending' THEN 1
+        WHEN 'processing' THEN lease_until <= ?
+        ELSE 0
+      END
 ORDER BY updated_at, created_at, event_id
 LIMIT ?
 """

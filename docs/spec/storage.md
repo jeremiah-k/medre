@@ -1321,6 +1321,13 @@ All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, 
 - Non-`UNIQUE` indexes affect query performance, not correctness. A database that lacks one **SHALL** return the same results, just more slowly.
 - A `UNIQUE` expression/partial index MAY provide redundant integrity hardening for an invariant whose production write path is already race-safe. Runtime correctness **MUST NOT** depend on that index being the concurrency primitive; for example, named replay admission is serialized by `BEGIN IMMEDIATE` and the unique replay-run index is defense in depth.
 - Adding or changing an index **MUST NOT** bump `_EXPECTED_SCHEMA_VERSION`.
+  A changed access path MUST use a distinct index name or explicitly replace
+  the existing index; `IF NOT EXISTS` does not update its definition.
+- Durable ingress claims use the active-work partial index ordered by
+  `updated_at, created_at, event_id`. The predicate excludes terminal
+  `completed` and `failed` states; pending work and expired processing leases
+  remain eligible. Claims MUST preserve the same eligibility and order when
+  the non-unique index is absent.
 - SQLite autoindexes from table-level `UNIQUE` constraints **MUST NOT** be duplicated with manual `CREATE INDEX`.
 
 ## 5. Append-Only Guarantees
