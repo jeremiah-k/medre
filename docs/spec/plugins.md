@@ -323,7 +323,8 @@ evidence also consume that budget; they MUST NOT use attempt-free operational
 deferral. Rows reach terminal `failed` after the bounded ingress failure budget.
 Only retry-delay windows, pending cancellation, executor shutdown, and stale
 uncommitted state snapshots use operational deferral. Storage faults use normal
-bounded processing retries. Optional
+bounded processing retries. The worker pauses between deferred cycles, and the
+claim queue rotates deferred rows behind older untouched work. Optional
 status is permitted only for enrichment-only instances. Other stage failures
 cannot authorize a pass. A timeout cancels the invocation task without waiting
 indefinitely for acknowledgement; that instance cannot run again while the task

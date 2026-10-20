@@ -28,7 +28,7 @@ SELECT event_id, provenance, status, attempts, last_error,
 FROM durable_ingress_work
 WHERE status = 'pending'
    OR (status = 'processing' AND lease_until IS NOT NULL AND lease_until <= ?)
-ORDER BY created_at, event_id
+ORDER BY updated_at, created_at, event_id
 LIMIT ?
 """
 

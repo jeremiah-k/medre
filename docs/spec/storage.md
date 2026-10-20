@@ -1180,6 +1180,9 @@ as the canonical event and inbound native ref. Cold-history admission creates
 claimed by the worker. A worker atomically claims `pending` rows, or `processing`
 rows whose lease expired, and increments `attempts`. While processing is active, the
 worker renews its lease so a long-running route cannot be reclaimed concurrently.
+Claim priority is least-recently updated work, with creation time and event ID
+as deterministic tie-breakers. Returning a row to pending updates its position,
+so an operational deferral cannot monopolize claims ahead of untouched work.
 Processing failure returns the row to `pending` until the bounded retry budget is
 exhausted; poison work then moves to terminal `failed`. Successful routing/planning
 marks it `completed`. Ownership-guarded transitions report whether the lease was

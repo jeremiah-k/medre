@@ -294,6 +294,68 @@ async def test_permanent_plugin_failures_reach_failed_without_reinvocation(
         await host.stop()
 
 
+async def test_retry_delay_rotates_pending_work_without_spending_poison_budget(
+    temp_storage,
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from medre.core.engine.plugin_executor import PluginExecutionLimits
+    from medre.core.ingress import DurableIngressWorker
+    from medre.plugins import Pass
+
+    async def action(context, event):
+        if event.event_id == "waiting":
+            raise RuntimeError("temporarily unavailable")
+        return Pass()
+
+    item = binding("example", action=action)
+    now = [datetime(2026, 1, 1, tzinfo=timezone.utc)]
+    host = PluginExecutor(
+        temp_storage,
+        (item,),
+        limits=PluginExecutionLimits(max_attempts=2),
+        clock=lambda: now[0],
+    )
+    runner, adapter = _pipeline(temp_storage, host)
+    worker = DurableIngressWorker(
+        storage=temp_storage, pipeline=runner, batch_size=1, max_attempts=1
+    )
+    await host.start()
+    await runner.start()
+    try:
+        for event_id in ("waiting", "healthy"):
+            await runner.admit_ingress(make_event(event_id=event_id), "live")
+        await temp_storage._write(
+            "UPDATE durable_ingress_work SET created_at='2000-01-01', updated_at='2000-01-01' WHERE event_id='waiting'"
+        )
+        await temp_storage._write(
+            "UPDATE durable_ingress_work SET created_at='2000-01-02', updated_at='2000-01-02' WHERE event_id='healthy'"
+        )
+        assert await worker.run_once() == 0  # first transient invocation
+        assert await worker.run_once() == 1  # untouched healthy work takes priority
+        assert [p.event_id for p in adapter.delivered_payloads] == ["healthy"]
+        assert await worker.run_once() == 0  # retry delay, no second invocation
+        row = await temp_storage._read_one(
+            "SELECT status, attempts FROM durable_ingress_work WHERE event_id='waiting'"
+        )
+        assert row == {"status": "pending", "attempts": 0}
+        assert [event_id for stage, event_id in item.implementation.calls] == [
+            "waiting",
+            "healthy",
+        ]
+        now[0] += timedelta(seconds=2)
+        assert await worker.run_once() == 0
+        assert (
+            await temp_storage._read_one(
+                "SELECT status FROM durable_ingress_work WHERE event_id='waiting'"
+            )
+        )["status"] == "failed"
+        assert worker.deferrals == 2 and worker.terminal_failures == 1
+    finally:
+        await runner.stop()
+        await host.stop()
+
+
 async def test_stale_uncommitted_state_uses_operational_retry(
     temp_storage, monkeypatch
 ) -> None:

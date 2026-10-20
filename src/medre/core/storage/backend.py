@@ -992,6 +992,9 @@ class StorageBackend(Protocol):
     ) -> list[IngressWorkItem]:
         """Atomically claim pending or lease-expired ingress work.
 
+        Prioritize least-recently updated work, then creation time and event ID,
+        so released or deferred work rotates behind untouched pending rows.
+
         Authority: **claim** (atomic).
         """
         ...
