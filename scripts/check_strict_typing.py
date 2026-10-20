@@ -1,15 +1,15 @@
-"""Run reproducible incremental strict-mypy checks across MEDRE distributions.
+"""Run reproducible strict-mypy checks across MEDRE distributions.
 
 Usage: python scripts/check_strict_typing.py [--workspace PATH] [--all]
 
-The default is a passing gate over the contracts slice and the seven adapter
-source trees. --all audits whole trees and keeps failing until the core
-migration completes. Every repository declares its typing semantics in its
-own pyproject.toml under [tool.mypy] — strictness, the 3.11 target, and
-per-module exemptions for exactly that repository's optional transport SDKs —
-and the checker runs mypy from each repository root so that configuration
-applies. Any other unresolved import — including a misspelled MEDRE-owned
-module — fails the gate instead of degrading to Any.
+The default is a passing gate over every MEDRE source tree: core and the
+seven adapters. --all is the same whole-tree audit spelled explicitly.
+Every repository declares its typing semantics in its own pyproject.toml
+under [tool.mypy] — strictness, the 3.11 target, and per-module
+exemptions for exactly that repository's optional transport SDKs — and
+the checker runs mypy from each repository root so that configuration
+applies. Any other unresolved import — including a misspelled
+MEDRE-owned module — fails the gate instead of degrading to Any.
 """
 
 from __future__ import annotations
@@ -21,11 +21,7 @@ import sys
 from pathlib import Path
 
 _READY: dict[str, tuple[str, ...]] = {
-    "medre": (
-        "src/medre/core/contracts",
-        "src/medre/adapter_spec.py",
-        "src/medre/adapter_registry.py",
-    ),
+    "medre": ("src/medre",),
     "medre-adapter-lxmf": ("src/medre",),
     "medre-adapter-meshcore": ("src/medre",),
     "medre-adapter-meshtastic": ("src/medre",),
