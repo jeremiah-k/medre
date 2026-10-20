@@ -40,31 +40,20 @@ known type, or add broad per-module ignores to make this migration look complete
 
 `--workspace` can point to a different directory containing `medre` and the
 adapter repos; the default is the core repository's parent. The gate requires
-all three migrated adapter repositories to be present, and fails if one is
+all seven adapter repositories to be present, and fails if one is
 missing rather than claiming incomplete coverage as success.
 
-## Status at the 2026-10-20 stack
+## Status
 
-The baseline uses `medre` at `792a5c1a` (`main` in the uploaded stack),
-not the parallel `feat/plugin-contract` branch, and the seven adapters at the
-commits recorded in that stack's `manifest.tsv`. All figures refer to **source
-files**, not tests. The same invocation was used for every repository.
-
-| Repository | Source files | Remaining errors after first increment |
-| --- | ---: | ---: |
-| MEDRE core (whole tree) | 232 | 393 |
-| LXMF adapter | 18 | 0 |
-| MeshCore adapter | 19 | 0 |
-| Meshtastic adapter | 19 | 0 |
-| Matrix adapter | 28 | 30 |
-| XMPP adapter | 12 | 30 |
-| Chatmail adapter | 13 | 72 |
-| SimpleX adapter | 15 | 79 |
-
-The passing core slice is `core/contracts`, `adapter_spec.py`, and
-`adapter_registry.py` (five files). Together with the three complete adapters
-this gives a strict gate over **61 source files**. The remaining whole-tree
-errors are real outstanding work; a clean gate does not erase them.
+The 2026-10-20 baseline recorded 604 diagnostics across the workspace
+(core 393, Matrix 30, XMPP 30, Chatmail 72, SimpleX 79). All seven adapter
+source trees and the core contracts slice have since migrated; the passing
+gate covers **129 source files** (five core slice files plus the LXMF 18,
+MeshCore 19, Meshtastic 19, Matrix 28, XMPP 12, Chatmail 13, and SimpleX 15
+adapter files). Core's whole tree remains the only outstanding surface: the
+`--all` audit reports roughly 400 diagnostics there under the synced dev
+environment, including four missing-stub notices for the `yaml` dependency.
+A clean gate does not erase those; they are real outstanding work.
 
 ## Next work, in risk order
 
@@ -72,18 +61,13 @@ errors are real outstanding work; a clean gate does not erase them.
    mixin method contracts (`attr-defined`), target-delivery and outbox types,
    event metadata, and replay typing. Introduce narrow `Protocol`s and typed
    payload structures at module boundaries rather than blanket `cast`s.
-2. **Matrix and XMPP.** Resolve typed dynamic dataclass replacements, nullable
-   SDK clients, task result types, and event parsing. These are relatively
-   small strict migrations (30 errors each in this snapshot).
-3. **Chatmail and SimpleX.** Model the dynamic native SDK/RPC boundary with
-   explicit structural protocols and validated decoded payloads. Distinguish
-   wire values from trusted canonical values; avoid arbitrary `Any` propagation.
-4. **Optional SDK typing.** Install pinned runtime dependencies in dedicated
+2. **Optional SDK typing.** Install pinned runtime dependencies in dedicated
    provider CI jobs, add precise stubs or SDK-specific protocols for untyped
-   APIs, and remove the missing-import exemption when packages/stubs are
+   APIs (including `types-PyYAML` for core's `yaml` usage), and remove the
+   missing-import exemption when packages/stubs are
    available. Keep adapter discovery SDK-free.
-5. **Testing and CI.** Promote passing source slices to the gate after normal
-   focused unit tests. Once core and all adapters are clean, make whole-tree
+3. **Testing and CI.** Promote passing source slices to the gate after normal
+   focused unit tests. Once core's whole tree is clean, make whole-tree
    strict typing mandatory in CI; the pinned mypy tool already ships in the
    locked `dev` extra with `pyproject.toml` and `uv.lock` updated together.
 
