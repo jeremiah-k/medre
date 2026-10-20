@@ -136,3 +136,23 @@ async def test_policy_scope_is_defined_by_input_kinds(temp_storage) -> None:
         assert seen == []
     finally:
         await executor.stop()
+
+
+def test_catch_all_and_custom_only_exclusive_routes_never_conflict() -> None:
+    from medre.core.routing import Route, RouteSource, RouteTarget
+    from medre.core.routing.router import find_route_conflicts
+
+    custom_only = Route(
+        id="a_observations",
+        source=RouteSource("fake_transport", ("plugin.custom",), "ch-0"),
+        targets=[RouteTarget(adapter="fake_presentation")],
+        ownership="exclusive",
+    )
+    catch_all = Route(
+        id="z_bridge",
+        source=RouteSource("fake_transport", (), "ch-0"),
+        targets=[RouteTarget(adapter="fake_presentation")],
+        ownership="exclusive",
+    )
+    assert find_route_conflicts([custom_only, catch_all]) == []
+    assert find_route_conflicts([catch_all, custom_only]) == []

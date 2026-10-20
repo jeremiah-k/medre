@@ -492,3 +492,86 @@ async def test_truncated_empty_secret_assignment_survives_sqlite_recovery(
     )
     await temp_storage.commit_plugin_execution(record)
     assert await temp_storage.get_plugin_execution(record.key) == record
+
+
+async def test_state_and_evidence_interfaces_demand_valid_identities(
+    temp_storage,
+) -> None:
+    with pytest.raises(ValueError, match="registration tokens"):
+        await temp_storage.get_plugin_state("bad type", "one")
+    with pytest.raises(TypeError, match="PluginExecutionRecord"):
+        await temp_storage.commit_plugin_execution("forged")
+
+
+async def test_plan_freezing_rejects_malformed_digests(temp_storage) -> None:
+    with pytest.raises(ValueError, match="SHA-256"):
+        await temp_storage.bind_plugin_plan("evt-1", "live", "forged")
+
+
+async def test_lost_freeze_rows_fall_back_to_stored_evidence(temp_storage) -> None:
+    await _admit(temp_storage)
+    record = make_record()
+    await temp_storage.commit_plugin_execution(record)
+    await temp_storage._write("DELETE FROM plugin_execution_plans")
+    with pytest.raises(PluginExecutionConflictError, match="plan changed"):
+        await temp_storage.bind_plugin_plan("evt-1", "live", "c" * 64)
+
+
+async def test_evidence_from_other_instances_pins_the_shared_plan(
+    temp_storage,
+) -> None:
+    await _admit(temp_storage)
+    first = make_record()
+    await temp_storage.commit_plugin_execution(first)
+    data = first.to_data()
+    data["plan_digest"] = "d" * 64
+    await temp_storage._write(
+        "UPDATE plugin_execution_records SET record_json=? WHERE record_id=?",
+        (json.dumps(data), first.record_id),
+    )
+    other = make_record(key=replace(first.key, plugin_id="other"), plan_digest="b" * 64)
+    with pytest.raises(PluginExecutionConflictError, match="plan changed"):
+        await temp_storage.commit_plugin_execution(other)
+    assert await temp_storage.get_plugin_execution(other.key) is None
+
+
+async def test_record_rows_with_disagreeing_identity_fail_closed(temp_storage) -> None:
+    await _admit(temp_storage)
+    record = make_record()
+    await temp_storage.commit_plugin_execution(record)
+    data = record.to_data()
+    data["instance_id"] = "two"
+    await temp_storage._write(
+        "UPDATE plugin_execution_records SET record_json=? WHERE record_id=?",
+        (json.dumps(data), record.record_id),
+    )
+    with pytest.raises(StorageError, match="does not match its contract"):
+        await temp_storage.get_plugin_execution(record.key)
+    with pytest.raises(StorageError, match="transaction failed"):
+        await temp_storage.commit_plugin_execution(make_record(attempt=2))
+
+
+async def test_storage_failures_preserve_the_original_error_when_rollback_fails(
+    temp_storage, monkeypatch
+) -> None:
+    source = await _admit(temp_storage)
+    db = temp_storage._require_db()
+    await temp_storage._run_in_thread(db.close)
+    monkeypatch.setattr(temp_storage, "_require_db", lambda: db)
+
+    async def stored(event_id):
+        return source
+
+    monkeypatch.setattr(temp_storage, "get", stored)
+    with pytest.raises(StorageError, match="transaction failed"):
+        await temp_storage.commit_plugin_execution(make_record())
+
+
+async def test_unwritable_databases_surface_plan_bindings_as_storage_errors(
+    temp_storage, monkeypatch
+) -> None:
+    db = temp_storage._require_db()
+    await temp_storage._run_in_thread(db.close)
+    monkeypatch.setattr(temp_storage, "_require_db", lambda: db)
+    with pytest.raises(StorageError, match="plan binding failed"):
+        await temp_storage.bind_plugin_plan("evt-1", "live", "b" * 64)

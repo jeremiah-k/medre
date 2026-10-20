@@ -390,3 +390,63 @@ async def test_stale_uncommitted_state_uses_operational_retry(
     finally:
         await runner.stop()
         await host.stop()
+
+
+async def test_reaction_chains_stay_suppressed_after_plugin_qualification(
+    temp_storage,
+) -> None:
+    from medre.core.events import EventRelation, NativeMessageRef, NativeRef
+    from medre.plugins import Pass
+
+    # The native mapping for the reaction target lands while qualification is
+    # in flight: the pre-plugin guard cannot resolve it, the post-plugin
+    # re-check must, so a recovered plugin output cannot route into a chain
+    # the host would have suppressed.
+    await temp_storage.append(
+        make_event(event_id="target", event_kind="message.reacted")
+    )
+    source = make_event(
+        event_id="source",
+        event_kind="message.reacted",
+        relations=(
+            EventRelation(
+                relation_type="reaction",
+                target_event_id=None,
+                target_native_ref=NativeRef(
+                    adapter="fake_transport",
+                    native_channel_id="ch-0",
+                    native_message_id="native-target",
+                ),
+                key=None,
+                fallback_text=None,
+            ),
+        ),
+    )
+
+    async def act(context, event):
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-target",
+                event_id="target",
+                adapter="fake_transport",
+                native_channel_id="ch-0",
+                native_message_id="native-target",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+            )
+        )
+        return Pass()
+
+    item = binding("observer", action=act)
+    host = PluginExecutor(temp_storage, (item,))
+    runner, adapter = _pipeline(temp_storage, host)
+    await host.start()
+    await runner.start()
+    try:
+        assert await runner.handle_ingress(source) == []
+        assert len(item.implementation.calls) == 1
+        assert adapter.delivered_payloads == []
+    finally:
+        await runner.stop()
+        assert await host.stop()
