@@ -6,7 +6,8 @@ prerelease work plus a consolidated record of the numbered-fragment era.
 
 New in-flight changes are tracked as numbered Markdown fragments under
 `unreleased/` (created when the first fragment is added). Use
-`NNN-brief-description.md`, where `NNN` is the next available sequence. When
-a fragment's change lands, fold its concise user-visible summary into
+`NNN-brief-description.md`, where `NNN` is the pull request number; keep one
+fragment per pull request, covering that PR's combined behavioral change. When
+a PR lands, fold its concise user-visible summary into
 `unreleased.md` and delete the fragment; keep fragments transient, not an
 ever-growing diary.
