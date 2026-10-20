@@ -643,8 +643,9 @@ async def test_uncancelled_prior_invocations_defer_new_work(temp_storage) -> Non
     item = binding("busy")
     host = PluginExecutor(temp_storage, (item,))
     await host.start()
+    release = asyncio.Event()
     try:
-        host._instances[0].pending = asyncio.create_task(asyncio.sleep(30))
+        host._instances[0].pending = asyncio.create_task(release.wait())
         with pytest.raises(
             PluginExecutionDeferredError, match="cancellation is pending"
         ):
@@ -652,7 +653,9 @@ async def test_uncancelled_prior_invocations_defer_new_work(temp_storage) -> Non
         assert item.implementation.calls == []
     finally:
         host._instances[0].pending.cancel()
-        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await host._instances[0].pending
         await host.stop()
 
 
