@@ -1,0 +1,10 @@
+{
+  "browser": "mcr.microsoft.com/playwright/python:v1.64.0-noble@sha256:684df257a1fa0ef3fa288239819984008f560e8f8db5b635ee9e2a50cbcd2e23",
+  "synapse": "matrixdotorg/synapse:v1.163.0@sha256:e98ab72138d90fa8b8876c6421fe78a9fdb181c0d7cc690ad740e5173e0c65e6",
+  "mas": "ghcr.io/element-hq/matrix-authentication-service@sha256:e089f1048a1d4a9a492ed17b9fe759100f1bd619407b001f5927928d88b780c4",
+  "postgres": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+  "caddy": "caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f",
+  "xmpp": "prosodyim/prosody:13.0@sha256:0d4efc7c11018dfd863c9a25495efe706027de357a58a18ef02f8c484fb264ed",
+  "mail": "greenmail/standalone:2.1.5@sha256:8a2024725c7b1ce8f720644bccb6f237781992a8cbf283023446eb7d29326ad0",
+  "smp": "simplexchat/smp-server@sha256:7d825822839a9d5ee9e9a99563d77a319816c7a8e0b4b7bf4dcebe448897af54"
+}

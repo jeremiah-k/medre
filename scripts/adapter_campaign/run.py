@@ -238,6 +238,12 @@ async def run(plan: Plan, directory: Path) -> dict:
                 # long body. Do not generate oversized ingress on a radio.
                 text += " " + "🌍é" * 64
             sent = await peer.send(text)
+            report["active_case"] = {
+                "source": source,
+                "marker": marker,
+                "stage": "delivery_verification",
+            }
+            write_report(directory, report)
             targets = {
                 name: endpoint["channel"]
                 for name, endpoint in plan.endpoints.items()
@@ -298,6 +304,7 @@ async def run(plan: Plan, directory: Path) -> dict:
                 }
             )
             report["completed_pairs"].extend((source, target) for target in targets)
+            report.pop("active_case", None)
             write_report(directory, report)
             print(f"PASS {source} -> {', '.join(targets)}", flush=True)
             await asyncio.sleep(plan.pacing)  # Explicit on-air budget between turns.
