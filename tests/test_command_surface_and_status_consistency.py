@@ -554,12 +554,10 @@ class TestNestedCommandCoverage:
     def test_adapter_matrix_auth_subcommands_documented(
         self, root_parser, cli_section: str
     ) -> None:
-        """``adapter matrix auth`` exposes ``login`` and ``status``; both
-        must appear in configuration.md. ``logout`` is intentionally not
-        asserted — it is not registered in the parser."""
+        """Every Matrix authentication subcommand must appear in the inventory."""
         actual = _subparser_choices(root_parser, "adapter", "matrix", "auth")
         assert actual, "Parser exposes no subcommands under 'adapter matrix auth'"
-        expected = {"login", "status"}
+        expected = {"login", "logout", "status"}
         missing_from_parser = expected - actual
         assert not missing_from_parser, (
             "Parser is missing 'adapter matrix auth' subcommands: "
@@ -572,7 +570,7 @@ class TestNestedCommandCoverage:
         )
         for sub in sorted(expected):
             # configuration.md groups the auth subcommands as
-            # "adapter matrix auth (login|status)".
+            # "adapter matrix auth (login|logout|status)".
             grouped = re.compile(
                 rf"medre\s+adapter\s+matrix\s+auth\s*\([^)]*\b"
                 rf"{re.escape(sub)}\b[^)]*\)"
@@ -587,21 +585,6 @@ class TestNestedCommandCoverage:
         assert "adapter matrix auth" in cli_section, (
             "configuration.md must document the 'medre adapter matrix auth' "
             "command group."
-        )
-
-    def test_adapter_matrix_auth_logout_not_registered(self, root_parser) -> None:
-        """``adapter matrix auth logout`` is not registered in the parser.
-
-        Documents the gap between the planned operator surface and the
-        current parser so a future addition flips this test green rather
-        than silently landing undocumented.
-        """
-        actual = _subparser_choices(root_parser, "adapter", "matrix", "auth")
-        assert "logout" not in actual, (
-            "'adapter matrix auth logout' is now registered in the parser. "
-            "Add it to configuration.md's CLI inventory and update this "
-            "test plus test_docs_command_surface.py. Actual auth "
-            f"subcommands: {sorted(actual)}"
         )
 
 

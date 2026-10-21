@@ -1046,6 +1046,13 @@ medre adapter matrix auth login \
   --user @bot:example.com
 ```
 
+For browser-approved OAuth login or renewal of its saved session:
+
+```bash
+medre adapter matrix auth login --oauth \
+  --user @bot:example.com --adapter-id main
+```
+
 Non-interactive via stdin (preferred for automation — read from a file or a
 secret manager so the password never appears on the command line):
 
@@ -1059,7 +1066,10 @@ medre adapter matrix auth login \
 The command keeps the token out of terminal output and saves credentials to
 the Matrix sidecar JSON file. The runtime reads credentials from this sidecar
 at startup. Accepted flags: `--homeserver`, `--user`, `--password`,
-`--password-stdin`, `--adapter-id`, and `--reset-cross-signing`.
+`--password-stdin`, `--oauth`, `--client-id`, `--adapter-id`, and
+`--reset-cross-signing`. OAuth sessions renew automatically. Use
+`medre adapter matrix auth logout` before changing login methods; this revokes
+the saved session while preserving E2EE keys and signing identity.
 
 For an encrypted adapter, add `--adapter-id <id>` where `<id>` is the Matrix
 adapter key from configuration. MEDRE then prepares the exact runtime E2EE store
@@ -1067,7 +1077,8 @@ and verifies master → self-signing → current-device cross-signing before sav
 credentials. The password is transient and is not persisted. Use
 `--reset-cross-signing` only for explicit recovery after backing up Matrix state;
 it may replace account cross-signing identity material and therefore requires a
-fresh password. Ordinary runtime startup never performs that rotation.
+fresh password or OAuth browser approval. Ordinary runtime startup never
+performs that rotation.
 
 `--password` reads the password from the command line. It is supported for
 automation that cannot pipe stdin, but the value is visible in shell history,
@@ -1291,14 +1302,20 @@ medre storage reset [--storage-path PATH]
 
 medre adapter matrix auth login [--adapter-id ID] [--reset-cross-signing]
     Matrix credential and E2EE identity setup (no runtime). Authenticates with
-    the homeserver, optionally prepares/verifies the selected adapter's
+    the homeserver using a password or --oauth browser approval,
+    optionally prepares/verifies the selected adapter's
     cross-signing store, and saves credentials to a sidecar JSON file; it never
     prints the access token or password. Identity reset is explicit and
-    password-authenticated.
+    authenticated through a password or OAuth browser approval.
 
 medre adapter matrix auth status
     Matrix credential management (no runtime). Shows credential file
     status without printing secrets.
+
+medre adapter matrix auth logout
+    Matrix credential management (no runtime). Revokes the saved session and
+    removes its credential sidecar after successful revocation. Retains E2EE
+    keys and cross-signing identity state.
 
 medre support bundle [--config PATH] [--output PATH]
     Write an offline, redacted support bundle ZIP. Built from config

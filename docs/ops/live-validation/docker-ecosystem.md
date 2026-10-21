@@ -49,6 +49,17 @@ when that hardware is intentionally unavailable. Devices are inspected before
 use; the harness does not provision radio settings, flash firmware, pair BLE
 devices, or modify host services and certificate trust.
 
+If a previously used MeshCore board reports a BLE operation in progress, stop
+competing clients and explicitly disconnect only that board before retrying:
+
+```console
+bluetoothctl disconnect AA:BB:CC:DD:EE:01
+```
+
+Use the configured board address. This does not remove its pairing or reset the
+host Bluetooth service. Native probes and peers scan for a live BLE device and
+close their owned client even when connection startup fails.
+
 ## Run and clean up
 
 ```console

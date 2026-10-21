@@ -62,41 +62,32 @@ async def inspect_hardware(root: Path) -> dict:
                 }
         report["meshtastic"] = results
     if "meshcore" in requested:
-        from meshcore import EventType, MeshCore
+        from meshcore import EventType
+
+        from ..meshcore_ble import open_meshcore_ble
 
         results = {}
         for role in ("gateway", "peer"):
-            connection = None
             try:
                 async with asyncio.timeout(35):
-                    connection = await MeshCore.create_ble(
-                        address=requested["meshcore"][role + "_ble_address"],
-                        default_timeout=10,
-                    )
-                    if connection is None:
-                        raise ConnectionError("MeshCore BLE unavailable")
-                    info = await connection.commands.send_appstart()
-                    if info.type != EventType.SELF_INFO:
-                        raise ConnectionError("MeshCore self-info unavailable")
-                    clock = await connection.commands.get_time()
-                    results[role] = {
-                        "status": "available",
-                        "name": info.payload["name"],
-                        "clock": clock.payload,
-                    }
+                    async with open_meshcore_ble(
+                        requested["meshcore"][role + "_ble_address"]
+                    ) as connection:
+                        info = await connection.commands.send_appstart()
+                        if info.type != EventType.SELF_INFO:
+                            raise ConnectionError("MeshCore self-info unavailable")
+                        clock = await connection.commands.get_time()
+                        results[role] = {
+                            "status": "available",
+                            "name": info.payload["name"],
+                            "clock": clock.payload,
+                        }
             except Exception as exc:
                 (root / "logs" / f"meshcore-{role}-failure.log").write_text(repr(exc))
                 results[role] = {
                     "status": "unavailable",
                     "error_type": type(exc).__name__,
                 }
-            finally:
-                if connection is not None:
-                    try:
-                        async with asyncio.timeout(10):
-                            await connection.disconnect()
-                    except Exception:
-                        results[role]["cleanup"] = "failed"
         report["meshcore"] = results
     write_json(root / "results/hardware.json", report)
     return report
