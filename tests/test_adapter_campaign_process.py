@@ -20,6 +20,12 @@ for line in sys.stdin:
 """
 
 
+async def test_missing_native_evidence_identifies_the_peer(tmp_path):
+    peer = Peer("chatmail", tmp_path, 0.01)
+    with pytest.raises(TimeoutError, match="chatmail: native evidence wait timed out"):
+        await peer.wait(lambda _: False)
+
+
 async def test_peer_drives_native_commands_and_captures_only_protocol_records(tmp_path):
     peer = Peer("radio", tmp_path, 3)
     try:

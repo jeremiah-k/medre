@@ -83,14 +83,17 @@ class Peer:
             raise RuntimeError(f"{self.name}: native peer exited during the campaign")
 
     async def wait(self, predicate: Callable[[dict], bool]) -> dict:
-        async with asyncio.timeout(self.timeout):
-            while True:
-                self.changed.clear()
-                self.check()
-                for record in self.records:
-                    if predicate(record):
-                        return record
-                await self.changed.wait()
+        try:
+            async with asyncio.timeout(self.timeout):
+                while True:
+                    self.changed.clear()
+                    self.check()
+                    for record in self.records:
+                        if predicate(record):
+                            return record
+                    await self.changed.wait()
+        except TimeoutError as exc:
+            raise TimeoutError(f"{self.name}: native evidence wait timed out") from exc
 
     async def send(self, text: str) -> dict:
         return await self.command("send", text=text)

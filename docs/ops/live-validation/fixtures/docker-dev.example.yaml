@@ -1,0 +1,12 @@
+# Keep the populated profile outside version control. Paths may be anywhere.
+adapters:
+  ["matrix[e2e]", meshtastic, meshcore, lxmf, xmpp, chatmail, simplexchat]
+sdk: true
+editable:
+  matrix: /checkouts/matrix-candidate
+  meshtastic: /checkouts/meshtastic
+  meshcore: /checkouts/meshcore
+  lxmf: /checkouts/lxmf
+  xmpp: /checkouts/xmpp
+  chatmail: /checkouts/chatmail
+  simplexchat: /checkouts/simplexchat

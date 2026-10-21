@@ -1,0 +1,12 @@
+{
+  "meshtastic": {
+    "gateway_serial_port": "/dev/serial/by-id/replace-with-gateway-radio",
+    "peer_serial_port": "/dev/serial/by-id/replace-with-independent-peer-radio",
+    "channel": 0
+  },
+  "meshcore": {
+    "gateway_ble_address": "AA:BB:CC:DD:EE:01",
+    "peer_ble_address": "AA:BB:CC:DD:EE:02",
+    "channel": 1
+  }
+}
