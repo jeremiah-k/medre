@@ -171,7 +171,7 @@ class TestParserCommandsDocumented:
         """The parser command set must match the expected operator surface.
 
         Guards against silent additions or removals at the parser level.
-        Adapter sub-namespaces (matrix auth login/status) are verified in
+        Adapter sub-namespaces (matrix auth login/logout/status) are verified in
         a separate nested-coverage test in
         ``test_command_surface_and_status_consistency.py``.
         """
