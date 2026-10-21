@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 from .worker import commands, emit, receiver
@@ -63,29 +64,32 @@ async def meshtastic(settings: dict) -> None:
 async def meshcore(settings: dict) -> None:
     from meshcore import EventType, MeshCore
 
+    from .meshcore_ble import open_meshcore_ble
+
     peer = settings["peer"]
-    if "ble_address" in peer:
-        connection = await MeshCore.create_ble(
-            address=peer["ble_address"], default_timeout=10
-        )
-    else:
-        connection = await MeshCore.create_serial(
-            peer["serial_port"], baudrate=peer.get("baudrate", 115200)
-        )
-    if connection is None:
-        raise RuntimeError("MeshCore peer unavailable")
-    received = receiver(settings)
-    channel = int(peer.get("channel", settings["channel"]))
+    async with AsyncExitStack() as resources:
+        if "ble_address" in peer:
+            connection = await resources.enter_async_context(
+                open_meshcore_ble(peer["ble_address"])
+            )
+        else:
+            connection = await MeshCore.create_serial(
+                peer["serial_port"], baudrate=peer.get("baudrate", 115200)
+            )
+            if connection is None:
+                raise RuntimeError("MeshCore peer unavailable")
+            resources.push_async_callback(connection.disconnect)
+        received = receiver(settings)
+        channel = int(peer.get("channel", settings["channel"]))
 
-    async def receive(event):
-        payload = event.payload
-        text = payload.get("text", "")
-        # Native group frames identify their sender in the wire-text prefix.
-        sender, separator, _ = text.partition(": ")
-        if separator:
-            received(text=text, sender=sender, channel=str(payload["channel_idx"]))
+        async def receive(event):
+            payload = event.payload
+            text = payload.get("text", "")
+            # Native group frames identify their sender in the wire-text prefix.
+            sender, separator, _ = text.partition(": ")
+            if separator:
+                received(text=text, sender=sender, channel=str(payload["channel_idx"]))
 
-    try:
         info = await connection.commands.send_appstart()
         if info.type != EventType.SELF_INFO:
             raise RuntimeError("MeshCore peer metadata unavailable")
@@ -102,8 +106,6 @@ async def meshcore(settings: dict) -> None:
             return ""  # Group sends provide no native message ID.
 
         await commands(send)
-    finally:
-        await connection.disconnect()
 
 
 async def lxmf(settings: dict) -> None:
