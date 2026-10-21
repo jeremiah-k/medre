@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -28,6 +29,7 @@ class Peer:
         self.output = None
         self.changed = asyncio.Event()
         self.failure: Exception | None = None
+        self._expected_exit: int | None = None
 
     async def start(self, settings: dict, *, argv: list[str] | None = None) -> None:
         """Send credentials over stdin, never the process command line."""
@@ -108,6 +110,37 @@ class Peer:
             lambda record: record["kind"] == "sent" and record["command"] == command
         )
 
+    async def crash(self) -> int:
+        """Kill an owned live process at a qualified fault barrier and reap it.
+
+        Only a kill initiated here can become an expected nonzero exit. An
+        already-failed child remains a qualification failure.
+        """
+        self.check()
+        if self.process is None or self.process.returncode is not None:
+            raise RuntimeError(f"{self.name}: no live process to crash")
+        requested_at = time.time()
+        self._signal(force=True)
+        code = await asyncio.wait_for(self.process.wait(), _DRAIN_TIMEOUT)
+        expected = 1 if sys.platform == "win32" else -signal.SIGKILL
+        if code != expected:
+            raise RuntimeError(f"{self.name}: unexpected crash exit")
+        if self.reader is not None:
+            await asyncio.wait_for(asyncio.shield(self.reader), _DRAIN_TIMEOUT)
+        if self.failure or any(record["kind"] == "error" for record in self.records):
+            raise RuntimeError(f"{self.name}: evidence failed before intentional crash")
+        self._expected_exit = code
+        record = {
+            "kind": "intentional_crash",
+            "exit_code": code,
+            "requested_at": requested_at,
+            "at": time.time(),
+        }
+        self.records.append(record)
+        self.log.write(json.dumps(record) + "\n")
+        self.log.flush()
+        return code
+
     async def stop(self) -> None:
         """Always reap the child; forced cleanup prevents a passing verdict."""
         forced = False
@@ -140,7 +173,7 @@ class Peer:
                         await asyncio.wait_for(self.reader, _DRAIN_TIMEOUT)
                 if (
                     forced
-                    or self.process.returncode != 0
+                    or self.process.returncode not in (0, self._expected_exit)
                     or self.failure
                     or any(record["kind"] == "error" for record in self.records)
                 ):
