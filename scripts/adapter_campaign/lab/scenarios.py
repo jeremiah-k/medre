@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .control import command
+from .budgets import NESTED_STAGE_SECONDS, stage_timeout
 from .hardware import inspect_hardware
 from .sources import write_json
 
@@ -42,7 +43,14 @@ async def run(stage: str) -> None:
                         "scripts.adapter_campaign.lab.container",
                         child,
                     ],
-                    timeout=2400,
+                    timeout=(
+                        stage_timeout(
+                            "contracts",
+                            len(json.loads((ROOT / "sources.json").read_text())),
+                        )
+                        if child == "contracts"
+                        else NESTED_STAGE_SECONDS
+                    ),
                 )
                 outcomes[child] = "passed"
             except (RuntimeError, subprocess.TimeoutExpired):

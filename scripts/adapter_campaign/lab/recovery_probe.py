@@ -30,7 +30,7 @@ async def main(owner: str) -> None:
     )
     await concurrent_refresh(owner, path)
     before = json.loads(path.read_text())
-    master = await published_identity(before)
+    master = await published_identity(owner, path)
     signing = {
         str(file.relative_to(profile)): hashlib.sha256(file.read_bytes()).hexdigest()
         for file in profile.rglob("*.json")
@@ -99,7 +99,7 @@ async def main(owner: str) -> None:
         after["device_id"] != before["device_id"]
     ), "Fresh OAuth login reused a revoked device"
     assert (
-        await published_identity(after) == master
+        await published_identity(owner, path) == master
     ), "Relogin replaced the account identity"
     result = {
         "status": "passed",

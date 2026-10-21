@@ -399,15 +399,26 @@ async def provision(root: Path) -> None:
     accounts = json.loads((root / "config/accounts.json").read_text())
     result_path = root / "results/provision.json"
     results = json.loads(result_path.read_text()) if result_path.exists() else {}
-    if results.get("lxmf", {}).get("status") != "ready":
-        runtime, endpoint = lxmf(root)
-        results["lxmf"] = {
-            "runtime": runtime,
-            "endpoint": endpoint,
-            "status": "ready",
-            "substrate": "docker_tcp",
-        }
     failures = []
+    if results.get("lxmf", {}).get("status") != "ready":
+        try:
+            runtime, endpoint = lxmf(root)
+            results["lxmf"] = {
+                "runtime": runtime,
+                "endpoint": endpoint,
+                "status": "ready",
+                "substrate": "docker_tcp",
+            }
+        except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
+            results["lxmf"] = {
+                "status": "failed",
+                "error_type": type(exc).__name__,
+            }
+            failures.append("lxmf")
+        write_json(root / "results/provision.json", results)
     # Preserve independent provisioning outcomes; one unavailable service must
     # not hide the readiness of every other native transport.
     for name, function in (("matrix", matrix), ("xmpp", xmpp), ("chatmail", chatmail)):
@@ -627,7 +638,7 @@ def lxmf(root: Path) -> tuple[dict, dict]:
 
     configs = []
     for role in ("bot", "peer"):
-        directory = root / "profiles" / ("lxmf-" + role)
+        directory = root / "profiles" / ("lxmf-" + role + "-" + str(time.time_ns()))
         directory.mkdir()
         identity = RNS.Identity()
         identity_path = directory / "identity"

@@ -159,3 +159,22 @@ def test_log_review_cannot_treat_wrapper_output_as_runtime_evidence(tmp_path):
         review(tmp_path)
     report = json.loads((tmp_path / "results/log-review.json").read_text())
     assert list(report["logs"]) == ["logs/native-campaign-1234567891234567.log"]
+
+
+def test_docker_lab_contracts_and_oauth_requirements_are_present():
+    dockerfile = (Path(control.__file__).parent / "Dockerfile").read_text()
+    assert "bluez dbus openssl git" in dockerfile
+    assert "--extra e2e" in dockerfile
+
+
+def test_lab_stage_timeout_encloses_all_nested_stage_budgets():
+    from scripts.adapter_campaign.lab.budgets import stage_timeout
+
+    for provider_count in (1, 9, 12):
+        contracts = stage_timeout("contracts", provider_count)
+        assert contracts > provider_count * 1800
+        assert stage_timeout("all", provider_count) > contracts + 6 * 2400
+        assert stage_timeout("native", provider_count) > 6 * 2400
+        assert stage_timeout("all", provider_count) > stage_timeout(
+            "native", provider_count
+        )

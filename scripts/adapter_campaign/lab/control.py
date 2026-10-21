@@ -14,6 +14,7 @@ from uuid import uuid4
 import yaml
 
 from . import LabError
+from .budgets import stage_timeout
 from .sources import selected_sources, snapshot, write_json
 from .stack import configure
 
@@ -258,7 +259,9 @@ def operate(args: argparse.Namespace) -> None:
             directory,
             args.stage,
             compose(directory, "run", "--rm", "runner", args.stage),
-            timeout=7200,
+            timeout=stage_timeout(
+                args.stage, len(json.loads((directory / "sources.json").read_text()))
+            ),
         )
         report = directory / "results/qualification.json"
         if args.stage in {"all", "native"} and report.exists():

@@ -75,3 +75,38 @@ async def test_actual_simplex_failure_is_recorded_without_replacing_ready_peers(
     for name in fixtures.keys() - {"simplexchat"}:
         assert recorded[name] == ready_fixtures[name]
     simplex.assert_awaited_once_with(tmp_path)
+
+
+async def test_lxmf_failure_is_recorded_and_does_not_hide_other_fixture_retries(
+    tmp_path, monkeypatch, ready_fixtures
+):
+    fixtures = dict(ready_fixtures)
+    fixtures["lxmf"] = {"status": "failed"}
+    write_json(tmp_path / "results/provision.json", fixtures)
+    lxmf = Mock(side_effect=OSError("device not ready"))
+    monkeypatch.setattr(provision, "lxmf", lxmf)
+    with pytest.raises(RuntimeError, match="^Native provisioning failed: lxmf$"):
+        await provision.provision(tmp_path)
+    recorded = json.loads((tmp_path / "results/provision.json").read_text())
+    assert recorded["lxmf"] == {"status": "failed", "error_type": "OSError"}
+    for name in fixtures.keys() - {"lxmf"}:
+        assert recorded[name] == ready_fixtures[name]
+    lxmf.assert_called_once_with(tmp_path)
+
+
+def test_initial_signing_reset_is_consumed_before_signing_attempt(tmp_path):
+    from scripts.adapter_campaign.lab.oauth_checks import claim_initial_signing_reset
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    marker = tmp_path / "results/reset-attempted"
+    assert claim_initial_signing_reset(profile, marker)
+    assert marker.is_file()
+    assert not claim_initial_signing_reset(profile, marker)
+    marker.unlink()
+    (profile / "store.db").write_bytes(b"persisted identity")
+    assert not claim_initial_signing_reset(profile, marker)
+    assert not marker.exists()
+    (profile / "store.db").unlink()
+    (profile / "cross-signing.json").write_text("{}")
+    assert not claim_initial_signing_reset(profile, marker)

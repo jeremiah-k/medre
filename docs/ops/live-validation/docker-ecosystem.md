@@ -59,6 +59,13 @@ python -m scripts.adapter_campaign.lab test --directory "$lab_dir" --stage all
 python -m scripts.adapter_campaign.lab down --directory "$lab_dir"
 ```
 
+Fresh lab certificates have a 90-day validity. Previously generated certificates
+are not rotated implicitly; prepare a new lab after expiry.
+
+The `contracts` stage runs provider suites sequentially and its host/child
+timeouts scale with the number of recorded sources. Grouped stages allow enough
+time for these child budgets and still require an explicit `down` on failure.
+
 Always run `down`, including after a failed stage. It captures service logs and
 removes only the matching lab project's containers and named volumes. Private
 profiles, snapshots, logs, and results remain for analysis. A destroyed lab cannot
@@ -86,10 +93,14 @@ qualification.
 OAuth setup is required before provisioning the campaign's Matrix room. Provision
 before `campaign` or `mmrelay`. Run radio campaigns sequentially. The `all` stage
 does this ordering and retains failures while continuing independent checks.
-Initial MMRelay signing uses its explicit reset authorization on the disposable
-account; routine login and recovery checks omit reset. No operator account is
-used. Refresh tests make the saved local renewal deadline due and exercise a real
-server refresh grant; they do not claim to simulate natural token expiry.
+Initial MMRelay signing uses its explicit reset authorization only once in a fresh
+lab profile. The reset attempt is recorded before execution, so even an interrupted
+first signing or a later logout cannot silently authorize another account-key
+replacement. If initial signing fails, investigate or prepare a fresh lab rather
+than deleting the reset marker. Routine login and recovery checks omit reset. No
+operator account is used. Refresh tests make the saved local renewal deadline due
+and exercise a real server refresh grant; they do not claim to simulate natural
+token expiry.
 
 ## Isolation and coverage
 

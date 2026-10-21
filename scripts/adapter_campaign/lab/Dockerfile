@@ -8,7 +8,7 @@ ARG LAB_GID=1000
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
 RUN python -m pip install --no-cache-dir uv==0.13.4
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgmp10 libnuma1 libsodium23 libnss3-tools bluez dbus openssl \
+    libgmp10 libnuma1 libsodium23 libnss3-tools bluez dbus openssl git \
     && rm -rf /var/lib/apt/lists/*
 COPY sources /sources
 RUN UV_PROJECT_ENVIRONMENT=/opt/medre uv sync --project /sources/medre --locked --extra dev

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from .sources import write_json
+from .budgets import PROVIDER_CONTRACT_SECONDS
 
 ROOT = Path("/lab")
 
@@ -32,7 +33,7 @@ def certificates() -> None:
             "-out",
             "ca.crt",
             "-days",
-            "7",
+            "90",
             "-subj",
             "/CN=MEDRE disposable lab CA",
         ],
@@ -61,7 +62,7 @@ def certificates() -> None:
             "-out",
             "server.crt",
             "-days",
-            "7",
+            "90",
             "-extfile",
             "server.ext",
         ],
@@ -201,7 +202,7 @@ def contracts() -> None:
                 ROOT,
                 f"contracts-{name}",
                 argv,
-                timeout=1800,
+                timeout=PROVIDER_CONTRACT_SECONDS,
                 cwd=Path("/sources") / name,
             )
         except (RuntimeError, subprocess.TimeoutExpired):

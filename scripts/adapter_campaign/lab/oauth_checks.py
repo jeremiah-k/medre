@@ -9,13 +9,45 @@ import time
 from pathlib import Path
 
 
-async def published_identity(record: dict) -> dict:
+def claim_initial_signing_reset(profile: Path, marker: Path) -> bool:
+    """Authorize at most one reset in a fresh disposable lab identity.
+
+    The marker is written *before* the potentially destructive request, so a
+    crash or timeout cannot inadvertently authorize the reset again.
+    """
+    if marker.exists() or any(
+        "signing" in file.name.lower()
+        or file.suffix in {".db", ".sqlite", ".sqlite3", ".pickle"}
+        for file in profile.rglob("*")
+        if file.is_file()
+    ):
+        return False
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch(exist_ok=False)
+    return True
+
+
+async def published_identity(owner: str, path: Path) -> dict:
+    record = json.loads(path.read_text())
+    if owner == "medre":
+        from medre.adapters.matrix.oauth import OAuthSession
+        from medre.adapters.matrix.oauth_session import OAuthSessionManager
+
+        manager = OAuthSessionManager(OAuthSession.parse(record), path)
+    else:
+        from mmrelay.matrix.oauth import OAuthSession
+        from mmrelay.matrix.oauth_session import OAuthSessionManager
+        from mmrelay.matrix.oauth_store import OAuthStore
+
+        store = OAuthStore(path)
+        manager = OAuthSessionManager(OAuthSession.parse(await store.load()), store)
+    access_token = await manager.access_token()
     import aiohttp
     from nio import Api
     from vodozemac import Ed25519PublicKey, Ed25519Signature
 
     async with aiohttp.ClientSession(
-        headers={"Authorization": "Bearer " + record["access_token"]}
+        headers={"Authorization": "Bearer " + access_token}
     ) as http:
         async with http.post(
             record["homeserver"] + "/_matrix/client/v3/keys/query",

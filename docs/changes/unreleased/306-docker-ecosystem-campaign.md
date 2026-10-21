@@ -15,3 +15,7 @@ private evidence for diagnosis.
 
 Sanitized profiles and a runbook describe repeatable setup, isolation, evidence
 retention, cleanup, and the native tiers that require further qualification.
+
+- Harden repeated lab qualification: bounded nested contract budgets, recoverable
+  LXMF fixture attempts, persistent initial-signing reset intent, and fresh OAuth
+  tokens for identity checks.

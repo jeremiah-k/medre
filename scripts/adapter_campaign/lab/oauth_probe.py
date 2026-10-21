@@ -14,7 +14,11 @@ import sys
 from pathlib import Path
 
 from browser import ApprovalBrowser
-from oauth_checks import concurrent_refresh, published_identity
+from oauth_checks import (
+    claim_initial_signing_reset,
+    concurrent_refresh,
+    published_identity,
+)
 
 ROOT = Path("/lab")
 
@@ -110,8 +114,12 @@ async def main(owner: str) -> None:
     async with ApprovalBrowser(owner, settings["password"]) as browser:
         # Explicit reset is authorized only for a fresh disposable identity.
         # Repeating a stage must preserve the keys established by earlier runs.
-        existing = list(profile.rglob("credentials.json"))
-        reset = owner == "mmrelay" and not existing
+        # One-time reset intent survives logout and even an interrupted reset.
+        # Do not use credentials as evidence of cryptographic identity: logout
+        # intentionally removes them while retaining signing keys and stores.
+        reset = owner == "mmrelay" and claim_initial_signing_reset(
+            profile, ROOT / "results" / "mmrelay-signing-reset-attempted"
+        )
         first = await cli(owner, browser, *(["--reset-cross-signing"] if reset else []))
         credentials = list(profile.rglob("credentials.json")) + list(
             profile.rglob("matrix.json")
@@ -120,7 +128,7 @@ async def main(owner: str) -> None:
         path, before = next(
             (path, row) for path, row in records if row.get("auth_type") == "oauth"
         )
-        master_before = await published_identity(before)
+        master_before = await published_identity(owner, path)
         repeated = await cli(owner, browser)
         after = json.loads(path.read_text())
         assert (
@@ -131,7 +139,7 @@ async def main(owner: str) -> None:
             "verified" in (first + repeated).lower()
             or "cross-sign" in (first + repeated).lower()
         )
-        master_after = await published_identity(after)
+        master_after = await published_identity(owner, path)
         assert (
             master_before == master_after
         ), "Routine login replaced the account master key"
