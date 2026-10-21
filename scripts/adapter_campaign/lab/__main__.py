@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from . import LabError
+from .budgets import NATIVE_STAGES
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,17 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=[
-            "all",
-            "native",
-            "contracts",
-            "provision",
-            "oauth",
-            "campaign",
-            "mmrelay",
-            "recovery",
-            "logs",
-        ],
+        choices=["all", "native", "contracts", *NATIVE_STAGES],
     )
     args = parser.parse_args(argv)
     os.umask(0o077)

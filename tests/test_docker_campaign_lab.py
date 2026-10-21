@@ -168,13 +168,241 @@ def test_docker_lab_contracts_and_oauth_requirements_are_present():
 
 
 def test_lab_stage_timeout_encloses_all_nested_stage_budgets():
-    from scripts.adapter_campaign.lab.budgets import stage_timeout
+    from scripts.adapter_campaign.lab.budgets import NATIVE_STAGES, stage_timeout
 
     for provider_count in (1, 9, 12):
         contracts = stage_timeout("contracts", provider_count)
         assert contracts > provider_count * 1800
-        assert stage_timeout("all", provider_count) > contracts + 6 * 2400
-        assert stage_timeout("native", provider_count) > 6 * 2400
+        assert (
+            stage_timeout("all", provider_count) > contracts + len(NATIVE_STAGES) * 2400
+        )
+        assert stage_timeout("native", provider_count) > len(NATIVE_STAGES) * 2400
         assert stage_timeout("all", provider_count) > stage_timeout(
             "native", provider_count
         )
+
+
+def recovery_logs(root: Path) -> Path:
+    from scripts.adapter_campaign.recovery import SCENARIOS, runtime_generations
+
+    (root / "logs").mkdir()
+    run = root / "results/resilience-123"
+    for scenario in SCENARIOS:
+        case = run / scenario
+        case.mkdir(parents=True)
+        for name in runtime_generations(scenario):
+            (case / (name + ".jsonl")).write_text("{}\n")
+            (case / (name + ".stdout")).write_text(
+                "2026-10-21T16:00:00+0000 [INFO] medre.runtime: started\n"
+            )
+            (case / (name + ".stderr")).write_text("")
+    return run
+
+
+def test_log_review_checks_recovery_generations_instead_of_wrapper_results(tmp_path):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "crash_after_handoff"
+    (case / "runtime-0.stdout").write_text(
+        "2026-10-21T16:00:00+0000 [INFO] medre.runtime: private-body\n"
+    )
+    (case / "runtime-1.stdout").write_text(
+        "2026-10-21T16:00:01+0000 [INFO] medre.runtime: resumed\nTask was destroyed but it is pending\n"
+    )
+    (case / "runtime-0.stderr").write_text("")
+    (case / "runtime-1.stderr").write_text("")
+    (case / "runtime-0.jsonl").write_text("{}\n")
+    (case / "runtime-1.jsonl").write_text("{}\n")
+    (tmp_path / "results/resilience-999.json").write_text('{"status":"passed"}')
+    with pytest.raises(RuntimeError, match="resource warnings"):
+        review(tmp_path)
+    report = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert len(report["logs"]) == 16
+    assert "private-body" not in json.dumps(report)
+
+
+def test_resilience_is_a_selectable_lab_stage(tmp_path, monkeypatch):
+    from scripts.adapter_campaign.lab.__main__ import main
+
+    calls = []
+    monkeypatch.setattr(control, "operate", calls.append)
+    assert main(["test", "--directory", str(tmp_path), "--stage", "resilience"]) == 0
+    assert calls[0].stage == "resilience"
+
+
+def test_log_review_checks_runtime_stderr_without_requiring_log_records(tmp_path):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "crash_before_handoff"
+    (case / "runtime-0.stdout").write_text(
+        "2026-10-21T16:00:00+0000 [INFO] medre.runtime: private-body\n"
+    )
+    (case / "runtime-0.stderr").write_text("Unclosed client session\n")
+    (case / "runtime-0.jsonl").write_text("{}\n")
+    with pytest.raises(RuntimeError, match="resource warnings"):
+        review(tmp_path)
+    results = json.loads((tmp_path / "results/log-review.json").read_text())
+    stderr_key = "results/resilience-123/crash_before_handoff/runtime-0.stderr"
+    assert results["logs"][stderr_key]["resource_warning_lines"] == [1]
+    assert "private-body" not in json.dumps(results)
+
+    for warning in (
+        "RuntimeWarning: coroutine was never awaited",
+        "Task exception was never retrieved",
+        "Future exception was never retrieved",
+        "ResourceWarning: unclosed file",
+    ):
+        (case / "runtime-0.stderr").write_text(warning + "\n")
+        with pytest.raises(RuntimeError, match="resource warnings"):
+            review(tmp_path)
+
+    (case / "runtime-0.stderr").write_text("SDK emitted non-log diagnostic\n")
+    review(tmp_path)
+    results = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert results["status"] == "passed"
+    assert results["logs"][stderr_key]["levels"] == {}
+
+
+@pytest.mark.parametrize("missing", ["stdout", "stderr"])
+def test_log_review_rejects_incomplete_runtime_stream_evidence(tmp_path, missing):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "crash_before_handoff"
+    (case / "runtime-0.jsonl").write_text("{}\n")
+    (case / ("runtime-0." + missing)).unlink()
+    suffix = "stderr" if missing == "stdout" else "stdout"
+    (case / ("runtime-0." + suffix)).write_text(
+        "2026-10-21T16:00:00+0000 [INFO] medre.runtime: stopped\n"
+    )
+    with pytest.raises(ValueError, match="incomplete"):
+        review(tmp_path)
+    result = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert result["status"] == "failed"
+    assert result["missing_streams"] == [
+        f"results/resilience-123/crash_before_handoff/runtime-0.{missing}"
+    ]
+
+
+async def test_native_recovery_configures_bounded_reconnection_retries(
+    tmp_path, monkeypatch
+):
+    from scripts.adapter_campaign import recovery_worker
+
+    runtime = tmp_path / "runtime.yaml"
+    runtime.write_text(
+        "adapters:\n  matrix:\n    source: {}\n  xmpp:\n    target:\n      host: localhost\n      port: 5222\n"
+    )
+    captured = {}
+
+    class Configured(Exception):
+        pass
+
+    def capture(data, paths):
+        captured.update(data)
+        raise Configured
+
+    monkeypatch.setattr(recovery_worker, "parse_runtime_config", capture)
+    with pytest.raises(Configured):
+        await recovery_worker.run(
+            {
+                "source": "source",
+                "target": "target",
+                "runtime_file": str(runtime),
+                "database": str(tmp_path / "medre.sqlite3"),
+                "directory": str(tmp_path),
+                "source_channel": "!room:example.test",
+                "target_channel": "room@rooms.example.test",
+            }
+        )
+    assert captured["routes"]["recovery_route"]["retry"] == {
+        "enabled": True,
+        "max_attempts": 3,
+        "backoff_base": 10,
+        "max_delay_seconds": 20,
+        "jitter": False,
+    }
+    assert captured["retry"]["enabled"] is True
+    assert captured["retry"]["max_attempts"] == 3
+
+
+async def test_log_review_reads_stderr_from_actual_owned_runtime(tmp_path):
+    from scripts.adapter_campaign.lab.log_review import review
+    from scripts.adapter_campaign.process import Peer
+
+    case = recovery_logs(tmp_path) / "crash_before_handoff"
+    child = (
+        "import json,sys\n"
+        "json.loads(sys.stdin.readline())\n"
+        "print('2026-10-21T16:00:00+0000 [INFO] medre: started', flush=True)\n"
+        "print('MRPEER ' + json.dumps({'kind':'ready','identity':'runtime'}), "
+        "flush=True)\n"
+        "print('Task exception was never retrieved', file=sys.stderr, flush=True)\n"
+        "for line in sys.stdin:\n"
+        "    if json.loads(line)['op'] == 'stop': break\n"
+    )
+    for suffix in ("jsonl", "stdout", "stderr"):
+        (case / ("runtime-0." + suffix)).unlink()
+    peer = Peer("runtime-0", case, 3)
+    try:
+        await peer.start({}, argv=[sys.executable, "-c", child])
+    finally:
+        await peer.stop()
+    with pytest.raises(RuntimeError, match="resource warnings"):
+        review(tmp_path)
+    result = json.loads((tmp_path / "results/log-review.json").read_text())
+    stderr_key = "results/resilience-123/crash_before_handoff/runtime-0.stderr"
+    assert result["logs"][stderr_key]["resource_warning_lines"] == [1]
+
+
+def test_log_review_requires_both_streams_for_each_recorded_generation(tmp_path):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "crash_after_handoff"
+    for suffix in ("stdout", "stderr"):
+        (case / ("runtime-1." + suffix)).unlink()
+    (case / "runtime-0.stdout").write_text(
+        "2026-10-21T16:00:00+0000 [INFO] medre: startup\n"
+    )
+    (case / "runtime-0.stderr").write_text("")
+    with pytest.raises(ValueError, match="incomplete"):
+        review(tmp_path)
+    result = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert result["missing_streams"] == [
+        "results/resilience-123/crash_after_handoff/runtime-1.stderr",
+        "results/resilience-123/crash_after_handoff/runtime-1.stdout",
+    ]
+
+
+@pytest.mark.parametrize("removed", ["generation", "scenario", "control"])
+def test_log_review_rejects_missing_generations_even_without_control_files(
+    tmp_path, removed
+):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "crash_after_handoff"
+    names = ("runtime-0", "runtime-1") if removed == "scenario" else ("runtime-1",)
+    suffixes = ("jsonl",) if removed == "control" else ("jsonl", "stdout", "stderr")
+    for name in names:
+        for suffix in suffixes:
+            (case / (name + "." + suffix)).unlink()
+    with pytest.raises(ValueError, match="incomplete"):
+        review(tmp_path)
+    result = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert result["status"] == "failed"
+    assert result["expected_generations"] == 8
+    assert result["missing_controls"] == [
+        "results/resilience-123/crash_after_handoff/" + name + ".jsonl"
+        for name in names
+    ]
+
+
+def test_log_review_rejects_unexpected_generation_evidence(tmp_path):
+    from scripts.adapter_campaign.lab.log_review import review
+
+    case = recovery_logs(tmp_path) / "transient_outage"
+    for suffix in ("jsonl", "stdout", "stderr"):
+        (case / ("runtime-99." + suffix)).write_text("")
+    with pytest.raises(ValueError, match="incomplete"):
+        review(tmp_path)
+    result = json.loads((tmp_path / "results/log-review.json").read_text())
+    assert len(result["unexpected_streams"]) == 3

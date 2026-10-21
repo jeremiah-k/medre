@@ -14,6 +14,9 @@ _STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}")
 _LEAKS = (
     "Unclosed client session",
     "Unclosed connector",
+    "Unclosed transport",
+    "ResourceWarning:",
+    "exception was never retrieved",
     "Task was destroyed but it is pending",
     "was never awaited",
 )
@@ -55,6 +58,63 @@ def review(root: Path) -> None:
     )
     if runs:
         files.append(runs[-1] / "runtime.log")
+    recovery = sorted(
+        (path for path in (root / "results").glob("resilience-*") if path.is_dir()),
+        key=lambda path: path.stat().st_mtime,
+    )
+    if recovery:
+        from ..recovery import SCENARIOS, runtime_generations
+
+        streams = sorted(
+            path
+            for path in recovery[-1].glob("*/runtime-*.*")
+            if path.suffix in {".stdout", ".stderr"} and path.is_file()
+        )
+        controls = {
+            path.with_suffix("")
+            for path in recovery[-1].glob("*/runtime-*.jsonl")
+            if path.is_file()
+        }
+        generations = {
+            recovery[-1] / scenario / name
+            for scenario in SCENARIOS
+            for name in runtime_generations(scenario)
+        }
+        missing_controls = sorted(
+            base.with_suffix(".jsonl").relative_to(root).as_posix()
+            for base in generations - controls
+        )
+        missing = sorted(
+            base.with_suffix(suffix).relative_to(root).as_posix()
+            for base in generations
+            for suffix in (".stdout", ".stderr")
+            if not base.with_suffix(suffix).is_file()
+        )
+        unexpected = sorted(
+            path.relative_to(root).as_posix()
+            for path in streams
+            if path.with_suffix("") not in generations & controls
+        )
+        unexpected.extend(
+            sorted(
+                base.with_suffix(".jsonl").relative_to(root).as_posix()
+                for base in controls - generations
+            )
+        )
+        if missing_controls or missing or unexpected:
+            write_json(
+                root / "results/log-review.json",
+                {
+                    "status": "failed",
+                    "logs": {},
+                    "expected_generations": len(generations),
+                    "missing_controls": missing_controls,
+                    "missing_streams": missing,
+                    "unexpected_streams": unexpected,
+                },
+            )
+            raise ValueError("Recovery runtime stdout/stderr evidence is incomplete")
+        files.extend(streams)
     if not files:
         raise ValueError("No runtime log evidence exists")
     results = {
@@ -62,10 +122,10 @@ def review(root: Path) -> None:
         for path in files
     }
     failed = any(
-        not row["levels"]
+        (not row["levels"] and not name.endswith(".stderr"))
         or row["records_without_timestamp"]
         or row["resource_warning_lines"]
-        for row in results.values()
+        for name, row in results.items()
     )
     write_json(
         root / "results/log-review.json",
