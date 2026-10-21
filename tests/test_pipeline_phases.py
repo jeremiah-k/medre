@@ -14,12 +14,19 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.contracts.plugins.stages import PluginStage
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+
+_BASE_PHASES = tuple(
+    phase
+    for phase in PipelinePhase
+    if phase.value not in {stage.value for stage in PluginStage}
+)
 
 # ===================================================================
 # Fixtures
@@ -58,12 +65,15 @@ class TestPipelinePhaseEnum:
     """Validate the PipelinePhase enum structure."""
 
     def test_phase_enum_matches_implementation(self) -> None:
-        """The PipelinePhase enum must have exactly these six values."""
+        """The PipelinePhase enum must have the base phases and the three canonical plugin stages."""
         expected = {
             "ingress",
             "dedup",
             "resolve_relations",
             "store",
+            "enrich",
+            "transform",
+            "event_policy",
             "route",
             "deliver",
         }
@@ -75,8 +85,8 @@ class TestPipelinePhaseEnum:
             f"  Missing:  {sorted(expected - actual)}\n"
             f"  Extra:    {sorted(actual - expected)}"
         )
-        assert len(list(PipelinePhase)) == 6, (
-            f"PipelinePhase should have exactly 6 members, "
+        assert len(list(PipelinePhase)) == 9, (
+            f"PipelinePhase should have exactly 9 members, "
             f"got {len(list(PipelinePhase))}"
         )
 
@@ -109,7 +119,9 @@ class TestPhaseVisitOrder:
             counts = snapshot["counts"]
 
             # Every phase must have been visited at least once.
-            for phase in PipelinePhase:
+            for stage in PluginStage:
+                assert counts[stage.value] == 0
+            for phase in _BASE_PHASES:
                 phase_key = phase.value
                 assert counts[phase_key] >= 1, (
                     f"Phase {phase_key!r} was not visited "
@@ -147,7 +159,7 @@ class TestPhaseVisitOrder:
 
             # Each phase should have been visited exactly once for a
             # single-event run.
-            for phase in PipelinePhase:
+            for phase in _BASE_PHASES:
                 assert counts[phase.value] == 1, (
                     f"Expected phase {phase.value!r} count=1, "
                     f"got {counts[phase.value]}"
@@ -208,8 +220,8 @@ class TestDedupPhaseSkipsRemainder:
             counts_after_first = snapshot1["counts"]
 
             # All phases should be visited for the first event.
-            for phase_name in counts_after_first:
-                assert counts_after_first[phase_name] >= 1
+            for phase in _BASE_PHASES:
+                assert counts_after_first[phase.value] >= 1
 
             # Second event with the SAME native_ref — should be deduped.
             event2 = CanonicalEvent(

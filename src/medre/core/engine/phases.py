@@ -16,7 +16,7 @@ from enum import StrEnum
 
 
 class PipelinePhase(StrEnum):
-    """The six implemented pipeline stages.
+    """Pipeline stages, including explicitly assembled canonical plugins.
 
     Members
     -------
@@ -28,6 +28,8 @@ class PipelinePhase(StrEnum):
         Cross-adapter relation resolution (native → canonical IDs).
     STORE:
         Persist the canonical event and inbound native ref.
+    ENRICH, TRANSFORM, EVENT_POLICY:
+        Ordered canonical plugin positions when an executor is assembled.
     ROUTE:
         Route matching and delivery plan creation.
     DELIVER:
@@ -38,5 +40,8 @@ class PipelinePhase(StrEnum):
     DEDUP = "dedup"
     RESOLVE_RELATIONS = "resolve_relations"
     STORE = "store"
+    ENRICH = "enrich"
+    TRANSFORM = "transform"
+    EVENT_POLICY = "event_policy"
     ROUTE = "route"
     DELIVER = "deliver"

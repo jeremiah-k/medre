@@ -323,6 +323,27 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     PRIMARY KEY(window_start, source, outcome)
 );
 
+CREATE TABLE IF NOT EXISTS plugin_execution_plans (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    scope TEXT NOT NULL,
+    plan_digest TEXT NOT NULL CHECK (length(plan_digest) = 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(event_id, scope)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_execution_records (
+    record_id TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    plugin_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK (stage IN ('enrich', 'transform', 'event_policy')),
+    scope TEXT NOT NULL,
+    attempt INTEGER NOT NULL CHECK (attempt >= 1),
+    record_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(source_event_id, plugin_id, instance_id, stage, scope, attempt)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -402,6 +423,10 @@ CREATE INDEX IF NOT EXISTS idx_observations_outbox
     ON delivery_observations(outbox_id, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
     ON durable_ingress_work(status, lease_until, created_at);
+-- Use a distinct name so existing databases receive the fair-order access path.
+CREATE INDEX IF NOT EXISTS idx_ingress_work_ready_order
+    ON durable_ingress_work(updated_at, created_at, event_id)
+    WHERE status NOT IN ('completed', 'failed');
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
 -- share the same (event_id, delivery_plan_id, target_adapter, attempt_number) tuple.
@@ -812,6 +837,65 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
                 r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
                 r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)"
             ),
+        ),
+    ),
+}
+
+
+# Additive plugin evidence is optional on a read-only legacy database. Once
+# present it must satisfy the same shape/authority checks as kernel tables.
+_PLUGIN_REQUIRED_COLUMNS = {
+    "plugin_execution_plans": frozenset(
+        {"event_id", "scope", "plan_digest", "created_at"}
+    ),
+    "plugin_execution_records": frozenset(
+        {
+            "record_id",
+            "source_event_id",
+            "plugin_id",
+            "instance_id",
+            "stage",
+            "scope",
+            "attempt",
+            "record_json",
+            "recorded_at",
+        }
+    ),
+}
+_PLUGIN_REQUIRED_FOREIGN_KEYS = {
+    "plugin_execution_plans": frozenset({("event_id", "canonical_events", "event_id")}),
+    "plugin_execution_records": frozenset(
+        {("source_event_id", "canonical_events", "event_id")}
+    ),
+}
+_PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS = {
+    "plugin_execution_plans": frozenset({("event_id", "scope")}),
+    "plugin_execution_records": frozenset(
+        {
+            ("record_id",),
+            (
+                "source_event_id",
+                "plugin_id",
+                "instance_id",
+                "stage",
+                "scope",
+                "attempt",
+            ),
+        }
+    ),
+}
+_PLUGIN_REQUIRED_CHECK_CONSTRAINTS = {
+    "plugin_execution_plans": (
+        (
+            "CHECK (length(plan_digest) = 64)",
+            r"CHECK\s*\(\s*length\s*\(\s*plan_digest\s*\)\s*=\s*64\s*\)",
+        ),
+    ),
+    "plugin_execution_records": (
+        ("CHECK (attempt >= 1)", r"CHECK\s*\(\s*attempt\s*>=\s*1\s*\)"),
+        (
+            "CHECK (stage IN ('enrich', 'transform', 'event_policy'))",
+            r"CHECK\s*\(\s*stage\s+IN\s*\(\s*'enrich'\s*,\s*'transform'\s*,\s*'event_policy'\s*\)\s*\)",
         ),
     ),
 }

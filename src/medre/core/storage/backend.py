@@ -11,12 +11,17 @@ satisfy, along with helper types used throughout the storage subsystem:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.contracts.plugins.records import (
+    PluginExecutionKey,
+    PluginExecutionRecord,
+    PluginStateSnapshot,
+)
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
@@ -164,6 +169,14 @@ class DuplicateEventError(StorageError):
     check with :meth:`~StorageBackend.get` before calling
     :meth:`~StorageBackend.append`, or catch this exception.
     """
+
+
+class PluginExecutionConflictError(StorageError):
+    """A stale state snapshot or incompatible plugin attempt cannot be committed."""
+
+
+class PluginStateConflictError(PluginExecutionConflictError):
+    """An uncommitted result used a stale state snapshot; re-evaluation may retry."""
 
 
 # ---------------------------------------------------------------------------
@@ -874,6 +887,38 @@ class StorageBackend(Protocol):
         """
         ...
 
+    # -- Host-owned plugin persistence --------------------------------------
+
+    async def bind_plugin_plan(
+        self, event_id: str, scope: str, plan_digest: str
+    ) -> None:
+        """Bind immutable recovery identity before any plugin invocation."""
+        ...
+
+    async def get_plugin_state(
+        self, plugin_id: str, instance_id: str, *, scope: str = "live"
+    ) -> PluginStateSnapshot:
+        """Read a bounded operational snapshot isolated by type, instance, and scope."""
+        ...
+
+    async def get_plugin_execution(
+        self, key: PluginExecutionKey
+    ) -> PluginExecutionRecord | None:
+        """Return the latest durable attempt; recovery reuses settled decisions."""
+        ...
+
+    async def commit_plugin_execution(
+        self, record: PluginExecutionRecord, *, state: Mapping[str, Any] | None = None
+    ) -> PluginExecutionRecord:
+        """Atomically record evidence, derive canonical events, and CAS scoped state.
+
+        Exact repeat commits return the stored record without applying state
+        twice. Stale snapshots raise PluginStateConflictError, a retryable
+        PluginExecutionConflictError subtype; incompatible invocation evidence
+        raises PluginExecutionConflictError. Plugins never receive this interface.
+        """
+        ...
+
     # -- Durable ingress -----------------------------------------------------
 
     async def admit_ingress(
@@ -946,6 +991,9 @@ class StorageBackend(Protocol):
         lease_seconds: float = 30.0,
     ) -> list[IngressWorkItem]:
         """Atomically claim pending or lease-expired ingress work.
+
+        Prioritize least-recently updated work, then creation time and event ID,
+        so released or deferred work rotates behind untouched pending rows.
 
         Authority: **claim** (atomic).
         """

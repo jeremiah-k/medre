@@ -13,9 +13,10 @@ See also: [principles.md](principles.md), [event-model.md](event-model.md),
 
 Events flow through a fixed sequence of stages. Each stage has a defined
 responsibility and produces traceable output. The runtime implements
-**six** top-level stages, defined by the `PipelinePhase` enum in
-`src/medre/core/engine/phases.py`: `INGRESS`, `DEDUP`,
-`RESOLVE_RELATIONS`, `STORE`, `ROUTE`, `DELIVER`. Ingress-time conversation
+**six** base stages: `INGRESS`, `DEDUP`, `RESOLVE_RELATIONS`, `STORE`,
+`ROUTE`, `DELIVER`. `PipelinePhase` in `src/medre/core/engine/phases.py` also
+defines `ENRICH`, `TRANSFORM`, and `EVENT_POLICY`, visited between storage and
+routing only when a plugin executor is explicitly configured. Ingress-time conversation
 identity assignment happens inside `RESOLVE_RELATIONS` execution (see §2), while
 current conversation ancestry is a separate rebuildable projection repaired after
 storage facts change and overlaid before routing/rendering. Neither operation is a
@@ -23,6 +24,8 @@ separate `PipelinePhase`.
 
 ```text
 [Adapters] --> ingress --> dedup --> resolve_relations --> store
+                                                  |
+                                     [enrich / transform / policy]
                                                   |
                                             route
                                                   |
@@ -72,22 +75,18 @@ The projection is required to be idempotent and arrival-order convergent. The sa
 set of immutable events, relation rows, and native refs must yield the same semantic
 membership whether parents arrive before or after children.
 
-### Future Extension Points
+### Canonical Plugin Stages
 
-The following stages are reserved for future implementation and have no current
-code path: **enrich**, **transform**, **event policy**.
+An explicitly assembled `PluginExecutor` runs **enrich**, **transform**, and
+**event policy** between storage and routing. The default runtime builder does
+not activate plugins; YAML and CLI activation are separate work.
 
-These stages are described below for planning purposes only. They MUST NOT be
-referenced as implemented behavior.
-
-| Reserved Stage   | Intended Responsibility                                                                      | Insertion Point                    |
-| ---------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- |
-| **Enrich**       | Attach supplementary data (identity resolution, geo lookups, radio metadata normalization).  | After **store**, before **route**  |
-| **Transform**    | Convert enriched events into target event kinds. Each transform declares input/output kinds. | After **enrich**, before **route** |
-| **Event Policy** | Rate limiting, content filtering, permission checks on transformed events.                   | After **transform**, before route  |
-
-When implemented, each extension stage MUST produce derived events with
-`parent_event_id` and lineage, and MUST NOT mutate the original stored event.
+The executor uses ordered configured instances, typed decisions, and durable
+recovery records. Children and replacements resume after the producing
+instance, including remaining instances of the same stage. Event history stays
+immutable. All required plugin work completes before routing any resulting
+branch; policy failures defer source work and policy denials remain distinct
+from zero route matches. See [plugins.md](plugins.md).
 
 ## 3. Data Flow Constraints
 
@@ -125,18 +124,19 @@ src/medre/
   config/         loader, model, env overrides, paths, sample generation
     adapters/     per-transport config dataclasses and credential helpers
     routes/       route configuration models
-  plugins/        scaffolding: Plugin protocol, PluginCapability enum
+  plugins/        declarative contracts, discovery, decision and state records
 ```
 
 ### 4.2 Import Rules
 
-| Layer                 | May Import From                                                       | Must Not Import From                |
-| --------------------- | --------------------------------------------------------------------- | ----------------------------------- |
-| `adapter_registry.py` | stdlib only; concrete modules are lazy symbol strings                 | concrete adapter/config SDK imports |
-| `core/`               | `core/` only                                                          | `adapters/`, `config/`, `runtime/`  |
-| `config/`             | `config/`, `medre.adapter_registry`                                   | `adapters/`, `runtime/`             |
-| `adapters/`           | `core.*`, `config.adapters.*`, `medre.adapter_registry`               | Other adapter packages, `runtime/`  |
-| `runtime/`            | `core.*`, `config.*`, `medre.adapter_registry`; adapter assembly refs | —                                   |
+| Layer                 | May Import From                                                                        | Must Not Import From                                |
+| --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `adapter_registry.py` | stdlib only; concrete modules are lazy symbol strings                                  | concrete adapter/config SDK imports                 |
+| `core/`               | `core/`; SDK-free `medre.registration` primitives                                      | `adapters/`, `config/`, `runtime/`, `medre.plugins` |
+| `config/`             | `config/`, `medre.adapter_registry`                                                    | `adapters/`, `runtime/`                             |
+| `adapters/`           | `core.*`, `config.adapters.*`, `medre.adapter_registry`                                | Other adapter packages, `runtime/`                  |
+| `runtime/`            | `core.*`, `config.*`, `medre.adapter_registry`, `medre.plugins`; adapter assembly refs | —                                                   |
+| `plugins/`            | `core.*`, SDK-free `medre.registration` primitives                                     | `adapters/`, `config/`, `runtime/`                  |
 
 ### 4.3 Key Invariants
 
@@ -301,3 +301,9 @@ re-raised afterwards so pipeline and storage cleanup always execute.
   skipped, but no error is raised. `shutdown_status="drain_timeout"` is a
   diagnostic classification emitted by `core/evidence/shutdown.py` and is
   orthogonal to the runtime terminal state.
+
+Plugin contract definitions live in `core/contracts/plugins/`; `medre.plugins`
+re-exports them for authors and owns declarative discovery. Core storage and
+execution import only the kernel contracts. Explicit assembly in
+`runtime/plugins.py` resolves configured models and implementations; core does
+not import discovery or resolve provider references.

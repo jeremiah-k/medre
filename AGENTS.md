@@ -53,8 +53,9 @@ deterministic hooks or `tests/helpers/async_utils.py::wait_until`.
 Recent history uses short imperative summaries, often with scoped prefixes such
 as `feat(adapters): ...` or `refactor(diagnostics): ...`. Keep commits focused.
 Runtime semantic changes require the relevant `docs/spec` page, schema updates
-in `docs/schemas`, tests, and a fragment under
-`docs/changes/unreleased/NNN-brief-description.md` in the same change. PRs
+in `docs/schemas`, tests, and one fragment per pull request under
+`docs/changes/unreleased/NNN-brief-description.md`, named with the PR number
+and covering the PR's combined behavioral change. PRs
 should describe behavior, list tests run, call out gated tests not run, and
 include CLI output when operator-facing behavior changes.
 

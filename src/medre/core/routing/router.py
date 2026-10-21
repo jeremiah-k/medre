@@ -16,6 +16,7 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.kinds import EventKind
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 
 
@@ -76,6 +77,13 @@ def _source_matches(source: RouteSource, event: RouteMatchableEvent) -> bool:
     * ``event_kinds`` – must contain ``event.event_kind`` if non-empty.
     * ``channel`` – must equal ``event.source_channel_id`` if not ``None``.
     """
+    # Observational plugin output is stored by default. Transport delivery
+    # requires an explicit source-kind selection, not a catch-all bridge.
+    if (
+        event.event_kind == EventKind.PLUGIN_CUSTOM
+        and EventKind.PLUGIN_CUSTOM not in source.event_kinds
+    ):
+        return False
     if source.adapter is not None and source.adapter != event.source_adapter:
         return False
     if source.event_kinds and event.event_kind not in source.event_kinds:
@@ -94,6 +102,19 @@ def _sources_overlap(a: RouteSource, b: RouteSource) -> bool:
     """
     # Adapter overlap
     if a.adapter is not None and b.adapter is not None and a.adapter != b.adapter:
+        return False
+    # Empty kind filters exclude observational plugin output.
+    if (
+        not a.event_kinds
+        and b.event_kinds
+        and set(b.event_kinds) == {EventKind.PLUGIN_CUSTOM}
+    ):
+        return False
+    if (
+        not b.event_kinds
+        and a.event_kinds
+        and set(a.event_kinds) == {EventKind.PLUGIN_CUSTOM}
+    ):
         return False
     # Event-kinds overlap
     if a.event_kinds and b.event_kinds:

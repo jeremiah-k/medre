@@ -112,6 +112,7 @@ def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -
                 "process_admitted_event",
                 "_repair_conversation_after_event_available",
             ): 1,
+            ("_process_with_plugins", "_repair_conversation_after_event_available"): 1,
             (
                 "_repair_conversation_after_native_ref",
                 "repair_after_native_ref_available",

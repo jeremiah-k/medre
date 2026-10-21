@@ -457,14 +457,14 @@ routes:
 
 Optional static allowlist policy. A policy denial produces a `status="suppressed"` receipt with `failure_kind="policy_suppressed"` — not retryable. All policy fields are config-file-only (not settable via environment variables).
 
-| Field                     | Type           | Default | Description                                         |
-| ------------------------- | -------------- | ------- | --------------------------------------------------- |
-| `allowed_event_types`     | list of string | `[]`    | Event kinds this route permits. Empty = all events. |
-| `allowed_source_adapters` | list of string | `[]`    | Source adapter names to permit. Empty = any.        |
-| `allowed_dest_adapters`   | list of string | `[]`    | Destination adapter names to permit. Empty = any.   |
-| `sender_allowlist`        | list of string | `[]`    | Permitted sender identities. Empty = any sender.    |
-| `room_allowlist`          | list of string | `[]`    | Permitted room identifiers. Empty = any room.       |
-| `channel_allowlist`       | list of string | `[]`    | Permitted channel identifiers. Empty = any channel. |
+| Field                     | Type           | Default | Description                                                                                                                      |
+| ------------------------- | -------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed_event_types`     | list of string | `[]`    | Event kinds this route permits. Empty = all except `plugin.custom`; include that kind explicitly to deliver plugin observations. |
+| `allowed_source_adapters` | list of string | `[]`    | Source adapter names to permit. Empty = any.                                                                                     |
+| `allowed_dest_adapters`   | list of string | `[]`    | Destination adapter names to permit. Empty = any.                                                                                |
+| `sender_allowlist`        | list of string | `[]`    | Permitted sender identities. Empty = any sender.                                                                                 |
+| `room_allowlist`          | list of string | `[]`    | Permitted room identifiers. Empty = any room.                                                                                    |
+| `channel_allowlist`       | list of string | `[]`    | Permitted channel identifiers. Empty = any channel.                                                                              |
 
 Unknown keys are rejected at config load time. Allowlist values must be arrays
 of strings. Use `[]` for an explicitly unrestricted field; `null` is rejected.

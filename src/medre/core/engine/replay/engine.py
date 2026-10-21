@@ -206,6 +206,9 @@ class ReplayEngine(
             Outcome for each stage of each matching event.
         """
         stages = _resolve_stages(request)
+        validate_stages = getattr(type(self._pipeline), "validate_replay_stages", None)
+        if callable(validate_stages):
+            validate_stages(self._pipeline, stages)
 
         if request.correlation_ids is not None:
             async for event_id, event in self._iter_by_ids(request):

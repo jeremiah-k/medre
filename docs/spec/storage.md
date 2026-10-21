@@ -15,8 +15,8 @@ This document specifies the MEDRE storage layer. The current SQLite backend pers
 projection and its `conversation_projection_state`, `native_message_refs`,
 `delivery_receipts`, `delivery_outbox`,
 `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
-`attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
-`plugin_state` table,
+`attachment_blobs` and `event_attachment_associations` tables,
+`plugin_state`, `plugin_execution_plans`, and `plugin_execution_records` tables,
 and schema metadata.
 
 The following tables are **planned — not implemented; tracked for
@@ -29,7 +29,6 @@ post-prerelease**:
 | `actor_identity_links` | Persist links between canonical actors and their native identities.                                                              |
 | `actor_permissions`    | Persist per-actor capability grants for downstream authorization checks.                                                         |
 | `native_archive`       | Optional per-adapter raw-data archive (compressed BLOB) for post-hoc inspection — never embedded in events.                      |
-| `plugin_state`         | Schema-reserved key-value store for the future plugin subsystem.                                                                 |
 
 Do not assume any of these tables exist at runtime. Their DDL shapes are
 documented for planning only.
@@ -842,7 +841,9 @@ The current delivery status is a projection, but immutable append order is not b
 
 The grouping key is `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required because plan IDs are not globally unique across events. `COALESCE(target_channel, '')` treats `NULL` and empty-string channels as the same target within one event.
 
-### 4.6 plugin_state (schema-reserved; plugin subsystem planned — not implemented; tracked for post-prerelease)
+### 4.6 Plugin Persistence
+
+#### 4.6.1 plugin_state
 
 ```sql
 CREATE TABLE plugin_state (
@@ -854,10 +855,76 @@ CREATE TABLE plugin_state (
 );
 ```
 
-Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
+The host stores one bounded JSON snapshot per `(plugin_id, instance_id,
+scope)`. `key` is the canonical JSON tuple `[instance_id, scope]`;
+`value` is an object with `schema_version: 1`, `revision`, and `values`.
+The namespace key is stable across value-format versions; unsupported value
+versions fail closed rather than becoming an empty snapshot. The revision starts at
+0 for absent state and increments only when a successful execution commits an
+explicit buffered state snapshot. Read-only decisions and failed attempts MUST
+NOT create or advance a plugin-state envelope. State is operational data, not
+execution evidence; attempt sequencing is maintained separately by the
+append-only execution records.
 
-> **Status:** Planned — not implemented; tracked for post-prerelease. The DDL
-> row is reserved today; no plugin subsystem reads or writes through it.
+`get_plugin_state` returns an immutable snapshot. State writes occur only
+through `commit_plugin_execution`, which compares the input revision and
+verifies the proposed state's digest against the immutable record. There is
+no public unscoped KV writer. Failed invocations MUST NOT update state values
+or revisions.
+
+#### 4.6.2 plugin_execution_plans
+
+```sql
+CREATE TABLE plugin_execution_plans (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    scope TEXT NOT NULL,
+    plan_digest TEXT NOT NULL CHECK (length(plan_digest) = 64),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(event_id, scope)
+);
+```
+
+This append-only binding freezes the effective execution plan before plugin
+invocation, including an empty plan. `bind_plugin_plan` is idempotent for an
+identical digest and rejects changed semantics. It is additive under schema
+version 1; read-only inspection accepts its absence. Existing execution records
+also constrain a binding when upgrading a persistence-only database.
+
+#### 4.6.3 plugin_execution_records
+
+```sql
+CREATE TABLE plugin_execution_records (
+    record_id TEXT PRIMARY KEY,
+    source_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    plugin_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK (stage IN ('enrich', 'transform', 'event_policy')),
+    scope TEXT NOT NULL,
+    attempt INTEGER NOT NULL CHECK (attempt >= 1),
+    record_json TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    UNIQUE(source_event_id, plugin_id, instance_id, stage, scope, attempt)
+);
+```
+
+This append-only table stores the closed
+[plugin execution record](../schemas/plugin-execution-record.schema.json).
+`get_plugin_execution` returns the latest attempt for a logical execution key.
+The host commits records, generated canonical events, inline relations, and
+state revisions in one transaction. Exact duplicate commits are idempotent;
+conflicting evidence, stale state, and changed recovery plans fail closed.
+No update or delete interface exists for execution records.
+
+This table is additive on a schema-version-1 database; creating it does not
+rewrite existing events, receipts, or state. Writable startup creates the table.
+Read-only inspection accepts its absence on a database predating plugin
+persistence and MUST NOT create it. An existing table with missing columns,
+foreign keys, unique identities, or checks is rejected, never rebuilt.
+
+These are host persistence interfaces. Explicit programmatic execution uses
+them before ordinary routing; runtime YAML and CLI activation remain separate. See
+[plugins.md](plugins.md) §9 for retry, replay, forward-cursor, and cancellation
+semantics.
 
 ### 4.7 \_medre_schema_meta
 
@@ -1113,6 +1180,9 @@ as the canonical event and inbound native ref. Cold-history admission creates
 claimed by the worker. A worker atomically claims `pending` rows, or `processing`
 rows whose lease expired, and increments `attempts`. While processing is active, the
 worker renews its lease so a long-running route cannot be reclaimed concurrently.
+Claim priority is least-recently updated work, with creation time and event ID
+as deterministic tie-breakers. Returning a row to pending updates its position,
+so an operational deferral cannot monopolize claims ahead of untouched work.
 Processing failure returns the row to `pending` until the bounded retry budget is
 exhausted; poison work then moves to terminal `failed`. Successful routing/planning
 marks it `completed`. Ownership-guarded transitions report whether the lease was
@@ -1251,6 +1321,13 @@ All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, 
 - Non-`UNIQUE` indexes affect query performance, not correctness. A database that lacks one **SHALL** return the same results, just more slowly.
 - A `UNIQUE` expression/partial index MAY provide redundant integrity hardening for an invariant whose production write path is already race-safe. Runtime correctness **MUST NOT** depend on that index being the concurrency primitive; for example, named replay admission is serialized by `BEGIN IMMEDIATE` and the unique replay-run index is defense in depth.
 - Adding or changing an index **MUST NOT** bump `_EXPECTED_SCHEMA_VERSION`.
+  A changed access path MUST use a distinct index name or explicitly replace
+  the existing index; `IF NOT EXISTS` does not update its definition.
+- Durable ingress claims use the active-work partial index ordered by
+  `updated_at, created_at, event_id`. The predicate excludes terminal
+  `completed` and `failed` states; pending work and expired processing leases
+  remain eligible. Claims MUST preserve the same eligibility and order when
+  the non-unique index is absent.
 - SQLite autoindexes from table-level `UNIQUE` constraints **MUST NOT** be duplicated with manual `CREATE INDEX`.
 
 ## 5. Append-Only Guarantees
@@ -1813,7 +1890,7 @@ class StorageConfig:
 | Schema validation        | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                                                                                                                                                                                                                                                                                                                                                                           |
 | Durable admission        | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                                                                                                                                                                                                                                                                                                                                                                       |
 | Checkpoint safety        | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                                                                                                                                                                                                                                                                                                                                                                              |
-| Single database          | There **MUST NOT** be per-adapter MEDRE canonical storage databases; SDK-private protocol stores are separate.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Single database          | There **MUST NOT** be per-adapter MEDRE canonical storage databases; SDK-private protocol stores are separate.                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## 16. Storage Ownership Semantics
 
@@ -1821,20 +1898,22 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 ### 16.1 Ownership Summary
 
-| Table / category                | Creator                                                                                          | Mutator                                                           | Deleter                                       | Retention                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
-| `canonical_events`              | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment)               | None (append-only)                                                | None                                          | Forever                          |
-| `event_relations`               | `append()` (inline), `store_relation()` (post-hoc)                                               | None (append-only)                                                | None                                          | Forever                          |
-| `conversation_membership`       | `ConversationProjectionService` from immutable event/relation/native-ref facts                   | `ConversationProjectionService` (derived idempotent repair)       | None; rebuilt in place                        | Rebuildable current projection   |
-| `conversation_projection_state` | `ConversationProjectionService` during startup                                                   | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker     |
-| `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                                         | None (idempotent insert)                                          | None                                          | Forever                          |
-| `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                              | None (append-only)                                                | None                                          | Forever                          |
-| `delivery_observations`         | Core runtime from adapter-reported post-handoff transport facts                                  | None (append-only)                                                | None                                          | Forever                          |
-| `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                                   | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
-| `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                                    | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
-| `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                                   | Cursor-owning adapters                                            | None                                          | Forever                          |
-| `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
-| `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                                     | `initialize()` (version row)                                      | None                                          | Forever                          |
+| Table / category                | Creator                                                                            | Mutator                                                           | Deleter                                       | Retention                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
+| `canonical_events`              | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                                | None                                          | Forever                                                               |
+| `event_relations`               | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                                | None                                          | Forever                                                               |
+| `conversation_membership`       | `ConversationProjectionService` from immutable event/relation/native-ref facts     | `ConversationProjectionService` (derived idempotent repair)       | None; rebuilt in place                        | Rebuildable current projection                                        |
+| `conversation_projection_state` | `ConversationProjectionService` during startup                                     | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker                                          |
+| `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                          | None                                          | Forever                                                               |
+| `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                                | None                                          | Forever                                                               |
+| `delivery_observations`         | Core runtime from adapter-reported post-handoff transport facts                    | None (append-only)                                                | None                                          | Forever                                                               |
+| `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                                                               |
+| `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                                                               |
+| `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                            | None                                          | Forever                                                               |
+| `plugin_execution_plans`        | Plugin execution host                                                              | None                                                              | None                                          | Append-only recovery-plan binding                                     |
+| `plugin_execution_records`      | Plugin execution host                                                              | None                                                              | None                                          | Append-only decision evidence                                         |
+| `plugin_state`                  | Plugin execution host via atomic commit                                            | Plugin execution host via atomic commit                           | None                                          | Mutable operational instance snapshot; execution evidence is separate |
+| `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                      | None                                          | Forever                                                               |
 
 ### 16.2 Ownership Rules
 

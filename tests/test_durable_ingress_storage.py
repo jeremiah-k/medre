@@ -549,3 +549,28 @@ async def test_single_driver_wraps_checkpoint_and_claim_errors(tmp_path: Path) -
             await claim_storage.claim_ingress_work(worker_id="worker", limit=1)
     finally:
         await claim_storage.close()
+
+
+async def test_deferred_work_rotates_behind_untouched_pending_rows(
+    temp_storage,
+) -> None:
+    for event_id in ("first", "second"):
+        await temp_storage.admit_ingress(
+            _event(event_id, "$" + event_id), _ref(event_id, "$" + event_id), "live"
+        )
+    await temp_storage._write(
+        "UPDATE durable_ingress_work SET updated_at='2000-01-01', created_at='2000-01-01' WHERE event_id='first'"
+    )
+    await temp_storage._write(
+        "UPDATE durable_ingress_work SET updated_at='2000-01-02', created_at='2000-01-02' WHERE event_id='second'"
+    )
+    (first,) = await temp_storage.claim_ingress_work(worker_id="worker", limit=1)
+    assert first.event_id == "first"
+    assert await temp_storage.defer_ingress_work(
+        "first", worker_id="worker", error="waiting for capacity"
+    )
+    (second,) = await temp_storage.claim_ingress_work(worker_id="worker", limit=1)
+    assert second.event_id == "second"
+    assert await temp_storage.complete_ingress_work("second", worker_id="worker")
+    (retried,) = await temp_storage.claim_ingress_work(worker_id="worker", limit=1)
+    assert retried.event_id == "first" and retried.attempts == 1

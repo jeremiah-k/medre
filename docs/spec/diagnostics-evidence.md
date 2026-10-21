@@ -459,7 +459,7 @@ All exceptions MUST be converted to `str()` before inclusion. All complex object
 
 ### 9.4 Sanitization Enforcement
 
-Error strings in the snapshot are passed through `_sanitize_error()` which truncates at 512 characters and strips secret patterns (tokens, API keys, passwords). Adapter configs are never introspected. Sanitization applies uniformly across all snapshot and evidence output paths.
+Error strings in the snapshot are passed through `_sanitize_error()` which truncates at 512 characters and strips secret patterns (tokens, API keys, passwords). Adapter configs are never introspected. Sanitization applies uniformly across all snapshot and evidence output paths. The truncation marker counts toward the 512-character limit. Sanitization MUST be idempotent so persisted error evidence survives validation and recovery without changing its serialized value.
 
 ## 10. Evidence Boundaries
 

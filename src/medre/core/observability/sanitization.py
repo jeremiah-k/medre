@@ -141,13 +141,7 @@ BROAD_SECRET_TOKENS: frozenset[str] = frozenset(
 _SAFE_SCALAR = (bool, int, float, str, type(None))
 
 _MAX_ERROR_DETAIL_LEN: int = 512
-"""Nominal truncation limit for error strings inside snapshots.
-
-Output may exceed this value by up to the length of the truncation
-marker (``"..."``, 3 characters) when marker preservation is triggered
-for strings that were originally longer than this limit but shrank
-below it after redaction.
-"""
+"""Maximum error-detail length, including any truncation marker."""
 
 
 def _is_secret_key(key: str) -> bool:
@@ -217,18 +211,24 @@ def sanitize_error(error: str) -> str:
     Strips likely token/secret patterns and SDK object repr strings,
     then truncates to :data:`_MAX_ERROR_DETAIL_LEN`.  When the
     original string exceeded the limit but redaction reduced the
-    result below it, a ``"..."`` marker is appended so callers can
-    detect truncation.  This marker may cause the output to exceed
-    :data:`_MAX_ERROR_DETAIL_LEN` by up to 3 characters.
+    result below it, a ``"..."`` marker is appended within the same cap.
+    Sanitized output is a fixed point, including near-cap redactions, so
+    durable evidence can be decoded without changing its stored text.
     """
+
+    def redact(text: str) -> str:
+        return _SDK_RE.sub("[OBJECT_REPR]", _TOKEN_RE.sub(REDACTED_TOKEN, text))
+
     needs_truncation = len(error) > _MAX_ERROR_DETAIL_LEN
-    sanitized = _TOKEN_RE.sub(REDACTED_TOKEN, error)
-    sanitized = _SDK_RE.sub("[OBJECT_REPR]", sanitized)
-    if len(sanitized) > _MAX_ERROR_DETAIL_LEN:
-        sanitized = sanitized[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
-    elif needs_truncation:
-        # Sanitization reduced length (e.g. full redaction of a long
-        # token-like string).  Preserve the truncation marker so callers
-        # can detect that the original was truncated.
-        sanitized = sanitized + "..."
-    return sanitized
+    sanitized = redact(error)
+    while True:
+        candidate = sanitized
+        if needs_truncation or len(candidate) > _MAX_ERROR_DETAIL_LEN:
+            candidate = candidate[: _MAX_ERROR_DETAIL_LEN - 3] + "..."
+        # The marker can complete an otherwise empty secret assignment.
+        # Redaction can also grow short matches; repeat until both rules hold.
+        candidate = redact(candidate)
+        if candidate == sanitized:
+            return candidate
+        sanitized = candidate
+        needs_truncation = False

@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/plugin-execution-record.schema.json",
+  "title": "Plugin Execution Record",
+  "description": "Host-owned durable decision evidence. Deterministic IDs, matching proposal counts, finite payload depth and byte budgets are checked by the source contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "source_event_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "plugin_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "instance_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "stage": {
+      "enum": ["enrich", "transform", "event_policy"]
+    },
+    "scope": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^(live|replay:\\S(?:.*\\S)?)$"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "plugin_version": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "config_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Digest of the ordered effective plan bound before invocation, including an empty plan."
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state_digest": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      ]
+    },
+    "decision": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/pass"
+        },
+        {
+          "$ref": "#/$defs/derive"
+        },
+        {
+          "$ref": "#/$defs/supersede"
+        },
+        {
+          "$ref": "#/$defs/allow"
+        },
+        {
+          "$ref": "#/$defs/deny"
+        }
+      ]
+    },
+    "failure": {
+      "description": "Classified invocation outcome, not an ingress-work status. Required settled failures and exhausted retries consume the bounded processing-failure budget; only operational pauses defer without spending it.",
+      "enum": [
+        null,
+        "transient",
+        "timeout",
+        "contract_violation",
+        "capability_violation",
+        "quarantined"
+      ]
+    },
+    "failure_reason": {
+      "type": "string"
+    },
+    "produced_event_ids": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_event_id",
+    "plugin_id",
+    "instance_id",
+    "stage",
+    "scope",
+    "attempt",
+    "plugin_version",
+    "config_digest",
+    "plan_digest",
+    "recorded_at",
+    "state_revision",
+    "state_digest",
+    "decision",
+    "failure",
+    "failure_reason",
+    "produced_event_ids"
+  ],
+  "$defs": {
+    "proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identity.updated",
+            "message.created",
+            "message.deleted",
+            "message.edited",
+            "message.file",
+            "message.reacted",
+            "message.text",
+            "plugin.custom",
+            "presence.changed",
+            "telemetry.position",
+            "telemetry.received"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["kind", "schema_version", "payload"]
+    },
+    "pass": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pass"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "note"]
+    },
+    "allow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "allow"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": ["kind", "note"]
+    },
+    "deny": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "deny"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      },
+      "required": ["kind", "reason"]
+    },
+    "derive": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "derive"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/proposal"
+          },
+          "minItems": 1,
+          "maxItems": 32
+        }
+      },
+      "required": ["kind", "events"]
+    },
+    "supersede": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "supersede"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/proposal"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        }
+      },
+      "required": ["kind", "events"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "enrich"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/pass"
+              },
+              {
+                "$ref": "#/$defs/derive"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "transform"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/pass"
+              },
+              {
+                "$ref": "#/$defs/derive"
+              },
+              {
+                "$ref": "#/$defs/supersede"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "event_policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/allow"
+              },
+              {
+                "$ref": "#/$defs/deny"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "failure": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "not": {
+              "type": "null"
+            }
+          },
+          "failure_reason": {
+            "const": ""
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "failure_reason": {
+            "pattern": "\\S"
+          },
+          "state_digest": {
+            "type": "null"
+          }
+        },
+        "anyOf": [
+          {
+            "properties": {
+              "decision": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "stage": {
+                "const": "enrich"
+              },
+              "decision": {
+                "$ref": "#/$defs/pass"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

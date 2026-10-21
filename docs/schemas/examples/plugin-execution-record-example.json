@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "source_event_id": "evt-1",
+  "plugin_id": "text_stats",
+  "instance_id": "one",
+  "stage": "enrich",
+  "scope": "live",
+  "attempt": 1,
+  "plugin_version": "1.0.0",
+  "config_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "recorded_at": "2026-01-01T00:00:00+00:00",
+  "state_revision": 0,
+  "state_digest": null,
+  "decision": {
+    "kind": "pass",
+    "note": ""
+  },
+  "failure": null,
+  "failure_reason": "",
+  "produced_event_ids": []
+}

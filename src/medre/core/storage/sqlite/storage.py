@@ -57,6 +57,7 @@ from medre.core.storage.sqlite._ingress import _IngressMixin
 from medre.core.storage.sqlite._native_ref import _NativeRefMixin
 from medre.core.storage.sqlite._observation import _ObservationMixin
 from medre.core.storage.sqlite._outbox import _OutboxMixin
+from medre.core.storage.sqlite._plugins import _PluginsMixin
 from medre.core.storage.sqlite._pressure import (  # noqa: F401  -- public re-export surface
     PRESSURE_WINDOW_SECONDS,
     _PressureMixin,
@@ -78,6 +79,10 @@ from medre.core.storage.sqlite.connection import (
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
+    _PLUGIN_REQUIRED_CHECK_CONSTRAINTS,
+    _PLUGIN_REQUIRED_COLUMNS,
+    _PLUGIN_REQUIRED_FOREIGN_KEYS,
+    _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS,
     _REQUIRED_CHECK_CONSTRAINTS,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
@@ -266,6 +271,7 @@ class _SQLiteStorageBase:
             await self._validate_schema_foreign_keys()
             await self._validate_schema_unique_constraints()
             await self._validate_schema_checks()
+            await self._validate_plugin_storage_schema()
 
             # Create targeted indexes AFTER shape validation so that old-shape
             # databases fail with a clear StorageInitializationError before
@@ -321,7 +327,9 @@ class _SQLiteStorageBase:
                 f"match the database version."
             )
 
-    async def _validate_schema_shape(self) -> None:
+    async def _validate_schema_shape(
+        self, required_columns: dict[str, frozenset[str]] | None = None
+    ) -> None:
         """Verify that every required table has all expected columns.
 
         This catches old pre-release databases whose ``schema_version`` still
@@ -336,7 +344,9 @@ class _SQLiteStorageBase:
             If any required table or column is missing.  No automatic schema
             transformation is performed; the operator must recreate the DB.
         """
-        for table, required in _REQUIRED_COLUMNS.items():
+        for table, required in (
+            _REQUIRED_COLUMNS if required_columns is None else required_columns
+        ).items():
             rows = await self._read_all(f"PRAGMA table_info({table})")
             existing = {row["name"] for row in rows}
             missing = required - existing
@@ -347,9 +357,16 @@ class _SQLiteStorageBase:
                     missing_columns=sorted(missing),
                 )
 
-    async def _validate_schema_foreign_keys(self) -> None:
+    async def _validate_schema_foreign_keys(
+        self,
+        required_foreign_keys: dict[str, frozenset[tuple[str, str, str]]] | None = None,
+    ) -> None:
         """Reject pre-release tables that lack required foreign-key mappings."""
-        for table, required in _REQUIRED_FOREIGN_KEYS.items():
+        for table, required in (
+            _REQUIRED_FOREIGN_KEYS
+            if required_foreign_keys is None
+            else required_foreign_keys
+        ).items():
             rows = await self._read_all(f"PRAGMA foreign_key_list({table})")
             existing = {
                 (str(row["from"]), str(row["table"]), str(row["to"])) for row in rows
@@ -366,9 +383,15 @@ class _SQLiteStorageBase:
                     missing_constraints=formatted,
                 )
 
-    async def _validate_schema_unique_constraints(self) -> None:
+    async def _validate_schema_unique_constraints(
+        self, required_constraints: dict[str, frozenset[tuple[str, ...]]] | None = None
+    ) -> None:
         """Reject pre-release tables whose logical UNIQUE keys are stale."""
-        for table, required in _REQUIRED_UNIQUE_CONSTRAINTS.items():
+        for table, required in (
+            _REQUIRED_UNIQUE_CONSTRAINTS
+            if required_constraints is None
+            else required_constraints
+        ).items():
             indexes = await self._read_all(
                 'SELECT name, "unique" FROM pragma_index_list(?)',
                 (table,),
@@ -393,9 +416,13 @@ class _SQLiteStorageBase:
                     missing_constraints=formatted,
                 )
 
-    async def _validate_schema_checks(self) -> None:
+    async def _validate_schema_checks(
+        self, required_checks: dict[str, tuple[tuple[str, str], ...]] | None = None
+    ) -> None:
         """Reject pre-release tables that omit required CHECK constraints."""
-        for table, required in _REQUIRED_CHECK_CONSTRAINTS.items():
+        for table, required in (
+            _REQUIRED_CHECK_CONSTRAINTS if required_checks is None else required_checks
+        ).items():
             row = await self._read_one(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
                 (table,),
@@ -416,6 +443,42 @@ class _SQLiteStorageBase:
                     table=table,
                     missing_constraints=missing,
                 )
+
+    async def _validate_plugin_storage_schema(self) -> None:
+        # Read-only inspection accepts databases predating this additive table.
+        # Writable initialization creates it; existing partial shapes fail closed.
+        rows = await self._read_all(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('plugin_execution_records', 'plugin_execution_plans')"
+        )
+        present = {row["name"] for row in rows}
+        await self._validate_schema_shape(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_COLUMNS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_foreign_keys(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_FOREIGN_KEYS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_unique_constraints(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_UNIQUE_CONSTRAINTS.items()
+                if table in present
+            }
+        )
+        await self._validate_schema_checks(
+            {
+                table: value
+                for table, value in _PLUGIN_REQUIRED_CHECK_CONSTRAINTS.items()
+                if table in present
+            }
+        )
 
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.
@@ -458,6 +521,7 @@ class _SQLiteStorageBase:
             await instance._validate_schema_foreign_keys()
             await instance._validate_schema_unique_constraints()
             await instance._validate_schema_checks()
+            await instance._validate_plugin_storage_schema()
         except BaseException:
             try:
                 await instance.close()
@@ -665,6 +729,7 @@ class _SQLiteStorageBase:
 class SQLiteStorage(
     _EventMixin,
     _IngressMixin,
+    _PluginsMixin,
     _AttachmentsMixin,
     _NativeRefMixin,
     _RelationMixin,

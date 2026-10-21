@@ -55,6 +55,7 @@ class TestCoreSpecFiles:
     REQUIRED_FILES = [
         "event-model.md",
         "adapter-runtime.md",
+        "plugins.md",
         "routing-delivery.md",
         "storage.md",
         "diagnostics-evidence.md",

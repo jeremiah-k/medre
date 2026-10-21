@@ -177,24 +177,29 @@ event bus directly.
 
 ## 5. Plugin Security Boundaries
 
-The plugin surface is deliberately minimal scaffolding
-(`src/medre/plugins/__init__.py`): a `Plugin` protocol, a
-`PluginCapability` declaration vocabulary, a `PluginBoundaryError`, and the
-`validate_plugin_payload` validator that rejects any plugin output which is
-not a `CanonicalEvent`. Plugins observe and emit canonical events only; they
-do not emit transport-native payloads.
+The plugin contract (`src/medre/plugins/`, specified in
+[plugins.md](plugins.md)) defines the capability declaration vocabulary, the
+declarative `PluginSpec` type registry with entry-point discovery and
+quarantine, configured instances with operator capability grants, and typed
+stage decisions. Host-side decision validation separates observation,
+derivation, and suppression authority. Host-owned storage atomically commits
+execution evidence, derived events, and scoped state; this does not activate
+plugins without explicit assembly. Plugins observe canonical events, propose derived events
+through host admission, and evaluate scoped policy; they do not emit
+transport-native payloads and do not construct canonical events themselves.
+Declared capabilities are requests, not authorization: the runtime grants
+only the intersection of declared, operator-granted, and host-supported
+capabilities. Plugins are trusted in-process code; capability gating is an
+API-level restriction, not a security sandbox.
 
-The following boundary machinery does **not** exist yet and MUST NOT be
-assumed by plugin authors or operators:
-
-- No plugin loader or discovery mechanism.
-- No runtime capability-grant enforcement beyond the declaration vocabulary.
-- No route-permission enforcement for plugin-emitted events.
-- No per-plugin rate limits.
-- No plugin-specific audit logging.
-
-Until that machinery exists, plugin integration is a protocol contract for
-future components, not an executed security boundary.
+Explicitly assembled execution enforces implemented grants, stage outcomes,
+stage-neutral subscription and emission kind limits, bounded expansion,
+per-instance serialization, and durable
+decision recovery. Derived events use ordinary compiled routes and delivery
+authority. Route/identity/storage/telemetry context services remain reserved and
+cannot be granted; runtime YAML/CLI activation and plugin-specific operator
+diagnostics remain separate work. Trusted Python plugins can still block the
+event loop or cause external effects; deadline cancellation is cooperative.
 
 ## 6. Encryption Model
 
