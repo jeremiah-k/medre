@@ -196,6 +196,13 @@ async def lxmf(settings: dict) -> None:
                 raise RuntimeError("LXMF peer native delivery failed")
             return message.hash.hex()
 
+        async def synchronize():
+            await resolve_target()
+            # Startup health establishes the bridge connection, not receipt of
+            # our periodic announce. Publish the peer's name on that connection
+            # before sending the first measured message.
+            router.announce(destination.hash)
+
         async with asyncio.TaskGroup() as tasks:
             announcer = tasks.create_task(announce())
             emit(
@@ -220,7 +227,7 @@ async def lxmf(settings: dict) -> None:
                     for interface in interfaces
                 ],
             )
-            await commands(send, synchronize=resolve_target)
+            await commands(send, synchronize=synchronize)
             announcer.cancel()
     finally:
         RNS.Reticulum.exit_handler()

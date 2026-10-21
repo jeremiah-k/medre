@@ -127,7 +127,9 @@ Expected senders and channels come from independently provisioned identities and
 group membership, not from the outbox under examination. In Chatmail, the secure
 group's key-contact ID can differ from an email address contact's ID. Rendering
 expectations are fixture-authored, including the compact LXMF sender label on
-Meshtastic and the Matrix display-name abbreviation.
+Meshtastic and the Matrix display-name abbreviation. Peer synchronization
+publishes LXMF identity announcements after the bridge becomes reachable, before
+measured sends; periodic announces do not establish this presentation precondition.
 
 ## Read the evidence
 

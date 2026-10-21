@@ -19,3 +19,7 @@ retention, cleanup, and the native tiers that require further qualification.
 - Harden repeated lab qualification: bounded nested contract budgets, recoverable
   LXMF fixture attempts, persistent initial-signing reset intent, and fresh OAuth
   tokens for identity checks.
+
+LXMF peer synchronization publishes its display-name announce after the bridge
+becomes reachable, so fast service-only startup does not depend on a periodic
+announce or hardware startup delays before presentation checks.
