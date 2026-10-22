@@ -10,7 +10,8 @@ from scripts.adapter_campaign.fidelity import run
 from scripts.adapter_campaign.plan import load_plan
 from scripts.analyze_fidelity_campaign import analyze
 
-pytestmark = [pytest.mark.live, pytest.mark.timeout(1200)]
+# Ten 90-second cases plus separately bounded peer starts, restart, and cleanup.
+pytestmark = [pytest.mark.live, pytest.mark.timeout(1800)]
 
 
 async def test_native_matrix_xmpp_conversation_fidelity(tmp_path):

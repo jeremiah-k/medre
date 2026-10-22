@@ -341,3 +341,125 @@ def test_fidelity_logs_require_both_runtime_generations(tmp_path):
     report = json.loads((tmp_path / "results/log-review.json").read_text())
     assert report["expected_generations"] == 2
     assert report["missing_controls"] == ["results/fidelity-123/runtime-1.jsonl"]
+
+
+async def test_restart_does_not_consume_the_native_reply_deadline(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from contextlib import asynccontextmanager
+    from pathlib import Path
+
+    from scripts.adapter_campaign import fidelity
+    from scripts.adapter_campaign.plan import Plan
+
+    monkeypatch.setattr(
+        fidelity,
+        "CASES",
+        (
+            ("matrix_parent", "matrix", None),
+            ("matrix_after_restart", "matrix", "matrix_parent"),
+        ),
+    )
+    endpoints = {
+        "matrix": {
+            "transport": "matrix",
+            "channel": "!room:example.org",
+            "expected_sender": "@bot:example.org",
+            "expected_prefixes": {"xmpp": "[Peer]: "},
+            "peer": {"user_id": "@peer:example.org"},
+        },
+        "xmpp": {
+            "transport": "xmpp",
+            "channel": "room@conference.example.org",
+            "expected_sender": "room@conference.example.org/bot",
+            "expected_prefixes": {"matrix": "[peer]: "},
+            "peer": {"nickname": "peer"},
+        },
+    }
+    cases = {}
+    restarts = []
+
+    active_deadlines = []
+    real_timeout = asyncio.timeout
+
+    @asynccontextmanager
+    async def track_timeout(seconds):
+        active_deadlines.append(seconds)
+        try:
+            async with real_timeout(seconds):
+                yield
+        finally:
+            active_deadlines.pop()
+
+    class Witness:
+        def __init__(self, name, directory, timeout):
+            self.name = name
+            self.records = []
+
+        async def start(self, settings, *, argv=None):
+            if self.name == "runtime-1":
+                assert active_deadlines == [120]
+                restarts.append("started")
+            identity = (
+                "@peer:example.org"
+                if self.name == "matrix"
+                else (
+                    "room@conference.example.org/peer"
+                    if self.name == "xmpp"
+                    else "fidelity-runtime"
+                )
+            )
+            self.records = [{"kind": "ready", "identity": identity}]
+
+        async def stop(self):
+            if self.name == "runtime-0":
+                assert active_deadlines == [120]
+                restarts.append("stopped")
+
+        async def send(self, text):
+            return {"native_id": "$source"}
+
+        async def reply(self, text, target):
+            assert active_deadlines == [90]
+            return {"native_id": "$source"}
+
+        async def wait(self, predicate):
+            return {"kind": "received"}
+
+    class Storage:
+        async def close(self):
+            pass
+
+    async def open_readonly(path):
+        return Storage()
+
+    async def wait_event(storage, marker, predicate, peers):
+        item = {"event": {"event_id": marker}, "outbox": [{"status": "sent"}]}
+        cases[marker] = item
+        return item
+
+    async def read_event(storage, marker):
+        return cases[marker]
+
+    async def observe(peers, settle):
+        pass
+
+    def verify_case(case, item, incoming, outgoing, topology, parents):
+        return {"source_id": "$source", "target_id": "room-id"}
+
+    monkeypatch.setattr(fidelity.asyncio, "timeout", track_timeout)
+    monkeypatch.setattr(fidelity, "Peer", Witness)
+    monkeypatch.setattr(fidelity.SQLiteStorage, "open_readonly", open_readonly)
+    monkeypatch.setattr(fidelity, "wait_event", wait_event)
+    monkeypatch.setattr(fidelity, "read_event", read_event)
+    monkeypatch.setattr(fidelity, "observe", observe)
+    monkeypatch.setattr(fidelity, "verify_case", verify_case)
+    plan = Plan(Path("/unused.yaml"), endpoints, 90, 0, 0)
+    report = await fidelity.run(plan, tmp_path / "fidelity")
+    assert report["status"] == "passed"
+    assert restarts == ["stopped", "started"]
+    assert [row["name"] for row in report["cases"]] == [
+        "matrix_parent",
+        "matrix_after_restart",
+    ]

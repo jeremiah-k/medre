@@ -32,11 +32,13 @@ references use room-issued IDs; client-generated stanza IDs remain separate.
 Source acknowledgements use preserved origin IDs even if the room rewrites the
 outer stanza ID.
 
-The runtime then stops and starts against the same SQLite database. Replies to
-both stored parents must bind correctly after restart, with unchanged parent
-events and delivery evidence. A final pair of replies names unavailable native
-targets and must preserve the answer and readable reply context without sending
-an unrelated native relation.
+The runtime then stops and starts against the same SQLite database. Restart
+has its own bounded deadline (the configured case timeout plus 30 seconds for
+shutdown and cleanup); it does not consume the following native reply's case
+timeout. Replies to both stored parents must bind correctly after restart, with
+unchanged parent events and delivery evidence. A final pair of replies names
+unavailable native targets and must preserve the answer and readable reply
+context without sending an unrelated native relation.
 
 Native quote ranges use Unicode code points. Quoted parent text containing an
 earlier nonce is not counted as another delivery of that parent. The oracle

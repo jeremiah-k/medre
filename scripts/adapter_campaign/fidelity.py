@@ -104,11 +104,14 @@ async def run(plan: Plan, directory: Path) -> dict:
         storage = await SQLiteStorage.open_readonly(str(directory / "medre.sqlite3"))
         parents = {}
         for name, transport, parent_name in CASES:
-            async with asyncio.timeout(plan.timeout):
-                if name == "matrix_after_restart":
+            if name == "matrix_after_restart":
+                # Shutdown and readiness have their own bounded budget; neither
+                # may consume the native reply observation deadline.
+                async with asyncio.timeout(plan.timeout + 30):
                     await bridge.stop()
                     stopped.add(bridge)
                     bridge = await start()
+            async with asyncio.timeout(plan.timeout):
                 source = by_transport[transport]
                 target = next(k for k in peers if k != source)
                 parent = parents.get(parent_name)

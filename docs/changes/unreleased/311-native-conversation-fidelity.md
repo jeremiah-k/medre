@@ -11,3 +11,5 @@
 - Pin the merged Matrix and XMPP providers qualified for readable unbound reply
   context, opt-in MMRelay reply identity, and room-scoped native reply references;
   align capability profiles and reply-rendering contract checks with those pins.
+- Keep restart/shutdown time separate from the per-case reply deadline, so slow
+  but successful adapter startup does not falsely fail native correlation.
