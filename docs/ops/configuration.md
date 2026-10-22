@@ -330,7 +330,7 @@ adapters:
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                         |
 | `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                     |
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                |
-| `sync_timeout_ms`                  | int                | `30000`       | Timeout for sync operations in milliseconds.                                          |
+| `sync_timeout_ms`                  | int                | `30000`       | Positive initial wait budget and SDK phase timeout in milliseconds.                   |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                       |
 | `outbound_mode`                    | string             | `"enabled"`   | `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. |
 
