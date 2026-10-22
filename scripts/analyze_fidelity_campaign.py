@@ -12,6 +12,10 @@ from medre.config.identifiers import adapter_id_problem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 from scripts.adapter_campaign.fidelity import CASES
+from scripts.adapter_campaign.presentation import (
+    CASES as PRESENTATION_CASES,
+    example as presentation_example,
+)
 from scripts.adapter_campaign.fidelity_evidence import verify_case
 from scripts.adapter_campaign.recovery import read_event
 from scripts.adapter_campaign.lab.log_review import analyze as analyze_log
@@ -26,10 +30,12 @@ async def analyze(directory: Path) -> dict:
         raise RuntimeError("Fidelity analysis requires enabled assertions")
     report = json.loads((directory / "results.json").read_text())
     assert (
-        report["version"] == 1
+        type(report["version"]) is int
+        and report["version"] in {1, 2}
         and report["status"] == "passed"
         and not report["cleanup_errors"]
     ), "Incomplete fidelity campaign"
+    cases = CASES + PRESENTATION_CASES if report["version"] == 2 else CASES
     prefix = report["run_prefix"]
     assert re.fullmatch(r"MF-[0-9a-f]{12}-", prefix), "Invalid fidelity nonce"
     topology = report["expectations"]
@@ -75,16 +81,16 @@ async def analyze(directory: Path) -> dict:
             if name.startswith("runtime-") and suffix == "stdout":
                 assert audit["levels"], "Missing runtime log records"
     assert [case["name"] for case in report["cases"]] == [
-        case[0] for case in CASES
+        case[0] for case in cases
     ], "Fidelity scenario coverage differs"
     parents = {}
     verdicts = []
     db = await SQLiteStorage.open_readonly(str(directory / "medre.sqlite3"))
     try:
-        for (name, transport, parent), case in zip(CASES, report["cases"], strict=True):
-            assert (
-                case["marker"] == prefix + name + " "
-                and case["text"] == case["marker"] + "café 🦉"
+        for (name, transport, parent), case in zip(cases, report["cases"], strict=True):
+            styled = presentation_example(name, prefix + name + " ")
+            assert case["marker"] == prefix + name + " " and case["text"] == (
+                styled["text"] if styled else case["marker"] + "café 🦉"
             )
             assert (
                 case["parent"] == parent
@@ -105,7 +111,7 @@ async def analyze(directory: Path) -> dict:
                 for r in peers[case["source"]]
                 if r["kind"] == "sent" and r.get("native_id") == case["source_ack"]
             )
-            if name in {
+            if styled or name in {
                 "matrix_after_restart",
                 "xmpp_after_restart",
                 "matrix_missing",

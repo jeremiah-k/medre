@@ -16,6 +16,7 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from .fidelity_evidence import verify_case
 from .plan import Plan, load_plan
 from .process import Peer
+from .presentation import CASES as PRESENTATION_CASES, example as presentation_example
 from .recovery import observe, read_event, wait_event
 from .run import write_report
 
@@ -54,13 +55,14 @@ def expectations(plan: Plan) -> dict:
     return result
 
 
-async def run(plan: Plan, directory: Path) -> dict:
+async def run(plan: Plan, directory: Path, *, presentation: bool = False) -> dict:
     if not __debug__:
         raise RuntimeError("Fidelity qualification requires enabled assertions")
     if len(plan.endpoints) != 2 or {
         e["transport"] for e in plan.endpoints.values()
     } != {"matrix", "xmpp"}:
         raise ValueError("Fidelity requires one Matrix and one XMPP endpoint")
+    cases = CASES + PRESENTATION_CASES if presentation else CASES
     topology = expectations(plan)
     by_transport = {v["transport"]: k for k, v in topology.items()}
     directory.mkdir(mode=0o700)
@@ -70,7 +72,7 @@ async def run(plan: Plan, directory: Path) -> dict:
     stopped = set()
     storage = None
     report = {
-        "version": 1,
+        "version": 2 if presentation else 1,
         "status": "running",
         "run_prefix": prefix,
         "expectations": topology,
@@ -103,7 +105,7 @@ async def run(plan: Plan, directory: Path) -> dict:
         bridge = await start()
         storage = await SQLiteStorage.open_readonly(str(directory / "medre.sqlite3"))
         parents = {}
-        for name, transport, parent_name in CASES:
+        for name, transport, parent_name in cases:
             if name == "matrix_after_restart":
                 # Shutdown and readiness have their own bounded budget; neither
                 # may consume the native reply observation deadline.
@@ -125,6 +127,9 @@ async def run(plan: Plan, directory: Path) -> dict:
                     "parent": parent_name,
                     "mode": "missing" if parent_name == "missing" else "native",
                 }
+                styled = presentation_example(name, marker)
+                if styled is not None:
+                    case["text"] = styled["text"]
                 if parent is not None:
                     case["native_target"] = (
                         parent["source_id"]
@@ -140,9 +145,15 @@ async def run(plan: Plan, directory: Path) -> dict:
                 else:
                     case["native_target"] = None
                 ack = await (
-                    peers[source].reply(case["text"], case["native_target"])
-                    if parent_name
-                    else peers[source].send(case["text"])
+                    peers[source].command(
+                        "styled", text=case["text"], presentation=styled["command"]
+                    )
+                    if styled is not None
+                    else (
+                        peers[source].reply(case["text"], case["native_target"])
+                        if parent_name
+                        else peers[source].send(case["text"])
+                    )
                 )
                 case["source_ack"] = ack["native_id"]
                 item = await wait_event(
@@ -232,7 +243,7 @@ async def run(plan: Plan, directory: Path) -> dict:
         report["cleanup_errors"] = cleanup
         report["status"] = (
             "passed"
-            if failure is None and not cleanup and len(report["cases"]) == len(CASES)
+            if failure is None and not cleanup and len(report["cases"]) == len(cases)
             else "failed"
         )
         write_report(directory, report)
@@ -248,19 +259,32 @@ def main(argv=None) -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument(
+        "--presentation",
+        action="store_true",
+        help="Also qualify native semantic formatting and plain fallback",
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
     plan = load_plan(args.config, only={"matrix", "xmpp"})
     if not args.run:
         print(
             json.dumps(
-                {"cases": [case[0] for case in CASES], "transports": ["matrix", "xmpp"]}
+                {
+                    "cases": [
+                        case[0]
+                        for case in (
+                            CASES + PRESENTATION_CASES if args.presentation else CASES
+                        )
+                    ],
+                    "transports": ["matrix", "xmpp"],
+                }
             )
         )
         return 0
     if args.output is None:
         parser.error("--run requires a fresh private --output directory")
-    asyncio.run(run(plan, args.output))
+    asyncio.run(run(plan, args.output, presentation=args.presentation))
     return 0
 
 

@@ -23,3 +23,21 @@ async def test_native_matrix_xmpp_conversation_fidelity(tmp_path):
         "status"
     ] == "passed"
     assert (await analyze(output))["status"] == "passed"
+
+
+@pytest.mark.timeout(2400)
+async def test_native_matrix_xmpp_semantic_presentation(tmp_path):
+    config = os.environ.get("MEDRE_PRESENTATION_CAMPAIGN")
+    if not config:
+        pytest.skip(
+            "Set MEDRE_PRESENTATION_CAMPAIGN to a dedicated Matrix/XMPP fixture"
+        )
+    output = Path(
+        os.environ.get("MEDRE_PRESENTATION_OUTPUT", str(tmp_path / "presentation"))
+    )
+    assert (
+        await run(
+            load_plan(Path(config), only={"matrix", "xmpp"}), output, presentation=True
+        )
+    )["status"] == "passed"
+    assert (await analyze(output))["status"] == "passed"
