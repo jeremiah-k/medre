@@ -42,8 +42,55 @@ def analyze(text: str) -> dict:
     }
 
 
+def runtime_streams(root: Path, run: Path, generations: set[Path]) -> list[Path]:
+    """Require both captures and control evidence for the declared generations."""
+    streams = sorted(
+        path
+        for path in run.rglob("runtime-*.*")
+        if path.suffix in {".stdout", ".stderr"} and path.is_file()
+    )
+    controls = {
+        path.with_suffix("") for path in run.rglob("runtime-*.jsonl") if path.is_file()
+    }
+    missing_controls = sorted(
+        base.with_suffix(".jsonl").relative_to(root).as_posix()
+        for base in generations - controls
+    )
+    missing = sorted(
+        base.with_suffix(suffix).relative_to(root).as_posix()
+        for base in generations
+        for suffix in (".stdout", ".stderr")
+        if not base.with_suffix(suffix).is_file()
+    )
+    unexpected = sorted(
+        {
+            path.relative_to(root).as_posix()
+            for path in streams
+            if path.with_suffix("") not in generations & controls
+        }
+        | {
+            base.with_suffix(".jsonl").relative_to(root).as_posix()
+            for base in controls - generations
+        }
+    )
+    if missing_controls or missing or unexpected:
+        write_json(
+            root / "results/log-review.json",
+            {
+                "status": "failed",
+                "logs": {},
+                "expected_generations": len(generations),
+                "missing_controls": missing_controls,
+                "missing_streams": missing,
+                "unexpected_streams": unexpected,
+            },
+        )
+        raise ValueError("Runtime stdout/stderr evidence is incomplete")
+    return streams
+
+
 def review(root: Path) -> None:
-    """Audit the latest available native, MMRelay, and resilience runtime logs.
+    """Audit the latest native, MMRelay, recovery, and fidelity runtime logs.
 
     Write counts and line numbers to results/log-review.json without raw log
     text. Raise ValueError if no runtime evidence is selected or recovery
@@ -74,56 +121,24 @@ def review(root: Path) -> None:
     if recovery:
         from ..recovery import SCENARIOS, runtime_generations
 
-        streams = sorted(
-            path
-            for path in recovery[-1].glob("*/runtime-*.*")
-            if path.suffix in {".stdout", ".stderr"} and path.is_file()
-        )
-        controls = {
-            path.with_suffix("")
-            for path in recovery[-1].glob("*/runtime-*.jsonl")
-            if path.is_file()
-        }
         generations = {
             recovery[-1] / scenario / name
             for scenario in SCENARIOS
             for name in runtime_generations(scenario)
         }
-        missing_controls = sorted(
-            base.with_suffix(".jsonl").relative_to(root).as_posix()
-            for base in generations - controls
-        )
-        missing = sorted(
-            base.with_suffix(suffix).relative_to(root).as_posix()
-            for base in generations
-            for suffix in (".stdout", ".stderr")
-            if not base.with_suffix(suffix).is_file()
-        )
-        unexpected = sorted(
-            path.relative_to(root).as_posix()
-            for path in streams
-            if path.with_suffix("") not in generations & controls
-        )
-        unexpected.extend(
-            sorted(
-                base.with_suffix(".jsonl").relative_to(root).as_posix()
-                for base in controls - generations
+        files.extend(runtime_streams(root, recovery[-1], generations))
+    fidelity = sorted(
+        (path for path in (root / "results").glob("fidelity-*") if path.is_dir()),
+        key=lambda path: path.stat().st_mtime,
+    )
+    if fidelity:
+        files.extend(
+            runtime_streams(
+                root,
+                fidelity[-1],
+                {fidelity[-1] / name for name in ("runtime-0", "runtime-1")},
             )
         )
-        if missing_controls or missing or unexpected:
-            write_json(
-                root / "results/log-review.json",
-                {
-                    "status": "failed",
-                    "logs": {},
-                    "expected_generations": len(generations),
-                    "missing_controls": missing_controls,
-                    "missing_streams": missing,
-                    "unexpected_streams": unexpected,
-                },
-            )
-            raise ValueError("Recovery runtime stdout/stderr evidence is incomplete")
-        files.extend(streams)
     if not files:
         raise ValueError("No runtime log evidence exists")
     results = {
