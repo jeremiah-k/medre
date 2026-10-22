@@ -115,6 +115,43 @@ The constructor enforces the following invariants. Violations raise `ValueError`
 
 ---
 
+### 1.5 Text presentation
+
+Message payloads MAY carry optional `formatting` alongside their authoritative
+plain `body`. The [styled-text schema](../schemas/styled-text.schema.json) defines
+version 1: a closed array of typed spans with half-open Unicode code-point ranges
+`[start, end)`. Offsets MUST NOT use encoded-byte or UTF-16 code-unit positions.
+Styles are `strong`, `emphasis`, `strike`, `code`, `pre`, `quote`, and `link`.
+Only links carry an `href`; allowed targets are absolute HTTP, HTTPS, or mailto
+IRIs. HTTP user information, whitespace, control characters, backslashes, double
+quotes, and angle brackets are rejected.
+
+`StyledText` MUST validate bounds against the body, canonicalize span order,
+reject duplicate/crossing spans and nested links, and limit metadata to 256 spans
+and 16 levels over at most 65,536 code points. Code/preformatted spans MUST NOT
+contain child styles. Block styles MUST cover complete lines. The value and its
+span tuple MUST be immutable; serialized payloads are independent copies.
+
+Malformed or unsupported optional formatting MUST degrade as a whole to the
+unchanged plain body. The metadata MUST NOT replace text, override attribution,
+assert identity, fetch a link, or authorize transport operations. Old consumers
+MAY ignore formatting and continue rendering the body. Canonical envelope and
+message-kind schema versions are unchanged; `formatting.version` versions this
+optional content contract independently.
+
+Protocol codecs and renderers own conversion. Matrix HTML MUST be parsed into
+supported semantic spans rather than forwarded as trusted markup. XMPP styling
+MUST follow [XEP-0393](https://xmpp.org/extensions/xep-0393.html), including its
+literal-directive rules and unstyled control; it MUST NOT be interpreted as
+Markdown or implemented through deprecated XHTML-IM. Unsupported output styles
+MUST preserve readable plain text. Prefixes, reply fallbacks, truncation, and
+final transport budgets remain renderer-owned; stale span offsets MUST NOT be
+applied after those operations change the body.
+
+This contract does not itself enable rich rendering. Providers declare and
+qualify their supported conversion separately; transient typing and presence
+remain outside stored message presentation.
+
 ## 2. EventRelation
 
 Relations between events are first-class. Every reply, reaction, edit, delete,
