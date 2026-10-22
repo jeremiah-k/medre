@@ -6,3 +6,6 @@
   fixture expectations independently of provider conversions and outbox output.
 - Retain version-1 reply evidence analysis and require complete version-2
   presentation coverage. Expose the campaign through an optional Docker stage.
+- Preserve authoritative styled message bodies when shared text/relation fallbacks
+  encounter a conflicting legacy `text` alias; reject invisible extra native HTML
+  in fidelity evidence.

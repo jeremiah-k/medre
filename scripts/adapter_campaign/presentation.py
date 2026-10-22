@@ -90,14 +90,44 @@ class _HTMLWitness(HTMLParser):
         assert not attrs, "Unexpected native HTML attributes"
         if tag == "br":
             self.text += "\n"
-        if tag in {"strong", "b", "code", "em", "i", "del", "s", "a"}:
+        else:
             self.stack.append((tag, len(self.text)))
 
     def handle_endtag(self, tag):
-        if tag in {"strong", "b", "code", "em", "i", "del", "s", "a"}:
-            assert self.stack and self.stack[-1][0] == tag, "Unbalanced native HTML"
-            _, start = self.stack.pop()
+        assert tag in {
+            "p",
+            "br",
+            "strong",
+            "b",
+            "code",
+            "em",
+            "i",
+            "del",
+            "s",
+            "a",
+        }, "Unexpected native HTML closing element"
+        assert (
+            tag != "br" and self.stack and self.stack[-1][0] == tag
+        ), "Unexpected native HTML closing element"
+        _, start = self.stack.pop()
+        if tag != "p":
             self.spans.append((start, len(self.text), "strong" if tag == "b" else tag))
+
+    def handle_startendtag(self, tag, attrs):
+        assert tag == "br", "Unexpected native HTML self-closing element"
+        self.handle_starttag(tag, attrs)
+
+    def unknown_decl(self, data):
+        raise AssertionError("Unexpected native HTML declaration")
+
+    def handle_comment(self, data):
+        raise AssertionError("Unexpected native HTML comment")
+
+    def handle_pi(self, data):
+        raise AssertionError("Unexpected native HTML processing instruction")
+
+    def handle_decl(self, decl):
+        raise AssertionError("Unexpected native HTML declaration")
 
 
 def verify(case: dict, payload: dict, sent: dict, delivered: dict, prefix: str) -> None:

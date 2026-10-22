@@ -72,9 +72,15 @@ def _text_char_byte_metrics(
     if isinstance(raw_bytes, int):
         rendered_bytes = raw_bytes
 
-    # Fallback: derive from known payload string keys.
+    # Fallback: derive from known payload string keys. Styled events measure
+    # the authoritative body; a stale legacy "text" alias must not skew metrics.
     if rendered_chars is None or rendered_bytes is None:
-        for key in ("text", "body", "content"):
+        keys = (
+            ("body", "text", "content")
+            if "formatting" in payload
+            else ("text", "body", "content")
+        )
+        for key in keys:
             val = payload.get(key)
             if isinstance(val, str):
                 if rendered_chars is None:

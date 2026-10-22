@@ -83,6 +83,26 @@ def test_native_html_cannot_hide_source_style_or_attribution_errors(change):
         verify(*args)
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        "<!-- unobserved extra content -->",
+        "<?ignored processing?>",
+        "</unexpected>",
+        "</p>",
+        "</br>",
+        "<![CDATA[hidden]]>",
+        "<strong/>",
+        "<!DOCTYPE foo>",
+    ],
+)
+def test_native_witness_rejects_unrecognized_html_without_visible_text(markup):
+    args = list(witness("xmpp_strong"))
+    args[3]["formatted_body"] += markup
+    with pytest.raises(AssertionError, match="Unexpected native HTML"):
+        verify(*args)
+
+
 async def test_native_peer_dispatches_presentation_without_importing_providers(
     monkeypatch,
 ):
@@ -108,3 +128,13 @@ async def test_native_peer_dispatches_presentation_without_importing_providers(
     await worker.commands(AsyncMock(), styled=styled)
     styled.assert_awaited_once_with("body", {"html": "<b>body</b>"})
     assert evidence == [("sent", {"command": "command", "native_id": "$event"})]
+
+
+def test_native_witness_tracks_balanced_paragraphs_and_void_line_breaks():
+    from scripts.adapter_campaign.presentation import _HTMLWitness
+
+    parser = _HTMLWitness()
+    parser.feed("<p>one<br/>two</p>")
+    parser.close()
+    assert parser.text == "one\ntwo"
+    assert not parser.stack and not parser.spans

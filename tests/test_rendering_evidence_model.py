@@ -326,6 +326,19 @@ class TestTextMetricsNormalization:
         assert evidence.rendered_text_chars == len("hello matrix")
         assert evidence.rendered_text_bytes == len("hello matrix".encode("utf-8"))
 
+    def test_styled_body_overrides_stale_legacy_text_alias(self) -> None:
+        """Styled events measure the authoritative body, not a stale text alias."""
+        evidence = self._make_evidence(
+            payload={
+                "body": "correct 🦉",
+                "text": "stale compatibility alias",
+                "formatting": {"version": 1, "spans": []},
+            },
+            metadata={},
+        )
+        assert evidence.rendered_text_chars == len("correct 🦉")
+        assert evidence.rendered_text_bytes == len("correct 🦉".encode("utf-8"))
+
     def test_lxmf_content_key_derives_metrics(self) -> None:
         """LXMF payload uses 'content' instead of 'text'."""
         evidence = self._make_evidence(

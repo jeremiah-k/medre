@@ -72,6 +72,20 @@ def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | No
     return None
 
 
+def _message_body(event: CanonicalEvent) -> str:
+    """Use authoritative body for styled events, preserving legacy text aliases.
+
+    A stale ``text`` compatibility alias must never override the body whose
+    offsets are described by the optional presentation metadata. Unstyled
+    legacy messages retain their established text-first behavior.
+    """
+    payload = event.payload
+    body = payload.get("body")
+    if "formatting" in payload and isinstance(body, str):
+        return body
+    return str(payload.get("text", payload.get("body", "")))
+
+
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
@@ -109,7 +123,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
         rel = event.relations[0]
 
         if rel.relation_type == "reply":
-            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+            payload_text = _message_body(event)
             target = _resolve_target_display(rel)
             sender_display = (
                 rel.metadata.get("sender_displayname")
@@ -134,7 +148,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return f"{actor} reacted"
 
         if rel.relation_type == "edit":
-            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+            payload_text = _message_body(event)
             if payload_text:
                 return f"[edited] {payload_text}"
             return "[edited]"
@@ -146,7 +160,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return "[deleted]"
 
         if rel.relation_type == "thread":
-            payload_text = str(event.payload.get("text", event.payload.get("body", "")))
+            payload_text = _message_body(event)
             target = _resolve_target_display(rel)
             if payload_text:
                 return f"[thread: {target}] {payload_text}"
@@ -154,18 +168,16 @@ def extract_relation_text(event: CanonicalEvent) -> str:
 
     # Kind-based rendering
     if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-        return str(event.payload.get("text", event.payload.get("body", "")))
+        return _message_body(event)
 
     if kind == EventKind.MESSAGE_EDITED:
-        return "[edited] " + str(
-            event.payload.get("text", event.payload.get("body", ""))
-        )
+        return "[edited] " + _message_body(event)
 
     if kind == EventKind.MESSAGE_DELETED:
         return "[deleted]"
 
     if kind == EventKind.MESSAGE_REACTED:
-        return str(event.payload.get("text", event.payload.get("body", "")))
+        return _message_body(event)
 
     if kind == EventKind.PRESENCE_CHANGED:
         user = str(event.payload.get("user", "unknown"))
@@ -173,9 +185,9 @@ def extract_relation_text(event: CanonicalEvent) -> str:
         return f"{user} is now {status}"
 
     if kind == EventKind.PLUGIN_CUSTOM:
-        return str(event.payload.get("text", event.payload.get("body", "")))
+        return _message_body(event)
 
-    return str(event.payload.get("text", event.payload.get("body", "")))
+    return _message_body(event)
 
 
 def truncate_text(
