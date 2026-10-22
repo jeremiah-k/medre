@@ -373,21 +373,30 @@ class TestMedreAppRetryEventWiring:
         )
         assert worker._event_buffer is None
 
-    def test_medre_app_source_wires_event_buffer(self) -> None:
-        """Static check: MedreApp.start() passes event_buffer to RetryWorker.
+    async def test_medre_app_startup_wires_event_buffer(self, tmp_path) -> None:
+        """A real runtime start hands the app's event buffer to RetryWorker.
 
-        Reads the source of MedreApp.start() and verifies the RetryWorker
-        construction includes an ``event_buffer=`` keyword argument.
+        Worker construction lives at the core-preparation boundary, so the
+        wiring is verified on the started runtime rather than by scanning
+        MedreApp.start() source text.
         """
-        import inspect
+        from dataclasses import replace
 
-        import medre.runtime.app as app_mod
+        from tests.helpers.startup_cleanup import (
+            _build_app,
+            _config_with_one_fake_adapter,
+        )
+        from medre.config.paths import resolve
 
-        source = inspect.getsource(app_mod.MedreApp.start)
-        # The RetryWorker construction must include event_buffer wiring.
-        assert (
-            "event_buffer=" in source
-        ), "MedreApp.start() must pass event_buffer= to RetryWorker"
+        config = _config_with_one_fake_adapter()
+        config = replace(config, retry=replace(config.retry, enabled=True))
+        app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+        await app.start()
+        try:
+            assert app._retry_worker is not None, "retry worker missing at runtime"
+            assert app._retry_worker._event_buffer is app.event_buffer
+        finally:
+            await app.stop()
 
     async def test_full_start_stop_lifecycle_in_buffer(self) -> None:
         """End-to-end: start+stop records both events with correct detail."""
