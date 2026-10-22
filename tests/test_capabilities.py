@@ -43,11 +43,15 @@ def _all_defaults_caps() -> AdapterCapabilities:
     return AdapterCapabilities()
 
 
-def test_threads_field_is_appended_after_legacy_positional_fields() -> None:
+def test_new_capabilities_preserve_legacy_positional_fields() -> None:
+    """Appending typing cannot change existing positional argument meanings."""
     names = [field.name for field in fields(AdapterCapabilities)]
-    assert names[-1] == "threads"
-    assert names[-2] == "max_text_chars"
+    assert names[-3:] == ["max_text_chars", "threads", "typing"]
     assert names.index("reactions") == 3
+    # The previous tail and its ordinal remain stable for callers using
+    # positional construction; typing is strictly an appended capability.
+    assert names.index("threads") == 18
+    assert AdapterCapabilities().typing is False
 
 
 # ===================================================================
