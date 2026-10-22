@@ -85,15 +85,16 @@ directory instead.
 
 Individual stages support investigation without repeating every check:
 
-| Stage       | Evidence                                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contracts` | Focused core and MMRelay regressions; all adapter-owned offline and installed-SDK tests. Hardware, external service, and soak tiers stay gated.              |
-| `oauth`     | Real browser login, native device signing, cryptographic verification of the published chain, routine device/master-key reuse, and cross-process refresh.    |
-| `provision` | Independent native accounts and conversations, secure Chatmail group joining, local SimpleX group joining, LXMF identities, and read-only hardware outcomes. |
-| `campaign`  | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
-| `mmrelay`   | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
-| `recovery`  | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                  |
-| `logs`      | Timestamps on managed runtime records and evidence of unclosed sessions, connectors, or pending tasks; warning/error counts remain available for inspection. |
+| Stage        | Evidence                                                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `contracts`  | Focused core and MMRelay regressions; all adapter-owned offline and installed-SDK tests. Hardware, external service, and soak tiers stay gated.              |
+| `oauth`      | Real browser login, native device signing, cryptographic verification of the published chain, routine device/master-key reuse, and cross-process refresh.    |
+| `provision`  | Independent native accounts and conversations, secure Chatmail group joining, local SimpleX group joining, LXMF identities, and read-only hardware outcomes. |
+| `campaign`   | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
+| `resilience` | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                        |
+| `mmrelay`    | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
+| `recovery`   | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                  |
+| `logs`       | Timestamps on managed runtime records and evidence of unclosed sessions, connectors, or pending tasks; warning/error counts remain available for inspection. |
 
 Use `--stage native` to run the native stages together after the contract tier
 has passed. Without configured Meshtastic hardware, the grouped run records
@@ -102,8 +103,9 @@ MMRelay's RF tier as `not_configured`; its OAuth and recovery tiers still run.
 qualification.
 
 OAuth setup is required before provisioning the campaign's Matrix room. Provision
-before `campaign` or `mmrelay`. Run radio campaigns sequentially. The `all` stage
-does this ordering and retains failures while continuing independent checks.
+before `campaign`, `resilience`, or `mmrelay`. Run radio campaigns sequentially.
+The `all` stage does this ordering and retains failures while continuing
+independent checks.
 Initial MMRelay signing uses its explicit reset authorization only once in a fresh
 lab profile. The reset attempt is recorded before execution, so even an interrupted
 first signing or a later logout cannot silently authorize another account-key
@@ -159,6 +161,8 @@ Commit the harness and sanitized templates, not generated evidence.
 - `results/native-*/` contains the existing campaign report, native peer streams,
   canonical storage, and any private failure traceback.
 - `results/mmrelay-native-*/` contains the MMRelay runtime log and peer evidence.
+- `results/resilience-*/` contains the shared recovery database, scenario
+  snapshots, runtime generations, native peer streams, and offline analysis.
 
 The existing analyzer can be run offline against a retained native campaign:
 
@@ -175,6 +179,8 @@ derive a replacement expectation from the observed message just to make it pass.
 Text fanout does not establish parity for encrypted room traffic, attachments,
 edits, replies, reactions, typing, or recovery under every transport fault.
 Those need independent native witnesses and explicit expected outcomes too.
+The [native recovery campaign](recovery-campaign.md) qualifies process death and
+destination outages separately from the text fanout and OAuth recovery tiers.
 For Matrix and XMPP, extend the fixtures to examine canonical/native references,
 sender attribution, formatting, relations, and transport metadata across both
 directions. Use each protocol's standard extensions where applicable and keep

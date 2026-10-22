@@ -3,6 +3,15 @@
 PROVIDER_CONTRACT_SECONDS = 1800
 NESTED_STAGE_SECONDS = 2400
 MARGIN_SECONDS = 300
+NATIVE_STAGES = (
+    "oauth",
+    "provision",
+    "campaign",
+    "resilience",
+    "mmrelay",
+    "recovery",
+    "logs",
+)
 
 
 def stage_timeout(stage: str, provider_count: int) -> int:
@@ -10,7 +19,7 @@ def stage_timeout(stage: str, provider_count: int) -> int:
     if stage == "contracts":
         return contracts
     if stage == "all":
-        return contracts + 6 * NESTED_STAGE_SECONDS + MARGIN_SECONDS
+        return contracts + len(NATIVE_STAGES) * NESTED_STAGE_SECONDS + MARGIN_SECONDS
     if stage == "native":
-        return 6 * NESTED_STAGE_SECONDS + MARGIN_SECONDS
+        return len(NATIVE_STAGES) * NESTED_STAGE_SECONDS + MARGIN_SECONDS
     return NESTED_STAGE_SECONDS + MARGIN_SECONDS

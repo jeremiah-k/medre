@@ -45,6 +45,36 @@ async def test_peer_drives_native_commands_and_captures_only_protocol_records(tm
     assert "SDK diagnostic" in (tmp_path / "radio.stdout").read_text()
 
 
+async def test_intentional_crash_is_reaped_and_recorded_separately(tmp_path):
+    peer = Peer("runtime", tmp_path, 3)
+    try:
+        await peer.start({}, argv=[sys.executable, "-c", CHILD])
+        code = await peer.crash()
+        assert code != 0
+        assert peer.process.returncode == code
+    finally:
+        await peer.stop()
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "runtime.jsonl").read_text().splitlines()
+    ]
+    assert records[-1]["kind"] == "intentional_crash"
+    assert records[-1]["exit_code"] == code
+    assert records[-1]["requested_at"] <= records[-1]["at"]
+    assert peer.log.closed and peer.errors.closed and peer.output.closed
+
+
+async def test_unexpected_exit_cannot_be_reclassified_as_an_intentional_crash(tmp_path):
+    peer = Peer("runtime", tmp_path, 3)
+    await peer.start({}, argv=[sys.executable, "-c", CHILD])
+    peer.process.kill()
+    await peer.process.wait()
+    with pytest.raises(RuntimeError, match="live process|exited"):
+        await peer.crash()
+    with pytest.raises(RuntimeError, match="cleanup"):
+        await peer.stop()
+
+
 async def test_unresponsive_stop_reaps_the_peer_and_fails_qualification(
     tmp_path, monkeypatch
 ):

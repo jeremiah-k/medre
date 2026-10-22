@@ -7,8 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .budgets import NATIVE_STAGES, NESTED_STAGE_SECONDS, stage_timeout
 from .control import command
-from .budgets import NESTED_STAGE_SECONDS, stage_timeout
 from .hardware import inspect_hardware
 from .sources import write_json
 
@@ -18,14 +18,7 @@ ROOT = Path("/lab")
 async def run(stage: str) -> None:
     if stage in {"all", "native"}:
         failures = []
-        stages = (["contracts"] if stage == "all" else []) + [
-            "oauth",
-            "provision",
-            "campaign",
-            "mmrelay",
-            "recovery",
-            "logs",
-        ]
+        stages = (["contracts"] if stage == "all" else []) + list(NATIVE_STAGES)
         outcomes = {}
         for child in stages:
             if child == "mmrelay" and "meshtastic" not in json.loads(
@@ -106,6 +99,10 @@ async def run(stage: str) -> None:
         await campaign(ROOT)
     elif stage == "mmrelay":
         from .mmrelay_probe import run
+
+        await run(ROOT)
+    elif stage == "resilience":
+        from .resilience import run
 
         await run(ROOT)
     elif stage == "recovery":
