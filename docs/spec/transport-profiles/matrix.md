@@ -658,3 +658,12 @@ so a hostile or broken value cannot park delivery indefinitely.
 | ------------------- | -------------------------------------- | --------------------------------- |
 | `mindroom-nio`      | Async Matrix client (sync, send, E2EE) | Yes (`medre-adapter-matrix`)      |
 | `mindroom-nio[e2e]` | E2EE crypto (vodozemac + Olm)          | Yes (`medre-adapter-matrix[e2e]`) |
+
+## Transient activity
+
+The adapter supports explicitly permitted room typing through the bounded
+[activity contract](../transient-typing.md). Complete native user lists replace
+source membership, and outgoing updates use the relay account with finite
+timeouts. Activity is unencrypted metadata even in encrypted rooms and MUST NOT
+enter canonical history, durable delivery or replay. Native clearing is best
+effort; typing does not imply full presence or original-user puppeting.

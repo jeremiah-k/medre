@@ -66,6 +66,7 @@ Machine-readable capability declaration: [`xmpp-capabilities.json`](xmpp-capabil
 | direct_messages     | `True`                                                                                         |
 | channels            | `True`                                                                                         |
 | identity_encryption | `False`                                                                                        |
+| typing              | `True`                                                                                         |
 | presence            | `False`                                                                                        |
 | topic_rooms         | `True`                                                                                         |
 | mesh_routing        | `False`                                                                                        |
@@ -85,4 +86,10 @@ echo leaves the reference absent without changing successful local handoff into
 a retry. XEP-0428 compatibility quotes use Unicode code-point ranges. Neither a
 room echo nor native reply support establishes recipient delivery or threading.
 
-XEP-0085 chat states are treated as ephemeral activity rather than durable messages. The adapter does not forward typing notifications, read receipts, attachments, OMEMO content, native edits or deletes, archives, or puppeting; each of those requires its own negotiation, expiry, evidence and ownership decisions and is out of scope for the text bridge.
+XEP-0085 chat states are treated as ephemeral activity rather than durable messages.
+Typing forwarding is explicitly opt-in through the bounded [transient activity
+contract](../transient-typing.md), with negotiated direct peers and configured rooms. It
+does not confer full presence or delivery evidence. The adapter does not forward read
+receipts, attachments, OMEMO content, native edits or deletes, archives, or puppeting;
+each of those requires its own negotiation, expiry, evidence and ownership decisions and
+is out of scope for the text bridge.
