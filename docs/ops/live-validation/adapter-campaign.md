@@ -155,6 +155,45 @@ Every run creates an initial results report before collecting package versions
 and config hashes; a metadata failure produces a failed report and private
 failure trace.
 
+## Qualify startup separately
+
+A passed message campaign proves the selected instances were ready before
+traffic was sent. It does not qualify startup failure handling: the readiness
+barrier intentionally rejects unavailable peers. One endpoint per transport also
+cannot exercise a healthy and an offline instance of the same provider together.
+Serial-radio results do not qualify offline BLE connection behavior, and an image
+with every optional SDK installed cannot qualify missing-dependency diagnostics.
+
+Run the repeatable lifecycle contract cases alongside native delivery campaigns:
+
+```bash
+uv run --no-sync pytest -q \
+  tests/test_runtime_concurrent_startup.py \
+  tests/test_startup_preparation_ownership.py \
+  tests/test_runtime_cancellation.py
+```
+
+These cases use production runtime assembly and real core resources, with
+controlled pauses and failures at provider boundaries. They check independent
+startup progress, degraded health, concurrent-stop rejection, cancellation during
+core preparation and rollback, and CLI shutdown ownership. They do not substitute
+for SDK or hardware qualification.
+
+Record each native startup profile separately in private campaign evidence:
+
+| Profile | Required observation |
+| ------- | -------------------- |
+| Online and offline instances together | The online instance progresses independently; the offline instance reaches a bounded provider failure or degraded recovery state. |
+| Device returns after startup | A provider with owned recovery becomes healthy without overlapping connection attempts; routes and durable work remain consistent. |
+| Shutdown before readiness | The CLI awaits startup rollback, retires partial resources and child tasks, and preserves cancellation. |
+| Matrix without its encryption extra | Optional encryption reports degraded health with installation guidance; encrypted-room delivery remains refused. |
+| Signals during native construction | The enclosing shutdown handler receives the signal, or the report explicitly records an unqualified SDK constructor window. |
+
+Report native SDK versions, connection mode, missing extras and skipped profiles.
+The pinned Reticulum/LXMF constructors install handlers synchronously; checking
+handlers after construction proves restoration, not signal ownership during that
+constructor. Do not report hard shutdown qualification from that check.
+
 ## Verify visible presentation
 
 Native receipt of a nonce alone does not qualify presentation. Each target in a

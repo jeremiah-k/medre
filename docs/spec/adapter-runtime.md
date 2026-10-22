@@ -73,8 +73,8 @@ Scheduling and reported adapter IDs MUST use stable identifier order; connection
 completion order is not guaranteed. Each successful start receives one initial
 health probe with a one-second async budget. A degraded, unknown, failed or
 unavailable health response MUST NOT be reported as healthy merely because
-start() returned; the started instance remains degraded and keeps its routes. Normal shutdown uses reverse identifier
-order, independent of connection timing.
+start() returned; the started instance remains degraded and keeps its routes.
+Normal shutdown uses reverse identifier order, independent of connection timing.
 
 The adapter **MUST**:
 
@@ -88,8 +88,9 @@ The runtime does not impose a transport-blind deadline on `start()`. The adapter
 MUST bound its native connection attempts and SHOULD move blocking SDK
 construction off the asyncio event loop where the SDK supports that threading
 model. SDK initialization that owns process-global signal handlers requires
-explicit thread-affinity qualification; task scheduling does not preempt it. Where its transport profile supports owned recovery, it
-MAY return started and degraded while retaining one pending attempt or capped
+explicit thread-affinity qualification; task scheduling does not preempt it.
+Where its transport profile supports owned recovery, it MAY return started and
+degraded while retaining one pending attempt or capped
 retries; otherwise it MUST fail startup. Invalid configuration and missing
 dependencies remain startup failures.
 
@@ -98,8 +99,13 @@ adapter starts. Parent cancellation MUST settle all startup tasks before rolling
 back partially started and ready adapters, the pipeline and storage.
 A concurrent `stop()` while startup remains STARTING MUST reject teardown:
 the caller MUST cancel and await the `start()` task's owned rollback first.
-A child that cancels its own start MUST NOT be counted as ready. Unexpected orchestration
-failure MUST raise RuntimeStartupError after rollback, retaining grouped causes.
+Cancellation or failure during core preparation MUST also retire partial storage
+and pipeline resources before startup returns. The CLI MUST await its owned
+startup task's rollback when interrupted and MUST NOT independently repeat that
+teardown. Repeated caller cancellation MUST NOT detach the startup task.
+A child that cancels its own start MUST NOT be counted as ready. Unexpected
+orchestration failure MUST raise RuntimeStartupError after rollback, retaining
+grouped causes.
 Structured task ownership cannot preempt synchronous code or forcibly terminate
 native SDK threads; providers MUST cooperate with cancellation.
 

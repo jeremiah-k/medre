@@ -12,3 +12,7 @@ Callers cancel and await the startup task for coordinated rollback.
 
 Preserve cancellation requests drained during orchestration-error rollback,
 so an external shutdown cannot be silently replaced by a startup exception.
+
+Retire partial core resources when preparation is cancelled or fails. Keep CLI
+startup cancellation attached to the startup owner's rollback, including repeated
+cancellation, without a second independent teardown.

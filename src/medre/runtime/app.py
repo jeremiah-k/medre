@@ -716,7 +716,8 @@ class MedreApp:
 
         Order: storage → pipeline runner → adapters.
 
-        Adapters are started in deterministic order (sorted by adapter_id).
+        Adapter tasks are scheduled in deterministic identifier order and
+        progress concurrently after core preparation.
         Note: this differs from build order, which sorts by
         ``(transport, adapter_id)`` — see
         :mod:`~medre.runtime.builder` for details.
@@ -752,7 +753,8 @@ class MedreApp:
         * **Partial adapter startup** → allowed; runtime enters ``RUNNING``
           with ``DEGRADED`` health.  Callers should inspect
           :attr:`boot_summary` for details.
-        * **All adapters started** → ``RUNNING`` with ``HEALTHY`` health.
+        * **All adapters started** → ``RUNNING``; native health determines
+          whether runtime health is ``HEALTHY`` or ``DEGRADED``.
 
         Raises
         ------
@@ -783,147 +785,29 @@ class MedreApp:
         # Generate recovery run ID for this startup cycle.
         self._recovery_run_id = uuid.uuid4().hex
 
-        # 0. Create required directories.
-        self._ensure_dirs()
-
-        # 1. Initialise storage.
-        if self.storage is not None:
-            try:
-                await self.storage.initialize()
-                self._storage_initialized = True
-                _logger.debug("Storage initialised")
-            except Exception as exc:
-                self._set_state(RuntimeState.FAILED)
-                from medre.core.storage.backend import PreReleaseSchemaMismatchError
-
-                if isinstance(exc, PreReleaseSchemaMismatchError):
-                    path_hint = ""
-                else:
-                    db_path = getattr(self.storage, "_db_path", None)
-                    path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
-                raise RuntimeStartupError(
-                    f"Failed to initialise storage: {exc}{path_hint}"
-                ) from exc
-
-        # 1.1 Assemble the attachment transfer seam: generic policy
-        #     snapshot, runtime-wide bounded transfer permits, and
-        #     association-scoped retained-content access.  Absent (None on
-        #     AdapterContext) unless the attachments section is explicitly
-        #     enabled AND durable storage is present.
-        self._assemble_attachment_seam()
-
-        # 1.25 Rebuild derived conversation membership before any worker or
-        #      adapter can consume stale pre-crash projection state.  Canonical
-        #      events remain immutable; this is a deterministic current-state
-        #      projection repair.
-        if self.storage is not None:
-            try:
-                summary = await self.pipeline_runner.rebuild_conversation_projection()
-                if summary.skipped_current:
-                    _logger.info("Conversation projection is already current")
-                else:
-                    _logger.info(
-                        "Conversation projection rebuilt: scanned=%d changed=%d",
-                        summary.scanned_events,
-                        summary.changed_events,
-                    )
-            except asyncio.CancelledError:
-                try:
-                    await self._cleanup_storage_safely()
-                finally:
-                    self._set_state(RuntimeState.FAILED)
-                raise
-            except Exception as exc:
-                await self._cleanup_storage_safely()
-                self._set_state(RuntimeState.FAILED)
-                raise RuntimeStartupError(
-                    f"Failed to rebuild conversation projection: {exc}"
-                ) from exc
-
-        # 1.5 Seed outbox counts from storage so snapshot has data before
-        #     the first retry-worker cycle populates the worker cache.
-        if self.storage is not None:
-            try:
-                self._outbox_state = await self.storage.count_outbox_by_status()
-                self._outbox_storage_authoritative = True
-            except Exception:
-                _logger.debug("Failed to seed outbox state from storage", exc_info=True)
-
-        # 2. Start the pipeline runner.
         try:
-            await self.pipeline_runner.start()
-            _logger.debug("Pipeline runner started")
+            await self._prepare_startup(scope)
+        except asyncio.CancelledError:
+            cleared = _drain_pending_cancellations()
+            cleared += await self._start_failure_cleanup()
+            current = asyncio.current_task()
+            if current is not None:
+                for _ in range(cleared):
+                    current.cancel()
+            raise
         except Exception as exc:
-            # Storage was already initialised; clean it up before raising.
-            await self._cleanup_storage_safely()
-            self._set_state(RuntimeState.FAILED)
-            raise RuntimeStartupError(
-                f"Failed to start pipeline runner: {exc}"
-            ) from exc
-
-        # 2.25. Construct the durable ingress worker, but defer processing
-        #        until adapter startup is complete. Cursor-owned adapters may
-        #        admit work during startup; the rows remain durable until all
-        #        available delivery targets have had a chance to start.
-        #        REPLAY scope does not construct the worker: admitted rows
-        #        stay pending for the live authority (nothing is lost).
-        if self.storage is not None and scope is StartupScope.LIVE:
-            from medre.core.ingress import DurableIngressWorker
-
-            self._ingress_worker = DurableIngressWorker(
-                storage=self.storage,
-                pipeline=self.pipeline_runner,
-            )
-
-        # 2.5. Start the retry worker (if enabled). REPLAY scope never
-        #        starts it: a replay execution must not claim due
-        #        pending/retry_wait rows belonging to unrelated work.
-        if (
-            scope is StartupScope.LIVE
-            and not self.config.retry.enabled
-            and self.config.routes.routes
-        ):
-            stale = [
-                r.route_id
-                for r in self.config.routes.routes
-                if r.retry is not None and r.retry.enabled
-            ]
-            if stale:
-                shown = ", ".join(stale[:_ROUTE_IDS_DISPLAY_LIMIT])
-                extra = len(stale) - _ROUTE_IDS_DISPLAY_LIMIT
-                suffix = f", and {extra} more" if extra > 0 else ""
-                _logger.warning(
-                    "global retry worker disabled; per-route retry policies "
-                    "for [%s%s] will not be processed",
-                    shown,
-                    suffix,
-                )
-        if (
-            scope is StartupScope.LIVE
-            and self.config.retry.enabled
-            and self.storage is not None
-        ):
-            from medre.runtime.retry import RetryWorker as _RW
-
-            self._retry_worker = _RW(
-                storage=self.storage,
-                pipeline=self.pipeline_runner,
-                capacity_controller=self._capacity_controller,
-                retry_config=self.config.retry,
-                event_buffer=self._event_buffer,
-                lifecycle=self.pipeline_runner.delivery_lifecycle,
-                stop_timeout_seconds=float(
-                    self.config.runtime.shutdown_timeout_seconds
-                ),
-            )
-            # Activation is deferred to the post-adapter boundary below:
-            # the worker's first claim cycle must not run while adapters
-            # are still STARTING.  Real adapters refuse delivery until
-            # started (``AdapterPermanentError("Adapter not started")``),
-            # so a cycle dispatched during startup would consume an
-            # attempt — permanently classifying/dead-lettering durable
-            # work — purely from ordering, not from any real transport
-            # failure.
+            cleanup_drained = await self._start_failure_cleanup()
+            if cleanup_drained:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(cleanup_drained):
+                        current.cancel()
+                raise asyncio.CancelledError(
+                    "cancelled during core startup preparation cleanup"
+                ) from exc
+            if isinstance(exc, RuntimeStartupError):
+                raise
+            raise RuntimeStartupError("Failed to prepare runtime startup") from exc
 
         # 3. Schedule independent adapters in deterministic order.
         #    Native setup progresses concurrently; activation waits for all
@@ -1280,6 +1164,143 @@ class MedreApp:
                         "reason": ur.reason,
                     },
                 )
+
+    async def _prepare_startup(self, scope: StartupScope) -> None:
+        """Prepare core dependencies under start()'s rollback ownership.
+
+        Partial storage and pipeline initialization can allocate resources before
+        an await is cancelled. The caller retires them on every preparation
+        failure, before any adapter receives its context.
+        """
+        # 0. Create required directories.
+        self._ensure_dirs()
+
+        # 1. Initialise storage.
+        if self.storage is not None:
+            try:
+                await self.storage.initialize()
+                self._storage_initialized = True
+                _logger.debug("Storage initialised")
+            except Exception as exc:
+                from medre.core.storage.backend import PreReleaseSchemaMismatchError
+
+                if isinstance(exc, PreReleaseSchemaMismatchError):
+                    path_hint = ""
+                else:
+                    db_path = getattr(self.storage, "_db_path", None)
+                    path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
+                raise RuntimeStartupError(
+                    f"Failed to initialise storage: {exc}{path_hint}"
+                ) from exc
+
+        # 1.1 Assemble the attachment transfer seam: generic policy
+        #     snapshot, runtime-wide bounded transfer permits, and
+        #     association-scoped retained-content access.  Absent (None on
+        #     AdapterContext) unless the attachments section is explicitly
+        #     enabled AND durable storage is present.
+        self._assemble_attachment_seam()
+
+        # 1.25 Rebuild derived conversation membership before any worker or
+        #      adapter can consume stale pre-crash projection state.  Canonical
+        #      events remain immutable; this is a deterministic current-state
+        #      projection repair.
+        if self.storage is not None:
+            try:
+                summary = await self.pipeline_runner.rebuild_conversation_projection()
+                if summary.skipped_current:
+                    _logger.info("Conversation projection is already current")
+                else:
+                    _logger.info(
+                        "Conversation projection rebuilt: scanned=%d changed=%d",
+                        summary.scanned_events,
+                        summary.changed_events,
+                    )
+            except Exception as exc:
+                raise RuntimeStartupError(
+                    f"Failed to rebuild conversation projection: {exc}"
+                ) from exc
+
+        # 1.5 Seed outbox counts from storage so snapshot has data before
+        #     the first retry-worker cycle populates the worker cache.
+        if self.storage is not None:
+            try:
+                self._outbox_state = await self.storage.count_outbox_by_status()
+                self._outbox_storage_authoritative = True
+            except Exception:
+                _logger.debug("Failed to seed outbox state from storage", exc_info=True)
+
+        # 2. Start the pipeline runner.
+        try:
+            await self.pipeline_runner.start()
+            _logger.debug("Pipeline runner started")
+        except Exception as exc:
+            raise RuntimeStartupError(
+                f"Failed to start pipeline runner: {exc}"
+            ) from exc
+
+        # 2.25. Construct the durable ingress worker, but defer processing
+        #        until adapter startup is complete. Cursor-owned adapters may
+        #        admit work during startup; the rows remain durable until all
+        #        available delivery targets have had a chance to start.
+        #        REPLAY scope does not construct the worker: admitted rows
+        #        stay pending for the live authority (nothing is lost).
+        if self.storage is not None and scope is StartupScope.LIVE:
+            from medre.core.ingress import DurableIngressWorker
+
+            self._ingress_worker = DurableIngressWorker(
+                storage=self.storage,
+                pipeline=self.pipeline_runner,
+            )
+
+        # 2.5. Construct the retry worker (if enabled). REPLAY scope never
+        #        constructs it: a replay execution must not claim due
+        #        pending/retry_wait rows belonging to unrelated work.
+        if (
+            scope is StartupScope.LIVE
+            and not self.config.retry.enabled
+            and self.config.routes.routes
+        ):
+            stale = [
+                r.route_id
+                for r in self.config.routes.routes
+                if r.retry is not None and r.retry.enabled
+            ]
+            if stale:
+                shown = ", ".join(stale[:_ROUTE_IDS_DISPLAY_LIMIT])
+                extra = len(stale) - _ROUTE_IDS_DISPLAY_LIMIT
+                suffix = f", and {extra} more" if extra > 0 else ""
+                _logger.warning(
+                    "global retry worker disabled; per-route retry policies "
+                    "for [%s%s] will not be processed",
+                    shown,
+                    suffix,
+                )
+        if (
+            scope is StartupScope.LIVE
+            and self.config.retry.enabled
+            and self.storage is not None
+        ):
+            from medre.runtime.retry import RetryWorker as _RW
+
+            self._retry_worker = _RW(
+                storage=self.storage,
+                pipeline=self.pipeline_runner,
+                capacity_controller=self._capacity_controller,
+                retry_config=self.config.retry,
+                event_buffer=self._event_buffer,
+                lifecycle=self.pipeline_runner.delivery_lifecycle,
+                stop_timeout_seconds=float(
+                    self.config.runtime.shutdown_timeout_seconds
+                ),
+            )
+            # Activation is deferred to the post-adapter boundary below:
+            # the worker's first claim cycle must not run while adapters
+            # are still STARTING.  Real adapters refuse delivery until
+            # started (``AdapterPermanentError("Adapter not started")``),
+            # so a cycle dispatched during startup would consume an
+            # attempt — permanently classifying/dead-lettering durable
+            # work — purely from ordering, not from any real transport
+            # failure.
 
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.
