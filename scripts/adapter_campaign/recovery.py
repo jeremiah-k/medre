@@ -20,8 +20,8 @@ from .plan import Plan, load_plan
 from .process import Peer
 from .recovery_evidence import (
     native_deliveries,
-    verify_native_history,
     verify_identity,
+    verify_native_history,
     verify_preserved,
     verify_terminal,
 )

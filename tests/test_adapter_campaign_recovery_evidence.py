@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,8 +11,8 @@ import pytest
 from scripts.adapter_campaign import recovery
 from scripts.adapter_campaign.recovery_evidence import (
     native_deliveries,
-    verify_native_history,
     verify_identity,
+    verify_native_history,
     verify_preserved,
     verify_terminal,
 )

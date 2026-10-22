@@ -36,13 +36,13 @@ configuration and Bluetooth services are outside the fault controls.
 
 ## Scenario contracts
 
-| Scenario | Fault and required evidence |
-| --- | --- |
-| Before handoff | Kill after the outbox claim but before invoking the native adapter. No native receipt precedes the crash. A fresh runtime reclaims the same work after normal lease expiry and delivers through attempt 2. |
-| After handoff | Observe the native message, then kill before the adapter returns its handoff result to core. Recovery retains the same event/outbox identity. One or two native deliveries are accepted and counted explicitly; uncertainty is retained. |
-| Completed delivery | Observe both native receipt and terminal durable evidence, kill, and restart. The event, receipt history, and terminal work remain unchanged; the observer sees one delivery. |
-| Transient outage | Interrupt only the destination connection, establish degraded health, and send from Matrix. Restore connectivity after a failed attempt. The same durable work reaches sent through a bounded retry. |
-| Exhausted retries | Hold the destination down through all three configured attempts. Require dead-letter evidence without a fourth attempt. Restore connectivity and deliver a fresh canary; exhausted work remains terminal and undelivered. |
+| Scenario           | Fault and required evidence                                                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Before handoff     | Kill after the outbox claim but before invoking the native adapter. No native receipt precedes the crash. A fresh runtime reclaims the same work after normal lease expiry and delivers through attempt 2.                               |
+| After handoff      | Observe the native message, then kill before the adapter returns its handoff result to core. Recovery retains the same event/outbox identity. One or two native deliveries are accepted and counted explicitly; uncertainty is retained. |
+| Completed delivery | Observe both native receipt and terminal durable evidence, kill, and restart. The event, receipt history, and terminal work remain unchanged; the observer sees one delivery.                                                            |
+| Transient outage   | Interrupt only the destination connection, establish degraded health, and send from Matrix. Restore connectivity after a failed attempt. The same durable work reaches sent through a bounded retry.                                     |
+| Exhausted retries  | Hold the destination down through all three configured attempts. Require dead-letter evidence without a fourth attempt. Restore connectivity and deliver a fresh canary; exhausted work remains terminal and undelivered.                |
 
 The campaign enables the ordinary retry worker and configures three attempts,
 ten-second base backoff, twenty-second maximum backoff, and no jitter. This

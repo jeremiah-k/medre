@@ -7,8 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .control import command
 from .budgets import NATIVE_STAGES, NESTED_STAGE_SECONDS, stage_timeout
+from .control import command
 from .hardware import inspect_hardware
 from .sources import write_json
 

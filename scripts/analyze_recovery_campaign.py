@@ -9,14 +9,13 @@ import math
 import re
 from pathlib import Path
 
-from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.config.identifiers import adapter_id_problem
-
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from scripts.adapter_campaign.recovery import SCENARIOS, read_event
 from scripts.adapter_campaign.recovery_evidence import (
     native_deliveries,
-    verify_native_history,
     verify_identity,
+    verify_native_history,
     verify_preserved,
     verify_terminal,
 )
