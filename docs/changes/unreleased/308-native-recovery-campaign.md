@@ -1,3 +1,5 @@
+# Qualify native crash and transport recovery
+
 - Add a reusable native Matrix-to-XMPP recovery campaign covering process death
   before and after handoff, restart after completed delivery, destination outage,
   and bounded retry exhaustion with a post-recovery canary.
