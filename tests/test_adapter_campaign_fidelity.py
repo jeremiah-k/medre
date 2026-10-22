@@ -327,11 +327,12 @@ def test_analyzer_failure_summary_does_not_expose_private_input(tmp_path, capsys
     assert json.loads(output)["status"] == "failed"
 
 
-def test_fidelity_logs_require_both_runtime_generations(tmp_path):
+@pytest.mark.parametrize("campaign", ["fidelity", "presentation"])
+def test_fidelity_logs_require_both_runtime_generations(tmp_path, campaign):
     from scripts.adapter_campaign.lab.log_review import review
 
     (tmp_path / "logs").mkdir()
-    run = tmp_path / "results/fidelity-123"
+    run = tmp_path / ("results/" + campaign + "-123")
     run.mkdir(parents=True)
     (run / "runtime-0.jsonl").write_text("{}\n")
     (run / "runtime-0.stdout").write_text("2026-10-22T01:00:00Z [INFO] medre: ready\n")
@@ -340,7 +341,7 @@ def test_fidelity_logs_require_both_runtime_generations(tmp_path):
         review(tmp_path)
     report = json.loads((tmp_path / "results/log-review.json").read_text())
     assert report["expected_generations"] == 2
-    assert report["missing_controls"] == ["results/fidelity-123/runtime-1.jsonl"]
+    assert report["missing_controls"] == [f"results/{campaign}-123/runtime-1.jsonl"]
 
 
 async def test_restart_does_not_consume_the_native_reply_deadline(

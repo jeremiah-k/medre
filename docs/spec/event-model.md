@@ -118,7 +118,10 @@ The constructor enforces the following invariants. Violations raise `ValueError`
 ### 1.5 Text presentation
 
 Message payloads MAY carry optional `formatting` alongside their authoritative
-plain `body`. The [styled-text schema](../schemas/styled-text.schema.json) defines
+plain `body`. When `formatting` is present, text-only renderers and relation
+fallbacks MUST select that `body` rather than an inconsistent legacy `text`
+alias; events without `formatting` retain their existing alias compatibility.
+The [styled-text schema](../schemas/styled-text.schema.json) defines
 version 1: a closed array of typed spans with half-open Unicode code-point ranges
 `[start, end)`. Offsets MUST NOT use encoded-byte or UTF-16 code-unit positions.
 Styles are `strong`, `emphasis`, `strike`, `code`, `pre`, `quote`, and `link`.

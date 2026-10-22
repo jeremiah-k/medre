@@ -53,7 +53,7 @@ def receiver(settings: dict):
     return received
 
 
-async def commands(send, synchronize=None, *, reply=None) -> None:
+async def commands(send, synchronize=None, *, reply=None, styled=None) -> None:
     while line := await asyncio.to_thread(sys.stdin.readline):
         command = json.loads(line)
         if command["op"] == "stop":
@@ -63,7 +63,9 @@ async def commands(send, synchronize=None, *, reply=None) -> None:
                 await synchronize()
             emit("sent", command=command["id"], native_id="")
             continue
-        if command["op"] == "reply" and reply is not None:
+        if command["op"] == "styled" and styled is not None:
+            native_id = await styled(command["text"], command["presentation"])
+        elif command["op"] == "reply" and reply is not None:
             native_id = await reply(command["text"], command["target"])
         elif command["op"] == "send":
             native_id = await send(command["text"])

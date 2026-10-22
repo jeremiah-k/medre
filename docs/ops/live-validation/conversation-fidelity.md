@@ -48,7 +48,7 @@ relations, committed receipt pointers, exact outbound native references,
 duplicate counts, and cleanup.
 
 Native reply support does not imply threaded-conversation support. The campaign
-does not qualify edits, reactions, rich styling, ephemeral typing, attachments,
+does not qualify edits, reactions, ephemeral typing, attachments,
 encrypted-room traffic, or arbitrary message-history recovery. Cross-room and
 malformed-reference refusals also have deterministic adapter regressions.
 
@@ -85,3 +85,39 @@ an error type without raw exception or message text.
 The opt-in pytest entry point is `tests/test_native_fidelity_campaign_live.py`.
 Set `MEDRE_FIDELITY_CAMPAIGN` and optionally `MEDRE_FIDELITY_OUTPUT`, then select
 that file with `-m live`. Ordinary CI runs the offline controls and oracles.
+
+
+## Semantic presentation
+
+Use `--stage presentation` in the Docker lab to run the ten reply/restart cases
+plus six independent presentation cases. This stage is opt-in; grouped `native`
+and `all` retain the baseline conversation tier. Qualify OAuth and provision the
+native accounts first. Select the candidate Matrix and XMPP providers in the
+private development profile; do not change committed compatibility pins.
+
+```console
+python -m scripts.adapter_campaign.lab test --directory "$lab_dir" --stage presentation
+```
+
+For a standalone fixture, preview or run with `--presentation`:
+
+```console
+python -m scripts.adapter_campaign.fidelity --config /private/bench/campaign.yaml --presentation
+python -m scripts.adapter_campaign.fidelity \
+  --config /private/bench/campaign.yaml --presentation \
+  --output /private/bench/presentation-001 --run
+python -m scripts.analyze_fidelity_campaign /private/bench/presentation-001
+```
+
+Matrix sends strong text, an unsafe HTML link, and a Unicode link. XMPP sends
+strong text, opaque code, and an explicit unstyled body. The campaign checks
+canonical span offsets, source HTML/control observations, exact recipient text,
+Matrix semantic tags and attribution scope, and the actual XMPP unstyled XML
+control. Expected values come from fixed fixture cases, independently of the
+provider conversions and the outbox. Presentation reports use version 2; the
+offline analyzer also accepts complete version-1 baseline evidence.
+
+The opt-in pytest entry uses `MEDRE_PRESENTATION_CAMPAIGN` and optionally
+`MEDRE_PRESENTATION_OUTPUT`. Run the same live test file with `-m live`.
+This tier does not establish encrypted-message, attachment, or arbitrary rich
+content support; unsupported styles must retain readable plain text.

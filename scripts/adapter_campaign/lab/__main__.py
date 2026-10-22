@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["all", "native", "contracts", *NATIVE_STAGES],
+        choices=["all", "native", "contracts", "presentation", *NATIVE_STAGES],
     )
     args = parser.parse_args(argv)
     os.umask(0o077)

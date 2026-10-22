@@ -92,6 +92,7 @@ Individual stages support investigation without repeating every check:
 | `provision`  | Independent native accounts and conversations, secure Chatmail group joining, local SimpleX group joining, LXMF identities, and read-only hardware outcomes. |
 | `campaign`   | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
 | `resilience` | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                        |
+| `presentation` | Opt-in reply/restart campaign plus Matrix/XMPP semantic formatting, unsafe-link fallback, opaque code, and native unstyled controls. |
 | `fidelity`   | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart. |
 | `mmrelay`    | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
 | `recovery`   | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                  |
@@ -104,7 +105,7 @@ MMRelay's RF tier as `not_configured`; its OAuth and recovery tiers still run.
 qualification.
 
 OAuth setup is required before provisioning the campaign's Matrix room. Provision
-before `campaign`, `resilience`, `fidelity`, or `mmrelay`. Run radio campaigns sequentially.
+before `campaign`, `resilience`, `fidelity`, `presentation`, or `mmrelay`. Run radio campaigns sequentially.
 The `all` stage does this ordering and retains failures while continuing
 independent checks.
 Initial MMRelay signing uses its explicit reset authorization only once in a fresh
@@ -186,8 +187,8 @@ The [native recovery campaign](recovery-campaign.md) qualifies process death and
 destination outages separately from the text fanout and OAuth recovery tiers.
 The [conversation fidelity campaign](conversation-fidelity.md) qualifies native
 replies, sender attribution, and parent correlation in both directions, including
-after restart. Extend it for formatting and other relations with independent
-native expectations. Use each protocol's standard extensions and keep
+after restart. Its opt-in presentation stage checks semantic formatting with
+independent native expectations. Use each protocol's standard extensions and keep
 platform-specific details in the adapter-owned metadata namespace. Published
 Matrix metadata is useful evidence; its presence alone does not prove that the
 equivalent XMPP semantics survived the bridge.

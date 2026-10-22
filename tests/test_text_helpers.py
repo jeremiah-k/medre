@@ -74,6 +74,38 @@ def _rel(
     )
 
 
+def test_styled_plain_body_remains_authoritative_in_relation_fallback() -> None:
+    payload = {
+        "body": "correct 🦉",
+        "text": "stale compatibility alias",
+        "formatting": {
+            "version": 1,
+            "spans": [{"start": 0, "end": 7, "style": "strong"}],
+        },
+    }
+    for relations, expected in (
+        ((), "correct 🦉"),
+        ((_rel("reply", fallback_text="parent"),), "[replying to: parent] correct 🦉"),
+        ((_rel("edit", fallback_text="parent"),), "[edited] correct 🦉"),
+        ((_rel("thread", fallback_text="parent"),), "[thread: parent] correct 🦉"),
+    ):
+        assert (
+            extract_relation_text(_evt(payload=payload, relations=relations))
+            == expected
+        )
+    assert (
+        extract_relation_text(
+            _evt(event_kind=EventKind.MESSAGE_EDITED, payload=payload)
+        )
+        == "[edited] correct 🦉"
+    )
+    # A pre-presentation legacy event still uses its established text alias.
+    assert (
+        extract_relation_text(_evt(payload={"body": "body", "text": "alias"}))
+        == "alias"
+    )
+
+
 # ===================================================================
 # _resolve_target_display (lines 25-35)
 # ===================================================================

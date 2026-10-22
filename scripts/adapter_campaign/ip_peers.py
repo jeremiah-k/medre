@@ -73,10 +73,14 @@ async def matrix(settings: dict) -> None:
                             ),
                         )
 
-        async def send(text, target=None):
+        async def send(text, target=None, presentation=None):
             content = {"msgtype": "m.text", "body": text}
             if target is not None:
                 content["m.relates_to"] = {"m.in_reply_to": {"event_id": target}}
+            if presentation is not None and "html" in presentation:
+                content.update(
+                    format="org.matrix.custom.html", formatted_body=presentation["html"]
+                )
             result = await request(
                 "PUT",
                 f"rooms/{quote(channel, safe='')}/send/m.room.message/{uuid4().hex}",
@@ -87,7 +91,11 @@ async def matrix(settings: dict) -> None:
         async with asyncio.TaskGroup() as tasks:
             collector = tasks.create_task(collect())
             emit("ready", identity=identity)
-            await commands(send, reply=send)
+
+            async def styled(text, presentation):
+                return await send(text, presentation=presentation)
+
+            await commands(send, reply=send, styled=styled)
             collector.cancel()
 
 
@@ -138,6 +146,8 @@ async def xmpp(settings: dict) -> None:
                 channel=room,
                 native_id=str(stanza["id"]),
                 native_details={
+                    "unstyled": stanza.xml.find("{urn:xmpp:styling:0}unstyled")
+                    is not None,
                     "origin_id": origins[0].get("id") if len(origins) == 1 else None,
                     "room_stanza_id": (
                         next(iter(ids)) if trusted_room and len(ids) == 1 else None
@@ -163,18 +173,23 @@ async def xmpp(settings: dict) -> None:
         await asyncio.wait_for(asyncio.shield(ready), 30)
         emit("ready", identity=f"{room}/{peer['nickname']}")
 
-        async def send(text, target=None):
+        async def send(text, target=None, presentation=None):
             stanza = client.make_message(mto=room, mtype="groupchat", mbody=text)
             SubElement(
                 stanza.xml, "{urn:xmpp:sid:0}origin-id", {"id": str(stanza["id"])}
             )
             if target is not None:
                 SubElement(stanza.xml, "{urn:xmpp:reply:0}reply", {"id": target})
+            if presentation is not None and presentation.get("unstyled") is True:
+                SubElement(stanza.xml, "{urn:xmpp:styling:0}unstyled")
             stanza.send()
             return str(stanza["id"])
 
+        async def styled(text, presentation):
+            return await send(text, presentation=presentation)
+
         async with asyncio.TaskGroup() as tasks:
-            command_task = tasks.create_task(commands(send, reply=send))
+            command_task = tasks.create_task(commands(send, reply=send, styled=styled))
             closed = tasks.create_task(disconnected.wait())
             done, _ = await asyncio.wait(
                 [command_task, closed], return_when=asyncio.FIRST_COMPLETED

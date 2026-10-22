@@ -10,11 +10,14 @@ from ..plan import load_plan
 from .sources import write_json
 
 
-async def run(root: Path) -> None:
+async def run(root: Path, *, presentation: bool = False) -> None:
     from scripts.analyze_fidelity_campaign import analyze
     from .resilience import fixture
 
-    config = fixture(root, "fidelity")
-    output = root / "results" / ("fidelity-" + str(time.time_ns()))
-    await campaign(load_plan(config, only={"matrix", "xmpp"}), output)
+    name = "presentation" if presentation else "fidelity"
+    config = fixture(root, name)
+    output = root / "results" / (name + "-" + str(time.time_ns()))
+    await campaign(
+        load_plan(config, only={"matrix", "xmpp"}), output, presentation=presentation
+    )
     write_json(output / "analysis.json", await analyze(output))

@@ -90,7 +90,7 @@ def runtime_streams(root: Path, run: Path, generations: set[Path]) -> list[Path]
 
 
 def review(root: Path) -> None:
-    """Audit the latest native, MMRelay, recovery, and fidelity runtime logs.
+    """Audit the latest native, MMRelay, recovery, and conversation runtime logs.
 
     Write counts and line numbers to results/log-review.json without raw log
     text. Raise ValueError if no runtime evidence is selected or recovery
@@ -127,18 +127,23 @@ def review(root: Path) -> None:
             for name in runtime_generations(scenario)
         }
         files.extend(runtime_streams(root, recovery[-1], generations))
-    fidelity = sorted(
-        (path for path in (root / "results").glob("fidelity-*") if path.is_dir()),
-        key=lambda path: path.stat().st_mtime,
-    )
-    if fidelity:
-        files.extend(
-            runtime_streams(
-                root,
-                fidelity[-1],
-                {fidelity[-1] / name for name in ("runtime-0", "runtime-1")},
-            )
+    for campaign in ("fidelity", "presentation"):
+        runs = sorted(
+            (
+                path
+                for path in (root / "results").glob(campaign + "-*")
+                if path.is_dir()
+            ),
+            key=lambda path: path.stat().st_mtime,
         )
+        if runs:
+            files.extend(
+                runtime_streams(
+                    root,
+                    runs[-1],
+                    {runs[-1] / name for name in ("runtime-0", "runtime-1")},
+                )
+            )
     if not files:
         raise ValueError("No runtime log evidence exists")
     results = {

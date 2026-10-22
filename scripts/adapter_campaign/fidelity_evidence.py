@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .recovery_evidence import verify_terminal
 from .run import _VisibleText
+from .presentation import example as presentation_example, verify as verify_presentation
 
 
 def message_body(record: dict, transport: str) -> str:
@@ -90,7 +91,10 @@ def verify_case(
         assert (
             "".join(parser.parts) == delivered["text"]
         ), "Matrix HTML and plain text differ"
-    expected = dst["prefixes"][source] + case["text"]
+    styled = presentation_example(case["name"], case["marker"])
+    expected = dst["prefixes"][source] + (
+        styled["target_text"] if styled else case["text"]
+    )
     if case["mode"] == "missing":
         assert (
             body.startswith(dst["prefixes"][source])
@@ -171,6 +175,9 @@ def verify_case(
         assert (
             not event["relations"] and delivered["native_details"]["reply_to"] is None
         )
+    verify_presentation(
+        case, event["payload"], sent, delivered, dst["prefixes"][source]
+    )
     return {
         "source_id": native_id(sent, src["transport"]),
         "target_id": native_id(delivered, dst["transport"]),
