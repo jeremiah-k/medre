@@ -198,16 +198,16 @@ class TypingRelay:
                     continue
             deadline = self._pool.next_deadline
             # Recheck grants at least once per second while activity exists.
+            # asyncio.timeout (not wait_for) keeps an external task cancel
+            # from being swallowed on Python 3.11's wait_for cancellation path.
             delay = (
                 None
                 if deadline is None
                 else min(1.0, max(0.0, deadline - time.monotonic()))
             )
             try:
-                if delay is None:
+                async with asyncio.timeout(delay):
                     await self._changed.wait()
-                else:
-                    await asyncio.wait_for(self._changed.wait(), delay)
             except TimeoutError:
                 pass
 
