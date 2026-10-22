@@ -25,7 +25,7 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `channel_mapping`                   | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
 | `message_delay_seconds`             | `float`                                | `2.2`                | Minimum seconds between outbound messages                         |
 | `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
-| `sync_timeout_ms`                   | `int`                                  | `30000`              | Sync operation timeout                                            |
+| `sync_timeout_ms`                   | `int`                                  | `30000`              | Initial wait budget and SDK phase timeout in milliseconds         |
 | `radio_relay_prefix`                | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
 | `mmrelay_compatibility`             | `bool`                                 | `False`              | Embed mmrelay-compatible mesh metadata in Matrix events           |
 | `max_text_bytes`                    | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
@@ -337,13 +337,31 @@ implementation authority.
 ## Session Lifecycle
 
 1. **Disconnected** — Initial state; `_client=None`.
-2. **Connecting** — `session.start()` creates SDK client (TCP/Serial/BLE interface), subscribes to `meshtastic.receive` pubsub callback.
+2. **Connecting** — `session.start()` constructs the SDK client off-loop and
+   waits at most sync_timeout_ms (default 30000) for the initial attempt.
+   The same positive integer supplies SDK phase timeouts. A connected client
+   subscribes to the `meshtastic.receive` pubsub callback.
 3. **Connected** — Client created and subscribed; inbound packets flow via
    `_on_receive` → `_on_packet`. When the SDK exposes `isConnected.is_set()`, that
    live SDK state is authoritative for the session's `connected` property.
 4. **Supervising (TCP only)** — after startup, a background task periodically issues a bounded local-device metadata request through mtjk. The probe uses mtjk's `Node._send_admin` seam rather than raw `MeshInterface.sendData`, preserving mtjk ownership of admin-channel selection, PKI encryption, session-passkey attachment, and response matching. Cached node state and `isConnected` alone are not accepted as proof that a half-open TCP path is alive. Probe callbacks are connection-generation guarded, and timed-out mtjk response handlers are retired explicitly.
 5. **Reconnecting** — `notify_connection_lost()` triggers exponential backoff using `reconnect_backoff_initial_seconds` and `reconnect_backoff_max_seconds` with ±25 % jitter. MEDRE recreates the complete mtjk client until recovery succeeds or adapter shutdown begins; there is no finite session-level attempt ceiling. This policy sits above mtjk's own low-level transport recovery rather than replacing it. A health check that observes `isConnected` cleared enters the same boundary as a backup for a missed pubsub disconnect callback.
 6. **Stopped** — `stop()` sets `_stop_requested`, cancels liveness and reconnect tasks, unsubscribes pubsub, then closes the client. Idempotent.
+
+**Offline startup:** Initial transport failure or expiry of the async wait MUST
+leave the adapter started and degraded with recovery active, preserving routes
+while other adapters proceed. Expiry MUST retain the same pending constructor;
+it MUST NOT launch a competing connection. Once that attempt fails, capped
+lifetime retries apply. Configuration and dependency failures remain startup
+failures. Live health MUST reflect disconnection and later recovery without a
+runtime restart.
+
+Cancellation and shutdown MUST dispose late or completed-but-unadopted clients
+and retrieve late constructor errors. Python cannot forcibly stop blocking SDK
+threads: the async deadline bounds startup waiting, while native phase limits
+bound ordinary SDK calls. A dependency ignoring those limits can delay process
+teardown. Startup remains sequential, with a budget per Meshtastic instance.
+Recovery does not establish RF receipt or exactly-once delivery.
 
 **Callback ownership:** Meshtastic pubsub callbacks identify the interface that emitted
 the event. A packet or disconnect callback from an interface replaced by reconnect is
