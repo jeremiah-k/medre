@@ -373,31 +373,6 @@ class TestMedreAppRetryEventWiring:
         )
         assert worker._event_buffer is None
 
-    async def test_medre_app_startup_wires_event_buffer(self, tmp_path) -> None:
-        """A real runtime start hands the app's event buffer to RetryWorker.
-
-        Worker construction lives at the core-preparation boundary, so the
-        wiring is verified on the started runtime rather than by scanning
-        MedreApp.start() source text.
-        """
-        from dataclasses import replace
-
-        from tests.helpers.startup_cleanup import (
-            _build_app,
-            _config_with_one_fake_adapter,
-        )
-        from medre.config.paths import resolve
-
-        config = _config_with_one_fake_adapter()
-        config = replace(config, retry=replace(config.retry, enabled=True))
-        app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
-        await app.start()
-        try:
-            assert app._retry_worker is not None, "retry worker missing at runtime"
-            assert app._retry_worker._event_buffer is app.event_buffer
-        finally:
-            await app.stop()
-
     async def test_full_start_stop_lifecycle_in_buffer(self) -> None:
         """End-to-end: start+stop records both events with correct detail."""
         buf = EventBuffer(clock=_fixed_clock)

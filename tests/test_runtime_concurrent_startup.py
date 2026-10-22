@@ -10,6 +10,7 @@ import pytest
 from tests.helpers.async_utils import wait_until
 from tests.helpers.startup_cleanup import (
     _build_app,
+    _config_with_one_fake_adapter,
     _config_with_two_fake_adapters,
 )
 from medre.config.paths import resolve
@@ -290,3 +291,24 @@ async def test_orchestration_error_preserves_cancellation_drained_by_cleanup(
     assert app.state.value == "failed"
     assert not app.pipeline_runner.running
     assert app.storage._db is None
+
+
+async def test_started_runtime_hands_its_event_buffer_to_the_retry_worker(
+    tmp_path,
+):
+    """Worker construction at the preparation boundary wires the live buffer."""
+    from dataclasses import replace
+
+    from medre.config.model import RetryConfig
+
+    config = replace(
+        _config_with_one_fake_adapter(),
+        retry=replace(RetryConfig(), enabled=True),
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+    await app.start()
+    try:
+        assert app._retry_worker is not None, "retry worker missing at runtime"
+        assert app._retry_worker._event_buffer is app.event_buffer
+    finally:
+        await app.stop()

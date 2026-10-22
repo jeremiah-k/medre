@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from medre.core.storage.sqlite import storage as storage_module
+import medre.core.storage.sqlite.storage as storage_module
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
