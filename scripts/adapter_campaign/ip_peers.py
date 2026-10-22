@@ -9,6 +9,7 @@ import ssl
 import subprocess
 from urllib.parse import quote
 from uuid import uuid4
+from xml.etree.ElementTree import SubElement
 
 from .worker import commands, emit, receiver
 
@@ -61,23 +62,32 @@ async def matrix(settings: dict) -> None:
                             sender=event["sender"],
                             channel=channel,
                             native_id=event["event_id"],
+                            native_details={
+                                "reply_to": event.get("content", {})
+                                .get("m.relates_to", {})
+                                .get("m.in_reply_to", {})
+                                .get("event_id")
+                            },
                             formatted_body=event.get("content", {}).get(
                                 "formatted_body"
                             ),
                         )
 
-        async def send(text):
+        async def send(text, target=None):
+            content = {"msgtype": "m.text", "body": text}
+            if target is not None:
+                content["m.relates_to"] = {"m.in_reply_to": {"event_id": target}}
             result = await request(
                 "PUT",
                 f"rooms/{quote(channel, safe='')}/send/m.room.message/{uuid4().hex}",
-                json={"msgtype": "m.text", "body": text},
+                json=content,
             )
             return result["event_id"]
 
         async with asyncio.TaskGroup() as tasks:
             collector = tasks.create_task(collect())
             emit("ready", identity=identity)
-            await commands(send)
+            await commands(send, reply=send)
             collector.cancel()
 
 
@@ -94,13 +104,17 @@ async def xmpp(settings: dict) -> None:
     client.register_plugin("xep_0045")
     ready = asyncio.get_running_loop().create_future()
     disconnected = asyncio.Event()
+    trusted_room = False
 
     async def session(_):
+        nonlocal trusted_room
         try:
             client.send_presence()
             await client.plugin["xep_0045"].join_muc_wait(
                 room, peer["nickname"], maxstanzas=0, timeout=20
             )
+            info = await client.plugin["xep_0030"].get_info(jid=room, timeout=20)
+            trusted_room = "urn:xmpp:sid:0" in info["disco_info"]["features"]
             ready.set_result(None)
         except Exception as exc:
             if not ready.done():
@@ -108,11 +122,32 @@ async def xmpp(settings: dict) -> None:
 
     def message(stanza):
         if str(stanza["type"]) == "groupchat" and str(stanza["from"].bare) == room:
+            ids = {
+                entry.get("id")
+                for entry in stanza.xml.findall("{urn:xmpp:sid:0}stanza-id")
+                if entry.get("by") == room and entry.get("id")
+            }
+            reply = stanza.xml.find("{urn:xmpp:reply:0}reply")
+            origins = stanza.xml.findall("{urn:xmpp:sid:0}origin-id")
+            region = stanza.xml.find(
+                "{urn:xmpp:fallback:0}fallback[@for='urn:xmpp:reply:0']/{urn:xmpp:fallback:0}body"
+            )
             received(
                 text=str(stanza["body"]),
                 sender=str(stanza["from"]),
                 channel=room,
                 native_id=str(stanza["id"]),
+                native_details={
+                    "origin_id": origins[0].get("id") if len(origins) == 1 else None,
+                    "room_stanza_id": (
+                        next(iter(ids)) if trusted_room and len(ids) == 1 else None
+                    ),
+                    "reply_to": reply.get("id") if reply is not None else None,
+                    "fallback_start": (
+                        region.get("start") if region is not None else None
+                    ),
+                    "fallback_end": region.get("end") if region is not None else None,
+                },
             )
 
     def failed(_):
@@ -128,13 +163,18 @@ async def xmpp(settings: dict) -> None:
         await asyncio.wait_for(asyncio.shield(ready), 30)
         emit("ready", identity=f"{room}/{peer['nickname']}")
 
-        async def send(text):
+        async def send(text, target=None):
             stanza = client.make_message(mto=room, mtype="groupchat", mbody=text)
+            SubElement(
+                stanza.xml, "{urn:xmpp:sid:0}origin-id", {"id": str(stanza["id"])}
+            )
+            if target is not None:
+                SubElement(stanza.xml, "{urn:xmpp:reply:0}reply", {"id": target})
             stanza.send()
             return str(stanza["id"])
 
         async with asyncio.TaskGroup() as tasks:
-            command_task = tasks.create_task(commands(send))
+            command_task = tasks.create_task(commands(send, reply=send))
             closed = tasks.create_task(disconnected.wait())
             done, _ = await asyncio.wait(
                 [command_task, closed], return_when=asyncio.FIRST_COMPLETED

@@ -55,7 +55,7 @@ Machine-readable capability declaration: [`xmpp-capabilities.json`](xmpp-capabil
 | ------------------- | ---------------------------------------------------------------------------------------------- |
 | text                | `True`                                                                                         |
 | title               | `False`                                                                                        |
-| replies             | `"fallback"` (inbound room replies carry XEP-0461 references against room-issued XEP-0359 IDs) |
+| replies             | `"native"` (destination-scoped XEP-0461 replies; unknown targets retain readable fallback) |
 | threads             | `"fallback"`                                                                                   |
 | reactions           | `"unsupported"`                                                                                |
 | edits               | `"unsupported"`                                                                                |
@@ -78,5 +78,11 @@ profile describes that default instance budget; an explicit configuration
 override is reflected in runtime capabilities.
 
 ## Protocol Boundaries
+
+Room reply targets use trusted room-issued XEP-0359 IDs. Outbound room messages
+use bounded own-echo correlation to retain that native identity; an unavailable
+echo leaves the reference absent without changing successful local handoff into
+a retry. XEP-0428 compatibility quotes use Unicode code-point ranges. Neither a
+room echo nor native reply support establishes recipient delivery or threading.
 
 XEP-0085 chat states are treated as ephemeral activity rather than durable messages. The adapter does not forward typing notifications, read receipts, attachments, OMEMO content, native edits or deletes, archives, or puppeting; each of those requires its own negotiation, expiry, evidence and ownership decisions and is out of scope for the text bridge.

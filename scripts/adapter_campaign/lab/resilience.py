@@ -14,21 +14,13 @@ from ..recovery import run as campaign
 from .sources import write_json
 
 
-async def run(root: Path) -> None:
-    """Run and analyze recovery using the lab's provisioned Matrix/XMPP peers.
-
-    Write runtime and campaign YAML files, set this process's XDG profile
-    paths, and retain evidence in a new results/resilience-* directory.
-    Raise ValueError unless both fixtures are ready; configuration, campaign,
-    analysis, and file errors propagate.
-    """
-    from scripts.analyze_recovery_campaign import analyze
-
+def fixture(root: Path, campaign_name: str) -> Path:
+    """Prepare a private Matrix/XMPP campaign from provisioned identities."""
     fixtures = json.loads((root / "results/provision.json").read_text())
     for name in ("matrix", "xmpp"):
         if fixtures.get(name, {}).get("status") != "ready":
             raise ValueError(
-                "Qualify OAuth and provision Matrix/XMPP before resilience"
+                "Qualify OAuth and provision Matrix/XMPP before native qualification"
             )
     runtime = {"adapters": {}}
     endpoints = {}
@@ -44,14 +36,15 @@ async def run(root: Path) -> None:
         endpoints[name] = {**fixtures[name]["endpoint"]}
     endpoints["xmpp"]["expected_prefixes"] = {"matrix": "[Matrix lab] Peer: "}
     endpoints["matrix"]["expected_prefixes"] = {"xmpp": "[peer/Xmpp lab]: "}
-    (root / "resilience-runtime.yaml").write_text(
+    (root / (campaign_name + "-runtime.yaml")).write_text(
         yaml.safe_dump(runtime, sort_keys=False)
     )
-    (root / "resilience-campaign.yaml").write_text(
+    config = root / (campaign_name + "-campaign.yaml")
+    config.write_text(
         yaml.safe_dump(
             {
                 "version": 1,
-                "runtime_config": "resilience-runtime.yaml",
+                "runtime_config": campaign_name + "-runtime.yaml",
                 "timeout_seconds": 90,
                 "settle_seconds": 5,
                 "endpoints": endpoints,
@@ -65,8 +58,14 @@ async def run(root: Path) -> None:
         XDG_STATE_HOME=str(profile / "state"),
         XDG_DATA_HOME=str(profile / "data"),
     )
+    return config
+
+
+async def run(root: Path) -> None:
+    """Run and analyze bounded recovery with provisioned Matrix/XMPP peers."""
+    from scripts.analyze_recovery_campaign import analyze
+
+    config = fixture(root, "resilience")
     output = root / "results" / ("resilience-" + str(time.time_ns()))
-    await campaign(
-        load_plan(root / "resilience-campaign.yaml", only={"matrix", "xmpp"}), output
-    )
+    await campaign(load_plan(config, only={"matrix", "xmpp"}), output)
     write_json(output / "analysis.json", await analyze(output))

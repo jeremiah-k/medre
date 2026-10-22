@@ -8,6 +8,7 @@ NATIVE_STAGES = (
     "provision",
     "campaign",
     "resilience",
+    "fidelity",
     "mmrelay",
     "recovery",
     "logs",

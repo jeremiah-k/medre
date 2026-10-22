@@ -101,6 +101,10 @@ class Peer:
     async def send(self, text: str) -> dict:
         return await self.command("send", text=text)
 
+    async def reply(self, text: str, target: str) -> dict:
+        """Send a native reply through an explicitly supported SDK peer."""
+        return await self.command("reply", text=text, target=target)
+
     async def synchronize(self) -> None:
         await self.command("synchronize")
 

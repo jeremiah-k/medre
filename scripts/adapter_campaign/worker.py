@@ -28,6 +28,7 @@ def receiver(settings: dict):
         channel: str,
         native_id: str = "",
         formatted_body: str | None = None,
+        native_details: dict | None = None,
     ):
         # Retain only this campaign's bounded nonces, never unrelated traffic.
         if settings["marker_prefix"] in text:
@@ -38,6 +39,11 @@ def receiver(settings: dict):
                 channel=channel,
                 native_id=native_id,
                 **(
+                    {"native_details": native_details}
+                    if native_details is not None
+                    else {}
+                ),
+                **(
                     {"formatted_body": formatted_body}
                     if formatted_body is not None
                     else {}
@@ -47,7 +53,7 @@ def receiver(settings: dict):
     return received
 
 
-async def commands(send, synchronize=None) -> None:
+async def commands(send, synchronize=None, *, reply=None) -> None:
     while line := await asyncio.to_thread(sys.stdin.readline):
         command = json.loads(line)
         if command["op"] == "stop":
@@ -57,9 +63,12 @@ async def commands(send, synchronize=None) -> None:
                 await synchronize()
             emit("sent", command=command["id"], native_id="")
             continue
-        if command["op"] != "send":
+        if command["op"] == "reply" and reply is not None:
+            native_id = await reply(command["text"], command["target"])
+        elif command["op"] == "send":
+            native_id = await send(command["text"])
+        else:
             raise ValueError("Unknown peer command")
-        native_id = await send(command["text"])
         emit("sent", command=command["id"], native_id=str(native_id or ""))
     raise RuntimeError("Supervisor closed before stop")
 

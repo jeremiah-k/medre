@@ -112,6 +112,10 @@ async def run(stage: str) -> None:
         from .resilience import run
 
         await run(ROOT)
+    elif stage == "fidelity":
+        from .fidelity import run
+
+        await run(ROOT)
     elif stage == "recovery":
         failures = []
         for owner in ("medre", "mmrelay"):
