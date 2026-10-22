@@ -1119,9 +1119,31 @@ class MedreApp:
                                 f"Adapter {adapter_id!r} implements typing without declaring its capability"
                             )
                 self._typing_relay.start(frozenset(self.started_adapter_ids))
-            except BaseException:
-                await self._start_failure_cleanup()
-                raise
+            except asyncio.CancelledError as c_exc:
+                # Typing-relay activation is still part of startup; keep the
+                # cancellation depth honest across cleanup, like worker start.
+                cleared = _drain_pending_cancellations()
+                cleanup_drained = await self._start_failure_cleanup()
+                total = cleared + cleanup_drained
+                if total:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(total):
+                            current.cancel()
+                raise c_exc
+            except Exception as exc:
+                cleanup_drained = await self._start_failure_cleanup()
+                if cleanup_drained:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(cleanup_drained):
+                            current.cancel()
+                    raise asyncio.CancelledError(
+                        "cancelled during typing-relay activation cleanup"
+                    ) from exc
+                raise RuntimeStartupError(
+                    f"Failed to activate typing relay: {exc}"
+                ) from exc
 
         # Store failed adapter IDs for diagnostics.
         self._failed_adapter_ids = failed_adapter_ids

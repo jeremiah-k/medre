@@ -10,7 +10,7 @@ from medre.config.loader import parse_runtime_config
 from medre.config.paths import resolve
 from medre.core.contracts.typing import TypingActivity
 from medre.runtime.builder import RuntimeBuilder
-from medre.runtime.errors import RuntimeConfigError
+from medre.runtime.errors import RuntimeConfigError, RuntimeStartupError
 from tests.helpers.async_utils import wait_until
 
 
@@ -36,7 +36,15 @@ class TypingFake(FakeTransportAdapter):
         )
 
 
-def assemble(tmp_path, monkeypatch, *, forwarding=True, declared=True, supported=True):
+def assemble(
+    tmp_path,
+    monkeypatch,
+    *,
+    forwarding=True,
+    declared=True,
+    supported=True,
+    enabled=True,
+):
     """Build a production app from parsed YAML-shaped configuration and fake ports."""
     paths = resolve(environ={"MEDRE_HOME": str(tmp_path)})
     config = parse_runtime_config(
@@ -60,6 +68,7 @@ def assemble(tmp_path, monkeypatch, *, forwarding=True, declared=True, supported
                     "source_channel": "!a:example.invalid",
                     "dest_channel": "!b:example.invalid",
                     "forward_typing": forwarding,
+                    "enabled": enabled,
                 }
             },
             "storage": {"backend": "sqlite", "path": str(tmp_path / "events.sqlite")},
@@ -124,7 +133,7 @@ async def test_false_capability_declaration_rolls_back_started_adapters(
 ):
     """Having a callable port does not override a provider's declared capability."""
     app, ports = assemble(tmp_path, monkeypatch, declared=False)
-    with pytest.raises(RuntimeError, match="without declaring"):
+    with pytest.raises(RuntimeStartupError, match="without declaring"):
         await app.start()
     assert not any(port._started for port in ports.values())
     assert not app.started_adapter_ids
@@ -134,3 +143,11 @@ def test_unsupported_opt_in_fails_before_runtime_start(tmp_path, monkeypatch):
     """An explicit feature request cannot silently pass with a legacy adapter."""
     with pytest.raises(RuntimeConfigError, match="typing sender ports"):
         assemble(tmp_path, monkeypatch, supported=False)
+
+
+def test_disabled_route_cannot_fail_the_build_through_forward_typing(
+    tmp_path, monkeypatch
+):
+    """A disabled route never matches, so its typing opt-in must not block startup."""
+    app, _ = assemble(tmp_path, monkeypatch, supported=False, enabled=False)
+    assert app is not None

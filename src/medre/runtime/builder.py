@@ -501,7 +501,9 @@ class RuntimeBuilder:
         app._route_provenance = route_result.provenance
         app._registered_routes = route_result.registered_routes
         typing_routes = [
-            route for route in route_result.registered_routes if route.forward_typing
+            route
+            for route in route_result.registered_routes
+            if route.enabled and route.forward_typing
         ]
         if typing_routes:
             ports = {
