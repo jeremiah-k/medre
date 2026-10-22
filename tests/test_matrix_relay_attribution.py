@@ -162,8 +162,8 @@ class TestMatrixMissingTargetFallback:
         """Reply with target_native_ref=None produces no m.relates_to.
 
         Without a Matrix-native target, the renderer cannot emit
-        m.in_reply_to.  The body is just the relay text — no fallback
-        quoting, no malformed m.relates_to with empty event_id.
+        m.in_reply_to. The body retains readable parent context without a
+        malformed m.relates_to or an empty event_id.
         """
         renderer = MatrixRenderer()
         relation = EventRelation(
@@ -183,8 +183,10 @@ class TestMatrixMissingTargetFallback:
         )
         # No m.relates_to — cannot target Matrix-native reply without ref
         assert "m.relates_to" not in _payload_content(result)
-        # Body must be clean relay text, no quoting
-        assert _payload_content(result)["body"] == "my reply"
+        assert _payload_content(result)["body"] == (
+            "[replying to: original message text] my reply"
+        )
+        assert result.fallback_applied == "relation_reply"
         assert "> <" not in _payload_content(result)["body"]
 
     async def test_reaction_no_native_ref_emote_fallback(self) -> None:
@@ -349,8 +351,9 @@ class TestMatrixMissingTargetFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert "m.relates_to" not in _payload_content(result)
-        # Body is clean relay text
-        assert _payload_content(result)["body"] == "my reply"
+        # The answer retains readable context without a foreign native relation.
+        assert _payload_content(result)["body"] == "[replying to: original] my reply"
+        assert result.fallback_applied == "relation_reply"
 
 
 # ---------------------------------------------------------------------------
