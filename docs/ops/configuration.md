@@ -451,6 +451,7 @@ routes:
 | `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.        |
 | `ownership`                                                     | string         | `"shared"`         | `shared` permits overlap; `exclusive` rejects overlap with other enabled exclusive route source domains. |
 | `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                     |
+| `forward_typing`                                                | bool           | `false`            | Forward transient activity on concrete channel mappings when both providers support typing. Static route allowlists apply. |
 | `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`.  |
 
 #### Route Policy (`routes.<route_id>.policy`)
@@ -670,6 +671,35 @@ Keep in mind:
   the targeting you need (for example, distinct fanout across multiple
   destinations). Per-entry labels do not change targeting — they only
   label the legs the map already expands.
+
+#### Transient typing
+
+Typing forwarding is opt-in because it discloses activity independently of
+message content, including in encrypted rooms. Add `forward_typing: true` to a
+route with concrete source and destination channels, or to a context map whose
+entries each specify `dest_context`. Both providers need native typing support;
+the runtime rejects unsupported endpoints. Message event-kind filters do not
+grant or deny activity; the explicit flag and static route allowlists do.
+
+```yaml
+routes:
+  conversation:
+    source_adapters: [matrix]
+    dest_adapters: [xmpp]
+    source_channel: "!room:example.org"
+    dest_channel: "room@conference.example.org"
+    directionality: bidirectional
+    forward_typing: true
+```
+
+The receiving platform shows the relay account as typing. Multiple actors
+aggregate into that indicator; original users are not impersonated. Activity
+expires after at most 30 seconds without another native observation, and is
+neither stored nor replayed. Matrix uses finite native timeouts; XMPP uses
+XEP-0085 transitions, which have no equivalent server-managed expiry. A long
+uninterrupted composition or lost stop can therefore look different across
+platforms. A clear on shutdown is best effort. See the
+[transient typing contract](../spec/transient-typing.md) for bounds and semantics.
 
 ### `runtime.limits`
 

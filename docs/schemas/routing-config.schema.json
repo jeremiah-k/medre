@@ -15,6 +15,11 @@
           "$comment": "This component represents a standalone RouteConfig. In runtime YAML, the identifier is the routes mapping key; an entry-level route_id is rejected.",
           "description": "Non-empty unique identifier containing only ASCII letters, digits, underscores or hyphens, with no line terminators."
         },
+        "forward_typing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in transient typing for concrete channel mappings; static allowlists apply."
+        },
         "source_adapters": {
           "type": "array",
           "minItems": 1,
@@ -120,6 +125,108 @@
       "allOf": [
         {
           "if": {
+            "required": [
+              "forward_typing"
+            ],
+            "properties": {
+              "forward_typing": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dest_destination": {
+                "type": "null"
+              }
+            },
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "source_channel"
+                        ],
+                        "properties": {
+                          "source_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "source_room"
+                        ],
+                        "properties": {
+                          "source_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "dest_channel"
+                        ],
+                        "properties": {
+                          "dest_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "dest_room"
+                        ],
+                        "properties": {
+                          "dest_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "required": [
+                  "context_map"
+                ],
+                "properties": {
+                  "context_map": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "required": [
+                        "dest_context"
+                      ],
+                      "properties": {
+                        "dest_context": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "dest_destination": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
             "properties": {
               "dest_destination": {
                 "type": "object"
@@ -153,6 +260,11 @@
           },
           "then": {
             "properties": {
+              "forward_typing": {
+                "type": "boolean",
+                "default": false,
+                "description": "Opt-in transient typing for concrete channel mappings; static allowlists apply."
+              },
               "source_adapters": {
                 "maxItems": 1
               },
@@ -353,6 +465,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])"
         },
+        "forward_typing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in transient typing for concrete channel mappings; static allowlists apply."
+        },
         "source_adapters": {
           "type": "array",
           "minItems": 1,
@@ -444,6 +561,108 @@
       "allOf": [
         {
           "if": {
+            "required": [
+              "forward_typing"
+            ],
+            "properties": {
+              "forward_typing": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dest_destination": {
+                "type": "null"
+              }
+            },
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "source_channel"
+                        ],
+                        "properties": {
+                          "source_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "source_room"
+                        ],
+                        "properties": {
+                          "source_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "dest_channel"
+                        ],
+                        "properties": {
+                          "dest_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "dest_room"
+                        ],
+                        "properties": {
+                          "dest_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "required": [
+                  "context_map"
+                ],
+                "properties": {
+                  "context_map": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "required": [
+                        "dest_context"
+                      ],
+                      "properties": {
+                        "dest_context": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "dest_destination": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
             "properties": {
               "dest_destination": {
                 "type": "object"
@@ -477,6 +696,11 @@
           },
           "then": {
             "properties": {
+              "forward_typing": {
+                "type": "boolean",
+                "default": false,
+                "description": "Opt-in transient typing for concrete channel mappings; static allowlists apply."
+              },
               "source_adapters": {
                 "maxItems": 1
               },

@@ -1046,6 +1046,7 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "directionality",
         "priority",
         "ownership",
+        "forward_typing",
         "enabled",
         "source_channel",
         "dest_channel",
@@ -1118,6 +1119,9 @@ class RouteConfig:
         ``source_room``, ``dest_room``, and route-level
         ``dest_destination``.  Requires exactly one source and one dest
         adapter.
+    forward_typing:
+        Explicitly permit transient typing on concrete channel mappings.
+        Defaults to False; static sender/channel allowlists still apply.
     source_origin_label:
         Optional source-side human-readable label used for the forward
         leg of this route (source→dest).  When set, it is threaded into
@@ -1150,6 +1154,7 @@ class RouteConfig:
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
     ownership: str = "shared"
+    forward_typing: bool = False
 
     def __post_init__(self) -> None:
         """Normalize enum-typed fields and the ``context_map`` shape.
@@ -1164,6 +1169,10 @@ class RouteConfig:
         ``source_channel=None`` and reverse legs lost their Matrix room).
         """
         section = f"routes.{self.route_id}"
+        if type(self.forward_typing) is not bool:
+            raise ConfigValidationError(
+                "forward_typing must be a boolean", section_path=section
+            )
         _validate_route_id(self.route_id, section_path=section)
         if type(self.enabled) is not bool:
             raise ConfigValidationError(
@@ -1238,9 +1247,22 @@ class RouteConfig:
             object.__setattr__(self, "source_channel", self.source_room)
         if self.dest_channel is None and self.dest_room is not None:
             object.__setattr__(self, "dest_channel", self.dest_room)
-        if self.context_map is None:
-            return
-        _validate_context_map_route(self)
+        if self.context_map is not None:
+            _validate_context_map_route(self)
+        if self.forward_typing:
+            concrete = (
+                all(
+                    entry.dest_context is not None
+                    for entry in self.context_map.values()
+                )
+                if self.context_map
+                else bool(self.source_channel and self.dest_channel)
+            )
+            if not concrete or self.dest_destination is not None:
+                raise ConfigValidationError(
+                    "forward_typing requires concrete source and destination channels",
+                    section_path=section,
+                )
 
     @classmethod
     def from_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
@@ -1548,6 +1570,8 @@ class RouteConfig:
                 section_path=section_path,
             )
 
+        forward_typing = data.pop("forward_typing", False)
+
         # --- unknown key rejection ---
         # After every known field has been popped, any remaining keys are
         # typos or unsupported fields. Reject them so operators get
@@ -1601,6 +1625,7 @@ class RouteConfig:
             directionality=directionality,
             priority=priority,
             ownership=ownership,
+            forward_typing=forward_typing,
             enabled=enabled,
             source_channel=source_channel,
             dest_channel=dest_channel,

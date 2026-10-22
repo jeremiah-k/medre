@@ -175,3 +175,4 @@ class Route:
     ownership: str = "shared"
     enabled: bool = True
     policy: RoutePolicy | None = None
+    forward_typing: bool = False

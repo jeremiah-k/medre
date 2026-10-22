@@ -54,6 +54,7 @@ from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.retry import RetryWorkerState
 
 if TYPE_CHECKING:
+    from medre.runtime.typing import TypingRelay
     from medre.config.model import RuntimeConfig
     from medre.config.paths import MedrePaths
     from medre.core.contracts.adapter import AdapterContract
@@ -327,6 +328,7 @@ class MedreApp:
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
     _retry_worker: RetryWorker | None = field(default=None, init=False)
+    _typing_relay: TypingRelay | None = field(default=None, init=False)
     _ingress_worker: Any = field(default=None, init=False)
     _runtime_accounting: RuntimeAccounting | None = field(default=None, init=False)
     _startup_wall: str | None = field(default=None, init=False)
@@ -975,6 +977,12 @@ class MedreApp:
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
                         attachments=self._attachment_seam,
+                        publish_typing=(
+                            self._typing_relay.publisher(adapter_id)
+                            if self._typing_relay is not None
+                            and adapter_id in self._typing_relay.adapter_ids
+                            else None
+                        ),
                         report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
                     )
                     await adapter.start(ctx)
@@ -1100,6 +1108,42 @@ class MedreApp:
             # then clean up core resources (pipeline runner + storage).
             await self._start_failure_cleanup()
             raise
+
+        if self._typing_relay is not None and scope is StartupScope.LIVE:
+            try:
+                for adapter_id in self.started_adapter_ids:
+                    if adapter_id in self._typing_relay.adapter_ids:
+                        info = await self.adapters[adapter_id].health_check()
+                        if not info.capabilities.typing:
+                            raise RuntimeError(
+                                f"Adapter {adapter_id!r} implements typing without declaring its capability"
+                            )
+                self._typing_relay.start(frozenset(self.started_adapter_ids))
+            except asyncio.CancelledError as c_exc:
+                # Typing-relay activation is still part of startup; keep the
+                # cancellation depth honest across cleanup, like worker start.
+                cleared = _drain_pending_cancellations()
+                cleanup_drained = await self._start_failure_cleanup()
+                total = cleared + cleanup_drained
+                if total:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(total):
+                            current.cancel()
+                raise c_exc
+            except Exception as exc:
+                cleanup_drained = await self._start_failure_cleanup()
+                if cleanup_drained:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(cleanup_drained):
+                            current.cancel()
+                    raise asyncio.CancelledError(
+                        "cancelled during typing-relay activation cleanup"
+                    ) from exc
+                raise RuntimeStartupError(
+                    f"Failed to activate typing relay: {exc}"
+                ) from exc
 
         # Store failed adapter IDs for diagnostics.
         self._failed_adapter_ids = failed_adapter_ids
@@ -1545,6 +1589,18 @@ class MedreApp:
                         )
                 else:
                     _logger.info("In-flight work drained at deadline")
+
+        if self._typing_relay is not None:
+            while True:
+                try:
+                    await self._typing_relay.stop()
+                    break
+                except asyncio.CancelledError as c_exc:
+                    _cancelled = c_exc
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                except Exception:
+                    _logger.warning("Typing cleanup failed before adapter shutdown")
+                    break
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -2131,6 +2187,18 @@ class MedreApp:
         cancellation to the caller.
         """
         _total_drained: int = 0
+        if self._typing_relay is not None:
+            while True:
+                try:
+                    await self._typing_relay.stop()
+                    break
+                except asyncio.CancelledError:
+                    _total_drained += _drain_pending_cancellations()
+                except Exception:
+                    _logger.debug(
+                        "Typing cleanup failed during adapter startup rollback"
+                    )
+                    break
         timeout = self.config.runtime.shutdown_timeout_seconds
         _terminal = {AdapterState.STOPPED, AdapterState.FAILED}
         for adapter_id in reversed(self.started_adapter_ids):

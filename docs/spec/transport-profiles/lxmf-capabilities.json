@@ -19,6 +19,7 @@
     "mesh_routing": true,
     "priority_delivery": false,
     "max_text_bytes": null,
-    "max_text_chars": 16384
+    "max_text_chars": 16384,
+    "typing": false
   }
 }

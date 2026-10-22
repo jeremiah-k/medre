@@ -93,6 +93,7 @@ Individual stages support investigation without repeating every check:
 | `campaign`   | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
 | `resilience` | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                        |
 | `presentation` | Opt-in reply/restart campaign plus Matrix/XMPP semantic formatting, unsafe-link fallback, opaque code, and native unstyled controls. |
+| `typing` | Opt-in native Matrix/XMPP start/stop, bounded silence, permission withdrawal, shutdown clearing, default refusal, and unchanged durable row counts. |
 | `encrypted` | Opt-in native encrypted text/files in both directions, independent decryption and ciphertext witnesses, retained bytes, stable devices, and restart persistence. See [encrypted Matrix qualification](encrypted-matrix.md). |
 | `fidelity`   | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart. |
 | `mmrelay`    | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
@@ -193,3 +194,22 @@ independent native expectations. Use each protocol's standard extensions and kee
 platform-specific details in the adapter-owned metadata namespace. Published
 Matrix metadata is useful evidence; its presence alone does not prove that the
 equivalent XMPP semantics survived the bridge.
+
+## Transient typing qualification
+
+Run `--stage typing` after `up` against candidates that implement the transient
+activity contract. This optional stage provisions dedicated password sessions
+and a Matrix room plus the lab MUC; it does not require OAuth or provision the
+other transports. OAuth and encrypted-content qualification retain their own
+stages. Both adapters and core need the matching activity contract; select
+candidate paths through the local development profile.
+
+The witness peers use Matrix's HTTP API and independently constructed XEP-0085
+XML. They check the configured relay identity and conversation, both directions,
+silent expiry, route withdrawal without new source activity, and shutdown. A
+separate default-off runtime generation checks for disclosure during a bounded
+observation window. The campaign compares actual canonical-event, outbox and
+receipt counts and retains raw native observations and child logs privately.
+Finite observations prove the measured window, not universal absence or
+exactly-once notification delivery. Typing is unencrypted activity metadata even
+when messages in a conversation are encrypted.

@@ -49,6 +49,21 @@ async def matrix(settings: dict) -> None:
                     "GET", "sync", params={"since": since, "timeout": "1000"}
                 )
                 since = data["next_batch"]
+                if settings.get("observe_typing") is True:
+                    ephemeral = (
+                        data.get("rooms", {})
+                        .get("join", {})
+                        .get(channel, {})
+                        .get("ephemeral", {})
+                        .get("events", [])
+                    )
+                    for notice in ephemeral:
+                        if notice.get("type") == "m.typing":
+                            emit(
+                                "typing",
+                                channel=channel,
+                                users=notice["content"]["user_ids"],
+                            )
                 for event in (
                     data.get("rooms", {})
                     .get("join", {})
@@ -95,7 +110,20 @@ async def matrix(settings: dict) -> None:
             async def styled(text, presentation):
                 return await send(text, presentation=presentation)
 
-            await commands(send, reply=send, styled=styled)
+            async def typing(active):
+                """Write native activity through the independent HTTP peer."""
+                await request(
+                    "PUT",
+                    f"rooms/{quote(channel, safe='')}/typing/{quote(identity, safe='')}",
+                    json={"typing": active, "timeout": 30000},
+                )
+
+            await commands(
+                send,
+                reply=send,
+                styled=styled,
+                typing=typing if settings.get("observe_typing") is True else None,
+            )
             collector.cancel()
 
 
@@ -110,6 +138,8 @@ async def xmpp(settings: dict) -> None:
     client.enable_plaintext = False
     client.register_plugin("xep_0030")
     client.register_plugin("xep_0045")
+    if settings.get("observe_typing") is True:
+        client.register_plugin("xep_0085")
     ready = asyncio.get_running_loop().create_future()
     disconnected = asyncio.Event()
     trusted_room = False
@@ -130,6 +160,15 @@ async def xmpp(settings: dict) -> None:
 
     def message(stanza):
         if str(stanza["type"]) == "groupchat" and str(stanza["from"].bare) == room:
+            if settings.get("observe_typing") is True:
+                for child in stanza.xml:
+                    if child.tag.startswith("{http://jabber.org/protocol/chatstates}"):
+                        emit(
+                            "typing",
+                            channel=room,
+                            sender=str(stanza["from"]),
+                            state=child.tag.split("}", 1)[1],
+                        )
             ids = {
                 entry.get("id")
                 for entry in stanza.xml.findall("{urn:xmpp:sid:0}stanza-id")
@@ -166,7 +205,15 @@ async def xmpp(settings: dict) -> None:
 
     client.add_event_handler("session_start", session)
     client.add_event_handler("failed_all_auth", failed)
+
+    def chatstate(stanza):
+        """Observe bodyless controls outside Slixmpp's body-only message event."""
+        if stanza.xml.find("{jabber:client}body") is None:
+            message(stanza)
+
     client.add_event_handler("message", message)
+    if settings.get("observe_typing") is True:
+        client.add_event_handler("chatstate", chatstate)
     client.add_event_handler("disconnected", lambda _: disconnected.set())
     connection = client.connect(peer.get("host"), peer.get("port", 5222))
     try:
@@ -188,8 +235,25 @@ async def xmpp(settings: dict) -> None:
         async def styled(text, presentation):
             return await send(text, presentation=presentation)
 
+        async def typing(active):
+            """Send native XEP-0085 transitions without an adapter encoder."""
+            stanza = client.make_message(mto=room, mtype="groupchat")
+            SubElement(
+                stanza.xml,
+                "{http://jabber.org/protocol/chatstates}"
+                + ("composing" if active else "paused"),
+            )
+            stanza.send()
+
         async with asyncio.TaskGroup() as tasks:
-            command_task = tasks.create_task(commands(send, reply=send, styled=styled))
+            command_task = tasks.create_task(
+                commands(
+                    send,
+                    reply=send,
+                    styled=styled,
+                    typing=typing if settings.get("observe_typing") is True else None,
+                )
+            )
             closed = tasks.create_task(disconnected.wait())
             done, _ = await asyncio.wait(
                 [command_task, closed], return_when=asyncio.FIRST_COMPLETED

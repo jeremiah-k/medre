@@ -127,7 +127,7 @@ def review(root: Path) -> None:
             for name in runtime_generations(scenario)
         }
         files.extend(runtime_streams(root, recovery[-1], generations))
-    for campaign in ("fidelity", "presentation", "encrypted"):
+    for campaign in ("fidelity", "presentation", "encrypted", "typing"):
         runs = sorted(
             (
                 path
@@ -137,11 +137,13 @@ def review(root: Path) -> None:
             key=lambda path: path.stat().st_mtime,
         )
         if runs:
+            evidence = runs[-1] / "evidence" if campaign == "typing" else runs[-1]
+            generations = 3 if campaign == "typing" else 2
             files.extend(
                 runtime_streams(
                     root,
-                    runs[-1],
-                    {runs[-1] / name for name in ("runtime-0", "runtime-1")},
+                    evidence,
+                    {evidence / f"runtime-{number}" for number in range(generations)},
                 )
             )
     if not files:

@@ -53,6 +53,8 @@ from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
+from medre.core.contracts.typing import TypingSender
+from medre.runtime.typing import TypingRelay
 
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
@@ -498,6 +500,37 @@ class RuntimeBuilder:
         app._route_eligibility = route_result.eligibility
         app._route_provenance = route_result.provenance
         app._registered_routes = route_result.registered_routes
+        typing_routes = [
+            route
+            for route in route_result.registered_routes
+            if route.enabled and route.forward_typing
+        ]
+        if typing_routes:
+            ports = {
+                name: adapter
+                for name, adapter in adapters.items()
+                if isinstance(adapter, TypingSender)
+            }
+            for route in typing_routes:
+                names = {
+                    route.source.adapter,
+                    *(target.adapter for target in route.targets),
+                }
+                if not names <= ports.keys():
+                    raise RuntimeConfigError(
+                        f"Route {route.id!r}: forward_typing requires native typing sender ports"
+                    )
+            used = {
+                name
+                for route in typing_routes
+                for name in (
+                    route.source.adapter,
+                    *(target.adapter for target in route.targets),
+                )
+            }
+            app._typing_relay = TypingRelay(
+                router, {name: port for name, port in ports.items() if name in used}
+            )
         return app
 
     # -- Storage construction ----------------------------------------------------

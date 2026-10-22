@@ -28,6 +28,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from medre.core.contracts.delivery import AdapterHandoffResult, DeliveryFeedback
+from medre.core.contracts.typing import TypingSignal
 from medre.core.events.canonical import CanonicalEvent
 
 if TYPE_CHECKING:
@@ -198,6 +199,9 @@ class AdapterCapabilities:
         Maximum text payload size in bytes, or ``None`` for unlimited.
     max_text_chars:
         Maximum text payload size in characters, or ``None`` for unlimited.
+    typing:
+        Whether the adapter supports the transient typing sink and sender port.
+        This is unrelated to durable presence events or identity verification.
     threads:
         Thread support with the same three-level semantics as *replies*.
         Appended after the original capability fields so positional construction
@@ -223,6 +227,8 @@ class AdapterCapabilities:
     max_text_bytes: int | None = None
     max_text_chars: int | None = None
     threads: str = "unsupported"
+    # Appended so existing positional capability arguments retain their meaning.
+    typing: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,6 +305,10 @@ class AdapterContext:
         Adapters use this one boundary for deferred hand-off completion,
         deferred terminal failure, and post-hand-off observations. Core
         remains lifecycle authority.
+    publish_typing:
+        Optional source-bound, non-durable activity sink. False means activity
+        was not admitted; it never acknowledges native delivery. Available only
+        when explicit typing routes are configured.
     attachments:
         Optional runtime-wide attachment seam (policy snapshot, bounded
         transfer permits, and content access). Protocol adapters use it to
@@ -318,6 +328,7 @@ class AdapterContext:
         None
     )
     attachments: AttachmentRuntimeSeam | None = None
+    publish_typing: Callable[[TypingSignal], Awaitable[bool]] | None = None
 
 
 # ---------------------------------------------------------------------------

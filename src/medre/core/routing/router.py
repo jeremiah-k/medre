@@ -193,6 +193,24 @@ class Router:
 
     # -- Query ------------------------------------------------------------
 
+    def typing_routes(self, adapter: str, channel: str) -> list[Route]:
+        """Select explicit enabled typing grants, independently of message kinds.
+
+        Channels must be concrete; static per-target allowlists remain the
+        caller's responsibility through evaluate_route_policy.
+        """
+        return sorted(
+            (
+                route
+                for route in self._routes.values()
+                if route.enabled
+                and route.forward_typing
+                and route.source.adapter == adapter
+                and route.source.channel == channel
+            ),
+            key=lambda route: (route.priority, route.id),
+        )
+
     def match(self, event: RouteMatchableEvent) -> list[Route]:
         """Return all routes whose source filter matches *event*.
 

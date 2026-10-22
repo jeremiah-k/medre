@@ -23,6 +23,7 @@ in a document under this tree.
 | [principles.md](principles.md)                             | Design philosophy and invariants                                |
 | [architecture.md](architecture.md)                         | System overview, pipeline stages, runtime orchestration         |
 | [event-model.md](event-model.md)                           | CanonicalEvent, relations, event kinds, schema versioning       |
+| [transient-typing.md](transient-typing.md)                 | Bounded transient composing activity and relay aggregation      |
 | [adapter-runtime.md](adapter-runtime.md)                   | Adapter protocol, lifecycle, capabilities, codec                |
 | [routing-delivery.md](routing-delivery.md)                 | Route matching, fanout, delivery plans, receipts                |
 | [storage.md](storage.md)                                   | SQLite schema, append-only guarantees, replay semantics         |

@@ -116,6 +116,7 @@ class Route:
     ownership: str = "shared"
     enabled: bool = True
     policy: RoutePolicy | None = None
+    forward_typing: bool = False
 ```
 
 - `id` MUST be unique across the expanded runtime route set. Duplicate expanded IDs are a startup/preflight error.
@@ -124,6 +125,7 @@ class Route:
 - `fanout_strategy` is currently fixed to `"broadcast"`: every target receives an independent delivery plan. No weighted/first-success fanout mode is implemented.
 - `ownership` is `"shared"` by default. Shared routes MAY overlap. Two enabled `"exclusive"` routes MUST NOT have source specifications that can match the same canonical event; offline planning and runtime startup reject such overlap before transport I/O.
 - `enabled: false` means the route never matches and does not participate in exclusive-overlap validation.
+- `forward_typing` defaults to false and grants only explicitly scoped [transient activity](transient-typing.md), independently of canonical event-kind filters.
 - `policy` is the compiled static route allowlist. MEDRE does not currently expose a separate generic route `filters` mapping.
 
 ### 2.6 Configuration Representation
