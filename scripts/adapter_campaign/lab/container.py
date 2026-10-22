@@ -161,6 +161,7 @@ def contracts() -> None:
             patterns = (
                 "test_*adapter_campaign*.py",
                 "test_campaign_presentation.py",
+                "test_encrypted_campaign.py",
                 "test_cross_transport*.py",
                 "test_logging*.py",
                 "test_runtime_observability.py",

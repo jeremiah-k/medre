@@ -93,6 +93,7 @@ Individual stages support investigation without repeating every check:
 | `campaign`   | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
 | `resilience` | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                        |
 | `presentation` | Opt-in reply/restart campaign plus Matrix/XMPP semantic formatting, unsafe-link fallback, opaque code, and native unstyled controls. |
+| `encrypted` | Opt-in native encrypted text/files in both directions, independent decryption and ciphertext witnesses, retained bytes, stable devices, and restart persistence. See [encrypted Matrix qualification](encrypted-matrix.md). |
 | `fidelity`   | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart. |
 | `mmrelay`    | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
 | `recovery`   | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                  |
