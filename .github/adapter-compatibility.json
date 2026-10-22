@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "1405d8b8f9c4c6693e29194e509902d316f9140c",
+    "ref": "12322a8d84ae1886d085f5249c2d4c34b85b3013",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix"
@@ -34,7 +34,7 @@
   {
     "transport": "xmpp",
     "repository": "jeremiah-k/medre-adapter-xmpp",
-    "ref": "a5f6ef83474c683add99826d65511b1500637406",
+    "ref": "12296e538de4798baf939c39b7608fdf6a99ff7e",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
