@@ -20,6 +20,6 @@
     "priority_delivery": false,
     "max_text_bytes": 16384,
     "max_text_chars": null,
-    "typing": false
+    "typing": true
   }
 }
