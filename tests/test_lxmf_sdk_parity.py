@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from medre.adapters.lxmf.errors import LxmfSendError
+from medre.adapters.lxmf.errors import LxmfConnectionError, LxmfSendError
 from medre.adapters.lxmf.session import LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig, LxmfConfigError
 
@@ -99,7 +99,10 @@ async def test_connect_configures_outbound_propagation_node(tmp_path: Path) -> N
         ),
         patch(
             "medre.adapters.lxmf.session.signal.getsignal",
-            side_effect=[previous_int, previous_term],
+            side_effect={
+                signal.SIGINT: previous_int,
+                signal.SIGTERM: previous_term,
+            }.__getitem__,
         ),
         patch("medre.adapters.lxmf.session.signal.signal") as set_signal,
     ):
@@ -107,10 +110,14 @@ async def test_connect_configures_outbound_propagation_node(tmp_path: Path) -> N
         router.set_outbound_propagation_node.assert_called_once_with(
             bytes.fromhex(node)
         )
-        assert set_signal.call_args_list == [
-            call(signal.SIGINT, previous_int),
-            call(signal.SIGTERM, previous_term),
-        ]
+        assert (
+            set_signal.call_args_list
+            == [
+                call(signal.SIGINT, previous_int),
+                call(signal.SIGTERM, previous_term),
+            ]
+            * 2
+        )
         await session.stop()
 
 
@@ -359,7 +366,7 @@ def test_teardown_registry_cleanup_is_best_effort(
 
 
 async def test_connect_restores_custom_process_signal_handlers(tmp_path: Path) -> None:
-    """Embedding LXMRouter must not permanently replace application signals."""
+    """Both native constructors restore the embedding application's handlers."""
     config = _real_config(tmp_path)
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
     rns, lxmf, _router, _destination = _sdk_environment()
@@ -374,15 +381,22 @@ async def test_connect_restores_custom_process_signal_handlers(tmp_path: Path) -
         ),
         patch(
             "medre.adapters.lxmf.session.signal.getsignal",
-            side_effect=[previous_int, previous_term],
+            side_effect={
+                signal.SIGINT: previous_int,
+                signal.SIGTERM: previous_term,
+            }.__getitem__,
         ),
         patch("medre.adapters.lxmf.session.signal.signal") as set_signal,
     ):
         await session.start()
-        assert set_signal.call_args_list == [
-            call(signal.SIGINT, previous_int),
-            call(signal.SIGTERM, previous_term),
-        ]
+        assert (
+            set_signal.call_args_list
+            == [
+                call(signal.SIGINT, previous_int),
+                call(signal.SIGTERM, previous_term),
+            ]
+            * 2
+        )
         set_signal.reset_mock()
         await session.stop()
         set_signal.assert_not_called()
@@ -443,8 +457,8 @@ def test_propagation_diagnostic_is_unavailable_when_sdk_lookup_fails() -> None:
     assert session.diagnostics().propagation_enabled is None
 
 
-async def test_connect_survives_signal_snapshot_failure(tmp_path: Path) -> None:
-    """Router construction still works when process signal state is unavailable."""
+async def test_connect_refuses_signal_snapshot_failure(tmp_path: Path) -> None:
+    """Unavailable host signal state refuses either native constructor."""
     config = _real_config(tmp_path)
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
     rns, lxmf, router, _ = _sdk_environment()
@@ -458,14 +472,17 @@ async def test_connect_survives_signal_snapshot_failure(tmp_path: Path) -> None:
         ),
         patch("medre.adapters.lxmf.session.signal.signal") as set_signal,
     ):
-        await session.start()
+        with pytest.raises(LxmfConnectionError, match="Cannot preserve runtime signal"):
+            await session.start()
         set_signal.assert_not_called()
-        assert session._router is router
-        await session.stop()
+        rns.Reticulum.assert_not_called()
+        lxmf.LXMRouter.assert_not_called()
+        assert not session.connected
+        assert session._router is None
 
 
-async def test_connect_survives_signal_restore_failure(tmp_path: Path) -> None:
-    """Failure to restore one process signal does not invalidate SDK startup."""
+async def test_connect_refuses_signal_restore_failure(tmp_path: Path) -> None:
+    """Uncertain shutdown ownership fails startup after attempting both restores."""
     config = _real_config(tmp_path)
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
     rns, lxmf, router, _ = _sdk_environment()
@@ -482,10 +499,13 @@ async def test_connect_survives_signal_restore_failure(tmp_path: Path) -> None:
             side_effect=[OSError("restore failed"), None],
         ) as set_signal,
     ):
-        await session.start()
+        with pytest.raises(LxmfConnectionError, match="Could not restore runtime"):
+            await session.start()
         assert set_signal.call_count == 2
-        assert session._router is router
-        await session.stop()
+        rns.Reticulum.assert_called_once()
+        lxmf.LXMRouter.assert_not_called()
+        assert not session.connected
+        assert session._router is None
 
 
 async def test_connect_rejects_delivery_registration_type_error(tmp_path: Path) -> None:
