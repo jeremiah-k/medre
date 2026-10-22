@@ -54,6 +54,7 @@ class TestCoreSpecFiles:
 
     REQUIRED_FILES = [
         "event-model.md",
+        "transient-typing.md",
         "adapter-runtime.md",
         "routing-delivery.md",
         "storage.md",

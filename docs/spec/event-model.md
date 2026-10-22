@@ -153,7 +153,8 @@ applied after those operations change the body.
 
 This contract does not itself enable rich rendering. Providers declare and
 qualify their supported conversion separately; transient typing and presence
-remain outside stored message presentation.
+remain outside stored message presentation. Bounded composing activity is defined
+separately in [transient-typing.md](transient-typing.md).
 
 ## 2. EventRelation
 
