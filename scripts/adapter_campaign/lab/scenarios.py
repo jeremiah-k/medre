@@ -117,7 +117,7 @@ async def run(stage: str) -> None:
 
         await run(ROOT, presentation=stage == "presentation")
     elif stage == "typing":
-        from .typing import run
+        from .typing_stage import run
 
         await run(ROOT)
     elif stage == "encrypted":
