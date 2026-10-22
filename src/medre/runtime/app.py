@@ -985,9 +985,18 @@ class MedreApp:
                         current.cancel()
             raise c_exc
         except Exception as exc:
-            # Task-group infrastructure failures retain all underlying causes;
-            # expose the documented runtime error after complete rollback.
-            await self._start_failure_cleanup()
+            # Unexpected task-group failures still own a complete rollback.
+            # If a cancellation arrived during that cleanup, it takes priority
+            # over the orchestration error; do not silently lose its depth.
+            cleanup_drained = await self._start_failure_cleanup()
+            if cleanup_drained:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(cleanup_drained):
+                        current.cancel()
+                raise asyncio.CancelledError(
+                    "cancelled during adapter startup orchestration cleanup"
+                ) from exc
             raise RuntimeStartupError("Adapter startup orchestration failed") from exc
 
         if self._typing_relay is not None and scope is StartupScope.LIVE:
@@ -1434,7 +1443,9 @@ class MedreApp:
         ``STOPPED``, ``STOPPING``, or ``INITIALIZED`` state returns
         immediately.  A concurrent ``stop()`` call during an in-flight
         ``STOPPING`` transition is guarded by this early-return so the
-        second caller does not race the first.
+        second caller does not race the first.  While ``STARTING``, a
+        concurrent ``stop()`` is rejected: callers must cancel and await the
+        ``start()`` task, whose owned rollback safely retires in-flight starts.
 
         Raises
         ------
@@ -1447,6 +1458,14 @@ class MedreApp:
             RuntimeState.INITIALIZED,
         ):
             return
+        if self._state is RuntimeState.STARTING:
+            # start() owns in-flight adapter tasks and core initialization.
+            # Independent shutdown here can close their dependencies before
+            # the structured startup group settles, corrupting lifecycle state.
+            raise RuntimeError(
+                "Cannot stop MEDRE while startup is in progress; cancel the "
+                "start() task and await its owned rollback before stopping"
+            )
 
         self._set_state(RuntimeState.STOPPING)
         timeout = self.config.runtime.shutdown_timeout_seconds

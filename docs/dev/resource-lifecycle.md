@@ -23,7 +23,9 @@ order. Completion timing does not determine dependencies. Cancellation joins the
 startup tasks before rollback stops both partial and ready adapters and then
 closes core resources. Provider connection budgets and native cancellation
 cleanup remain adapter responsibilities; core does not move async adapter methods
-onto worker threads or add a dependency graph.
+onto worker threads or add a dependency graph. An independent `stop()` call while
+`start()` still owns resources raises immediately; callers cancel and await the
+startup task instead, allowing it to own its rollback.
 
 Reticulum and LXMF constructors install process-global signal handlers in the
 pinned SDKs. Their synchronous initialization requires the main thread; moving

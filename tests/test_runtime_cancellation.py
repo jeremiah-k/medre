@@ -485,22 +485,14 @@ class TestStopDuringStartup:
             timeout=2.0,
         )
 
-        # Now call stop concurrently — start may still be in STARTING.
-        stop_task = asyncio.create_task(app.stop())
-
-        # Wait for both.
-        try:
-            await start_task
-        except Exception:
-            pass  # start may fail if stop transitioned to STOPPING
-
-        await stop_task
-
-        # The app should be in a terminal state (STOPPED or FAILED).
-        assert app.state in (
-            RuntimeState.STOPPED,
-            RuntimeState.FAILED,
-        ), f"Expected STOPPED or FAILED, got {app.state}"
+        # Startup owns its resources; concurrent stop is rejected rather than
+        # closing storage or adapters while their start tasks are in flight.
+        if app.state is RuntimeState.STARTING:
+            with pytest.raises(RuntimeError, match="startup is in progress"):
+                await app.stop()
+        await start_task
+        await app.stop()
+        assert app.state is RuntimeState.STOPPED
 
     @pytest.mark.asyncio
     async def test_stop_before_start_is_idempotent(self, tmp_paths: MedrePaths) -> None:

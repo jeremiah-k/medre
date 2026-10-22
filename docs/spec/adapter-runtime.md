@@ -95,8 +95,10 @@ dependencies remain startup failures.
 
 An ordinary startup failure and its cleanup MUST be isolated from independent
 adapter starts. Parent cancellation MUST settle all startup tasks before rolling
-back partially started and ready adapters, the pipeline and storage. A child
-that cancels its own start MUST NOT be counted as ready. Unexpected orchestration
+back partially started and ready adapters, the pipeline and storage.
+A concurrent `stop()` while startup remains STARTING MUST reject teardown:
+the caller MUST cancel and await the `start()` task's owned rollback first.
+A child that cancels its own start MUST NOT be counted as ready. Unexpected orchestration
 failure MUST raise RuntimeStartupError after rollback, retaining grouped causes.
 Structured task ownership cannot preempt synchronous code or forcibly terminate
 native SDK threads; providers MUST cooperate with cancellation.
