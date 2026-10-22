@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import unicodedata
+from typing import Protocol, TypeAlias, runtime_checkable
 
 MAX_TYPING_SECONDS = 30.0
 MAX_TYPING_IDENTIFIER_CHARS = 4096
@@ -59,6 +60,33 @@ class TypingActivity:
 
 
 @dataclass(frozen=True, slots=True)
+class TypingSnapshot:
+    """Replace one source conversation's native typing membership, including empty.
+
+    Snapshot sources need no parallel actor cache. Omitted actors are released
+    even if capacity refuses new actors. Identities remain unverified native
+    claims, bounded to the default host source capacity.
+    """
+
+    channel_id: str
+    sender_ids: tuple[str, ...]
+    duration_seconds: float = MAX_TYPING_SECONDS
+
+    def __post_init__(self) -> None:
+        """Require a bounded unique tuple and the same finite freshness limit."""
+        TypingActivity(self.channel_id, "snapshot", True, self.duration_seconds)
+        if not isinstance(self.sender_ids, tuple) or len(self.sender_ids) > 1024:
+            raise ValueError("sender_ids must be a tuple of at most 1024 identities")
+        for sender in self.sender_ids:
+            _identifier(sender, "sender_id")
+        if len(set(self.sender_ids)) != len(self.sender_ids):
+            raise ValueError("sender_ids must be unique")
+
+
+TypingSignal: TypeAlias = TypingActivity | TypingSnapshot
+
+
+@dataclass(frozen=True, slots=True)
 class TypingTarget:
     """One operator-authorized adapter/conversation, never a wildcard or actor."""
 
@@ -100,3 +128,13 @@ class TypingUpdate:
     def typing(self) -> bool:
         """Return whether the desired destination indicator is active."""
         return self.timeout_seconds > 0
+
+
+# Optional native port; transport discovery and message delivery remain separate.
+@runtime_checkable
+class TypingSender(Protocol):
+    """Native relay-identity sender owned by a typing-capable adapter."""
+
+    async def send_typing(self, update: TypingUpdate) -> None:
+        """Apply desired activity using native trust, room, and lifecycle guards."""
+        ...

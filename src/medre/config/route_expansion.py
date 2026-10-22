@@ -314,6 +314,7 @@ def _expand_standard_route(
             ownership=rc.ownership,
             enabled=rc.enabled,
             policy=route_policy,
+            forward_typing=rc.forward_typing,
         )
         routes.append(route)
 
@@ -421,6 +422,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
                         ownership=rc.ownership,
                         enabled=rc.enabled,
                         policy=route_policy,
+                        forward_typing=rc.forward_typing,
                     ),
                     config_route_id=rc.route_id,
                     direction=_DIRECTION_FORWARD,
@@ -447,6 +449,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
                         ownership=rc.ownership,
                         enabled=rc.enabled,
                         policy=route_policy,
+                        forward_typing=rc.forward_typing,
                     ),
                     config_route_id=rc.route_id,
                     direction=_DIRECTION_REVERSE,

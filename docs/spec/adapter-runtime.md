@@ -237,6 +237,7 @@ class AdapterCapabilities:
     max_text_bytes: int | None = None
     max_text_chars: int | None = None
     threads: str = "unsupported"
+    typing: bool = False
 ```
 
 `identity_encryption` remains a boolean describing native identity-level
@@ -1259,3 +1260,12 @@ RenderingResult
   --> pipeline records receipt
   --> pipeline stores native_message_ref (when native_message_id is not None)
 ```
+
+### Transient typing port
+
+Adapters declaring `typing: true` MUST implement TypingSender.send_typing and
+may publish TypingActivity through the optional source-bound context sink.
+The port uses the adapter's own native identity and MUST enforce its configured
+conversation and lifecycle guards. It MUST NOT use canonical delivery or its
+receipt/outbox state machine. See [transient-typing.md](transient-typing.md) for
+operator authorization, aggregation, native conversion, and cleanup semantics.

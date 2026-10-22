@@ -7,5 +7,8 @@ emitted indicators when resetting state.
 
 Keep composing activity separate from canonical history, durable delivery,
 verified actor identity, and puppeting. Define Matrix replacement-list and
-XEP-0085 conversion obligations. This core building block is not wired into
-runtime configuration or native adapters.
+XEP-0085 conversion obligations. Routes explicitly opt in with `forward_typing`
+on concrete channel mappings.
+Runtime source binding, static allowlists, bounded native calls, permission
+withdrawal, and cancellation-safe shutdown remain separate from message delivery.
+Providers require a declared typing capability and a native sender port.

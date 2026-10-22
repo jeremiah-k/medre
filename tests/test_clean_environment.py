@@ -350,6 +350,7 @@ class TestCleanEnvironmentImportBoundaries:
         "medre.interop",
         "medre.runtime",
         "medre.runtime.builder",
+        "medre.runtime.typing",
         "medre.runtime.app",
         "medre.runtime.errors",
         "medre.runtime.evidence",

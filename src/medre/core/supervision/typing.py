@@ -228,6 +228,39 @@ class TypingLeasePool:
         times.extend(emission.refresh_at for emission in self._emitted.values())
         return min(times) if times else None
 
+    def remove_absent(
+        self, source_adapter: str, channel: str, senders: frozenset[str]
+    ) -> None:
+        """Release omitted actors from one source-scoped native replacement list."""
+        self._expire(self._now())
+        for key in tuple(self._leases):
+            if key[0] == source_adapter and key[1] == channel and key[2] not in senders:
+                self._remove(key)
+
+    def retain(self, allowed: Callable[[str, str, str, TypingTarget], bool]) -> None:
+        """Withdraw grants without extending deadlines or inventing fresh activity."""
+        self._expire(self._now())
+        for key, lease in tuple(self._leases.items()):
+            targets = frozenset(
+                target for target in lease.targets if allowed(*key, target)
+            )
+            if targets != lease.targets:
+                self._remove(key)
+                if targets:
+                    self._leases[key] = _Lease(lease.expires_at, targets)
+                    for target in targets:
+                        self._targets.setdefault(target, set()).add(key)
+
+    def desired(self, target: TypingTarget) -> TypingUpdate:
+        """Read fresh aggregate state immediately before a native send, without renewal."""
+        now = self._now()
+        self._expire(now)
+        sources = self._targets.get(target, set())
+        seconds = max(
+            (self._leases[key].expires_at - now for key in sources), default=0.0
+        )
+        return TypingUpdate(target, min(MAX_TYPING_SECONDS, seconds))
+
     def reset(self) -> tuple[TypingUpdate, ...]:
         """Forget all actors and return one clear per previously emitted target.
 

@@ -2,10 +2,12 @@
 
 ## 1. Scope and authority
 
-`TypingActivity`, `TypingTarget`, and `TypingUpdate` define transient composing
-activity. `TypingLeasePool` implements bounded in-memory lease aggregation.
-RuntimeBuilder and adapters do not yet wire this pool; no configuration or CLI
-switch enables typing forwarding through this contract.
+`TypingActivity`, `TypingSnapshot`, `TypingTarget`, and `TypingUpdate` define
+transient composing activity. `TypingLeasePool` implements bounded in-memory lease aggregation.
+RuntimeBuilder owns an optional TypingRelay around this pool. Routes opt in
+using `forward_typing: true`; default message routes do not forward activity.
+Both endpoints must provide a TypingSender port and declare `typing: true`.
+Replay startup does not activate the relay.
 
 Typing activity MUST NOT be admitted as a canonical event, stored in the event
 log, placed in the durable outbox, replayed, or represented by delivery receipts.
@@ -27,8 +29,17 @@ message content delivery.
 boolean composing state, and finite duration greater than zero and at most
 30 seconds. Source identifiers are nonempty strings of at most
 4,096 Unicode code points, excluding controls, line separators, and unpaired
-surrogates. Valid Unicode joiners and exact native spelling are preserved. The native sender is a transport claim, not proof
+surrogates. Valid Unicode joiners and exact native spelling are preserved.
+The native sender is a transport claim, not proof
 of a reconciled or verified actor. Runtime binds the separate source adapter ID.
+
+`TypingSnapshot` replaces the complete native actor set for one source
+conversation. It carries a unique tuple of at most 1,024 native senders and the
+same freshness bound. An empty tuple releases all actors in that conversation.
+Omitted actors MUST be released even when capacity refuses other actors in the
+snapshot. Snapshot processing can admit a subset at capacity; a false admission
+result indicates incomplete admission, not rollback of releases. Providers MUST
+NOT maintain a second actor cache to compute replacement-list differences.
 
 `TypingTarget` is one concrete adapter and conversation, with the same bounded
 opaque identifier rules. It carries no source actor or puppet identity.
@@ -95,3 +106,31 @@ The 30-second lease is a local freshness limit. XMPP does not give a composing
 notification the same server-managed timeout as Matrix. A lost stop can therefore
 cause a temporary projection difference; neither bounded observation nor a
 successful local clear establishes exactly-once notification delivery.
+
+## 5. Runtime integration
+
+`forward_typing` MUST be an explicit boolean and requires concrete source and
+destination channels, including every expanded context mapping. Structured
+message destinations and wildcard activity grants are rejected. The flag is
+independent of canonical event-kind filters; every static source, destination,
+sender, room, and channel allowlist remains authoritative through the existing
+route-policy evaluator. Multiple granting routes coalesce their destinations.
+
+The runtime MUST bind `AdapterContext.publish_typing` to the configured source
+adapter. Publication returns local admission only, never durable acceptance or
+native delivery. A positive update with no authorized destination is refused;
+stops release existing source-scoped leases even after grant withdrawal.
+
+TypingRelay accepts activity after adapter startup and only during live scope.
+It owns one worker, at most eight concurrent native calls, and at most two
+seconds per call. Before sending, it rechecks permissions and recomputes the
+latest desired state; queued work cannot revive an expired or stopped actor.
+Permission withdrawal is reconciled at least once per second between bounded
+send batches, without renewing any lease. Native send failures are counted and
+logged without exception bodies; the message pipeline remains independent.
+
+Shutdown MUST refuse publication, reap owned calls, and attempt clears while
+adapter sessions remain open. Caller cancellation MUST NOT abandon this owned
+cleanup. Runtime reactivation starts with empty activity state. Native protocol
+limits and best-effort clearing still apply; there is no persisted replay,
+receipt, or retry queue for activity.

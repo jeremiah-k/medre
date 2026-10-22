@@ -421,17 +421,15 @@ class TestHistoryRetrieval:
         assert _get_fake_caps("lxmf").store_and_forward is True
 
 
-class TestTypingIndicators:
-    """Typing indicators: no adapter implements them.  Verified via presence."""
+class TestPresenceSeparation:
+    """Transient typing and canonical presence have independent capabilities."""
 
-    def test_no_adapter_has_typing_support(self) -> None:
-        """MEDRE has no typing indicator capability field.  No adapter
-        implements typing indicators.  The closest field is presence, which
-        all adapters correctly set to False."""
+    def test_typing_does_not_imply_presence_support(self) -> None:
+        """No profile claims full presence through transient activity support."""
         for transport in TRANSPORTS:
             assert (
                 _get_fake_caps(transport).presence is False
-            ), f"{transport}: presence must be False (no typing support)"
+            ), f"{transport}: presence must be False (no full presence support)"
 
 
 class TestIdentityEncryption:
