@@ -116,6 +116,10 @@ async def run(stage: str) -> None:
         from .fidelity import run
 
         await run(ROOT, presentation=stage == "presentation")
+    elif stage == "encrypted":
+        from .encrypted import run
+
+        await run(ROOT)
     elif stage == "recovery":
         failures = []
         for owner in ("medre", "mmrelay"):

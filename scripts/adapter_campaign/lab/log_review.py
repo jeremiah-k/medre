@@ -127,7 +127,7 @@ def review(root: Path) -> None:
             for name in runtime_generations(scenario)
         }
         files.extend(runtime_streams(root, recovery[-1], generations))
-    for campaign in ("fidelity", "presentation"):
+    for campaign in ("fidelity", "presentation", "encrypted"):
         runs = sorted(
             (
                 path
