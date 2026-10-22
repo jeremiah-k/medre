@@ -180,13 +180,12 @@ def _drain_pending_cancellations() -> int:
       the end of the method, after pipeline runner stop and storage
       close.
     * :meth:`MedreApp.start()` (``CancelledError`` handler) — restores
-      ``_total`` (``_cleared + _cleanup_drained +
-      _startup_cleanup_drained``) before re-raising.
+      ``_total`` (``_cleared + _cleanup_drained``) before re-raising.
     * :meth:`MedreApp._cleanup_core_resources` — restores
       ``_cleared_cancels`` before re-raising ``_cancelled``.
-    * Per-adapter cleanup stops inside :meth:`MedreApp.start` —
-      accumulated into ``_startup_cleanup_drained`` and folded into
-      the outer ``start()`` handler's restore.
+    * :meth:`MedreApp._start_adapter` — cleanup occurs in a child task.
+      Its drained cancellations do not alter the parent task's count;
+      external startup cancellation is preserved by the task group.
     * :meth:`_stop_adapter_with_deadline` — does **not** drain; its
       ``CancelledError`` handler re-raises so the **caller** drains
       and restores.
@@ -924,8 +923,9 @@ class MedreApp:
             # work — purely from ordering, not from any real transport
             # failure.
 
-        # 3. Start each adapter in deterministic order.
-        #    Sort by adapter_id for reproducible startup sequence.
+        # 3. Schedule independent adapters in deterministic order.
+        #    Native setup progresses concurrently; activation waits for all
+        #    attempts and their failed-start cleanup to settle.
         adapter_ids = sorted(self.adapters.keys())
         total = len(adapter_ids)
 
@@ -941,141 +941,24 @@ class MedreApp:
         for bf in self.build_failures:
             self._set_adapter_state(bf.adapter_id, AdapterState.FAILED)
 
-        failed_adapter_ids: list[str] = []
-        # Track cancellation requests drained during per-adapter
-        # start-failure cleanup stops.  These are accumulated in the
-        # inner ``except asyncio.CancelledError`` branch so they can
-        # be restored if the outer CancelledError handler fires.
-        _startup_cleanup_drained: int = 0
         try:
-            for adapter_id in adapter_ids:
-                adapter = self.adapters[adapter_id]
-                transport = getattr(adapter, "platform", "unknown")
-                t0 = _monotonic_ms()
-                try:
-                    from medre.core.contracts.adapter import AdapterContext
-
-                    ctx = AdapterContext(
-                        adapter_id=adapter_id,
-                        publish_inbound=self._make_publish_inbound(adapter_id),
-                        admit_inbound=(
-                            self._make_admit_inbound(adapter_id)
-                            if self.storage is not None
-                            else None
-                        ),
-                        load_checkpoint=(
-                            self._make_checkpoint_loader(adapter_id)
-                            if self.storage is not None
-                            else None
-                        ),
-                        commit_checkpoint=(
-                            self._make_checkpoint_committer(adapter_id)
-                            if self.storage is not None
-                            else None
-                        ),
-                        logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
-                        clock=_utc_now,
-                        shutdown_event=self.shutdown_event,
-                        attachments=self._attachment_seam,
-                        publish_typing=(
-                            self._typing_relay.publisher(adapter_id)
-                            if self._typing_relay is not None
-                            and adapter_id in self._typing_relay.adapter_ids
-                            else None
-                        ),
-                        report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
+            # All tasks are owned by this scope. A slow connection or its
+            # failure cleanup cannot hold back an independent adapter.
+            async with asyncio.TaskGroup() as starts:
+                startup_tasks = {
+                    adapter_id: starts.create_task(
+                        self._start_adapter(adapter_id),
+                        name=f"adapter-start:{adapter_id}",
                     )
-                    await adapter.start(ctx)
-                    elapsed = _monotonic_ms() - t0
-                    self.adapter_start_monotonic[adapter_id] = t0
-                    self.adapter_start_duration_ms[adapter_id] = elapsed
-                    self.started_adapter_ids.append(adapter_id)
-                    self._set_adapter_state(adapter_id, AdapterState.READY)
-                    _logger.debug(
-                        "Adapter %s.%s started in %.0fms",
-                        transport,
-                        adapter_id,
-                        elapsed,
-                    )
-                    self._emit_event(
-                        RuntimeEventType.ADAPTER_STARTED,
-                        {"adapter_id": adapter_id, "platform": transport},
-                    )
-                except Exception as exc:
-                    elapsed = _monotonic_ms() - t0
-                    failed_adapter_ids.append(adapter_id)
-                    # Best-effort cleanup: stop the adapter so it can
-                    # release any resources acquired during the partial
-                    # start.  Cleanup errors are logged but suppressed
-                    # so that the original start-failure error is preserved.
-                    try:
-                        stop_outcome, _ = await self._stop_adapter_with_deadline(
-                            adapter=adapter,
-                            adapter_id=adapter_id,
-                            transport=transport,
-                            timeout=float(self.config.runtime.shutdown_timeout_seconds),
-                        )
-                    except asyncio.CancelledError as cleanup_exc:
-                        # Best-effort startup cleanup: suppress the
-                        # CancelledError so the original start-failure
-                        # error is preserved.  Drain the cancellation
-                        # state so subsequent adapter stops in the loop
-                        # actually get a chance to run.  The drained
-                        # count is accumulated into
-                        # ``_startup_cleanup_drained`` so the outer
-                        # CancelledError handler can restore the full
-                        # cancellation depth if it fires.
-                        #
-                        # Safety of suppression when no outer
-                        # CancelledError fires: the caller's cancellation
-                        # intent was to abort startup, which already
-                        # happened (this adapter's start failed).  The
-                        # start-failure path will raise
-                        # RuntimeStartupError (total failure) or proceed
-                        # to RUNNING (partial failure) — both are the
-                        # correct outcomes for a cancelled startup.
-                        # The drain is required so subsequent adapter
-                        # stops in this loop are not immediately
-                        # cancelled before they can release resources.
-                        _startup_cleanup_drained += _drain_pending_cancellations()
-                        _logger.debug(
-                            "Cancelled stopping adapter %s.%s after start failure: %s",
-                            transport,
-                            adapter_id,
-                            cleanup_exc,
-                        )
-                    else:
-                        if stop_outcome == "timeout":
-                            _logger.debug(
-                                "Timeout stopping adapter %s.%s after start failure",
-                                transport,
-                                adapter_id,
-                            )
-                        elif stop_outcome == "abandoned":
-                            _logger.debug(
-                                "Abandoned adapter %s.%s after start failure "
-                                "(event loop will reclaim when shutting down)",
-                                transport,
-                                adapter_id,
-                            )
-                    self._set_adapter_state(adapter_id, AdapterState.FAILED)
-                    _logger.error(
-                        "Adapter %s.%s failed to start (%.0fms): %s",
-                        transport,
-                        adapter_id,
-                        elapsed,
-                        exc,
-                    )
-                    self._emit_event(
-                        RuntimeEventType.ADAPTER_START_FAILED,
-                        {
-                            "adapter_id": adapter_id,
-                            "platform": transport,
-                            "error": str(exc),
-                        },
-                    )
+                    for adapter_id in adapter_ids
+                }
+            failed_adapter_ids = [
+                adapter_id
+                for adapter_id, task in startup_tasks.items()
+                if not task.result()
+            ]
         except asyncio.CancelledError as c_exc:
-            # Cancellation arrived during the startup loop.  Drain the
+            # Cancellation arrived while the task group owned startup. Drain the
             # pending cancellation so cleanup awaits can actually run,
             # then run the same cleanup as the ``Exception`` handler.
             # The cancellation is restored after cleanup so it propagates
@@ -1090,24 +973,20 @@ class MedreApp:
             #   _cleanup_drained        — cancellations drained by
             #                             _start_failure_cleanup() →
             #                             _cleanup_started_adapters()
-            #   _startup_cleanup_drained — cancellations drained during
-            #                             per-adapter start-failure cleanup
-            #                             stops inside the loop body
             _cleared = _drain_pending_cancellations()
             _cleanup_drained = await self._start_failure_cleanup()
-            _total = _cleared + _cleanup_drained + _startup_cleanup_drained
+            _total = _cleared + _cleanup_drained
             if _total:
                 current = asyncio.current_task()
                 if current is not None:
                     for _ in range(_total):
                         current.cancel()
             raise c_exc
-        except Exception:
-            # Catastrophic failure during the loop itself (not an adapter
-            # failure).  Clean up already-started adapters in reverse order,
-            # then clean up core resources (pipeline runner + storage).
+        except Exception as exc:
+            # Task-group infrastructure failures retain all underlying causes;
+            # expose the documented runtime error after complete rollback.
             await self._start_failure_cleanup()
-            raise
+            raise RuntimeStartupError("Adapter startup orchestration failed") from exc
 
         if self._typing_relay is not None and scope is StartupScope.LIVE:
             try:
@@ -1390,6 +1269,125 @@ class MedreApp:
                         "reason": ur.reason,
                     },
                 )
+
+    async def _start_adapter(self, adapter_id: str) -> bool:
+        """Start one independent adapter and retire a failed partial start.
+
+        Ordinary provider failures are isolated. Cancellation of the start
+        itself propagates so the task group can settle all siblings before
+        runtime rollback. Public summaries retain stable adapter ordering.
+        """
+        adapter = self.adapters[adapter_id]
+        transport = getattr(adapter, "platform", "unknown")
+        t0 = _monotonic_ms()
+        _logger.info("Starting adapter %s.%s", transport, adapter_id)
+        try:
+            from medre.core.contracts.adapter import AdapterContext
+
+            ctx = AdapterContext(
+                adapter_id=adapter_id,
+                publish_inbound=self._make_publish_inbound(adapter_id),
+                admit_inbound=(
+                    self._make_admit_inbound(adapter_id)
+                    if self.storage is not None
+                    else None
+                ),
+                load_checkpoint=(
+                    self._make_checkpoint_loader(adapter_id)
+                    if self.storage is not None
+                    else None
+                ),
+                commit_checkpoint=(
+                    self._make_checkpoint_committer(adapter_id)
+                    if self.storage is not None
+                    else None
+                ),
+                logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
+                clock=_utc_now,
+                shutdown_event=self.shutdown_event,
+                attachments=self._attachment_seam,
+                publish_typing=(
+                    self._typing_relay.publisher(adapter_id)
+                    if self._typing_relay is not None
+                    and adapter_id in self._typing_relay.adapter_ids
+                    else None
+                ),
+                report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
+            )
+            await adapter.start(ctx)
+            elapsed = _monotonic_ms() - t0
+            self.adapter_start_monotonic[adapter_id] = t0
+            self.adapter_start_duration_ms[adapter_id] = elapsed
+            self.started_adapter_ids.append(adapter_id)
+            self.started_adapter_ids.sort()
+            self._set_adapter_state(adapter_id, AdapterState.READY)
+            _logger.debug(
+                "Adapter %s.%s started in %.0fms",
+                transport,
+                adapter_id,
+                elapsed,
+            )
+            self._emit_event(
+                RuntimeEventType.ADAPTER_STARTED,
+                {"adapter_id": adapter_id, "platform": transport},
+            )
+            return True
+        except Exception as exc:
+            elapsed = _monotonic_ms() - t0
+
+            # Best-effort cleanup: stop the adapter so it can
+            # release any resources acquired during the partial
+            # start.  Cleanup errors are logged but suppressed
+            # so that the original start-failure error is preserved.
+            try:
+                stop_outcome, _ = await self._stop_adapter_with_deadline(
+                    adapter=adapter,
+                    adapter_id=adapter_id,
+                    transport=transport,
+                    timeout=float(self.config.runtime.shutdown_timeout_seconds),
+                )
+            except asyncio.CancelledError as cleanup_exc:
+                # Keep a provider's failed-start cleanup best effort. Its
+                # cancellation count belongs to this child task; parent startup
+                # cancellation remains owned and restored by start().
+                _drain_pending_cancellations()
+                _logger.debug(
+                    "Cancelled stopping adapter %s.%s after start failure: %s",
+                    transport,
+                    adapter_id,
+                    cleanup_exc,
+                )
+            else:
+                if stop_outcome == "timeout":
+                    _logger.debug(
+                        "Timeout stopping adapter %s.%s after start failure",
+                        transport,
+                        adapter_id,
+                    )
+                elif stop_outcome == "abandoned":
+                    _logger.debug(
+                        "Abandoned adapter %s.%s after start failure "
+                        "(event loop will reclaim when shutting down)",
+                        transport,
+                        adapter_id,
+                    )
+            self._set_adapter_state(adapter_id, AdapterState.FAILED)
+            _logger.error(
+                "Adapter %s.%s failed to start (%.0fms): %s",
+                transport,
+                adapter_id,
+                elapsed,
+                exc,
+            )
+            self._emit_event(
+                RuntimeEventType.ADAPTER_START_FAILED,
+                {
+                    "adapter_id": adapter_id,
+                    "platform": transport,
+                    "error": str(exc),
+                },
+            )
+            return False
 
     async def stop(self, *, drain_deadline: float | None = None) -> None:
         """Stop all subsystems in reverse dependency order.
@@ -1926,9 +1924,8 @@ class MedreApp:
         * :meth:`MedreApp._cleanup_started_adapters` — drains in each
           adapter stop's ``except CancelledError`` block, accumulates
           into ``_total_drained`` for the caller to restore.
-        * Per-adapter start-failure cleanup in :meth:`MedreApp.start`
-          — drains and accumulates into ``_startup_cleanup_drained``,
-          folded into the outer ``start()`` handler's restore.
+        * :meth:`MedreApp._start_adapter` — drains child-task cleanup
+          cancellation; parent cancellation stays with the task group.
 
         Returns
         -------

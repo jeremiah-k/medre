@@ -65,7 +65,15 @@ class AdapterContract(ABC):
 
 ### 3.2 `start(context)`
 
-The runtime calls `start()` once during initialization. The adapter **MUST**:
+The runtime calls `start()` once during initialization. Independent adapter
+instances start concurrently after storage, projection repair and pipeline setup.
+The runtime MUST own all startup tasks in one structured task group and wait for
+them to settle before activating durable ingress, retries or transient activity.
+Scheduling and reported adapter IDs MUST use stable identifier order; connection
+completion order is not guaranteed. Normal shutdown uses reverse identifier
+order, independent of connection timing.
+
+The adapter **MUST**:
 
 1. Establish whatever connection or session its transport requires.
 2. Register internal listeners or callbacks that feed into `context.publish_inbound()`.
@@ -73,7 +81,20 @@ The runtime calls `start()` once during initialization. The adapter **MUST**:
 4. Call `self._mark_started(ctx)` to record the adapter's start time for stale-event filtering.
 5. Return only after the adapter is ready to accept delivery work or after the connection attempt has progressed far enough to report a definitive health state.
 
-The runtime does not time out `start()`. The adapter **MUST** handle its own connection timeouts internally and report `"failed"` if the transport cannot be reached.
+The runtime does not impose a transport-blind deadline on `start()`. The adapter
+MUST bound its native connection attempts and keep blocking SDK construction off
+the asyncio event loop. Where its transport profile supports owned recovery, it
+MAY return started and degraded while retaining one pending attempt or capped
+retries; otherwise it MUST fail startup. Invalid configuration and missing
+dependencies remain startup failures.
+
+An ordinary startup failure and its cleanup MUST be isolated from independent
+adapter starts. Parent cancellation MUST settle all startup tasks before rolling
+back partially started and ready adapters, the pipeline and storage. A child
+that cancels its own start MUST NOT be counted as ready. Unexpected orchestration
+failure MUST raise RuntimeStartupError after rollback, retaining grouped causes.
+Structured task ownership cannot preempt synchronous code or forcibly terminate
+native SDK threads; providers MUST cooperate with cancellation.
 
 ### 3.3 `stop(timeout)`
 
