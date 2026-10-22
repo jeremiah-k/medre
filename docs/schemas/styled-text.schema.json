@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/styled-text.schema.json",
+  "title": "Canonical styled text payload",
+  "description": "Optional bounded presentation over authoritative body text. Body-relative ranges, nesting, line boundaries and allowed link schemes are validated by StyledText.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "body"
+  ],
+  "properties": {
+    "body": {
+      "type": "string"
+    },
+    "formatting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "spans"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "spans": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/TextSpan"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "TextSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end",
+        "style"
+      ],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "style": {
+          "enum": [
+            "strong",
+            "emphasis",
+            "strike",
+            "code",
+            "pre",
+            "quote",
+            "link"
+          ]
+        },
+        "href": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^([Hh][Tt][Tt][Pp][Ss]?://|[Mm][Aa][Ii][Ll][Tt][Oo]:)[^\\s\\u0000-\\u001f\\u007f-\\u009f\\\\\"<>]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "style": {
+                "const": "link"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "href"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "href"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "formatting"
+        ],
+        "properties": {
+          "formatting": {
+            "required": [
+              "spans"
+            ],
+            "properties": {
+              "spans": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "maxLength": 65536
+          }
+        }
+      }
+    }
+  ]
+}

@@ -10,6 +10,7 @@ from tests.helpers.import_side_effects import check_in_subprocess
     [
         "medre.interop.mmrelay",
         "medre.core.observability.sanitization",
+        "medre.core.events.text",
         "medre",
         "medre.adapters",
         "medre.adapters.metadata",

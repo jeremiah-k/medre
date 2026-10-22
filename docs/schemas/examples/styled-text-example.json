@@ -1,0 +1,13 @@
+{
+  "body": "Hello café 🦉",
+  "formatting": {
+    "version": 1,
+    "spans": [
+      {
+        "start": 6,
+        "end": 12,
+        "style": "strong"
+      }
+    ]
+  }
+}
