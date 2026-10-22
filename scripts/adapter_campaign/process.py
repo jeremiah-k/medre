@@ -18,6 +18,7 @@ _DRAIN_TIMEOUT = 5
 
 class Peer:
     def __init__(self, name: str, directory: Path, timeout: float) -> None:
+        """Prepare a peer whose command and evidence waits use timeout seconds."""
         self.name = name
         self.directory = directory
         self.timeout = timeout
@@ -142,7 +143,12 @@ class Peer:
         return code
 
     async def stop(self) -> None:
-        """Always reap the child; forced cleanup prevents a passing verdict."""
+        """Always reap the child; forced cleanup prevents a passing verdict.
+
+        Accept a nonzero exit only when recorded by crash(). Close evidence
+        streams even on failure. Cleanup failures raise RuntimeError; exhausted
+        process or reader waits can propagate TimeoutError.
+        """
         forced = False
         try:
             if self.process is not None:

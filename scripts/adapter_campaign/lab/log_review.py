@@ -43,6 +43,15 @@ def analyze(text: str) -> dict:
 
 
 def review(root: Path) -> None:
+    """Audit the latest available native, MMRelay, and resilience runtime logs.
+
+    Write counts and line numbers to results/log-review.json without raw log
+    text. Raise ValueError if no runtime evidence is selected or recovery
+    generation evidence is missing or unexpected. Raise RuntimeError for resource
+    warnings, missing timestamps, or streams without log records; stderr may
+    have no records.
+    File read and report write errors propagate.
+    """
     candidates = sorted(
         (
             path

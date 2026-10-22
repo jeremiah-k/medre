@@ -22,10 +22,20 @@ from scripts.adapter_campaign.recovery_evidence import (
 
 
 def records(path: Path) -> list[dict]:
+    """Read every JSON Lines record in order, propagating file and JSON errors."""
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
 async def analyze(directory: Path) -> dict:
+    """Return per-scenario verdicts after checking retained recovery evidence.
+
+    Read campaign and case reports, native and runtime control streams, and
+    the shared database without changing them. Cross-check identities, source
+    acknowledgements, crash timing, delivery bounds, receipt authority, and
+    preserved history. Raise AssertionError for contract violations or
+    RuntimeError when assertions are disabled; file, JSON, lookup, and storage
+    errors propagate.
+    """
     if not __debug__:
         raise RuntimeError("Recovery analysis requires enabled assertions")
     report = json.loads((directory / "results.json").read_text())
@@ -252,6 +262,11 @@ async def analyze(directory: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Print offline analysis as JSON and return 0 on success.
+
+    Convert analysis exceptions into a generic failure summary and return 1,
+    omitting exception text. Argument errors raise SystemExit.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     args = parser.parse_args(argv)

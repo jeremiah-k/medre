@@ -37,6 +37,10 @@ SCENARIOS = (
 
 
 def runtime_generations(scenario: str) -> tuple[str, ...]:
+    """Return expected runtime names, including a second generation for restarts.
+
+    Raise ValueError if scenario is not one of SCENARIOS.
+    """
     if scenario not in SCENARIOS:
         raise ValueError("Unknown recovery scenario")
     count = (
@@ -48,6 +52,11 @@ def runtime_generations(scenario: str) -> tuple[str, ...]:
 
 
 async def read_event(storage: SQLiteStorage, marker: str) -> dict | None:
+    """Return JSON-normalized evidence for the event whose text contains marker.
+
+    Return None when absent. Raise AssertionError for multiple matching events
+    or the snapshot reader's event limit; storage errors propagate.
+    """
     items = await snapshots(storage, marker)
     assert len(items) <= 1, "Recovery duplicated canonical ingress"
     # Match the report's JSON representation, including nested tuple fields.
@@ -55,6 +64,11 @@ async def read_event(storage: SQLiteStorage, marker: str) -> dict | None:
 
 
 async def wait_event(storage, marker, predicate, peers) -> dict:
+    """Wait for matching event evidence that satisfies predicate, checking peers.
+
+    There is no local deadline; the caller must bound the wait. Peer, storage,
+    and predicate errors propagate.
+    """
     while True:
         for peer in peers:
             peer.check()
@@ -65,6 +79,11 @@ async def wait_event(storage, marker, predicate, peers) -> dict:
 
 
 async def wait_health(bridge: Peer, *, healthy: bool) -> None:
+    """Wait until target health is healthy, or non-healthy when healthy is False.
+
+    Use the peer's command timeout; the polling loop has no overall deadline.
+    Command and peer failures propagate.
+    """
     while True:
         status = await bridge.command("status")
         if (status["target_health"] == "healthy") is healthy:
@@ -73,6 +92,10 @@ async def wait_health(bridge: Peer, *, healthy: bool) -> None:
 
 
 async def observe(peers: list[Peer], seconds: float) -> None:
+    """Check peers for failures during seconds of observation, propagating errors.
+
+    Nonpositive durations return without checking peers.
+    """
     until = asyncio.get_running_loop().time() + seconds
     while (remaining := until - asyncio.get_running_loop().time()) > 0:
         for peer in peers:
@@ -83,6 +106,14 @@ async def observe(peers: list[Peer], seconds: float) -> None:
 async def case(
     plan: Plan, directory: Path, name: str, peers: dict[str, Peer], prefix: str
 ) -> dict:
+    """Qualify one named recovery scenario and return its evidence report.
+
+    Create a fresh scenario directory and owned runtime generations, sharing
+    the campaign database in its parent directory and the supplied native
+    peers. Retain snapshots, reports, and private failure tracebacks. The
+    caller must bound the scenario duration. Scenario failures propagate after
+    cleanup; runtime or storage cleanup errors raise RuntimeError.
+    """
     directory.mkdir(mode=0o700)
     source = next(k for k, v in plan.endpoints.items() if v["transport"] == "matrix")
     target = next(k for k, v in plan.endpoints.items() if v["transport"] == "xmpp")
@@ -113,6 +144,7 @@ async def case(
     }
 
     async def start(barrier):
+        """Start and retain the next runtime generation with the selected barrier."""
         bridge = Peer(
             runtime_generations(name)[len(generations)], directory, plan.timeout
         )
@@ -124,6 +156,7 @@ async def case(
         return bridge
 
     def check_native(minimum, maximum, *, nonce=marker, message=text):
+        """Return native observations validated against inclusive delivery bounds."""
         return native_deliveries(
             peers[target].records,
             plan.endpoints[target],
@@ -135,6 +168,7 @@ async def case(
         )
 
     def identity(item):
+        """Validate source correlation and return the scenario's sole outbox row."""
         return verify_identity(
             item,
             source=source,
@@ -343,6 +377,18 @@ async def case(
 
 
 async def run(plan: Plan, directory: Path, *, timeout: float = 150) -> dict:
+    """Run all recovery scenarios with independent Matrix and XMPP witnesses.
+
+    Require exactly one endpoint of each transport, POSIX, enabled assertions,
+    and a fresh output directory. timeout is a per-scenario deadline in seconds,
+    finite and inclusive from 1 to 600; invalid values or topology raise
+    ValueError, and unsupported execution raises RuntimeError.
+
+    Retain a shared database, private peer streams, reports, and failure logs.
+    Return the passing report. Scenario failures, including TimeoutError and
+    evidence AssertionError, propagate after cleanup; cleanup alone can raise
+    RuntimeError. File and peer startup errors also propagate.
+    """
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -442,6 +488,11 @@ async def run(plan: Plan, directory: Path, *, timeout: float = 150) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Validate a Matrix/XMPP plan and print scenarios, or execute with --run.
+
+    Set a private file creation mask. Return 0 on success; argument errors
+    raise SystemExit, and plan or campaign failures propagate.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path)

@@ -15,6 +15,13 @@ from .sources import write_json
 
 
 async def run(root: Path) -> None:
+    """Run and analyze recovery using the lab's provisioned Matrix/XMPP peers.
+
+    Write runtime and campaign YAML files, set this process's XDG profile
+    paths, and retain evidence in a new results/resilience-* directory.
+    Raise ValueError unless both fixtures are ready; configuration, campaign,
+    analysis, and file errors propagate.
+    """
     from scripts.analyze_recovery_campaign import analyze
 
     fixtures = json.loads((root / "results/provision.json").read_text())
