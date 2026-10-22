@@ -101,6 +101,12 @@ Writable connections enable WAL mode, a 5-second busy timeout, and foreign-key
 enforcement. Read-only connections use SQLite URI `mode=ro` and the same busy
 timeout.
 
+**Interrupted opening.** Initialization and read-only inspection retain the
+opening task until its worker settles. A returned connection is adopted before
+cancellation propagates, so initialization rollback closes both the native
+handle and the private executor. Cancelling the caller cannot discard a worker's
+late connection result.
+
 **Teardown.** `close()` is idempotent. An early-return guard
 (`if self._closed: return`) prevents concurrent callers from racing. On first
 call:
