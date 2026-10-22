@@ -70,7 +70,10 @@ instances start concurrently after storage, projection repair and pipeline setup
 The runtime MUST own all startup tasks in one structured task group and wait for
 them to settle before activating durable ingress, retries or transient activity.
 Scheduling and reported adapter IDs MUST use stable identifier order; connection
-completion order is not guaranteed. Normal shutdown uses reverse identifier
+completion order is not guaranteed. Each successful start receives one initial
+health probe with a one-second async budget. A degraded, unknown, failed or
+unavailable health response MUST NOT be reported as healthy merely because
+start() returned; the started instance remains degraded and keeps its routes. Normal shutdown uses reverse identifier
 order, independent of connection timing.
 
 The adapter **MUST**:
@@ -82,8 +85,10 @@ The adapter **MUST**:
 5. Return only after the adapter is ready to accept delivery work or after the connection attempt has progressed far enough to report a definitive health state.
 
 The runtime does not impose a transport-blind deadline on `start()`. The adapter
-MUST bound its native connection attempts and keep blocking SDK construction off
-the asyncio event loop. Where its transport profile supports owned recovery, it
+MUST bound its native connection attempts and SHOULD move blocking SDK
+construction off the asyncio event loop where the SDK supports that threading
+model. SDK initialization that owns process-global signal handlers requires
+explicit thread-affinity qualification; task scheduling does not preempt it. Where its transport profile supports owned recovery, it
 MAY return started and degraded while retaining one pending attempt or capped
 retries; otherwise it MUST fail startup. Invalid configuration and missing
 dependencies remain startup failures.
@@ -129,7 +134,10 @@ This is the only outbound method. There is no `send()`, no `push()`, no `emit()`
 
 ### 3.5 `health_check()`
 
-The runtime calls `health_check()` periodically via the lifecycle manager. It **MUST** be cheap and non-blocking. It **MUST** return a fresh `AdapterInfo` describing the adapter's current state.
+The runtime performs one bounded initial health probe and supports explicit
+operator-triggered refreshes. It does not run generic periodic health polling
+or restart adapters. health_check() MUST be cheap, non-blocking and
+cancellation-cooperative, returning a fresh AdapterInfo describing native state.
 
 ### 3.6 Stale Event Filtering
 

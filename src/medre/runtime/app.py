@@ -77,6 +77,8 @@ if TYPE_CHECKING:
 __all__ = ["MedreApp", "RuntimeState", "StartupScope"]
 
 _logger = logging.getLogger(__name__)
+
+_STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
 _ROUTE_IDS_DISPLAY_LIMIT = 10
 
 
@@ -1315,17 +1317,35 @@ class MedreApp:
                 report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
             )
             await adapter.start(ctx)
+            # Readiness and native health are distinct. The initial probe is
+            # bounded and runs inside this owned task, alongside peer starts.
+            initial_health = "degraded"
+            try:
+                async with asyncio.timeout(_STARTUP_HEALTH_TIMEOUT_SECONDS):
+                    info = await adapter.health_check()
+                    if info.health == "healthy":
+                        initial_health = "healthy"
+            except Exception as health_exc:
+                _logger.warning(
+                    "Adapter %s.%s initial health unavailable (%s); started degraded",
+                    transport,
+                    adapter_id,
+                    type(health_exc).__name__,
+                )
             elapsed = _monotonic_ms() - t0
             self.adapter_start_monotonic[adapter_id] = t0
             self.adapter_start_duration_ms[adapter_id] = elapsed
             self.started_adapter_ids.append(adapter_id)
             self.started_adapter_ids.sort()
             self._set_adapter_state(adapter_id, AdapterState.READY)
-            _logger.debug(
-                "Adapter %s.%s started in %.0fms",
+            if initial_health != "healthy":
+                self._set_adapter_state(adapter_id, AdapterState.DEGRADED)
+            _logger.info(
+                "Adapter %s.%s started in %.0fms (health=%s)",
                 transport,
                 adapter_id,
                 elapsed,
+                initial_health,
             )
             self._emit_event(
                 RuntimeEventType.ADAPTER_STARTED,

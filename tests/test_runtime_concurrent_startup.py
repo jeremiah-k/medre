@@ -2,6 +2,7 @@
 """Independent adapters progress while startup retains ownership of every task."""
 
 import asyncio
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -156,3 +157,55 @@ async def test_self_cancelled_start_aborts_instead_of_disappearing(
         await app.start()
     assert app.state.value == "failed"
     assert not app.started_adapter_ids
+
+
+@pytest.mark.parametrize("reported_health", ["degraded", "unknown", "failed"])
+async def test_recovering_adapter_has_degraded_startup_health(
+    tmp_path, monkeypatch, reported_health
+):
+    """Returning from start is not evidence that the native transport is healthy."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    info = await app.adapters["alpha"].health_check()
+    monkeypatch.setattr(
+        app.adapters["alpha"],
+        "health_check",
+        AsyncMock(return_value=replace(info, health=reported_health)),
+    )
+    try:
+        await app.start()
+        assert app.boot_summary.runtime_health == "degraded"
+        assert app.started_adapter_ids == ["alpha", "beta"]
+        assert app._adapter_states["alpha"].value == "degraded"
+    finally:
+        await app.stop()
+
+
+@pytest.mark.parametrize("raises", [False, True])
+async def test_unavailable_initial_health_is_bounded_and_keeps_the_adapter(
+    tmp_path, monkeypatch, raises
+):
+    """A diagnostic failure cannot invent health or retire a started transport."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    monkeypatch.setattr("medre.runtime.app._STARTUP_HEALTH_TIMEOUT_SECONDS", 0.01)
+
+    async def unavailable():
+        """Either fail immediately or cooperate with the diagnostic deadline."""
+        if raises:
+            raise OSError("test health unavailable")
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(app.adapters["alpha"], "health_check", unavailable)
+    try:
+        async with asyncio.timeout(1):
+            await app.start()
+        assert app.boot_summary.runtime_health == "degraded"
+        assert app.started_adapter_ids == ["alpha", "beta"]
+        assert app.boot_summary.failed_adapter_ids == ()
+    finally:
+        await app.stop()

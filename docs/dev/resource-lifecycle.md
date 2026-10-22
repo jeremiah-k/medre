@@ -25,6 +25,12 @@ closes core resources. Provider connection budgets and native cancellation
 cleanup remain adapter responsibilities; core does not move async adapter methods
 onto worker threads or add a dependency graph.
 
+Reticulum and LXMF constructors install process-global signal handlers in the
+pinned SDKs. Their synchronous initialization requires the main thread; moving
+it into a worker without explicit SDK embedding support is unsafe. Concurrent
+startup does not preempt that initialization. Provider-level threading changes
+need separate qualification against those SDK constraints.
+
 ### Core Runtime Resources
 
 | Resource                      | Created by                              | Owner                                           | Teardown site                                                                                                                                                      | Idempotent?      |
