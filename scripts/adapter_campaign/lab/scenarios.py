@@ -16,6 +16,13 @@ ROOT = Path("/lab")
 
 
 async def run(stage: str) -> None:
+    """Execute a qualification stage using the lab at ROOT.
+
+    Grouped "all" and "native" runs retain outcomes in qualification.json,
+    continue after child command failures or timeouts, and raise RuntimeError
+    if any child failed. Skip MMRelay when Meshtastic is unconfigured.
+    Unknown stages raise NotImplementedError; individual stage errors propagate.
+    """
     if stage in {"all", "native"}:
         failures = []
         stages = (["contracts"] if stage == "all" else []) + list(NATIVE_STAGES)

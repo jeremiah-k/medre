@@ -22,6 +22,21 @@ _RECOVERY_MAX_DELAY_SECONDS = 20
 
 
 async def run(settings: dict) -> None:
+    """Serve supervisor commands using an actual Matrix-to-XMPP runtime.
+
+    settings selects the runtime YAML, adapters, channels, shared database,
+    private runtime directory, and optional marker-specific handoff barrier.
+    A barrier pauses delivery until cancellation or process death. Route only
+    the destination connection through a loopback gate; enable three attempts
+    with a 10-second retry base, a 20-second cap, and no jitter.
+
+    Emit readiness after both adapters become healthy, then acknowledge block,
+    restore, and status commands until stop. Invalid barriers, XMPP host/port,
+    or operations raise ValueError; missing started adapters or unexpected
+    supervisor EOF raises RuntimeError. The initial health wait raises
+    TimeoutError after 30 seconds. Configuration, adapter, and cleanup errors
+    propagate. Attempt cleanup of the owned runtime and gate on exit.
+    """
     barrier = settings.get("barrier")
     if barrier not in (None, "before_handoff", "after_handoff"):
         raise ValueError("Unknown recovery barrier")
@@ -80,6 +95,7 @@ async def run(settings: dict) -> None:
             original = app.adapters[target].deliver
 
             async def paused(rendered):
+                """Pause matching delivery before handoff or after its result, until canceled."""
                 if settings["marker"] not in str(rendered.payload.get("body", "")):
                     return await original(rendered)
                 if barrier == "before_handoff":

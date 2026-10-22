@@ -15,6 +15,11 @@ NATIVE_STAGES = (
 
 
 def stage_timeout(stage: str, provider_count: int) -> int:
+    """Return an outer timeout in seconds, including orchestration margins.
+
+    provider_count scales the contracts budget, including within "all".
+    "native" covers all native stages; other names use a single-stage budget.
+    """
     contracts = provider_count * PROVIDER_CONTRACT_SECONDS + MARGIN_SECONDS
     if stage == "contracts":
         return contracts

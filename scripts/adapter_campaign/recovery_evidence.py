@@ -38,6 +38,12 @@ def native_deliveries(
     minimum: int,
     maximum: int,
 ) -> list[dict]:
+    """Return received records containing marker after validating native delivery.
+
+    text must begin with the nonempty marker. Check the inclusive minimum and
+    maximum counts, configured sender and conversation, and exact source prefix
+    plus text. Contract violations raise AssertionError.
+    """
     assert (
         isinstance(marker, str) and marker and text.startswith(marker)
     ), "Invalid recovery nonce"
@@ -64,6 +70,12 @@ def verify_identity(
     target: str,
     target_channel: str,
 ) -> dict:
+    """Return the sole outbox row after checking canonical and native identity.
+
+    channel and native_id identify the source conversation and acknowledged
+    message; target_channel identifies the destination. Require recovery_route
+    work without replay provenance. Mismatches raise AssertionError.
+    """
     event = item["event"]
     assert event["source_adapter"] == source, "Unexpected canonical source"
     assert event["source_channel_id"] == channel, "Unexpected canonical conversation"
@@ -87,6 +99,13 @@ def verify_identity(
 
 
 def verify_terminal(item: dict, *, status: str, max_attempts: int = 3) -> dict:
+    """Return the receipt committed by the sole outbox row in the requested status.
+
+    Check matching delivery provenance, released claims, and attempt numbers
+    from 1 through max_attempts inclusive. For sent receipts with a native
+    message ID, require its outbound correlation. Mismatches raise AssertionError;
+    uncommitted receipts do not replace the outbox's receipt authority.
+    """
     assert len(item["outbox"]) == 1, "Recovery must not fork outbox work"
     row = item["outbox"][0]
     assert row["status"] == status, "Outbox has not reached the expected terminal state"
@@ -133,6 +152,10 @@ def verify_terminal(item: dict, *, status: str, max_attempts: int = 3) -> dict:
 
 
 def verify_preserved(before: dict, after: dict) -> None:
+    """Require an unchanged event and outbox ID with append-only receipt history.
+
+    Raise AssertionError if the snapshots violate these recovery invariants.
+    """
     assert before["event"] == after["event"], "Recovery rewrote the canonical event"
     assert len(before["outbox"]) == len(after["outbox"]) == 1
     assert (
