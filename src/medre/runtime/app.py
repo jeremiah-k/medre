@@ -762,8 +762,9 @@ class MedreApp:
             If the app has already been started or is shutting down.
         RuntimeStartupError
             If a core subsystem (storage, pipeline runner) fails to start,
-            or if zero adapters started (including build failures).  Core
-            resources are cleaned up before raising.
+            if zero adapters started (including build failures), or if a
+            provider cancels its own startup without caller cancellation.
+            Core resources are cleaned up before raising.
         """
         if self._state is not RuntimeState.INITIALIZED:
             raise RuntimeError(
@@ -827,22 +828,16 @@ class MedreApp:
         for bf in self.build_failures:
             self._set_adapter_state(bf.adapter_id, AdapterState.FAILED)
 
+        current = asyncio.current_task()
+        caller_cancel_depth = current.cancelling() if current is not None else 0
+        # TaskGroup uses cancellation internally to coordinate child failure.
+        # Keep that accounting on an owned coordinator task so only actual
+        # caller requests affect start()'s cancellation depth on every Python.
+        startup = asyncio.create_task(
+            self._start_adapters(adapter_ids), name="adapter-startup"
+        )
         try:
-            # All tasks are owned by this scope. A slow connection or its
-            # failure cleanup cannot hold back an independent adapter.
-            async with asyncio.TaskGroup() as starts:
-                startup_tasks = {
-                    adapter_id: starts.create_task(
-                        self._start_adapter(adapter_id),
-                        name=f"adapter-start:{adapter_id}",
-                    )
-                    for adapter_id in adapter_ids
-                }
-            failed_adapter_ids = [
-                adapter_id
-                for adapter_id, task in startup_tasks.items()
-                if not task.result()
-            ]
+            failed_adapter_ids = await startup
         except asyncio.CancelledError as c_exc:
             # Cancellation arrived while the task group owned startup. Drain the
             # pending cancellation so cleanup awaits can actually run,
@@ -872,15 +867,21 @@ class MedreApp:
             # Unexpected task-group failures still own a complete rollback.
             # If a cancellation arrived during that cleanup, it takes priority
             # over the orchestration error; do not silently lose its depth.
+            caller_cancelled = (
+                current is not None and current.cancelling() > caller_cancel_depth
+            )
             cleanup_drained = await self._start_failure_cleanup()
             if cleanup_drained:
                 current = asyncio.current_task()
                 if current is not None:
                     for _ in range(cleanup_drained):
                         current.cancel()
+            if caller_cancelled or cleanup_drained:
                 raise asyncio.CancelledError(
                     "cancelled during adapter startup orchestration cleanup"
                 ) from exc
+            if isinstance(exc, RuntimeStartupError):
+                raise
             raise RuntimeStartupError("Adapter startup orchestration failed") from exc
 
         if self._typing_relay is not None and scope is StartupScope.LIVE:
@@ -1301,6 +1302,29 @@ class MedreApp:
             # attempt — permanently classifying/dead-lettering durable
             # work — purely from ordering, not from any real transport
             # failure.
+
+    async def _start_adapters(self, adapter_ids: list[str]) -> list[str]:
+        """Settle every adapter attempt without exporting group cancellation.
+
+        The caller awaits this coordinator through success, failure and
+        cancellation. Self-cancelled children are provider failures, not
+        evidence that the operator requested runtime shutdown.
+        """
+        async with asyncio.TaskGroup() as starts:
+            tasks = {
+                adapter_id: starts.create_task(
+                    self._start_adapter(adapter_id), name=f"adapter-start:{adapter_id}"
+                )
+                for adapter_id in adapter_ids
+            }
+        cancelled = [
+            adapter_id for adapter_id, task in tasks.items() if task.cancelled()
+        ]
+        if cancelled:
+            raise RuntimeStartupError(
+                "Adapter startup cancelled itself: " + ", ".join(cancelled)
+            )
+        return [adapter_id for adapter_id, task in tasks.items() if not task.result()]
 
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.

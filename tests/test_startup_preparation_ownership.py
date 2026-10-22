@@ -87,7 +87,7 @@ async def main():
         "storage_open": app._storage_initialized,
         "adapters": app.started_adapter_ids,
         "pending_starts": [task.get_name() for task in asyncio.all_tasks()
-            if task.get_name().startswith("adapter-start:") and not task.done()],
+            if task.get_name().startswith("adapter-start") and not task.done()],
         "handler_restored": signal.getsignal(signum) == previous}))
 
 asyncio.run(main())

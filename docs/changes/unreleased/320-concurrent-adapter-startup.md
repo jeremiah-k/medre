@@ -16,3 +16,7 @@ so an external shutdown cannot be silently replaced by a startup exception.
 Retire partial core resources when preparation is cancelled or fails. Keep CLI
 startup cancellation attached to the startup owner's rollback, including repeated
 cancellation, without a second independent teardown.
+
+Separate task-group coordination from caller cancellation accounting. Report a
+self-cancelled provider as a startup error, preserve grouped infrastructure
+failures, and give simultaneous caller cancellation priority after owned rollback.

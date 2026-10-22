@@ -3,6 +3,7 @@
 
 import asyncio
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,6 +15,8 @@ from tests.helpers.startup_cleanup import (
     _config_with_two_fake_adapters,
 )
 from medre.config.paths import resolve
+from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.runtime.errors import RuntimeStartupError
 
 
 async def test_slow_first_adapter_does_not_delay_independent_peer(
@@ -135,13 +138,14 @@ async def test_cancellation_settles_pending_and_ready_adapters_before_core_clean
     for stop in stopped.values():
         stop.assert_awaited_once()
     assert not any(
-        task.get_name().startswith("adapter-start:") and not task.done()
+        task.get_name().startswith("adapter-start") and not task.done()
         for task in asyncio.all_tasks()
     )
 
 
+@pytest.mark.parametrize("phase", ["start", "health_check"])
 async def test_self_cancelled_start_aborts_instead_of_disappearing(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, phase
 ):
     """TaskGroup's ignored child cancellation cannot manufacture readiness."""
     app = _build_app(
@@ -149,15 +153,115 @@ async def test_self_cancelled_start_aborts_instead_of_disappearing(
         resolve(environ={"MEDRE_HOME": str(tmp_path)}),
     )
 
-    async def cancel_start(ctx):
+    async def cancel_start(*args):
         """Simulate a provider that cancels its own startup."""
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(app.adapters["alpha"], "start", cancel_start)
-    with pytest.raises(asyncio.CancelledError):
+    stops = {}
+    for name, adapter in app.adapters.items():
+        stops[name] = AsyncMock(wraps=adapter.stop)
+        monkeypatch.setattr(adapter, "stop", stops[name])
+    monkeypatch.setattr(app.adapters["alpha"], phase, cancel_start)
+    with pytest.raises(RuntimeStartupError, match="cancelled"):
         await app.start()
     assert app.state.value == "failed"
     assert not app.started_adapter_ids
+    for stop in stops.values():
+        stop.assert_awaited_once()
+
+
+async def test_simultaneous_child_failure_and_caller_cancellation_preserves_request(
+    tmp_path, monkeypatch
+):
+    """A task-group exception cannot mask cancellation arriving in the same turn."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    original = app._start_adapter
+    close = AsyncMock(wraps=app.storage.close)
+    monkeypatch.setattr(app.storage, "close", close)
+
+    async def failed_orchestration(adapter_id):
+        """Deliver caller cancellation and a coordinator failure atomically."""
+        if adapter_id == "alpha":
+            for _ in range(3):
+                starting.cancel()
+            raise RuntimeError("test simultaneous child failure")
+        return await original(adapter_id)
+
+    monkeypatch.setattr(app, "_start_adapter", failed_orchestration)
+    starting = asyncio.create_task(app.start())
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    assert starting.cancelling() == 3
+    assert app.state.value == "failed"
+    assert not app.started_adapter_ids
+    assert not app.pipeline_runner.running
+    close.assert_awaited_once()
+
+
+async def test_child_failure_without_caller_cancel_is_a_startup_error(
+    tmp_path, monkeypatch
+):
+    """TaskGroup's internal cancellation cannot impersonate an operator request."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+
+    async def failed_orchestration(adapter_id):
+        """Raise an infrastructure error while adapter startup is owned."""
+        raise RuntimeError("test coordinator failure")
+
+    monkeypatch.setattr(app, "_start_adapter", failed_orchestration)
+    starting = asyncio.create_task(app.start())
+    with pytest.raises(RuntimeStartupError, match="orchestration failed"):
+        await starting
+    assert starting.cancelling() == 0
+    assert isinstance(starting.exception().__cause__, ExceptionGroup)
+    assert app.state.value == "failed"
+    assert not app.started_adapter_ids
+    assert not app.pipeline_runner.running
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+async def test_degraded_initial_target_keeps_its_live_route(
+    tmp_path, monkeypatch, unavailable
+):
+    """Degraded native health and unavailable probes cannot prune a live target."""
+    config = replace(
+        _config_with_two_fake_adapters(),
+        routes=RouteConfigSet(
+            routes=(
+                RouteConfig(
+                    route_id="healthy-to-recovering",
+                    source_adapters=("beta",),
+                    dest_adapters=("alpha",),
+                ),
+            )
+        ),
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+    info = await app.adapters["alpha"].health_check()
+    health = AsyncMock(
+        side_effect=OSError("test unavailable health") if unavailable else None,
+        return_value=replace(info, health="degraded"),
+    )
+    monkeypatch.setattr(app.adapters["alpha"], "health_check", health)
+    event = SimpleNamespace(
+        source_adapter="beta", event_kind="message.text", source_channel_id="room"
+    )
+    try:
+        await app.start()
+        assert app._adapter_states["alpha"].value == "degraded"
+        matches = app.router.match(event)
+        assert len(matches) == 1
+        assert matches[0].id == "healthy-to-recovering"
+        assert [target.adapter for target in matches[0].targets] == ["alpha"]
+        assert app.startup_readiness.skipped == ()
+    finally:
+        await app.stop()
 
 
 @pytest.mark.parametrize("reported_health", ["degraded", "unknown", "failed"])
@@ -279,9 +383,10 @@ async def test_orchestration_error_preserves_cancellation_drained_by_cleanup(
     monkeypatch.setattr(app.storage, "close", paused_close)
     starting = asyncio.create_task(app.start())
     await entered.wait()
-    # Python 3.11/3.12 TaskGroup can retain an internal cancellation count
-    # after child failure. Preserve that baseline plus every caller request.
+    # TaskGroup coordination runs in its own task and must not contaminate
+    # the caller's cancellation depth on Python 3.11/3.12.
     baseline = starting.cancelling()
+    assert baseline == 0
     for _ in range(3):
         starting.cancel()
     release.set()

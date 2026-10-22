@@ -103,9 +103,11 @@ Cancellation or failure during core preparation MUST also retire partial storage
 and pipeline resources before startup returns. The CLI MUST await its owned
 startup task's rollback when interrupted and MUST NOT independently repeat that
 teardown. Repeated caller cancellation MUST NOT detach the startup task.
-A child that cancels its own start MUST NOT be counted as ready. Unexpected
-orchestration failure MUST raise RuntimeStartupError after rollback, retaining
-grouped causes.
+A child that cancels its own start without caller cancellation MUST fail startup
+with RuntimeStartupError after rollback, rather than impersonating an operator
+shutdown. Unexpected orchestration failure MUST retain its grouped causes.
+Caller cancellation MUST take precedence when it coincides with a child failure.
+Internal task-group cancellation MUST NOT alter the caller's cancellation depth.
 Structured task ownership cannot preempt synchronous code or forcibly terminate
 native SDK threads; providers MUST cooperate with cancellation.
 

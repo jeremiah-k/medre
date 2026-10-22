@@ -18,6 +18,12 @@ concurrently. The task group settles before ingress, retry and typing workers
 activate, so queued work cannot consume delivery attempts against an adapter
 whose startup is still pending.
 
+An owned coordinator task contains task-group internal cancellation. The startup
+caller awaits it through completion, failure and cancellation, so internal group
+bookkeeping cannot impersonate an operator shutdown. A provider that cancels its
+own start produces a startup error; a simultaneous caller cancellation takes
+precedence after rollback.
+
 Identifier order determines scheduling, public summaries and reverse shutdown
 order. Completion timing does not determine dependencies. Cancellation joins the
 startup tasks before rollback stops both partial and ready adapters and then
