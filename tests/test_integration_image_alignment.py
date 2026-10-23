@@ -108,6 +108,42 @@ def test_renovate_tracks_live_synapse_tag_and_digest() -> None:
     ), "Renovate must capture the live server's tag and digest together"
 
 
+def test_renovate_scans_every_guarded_fallback_site() -> None:
+    """Dependency updates cover each file this guard module scans by path.
+
+    A moved or renamed fallback site must fail here, not as silent drift on
+    the next image bump.
+    """
+    config = json.loads(_read(_REPO_ROOT / "renovate.json"))
+    managers = {
+        item["depNameTemplate"]: item["managerFilePatterns"]
+        for item in config["customManagers"]
+    }
+    guarded_sites = {
+        "matrixdotorg/synapse": [
+            "docker-compose.integration.yaml",
+            ".github/workflows/docker-integration.yml",
+            "tests/integration/conftest.py",
+            "tests/helpers/synapse_starter.py",
+            "scripts/ci/docker_bridge_artifacts.py",
+            "scripts/ci/run-docker-integration.sh",
+        ],
+        "meshtastic/meshtasticd": [
+            "docker-compose.integration.yaml",
+            ".github/workflows/docker-integration.yml",
+            "tests/integration/conftest.py",
+            "scripts/ci/docker_bridge_artifacts.py",
+            "scripts/ci/run-docker-integration.sh",
+        ],
+    }
+    for dep_name, sites in guarded_sites.items():
+        patterns = managers[dep_name]
+        for site in sites:
+            assert any(
+                re.search(pattern.strip("/"), site) for pattern in patterns
+            ), f"Renovate does not scan guarded fallback site {site} for {dep_name}"
+
+
 @pytest.mark.parametrize(("label", "repo", "env"), _IMAGES)
 def test_workflow_matches_compose(label: str, repo: str, env: str) -> None:
     """CI workflow pins the same tag and digest as compose.

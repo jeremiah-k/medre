@@ -25,13 +25,13 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Synapse integration image across compose, CI workflow, conftest, live starter, runtime env-fallbacks, and runner script",
+      "description": "Synapse integration image across compose, CI workflow, conftest, live starter, bridge artifact env-fallbacks, and runner script",
       "managerFilePatterns": [
         "/(^|/)docker-compose\\.integration\\.yaml$/",
         "/(^|/)\\.github[/]workflows[/]docker-integration\\.yml$/",
         "/(^|/)tests[/]integration[/]conftest\\.py$/",
         "/(^|/)tests[/]helpers[/]synapse_starter\\.py$/",
-        "/(^|/)src[/]medre[/]runtime[/]docker_bridge_artifacts\\.py$/",
+        "/(^|/)scripts[/]ci[/]docker_bridge_artifacts\\.py$/",
         "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/"
       ],
       "matchStrings": [
@@ -43,12 +43,12 @@
     },
     {
       "customType": "regex",
-      "description": "meshtasticd integration image across compose, CI workflow, conftest, runtime env-fallbacks, runner script, and bridge example config",
+      "description": "meshtasticd integration image across compose, CI workflow, conftest, bridge artifact env-fallbacks, runner script, and bridge example config",
       "managerFilePatterns": [
         "/(^|/)docker-compose\\.integration\\.yaml$/",
         "/(^|/)\\.github[/]workflows[/]docker-integration\\.yml$/",
         "/(^|/)tests[/]integration[/]conftest\\.py$/",
-        "/(^|/)src[/]medre[/]runtime[/]docker_bridge_artifacts\\.py$/",
+        "/(^|/)scripts[/]ci[/]docker_bridge_artifacts\\.py$/",
         "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/",
         "/(^|/)examples[/]configs[/]docker-meshtastic-bridge\\.yaml$/"
       ],
