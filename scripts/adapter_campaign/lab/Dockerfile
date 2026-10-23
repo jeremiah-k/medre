@@ -21,6 +21,11 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/mmrelay uv sync --project /sources/mmrelay \
 RUN uv pip install --python /opt/mmrelay/bin/python playwright==1.64.0
 ENV XDG_CACHE_HOME=/opt/native-cache PYTHONUNBUFFERED=1
 RUN cd /sources/medre && /opt/medre/bin/python -m scripts.adapter_campaign.lab.preload
+# Explicit certifi contexts bypass SSL_CERT_FILE. Trust only the disposable
+# bench CA in both isolated environments, after network-dependent preloading.
+RUN for lab_python in /opt/medre/bin/python /opt/mmrelay/bin/python; do \
+    "$lab_python" -c 'import certifi; from pathlib import Path; bundle = Path(certifi.where()); bundle.unlink(); bundle.symlink_to("/lab/config/ca.crt")' || exit 1; \
+    done
 RUN mkdir -p /opt/native-cache && chown -R ${LAB_UID}:${LAB_GID} /opt/native-cache
 RUN chmod -R a+rX /sources
 ENV PATH=/opt/medre/bin:$PATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 HOME=/lab/home

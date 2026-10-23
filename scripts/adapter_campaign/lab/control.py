@@ -207,8 +207,7 @@ def operate(args: argparse.Namespace) -> None:
                     "/config/mas.yaml",
                     "--yes",
                     "--ignore-password-complexity",
-                    "--password",
-                    accounts["password"],
+                    "--password=" + accounts["password"],
                     user,
                 ),
             )

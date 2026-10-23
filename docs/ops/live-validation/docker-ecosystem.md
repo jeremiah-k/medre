@@ -123,8 +123,10 @@ token expiry.
 
 Services publish no host ports. The generated network has no external egress;
 SimpleX queues use the local SMP relay. Browser and Python clients verify TLS
-against the lab authority inside their containers. The authority is never added
-to the host trust store. The official SimpleX native library is resolved while
+against the lab authority inside their containers. Both OpenSSL's environment
+and explicit certifi contexts use that authority; native dependency preloading
+finishes before the image switches certifi's bundle to the private lab CA.
+The authority is never added to the host trust store. The official SimpleX native library is resolved while
 building the image rather than downloaded during qualification.
 
 Hardware access is explicit. Only selected serial character devices and their
