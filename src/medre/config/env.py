@@ -100,6 +100,7 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
         "MEDRE_CONFIG",
         "MEDRE_DB_PATH",
         "MEDRE_LOG_LEVEL",
+        "MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS",
         "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES",
         "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS",
         "MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",
@@ -341,6 +342,7 @@ _ENV_FIELD_MAP: dict[str, str] = {
     "MEDRE_CONFIG": "config_path",
     "MEDRE_DB_PATH": "db_path",
     "MEDRE_LOG_LEVEL": "log_level",
+    "MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS": "adapter_start_timeout_seconds",
     # Runtime limits
     "MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES": "max_inflight_deliveries",
     "MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS": "max_inflight_replay_events",
@@ -784,6 +786,7 @@ class MedreEnvConfig:
     config_path: str | None = None
     db_path: str | None = None
     log_level: str | None = None
+    adapter_start_timeout_seconds: str | None = None
 
     # -- Runtime limits --
     max_inflight_deliveries: str | None = None
@@ -1616,6 +1619,16 @@ def apply_env_overrides(
     # ------------------------------------------------------------------
     # Core overrides
     # ------------------------------------------------------------------
+    new_runtime = config.runtime
+    if env.adapter_start_timeout_seconds is not None:
+        new_runtime = dataclasses.replace(
+            config.runtime,
+            adapter_start_timeout_seconds=_coerce_float(
+                env.adapter_start_timeout_seconds,
+                "MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS",
+            ),
+        ).validate()
+
     new_logging = config.logging
     if env.log_level is not None:
         # Mirror loader._validate_logging_section: case-insensitive accept
@@ -1689,6 +1702,7 @@ def apply_env_overrides(
     # ------------------------------------------------------------------
     config = dataclasses.replace(
         config,
+        runtime=new_runtime,
         logging=new_logging,
         storage=new_storage,
         limits=new_limits,

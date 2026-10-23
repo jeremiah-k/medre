@@ -357,3 +357,11 @@ class TestAdapterConfigSetContract:
         config = AdapterConfigSet(matrix={"main": rtc})
         assert config.all_enabled() == []
         assert config.all_configs() == [("matrix", "m", rtc)]
+
+
+def test_runtime_startup_timeout_rejects_unrepresentable_integer():
+    """YAML integers too large for float conversion become config errors."""
+    from medre.config.model import RuntimeOptions
+
+    with pytest.raises(ConfigValidationError, match="adapter_start_timeout_seconds"):
+        RuntimeOptions(adapter_start_timeout_seconds=10**10000).validate()

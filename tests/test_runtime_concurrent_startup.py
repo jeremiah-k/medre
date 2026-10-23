@@ -417,3 +417,91 @@ async def test_started_runtime_hands_its_event_buffer_to_the_retry_worker(
         assert app._retry_worker._event_buffer is app.event_buffer
     finally:
         await app.stop()
+
+
+async def test_unresponsive_start_expires_without_holding_healthy_peer(
+    tmp_path, monkeypatch
+):
+    """A cancellable unavailable provider cannot keep the whole runtime STARTING."""
+    config = _config_with_two_fake_adapters()
+    config = replace(
+        config, runtime=replace(config.runtime, adapter_start_timeout_seconds=0.03)
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+    cancelled = asyncio.Event()
+    stopped = AsyncMock(wraps=app.adapters["alpha"].stop)
+
+    async def unavailable(ctx):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(app.adapters["alpha"], "start", unavailable)
+    monkeypatch.setattr(app.adapters["alpha"], "stop", stopped)
+    starting = asyncio.create_task(app.start())
+    try:
+        assert await wait_until(
+            starting.done, timeout=1
+        ), "Unavailable provider held startup beyond its connection budget"
+        await starting
+        assert cancelled.is_set()
+        assert app.started_adapter_ids == ["beta"]
+        assert app.boot_summary.failed_adapter_ids == ("alpha",)
+        stopped.assert_awaited_once()
+        assert app._adapter_states["alpha"].value == "failed"
+    finally:
+        if not starting.done():
+            starting.cancel()
+            try:
+                await starting
+            except asyncio.CancelledError:
+                pass
+        await app.stop()
+
+
+async def test_provider_timeout_preserves_native_startup_diagnosis(
+    tmp_path, monkeypatch, caplog
+):
+    """A provider-raised timeout cannot masquerade as expiration of the host budget."""
+    app = _build_app(
+        _config_with_two_fake_adapters(), resolve(environ={"MEDRE_HOME": str(tmp_path)})
+    )
+
+    async def native_timeout(ctx):
+        raise TimeoutError("native BLE handshake did not complete")
+
+    monkeypatch.setattr(app.adapters["alpha"], "start", native_timeout)
+    try:
+        await app.start()
+        assert app.started_adapter_ids == ["beta"]
+        assert "native BLE handshake did not complete" in caplog.text
+        assert "Adapter startup exceeded" not in caplog.text
+    finally:
+        await app.stop()
+
+
+async def test_suppressed_start_deadline_does_not_mark_adapter_ready(
+    tmp_path, monkeypatch
+):
+    """Swallowing host cancellation must not turn an expired start into READY."""
+    config = _config_with_two_fake_adapters()
+    config = replace(
+        config, runtime=replace(config.runtime, adapter_start_timeout_seconds=0.02)
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+
+    async def swallows_cancel(_context):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return
+
+    monkeypatch.setattr(app.adapters["alpha"], "start", swallows_cancel)
+    try:
+        await app.start()
+        assert app.started_adapter_ids == ["beta"]
+        assert app.boot_summary.failed_adapter_ids == ("alpha",)
+        assert app._adapter_states["alpha"].value == "failed"
+    finally:
+        await app.stop()

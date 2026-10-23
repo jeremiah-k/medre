@@ -153,13 +153,24 @@ Top-level runtime behaviour.
 ```yaml
 runtime:
   name: medre # instance name (informational)
+  adapter_start_timeout_seconds: 60 # cooperative per-adapter connection budget
   shutdown_timeout_seconds: 10 # graceful shutdown deadline in seconds
 ```
 
-| Field                      | Type   | Default   | Description                                                       |
-| -------------------------- | ------ | --------- | ----------------------------------------------------------------- |
-| `name`                     | string | `"medre"` | Instance name used in logs and diagnostics.                       |
-| `shutdown_timeout_seconds` | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit. |
+| Field                           | Type   | Default   | Description                                                                            |
+| ------------------------------- | ------ | --------- | -------------------------------------------------------------------------------------- |
+| `name`                          | string | `"medre"` | Instance name used in logs and diagnostics.                                            |
+| `adapter_start_timeout_seconds` | number | `60`      | Cooperative deadline for each adapter start; unavailable providers fail independently. |
+| `shutdown_timeout_seconds`      | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit.                      |
+
+Use MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS to override the startup budget
+in a deployment environment. Expiry cancels that provider's setup and retires its
+partial resources while healthy peers continue. This is a cooperative deadline:
+native constructor threads require SDK cancellation or a worker-process boundary
+to bound process exit. Runtime shutdown does not forcibly terminate Python threads.
+Keep this budget above a provider's initial connection wait to allow its degraded
+startup and background recovery policy to take ownership; the 60-second default
+allows Meshtastic's normal 30-second initial wait to finish first.
 
 ### `logging`
 
@@ -443,16 +454,16 @@ routes:
         - message.created
 ```
 
-| Field                                                           | Type           | Default            | Description                                                                                              |
-| --------------------------------------------------------------- | -------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
-| `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                      |
-| `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                      |
-| `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                  |
-| `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.        |
-| `ownership`                                                     | string         | `"shared"`         | `shared` permits overlap; `exclusive` rejects overlap with other enabled exclusive route source domains. |
-| `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                     |
+| Field                                                           | Type           | Default            | Description                                                                                                                |
+| --------------------------------------------------------------- | -------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                                        |
+| `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                                        |
+| `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                                    |
+| `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.                          |
+| `ownership`                                                     | string         | `"shared"`         | `shared` permits overlap; `exclusive` rejects overlap with other enabled exclusive route source domains.                   |
+| `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                                       |
 | `forward_typing`                                                | bool           | `false`            | Forward transient activity on concrete channel mappings when both providers support typing. Static route allowlists apply. |
-| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`.  |
+| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`.                    |
 
 #### Route Policy (`routes.<route_id>.policy`)
 
@@ -843,6 +854,7 @@ Three categories:
 | `MEDRE_LOG_LEVEL`                                | `logging.level`                           | `INFO`                 |
 | `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | `limits.max_inflight_deliveries`          | _(YAML default)_       |
 | `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | `limits.max_inflight_replay_events`       | _(YAML default)_       |
+| `MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS`    | `runtime.adapter_start_timeout_seconds`   | `60`                   |
 | `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | `limits.shutdown_drain_timeout_seconds`   | _(YAML default)_       |
 | `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | _(YAML default)_       |
 

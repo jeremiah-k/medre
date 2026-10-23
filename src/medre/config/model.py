@@ -172,6 +172,7 @@ class RuntimeOptions:
 
     name: str = "medre"
     shutdown_timeout_seconds: int = 10
+    adapter_start_timeout_seconds: float = 60.0
 
     def validate(self) -> Self:
         """Validate operator-supplied options before runtime construction."""
@@ -181,6 +182,20 @@ class RuntimeOptions:
         if type(timeout) is not int or timeout <= 0:
             raise ConfigValidationError(
                 "runtime.shutdown_timeout_seconds must be a positive integer"
+            )
+        startup_timeout = self.adapter_start_timeout_seconds
+        try:
+            invalid_startup_timeout = (
+                isinstance(startup_timeout, bool)
+                or not isinstance(startup_timeout, (int, float))
+                or not math.isfinite(startup_timeout)
+                or startup_timeout <= 0
+            )
+        except OverflowError:
+            invalid_startup_timeout = True
+        if invalid_startup_timeout:
+            raise ConfigValidationError(
+                "runtime.adapter_start_timeout_seconds must be a finite positive number"
             )
         return self
 
