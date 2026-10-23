@@ -225,7 +225,9 @@ Component "rooms.xmpp.lab.test" "muc"
     if devices:
         services["runner"]["devices"] = devices
         services["runner"]["group_add"] = sorted(groups)
-    if "meshcore" in hardware:
+    if "meshcore" in hardware or any(
+        key.endswith("_ble_address") for key in hardware.get("meshtastic", {})
+    ):
         # Docker's default AppArmor label rejects host D-Bus AddMatch calls.
         # This relaxes only the explicitly hardware-enabled test container;
         # no profile is loaded or changed on the host. Capabilities stay dropped.

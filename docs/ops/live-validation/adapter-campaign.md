@@ -59,6 +59,25 @@ Native receipt is separate evidence from the adapter's local_queue handoff.
 
 ## Configure and run
 
+A Meshtastic peer selects exactly one connection: `peer.serial_port`,
+`peer.ble_address`, or `peer.host` (with optional `peer.port`). The MEDRE
+adapter connection is configured independently in the runtime file. This permits
+a serial bridge with a BLE peer, the reverse arrangement, or two BLE clients on
+distinct radios. Disconnect other clients before claiming a test radio. Never
+open the same radio through two transports during a run.
+
+Containerized BLE peers also need access to the host system D-Bus socket and a
+container security policy that permits BlueZ calls. An AppArmor `AccessDenied`
+while adding D-Bus matches is a container-access failure, not evidence that a
+radio is offline. Scope any policy exception to the test container and retain
+its capability and network limits; host policy changes are unnecessary.
+
+Record the SDK revision and both connection modes with each result. Native
+forwarding does not qualify interrupted construction: separately stop the runtime
+while a peer is offline or still connecting, and retain the process exit duration
+and stderr. A successful coroutine cleanup alone does not prove that the native
+constructor or interpreter executor has retired.
+
 Copy [campaign.example.yaml](fixtures/campaign.example.yaml) as `campaign.yaml`
 and [runtime.example.yaml](fixtures/runtime.example.yaml) as `runtime.yaml` into
 a private directory, then replace the endpoint and peer-display-name placeholders. Keep the files outside Git.

@@ -7,6 +7,7 @@ import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 
+from .meshtastic_connection import open_interface
 from .worker import commands, emit, receiver
 
 
@@ -14,23 +15,10 @@ async def meshtastic(settings: dict) -> None:
     from pubsub import pub
 
     peer = settings["peer"]
-    if "serial_port" in peer:
-        from meshtastic.serial_interface import SerialInterface
-
-        interface = await asyncio.to_thread(
-            SerialInterface, peer["serial_port"], timeout=15
-        )
-    else:
-        from meshtastic.tcp_interface import TCPInterface
-
-        interface = await asyncio.to_thread(
-            TCPInterface,
-            hostname=peer["host"],
-            portNumber=peer.get("port", 4403),
-            timeout=15,
-        )
+    # Validate observer settings before opening any native resource.
     received = receiver(settings)
-    channel = int(peer.get("channel", settings["channel"]))
+    channel = int(peer.get("channel", settings.get("channel")))
+    interface = await asyncio.to_thread(open_interface, peer, timeout=15)
 
     def receive(packet, interface=None):
         if interface is not owned_interface:
@@ -45,8 +33,10 @@ async def meshtastic(settings: dict) -> None:
             )
 
     owned_interface = interface
+    subscribed = False
     try:
         pub.subscribe(receive, "meshtastic.receive")
+        subscribed = True
         emit("ready", identity=str(interface.myInfo.my_node_num))
 
         async def send(text):
@@ -57,8 +47,11 @@ async def meshtastic(settings: dict) -> None:
 
         await commands(send)
     finally:
-        pub.unsubscribe(receive, "meshtastic.receive")
-        await asyncio.to_thread(interface.close)
+        try:
+            if subscribed:
+                pub.unsubscribe(receive, "meshtastic.receive")
+        finally:
+            await asyncio.to_thread(interface.close)
 
 
 async def meshcore(settings: dict) -> None:

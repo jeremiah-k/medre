@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import yaml
 
+from ..meshtastic_connection import connection_config, role_connection
 from .sources import write_json
 
 
@@ -484,8 +485,7 @@ async def campaign(root: Path) -> None:
         channel = int(settings.get("channel", 0 if name == "meshtastic" else 1))
         if name == "meshtastic":
             config = {
-                "connection_type": "serial",
-                "serial_port": settings["gateway_serial_port"],
+                **connection_config(role_connection(settings, "gateway")),
                 "default_channel": channel,
                 "message_delay_seconds": 2.5,
             }
@@ -493,7 +493,7 @@ async def campaign(root: Path) -> None:
                 "transport": name,
                 "channel": str(channel),
                 "expected_sender": pair["gateway"]["node_id"],
-                "peer": {"serial_port": settings["peer_serial_port"]},
+                "peer": role_connection(settings, "peer"),
             }
         else:
             config = {

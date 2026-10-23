@@ -435,3 +435,34 @@ def test_lab_account_password_can_begin_with_an_option_prefix(tmp_path, monkeypa
     parsed, _ = parser.parse_known_args(commands["account-medre"])
     assert parsed.password == password
     assert (tmp_path / "config/smp-fingerprint").read_bytes() == b"local\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux BlueZ system bus")
+def test_meshtastic_ble_role_maps_only_the_runner_system_bus(tmp_path):
+    """An explicitly selected BLE peer gets the same scoped access as MeshCore."""
+    (tmp_path / "config").mkdir()
+    write_json(
+        tmp_path / "hardware.json",
+        {
+            "meshtastic": {
+                "gateway_host": "radio.test",
+                "peer_ble_address": "AA:BB:CC:DD:EE:FF",
+            }
+        },
+    )
+    images = json.loads((Path(control.__file__).parent / "images.json").read_text())
+    configure(tmp_path, images, "medre-lab-fixture", {"http": {}, "database": {}})
+    stack = json.loads((tmp_path / "compose.json").read_text())
+    runner = stack["services"]["runner"]
+    assert "apparmor:unconfined" in runner["security_opt"]
+    assert (
+        "/run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro"
+        in runner["volumes"]
+    )
+    assert runner["cap_drop"] == ["ALL"]
+    assert not runner.get("privileged")
+    assert all(
+        "dbus" not in str(service.get("volumes", []))
+        for name, service in stack["services"].items()
+        if name != "runner"
+    )
