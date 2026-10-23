@@ -72,11 +72,18 @@ while adding D-Bus matches is a container-access failure, not evidence that a
 radio is offline. Scope any policy exception to the test container and retain
 its capability and network limits; host policy changes are unnecessary.
 
-Record the SDK revision and both connection modes with each result. Native
-forwarding does not qualify interrupted construction: separately stop the runtime
-while a peer is offline or still connecting, and retain the process exit duration
-and stderr. A successful coroutine cleanup alone does not prove that the native
-constructor or interpreter executor has retired.
+Record the SDK revision and both connection modes with each result. The
+independent Meshtastic peer now passes a cooperative construction cancellation
+event when the installed SDK declares `cancelEvent`; it also retains ownership of
+late constructor results and closes an abandoned interface even when the SDK
+lacks that option. This does **not** make native DNS, device-driver or BLE
+constructor waits preemptible, or guarantee a bounded interpreter shutdown.
+
+Native forwarding does not qualify interrupted construction: separately stop
+the runtime while a peer is offline or still connecting, and retain process
+exit duration and stderr. A successful coroutine cleanup alone does not prove
+that the native constructor or interpreter executor has retired. Campaign
+markers must be present before any native peer opens a radio or service.
 
 Copy [campaign.example.yaml](fixtures/campaign.example.yaml) as `campaign.yaml`
 and [runtime.example.yaml](fixtures/runtime.example.yaml) as `runtime.yaml` into
