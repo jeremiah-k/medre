@@ -33,7 +33,7 @@ not runtime adapter errors.
 ```python
 @dataclass(frozen=True)
 class RuntimeConfig:
-    runtime: RuntimeOptions       # name, shutdown_timeout_seconds
+    runtime: RuntimeOptions       # name, adapter_start_timeout_seconds, shutdown_timeout_seconds
     logging: LoggingConfig        # level, format, overrides
     storage: StorageConfig        # backend, path
     limits: RuntimeLimits         # inflight delivery/replay limits, drain timeout
@@ -55,6 +55,7 @@ changing the root config model.
 | Field                      | Default   | Description               |
 | -------------------------- | --------- | ------------------------- |
 | `name`                     | `"medre"` | Runtime name              |
+| `adapter_start_timeout_seconds` | `60` | Finite positive per-adapter cooperative startup deadline (seconds) |
 | `shutdown_timeout_seconds` | `10`      | Graceful shutdown timeout |
 
 ### 2.2 LoggingConfig
@@ -99,6 +100,8 @@ The YAML loader **MUST** accept and forward all six fields to the same
 limits **MUST** be strictly positive integers (not booleans); timeouts **MUST**
 be strictly positive, finite numbers (not booleans). Invalid values **MUST**
 raise `ConfigValidationError` before runtime construction. The top-level
+`runtime.adapter_start_timeout_seconds` **MUST** be a finite positive number
+(booleans and overflowing integers are invalid). The top-level
 `runtime.shutdown_timeout_seconds` **MUST** be a positive integer and
 `runtime.name` **MUST** be a non-empty, non-whitespace string.
 

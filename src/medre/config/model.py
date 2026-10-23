@@ -184,12 +184,16 @@ class RuntimeOptions:
                 "runtime.shutdown_timeout_seconds must be a positive integer"
             )
         startup_timeout = self.adapter_start_timeout_seconds
-        if (
-            isinstance(startup_timeout, bool)
-            or not isinstance(startup_timeout, (int, float))
-            or not math.isfinite(startup_timeout)
-            or startup_timeout <= 0
-        ):
+        try:
+            invalid_startup_timeout = (
+                isinstance(startup_timeout, bool)
+                or not isinstance(startup_timeout, (int, float))
+                or not math.isfinite(startup_timeout)
+                or startup_timeout <= 0
+            )
+        except OverflowError:
+            invalid_startup_timeout = True
+        if invalid_startup_timeout:
             raise ConfigValidationError(
                 "runtime.adapter_start_timeout_seconds must be a finite positive number"
             )

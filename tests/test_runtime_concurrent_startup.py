@@ -479,3 +479,29 @@ async def test_provider_timeout_preserves_native_startup_diagnosis(
         assert "Adapter startup exceeded" not in caplog.text
     finally:
         await app.stop()
+
+
+async def test_suppressed_start_deadline_does_not_mark_adapter_ready(
+    tmp_path, monkeypatch
+):
+    """Swallowing host cancellation must not turn an expired start into READY."""
+    config = _config_with_two_fake_adapters()
+    config = replace(
+        config, runtime=replace(config.runtime, adapter_start_timeout_seconds=0.02)
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+
+    async def swallows_cancel(_context):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return
+
+    monkeypatch.setattr(app.adapters["alpha"], "start", swallows_cancel)
+    try:
+        await app.start()
+        assert app.started_adapter_ids == ["beta"]
+        assert app.boot_summary.failed_adapter_ids == ("alpha",)
+        assert app._adapter_states["alpha"].value == "failed"
+    finally:
+        await app.stop()

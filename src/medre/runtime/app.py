@@ -1375,8 +1375,17 @@ class MedreApp:
             try:
                 async with startup_deadline:
                     await adapter.start(ctx)
-            except TimeoutError as exc:
+                # A provider may swallow deadline cancellation and return.
+                # asyncio.timeout() does not raise in that case.
                 if startup_deadline.expired():
+                    raise RuntimeStartupError(
+                        f"Adapter startup exceeded {startup_budget:g}s; "
+                        "check the configured endpoint and transport"
+                    )
+            except TimeoutError as exc:
+                if startup_deadline.expired() and isinstance(
+                    exc.__cause__, asyncio.CancelledError
+                ):
                     raise RuntimeStartupError(
                         f"Adapter startup exceeded {startup_budget:g}s; "
                         "check the configured endpoint and transport"

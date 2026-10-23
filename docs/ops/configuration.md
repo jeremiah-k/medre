@@ -854,6 +854,7 @@ Three categories:
 | `MEDRE_LOG_LEVEL`                                | `logging.level`                           | `INFO`                 |
 | `MEDRE_RUNTIME_MAX_INFLIGHT_DELIVERIES`          | `limits.max_inflight_deliveries`          | _(YAML default)_       |
 | `MEDRE_RUNTIME_MAX_INFLIGHT_REPLAY_EVENTS`       | `limits.max_inflight_replay_events`       | _(YAML default)_       |
+| `MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS`    | `runtime.adapter_start_timeout_seconds`   | `60`                   |
 | `MEDRE_RUNTIME_SHUTDOWN_DRAIN_TIMEOUT_SECONDS`   | `limits.shutdown_drain_timeout_seconds`   | _(YAML default)_       |
 | `MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS` | `limits.delivery_acquire_timeout_seconds` | _(YAML default)_       |
 
