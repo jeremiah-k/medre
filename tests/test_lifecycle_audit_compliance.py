@@ -546,9 +546,8 @@ class TestAdaptersReportHealthNotState:
     async def test_health_check_degraded_reports_fact_only(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """An adapter reporting 'degraded' via health_check does not
-        change the runtime's _adapter_states — health_check is a fact,
-        not a state mutation."""
+        """The initial health probe classifies a started instance, and later
+        health_check calls report facts without mutating lifecycle state."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
@@ -559,13 +558,14 @@ class TestAdaptersReportHealthNotState:
 
         await app.start()
         try:
-            # Runtime set READY because start() succeeded.
-            assert app.adapter_states["fake_matrix"] == AdapterState.READY
+            # start() succeeded, but the bounded initial probe classifies the
+            # instance degraded; its routes are retained.
+            assert app.adapter_states["fake_matrix"] == AdapterState.DEGRADED
             # health_check reports degraded as a fact.
             info = await app.adapters["fake_matrix"].health_check()
             assert info.health == "degraded"
-            # But the runtime's lifecycle state is still READY.
-            assert app.adapter_states["fake_matrix"] == AdapterState.READY
+            # The later health_check call does not mutate the lifecycle state.
+            assert app.adapter_states["fake_matrix"] == AdapterState.DEGRADED
         finally:
             await app.stop()
 

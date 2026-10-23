@@ -10,6 +10,35 @@ The table below covers every runtime resource that carries an explicit lifecycle
 (RuntimeAccounting, Route objects, config models) are omitted because they have
 no teardown concerns.
 
+### Startup coordination
+
+Core prepares storage, projection repair and the pipeline before scheduling one
+owned task per adapter. Independent starts and failed-start cleanup progress
+concurrently. The task group settles before ingress, retry and typing workers
+activate, so queued work cannot consume delivery attempts against an adapter
+whose startup is still pending.
+
+An owned coordinator task contains task-group internal cancellation. The startup
+caller awaits it through completion, failure and cancellation, so internal group
+bookkeeping cannot impersonate an operator shutdown. A provider that cancels its
+own start produces a startup error; a simultaneous caller cancellation takes
+precedence after rollback.
+
+Identifier order determines scheduling, public summaries and reverse shutdown
+order. Completion timing does not determine dependencies. Cancellation joins the
+startup tasks before rollback stops both partial and ready adapters and then
+closes core resources. Provider connection budgets and native cancellation
+cleanup remain adapter responsibilities; core does not move async adapter methods
+onto worker threads or add a dependency graph. An independent `stop()` call while
+`start()` still owns resources raises immediately; callers cancel and await the
+startup task instead, allowing it to own its rollback.
+
+Reticulum and LXMF constructors install process-global signal handlers in the
+pinned SDKs. Their synchronous initialization requires the main thread; moving
+it into a worker without explicit SDK embedding support is unsafe. Concurrent
+startup does not preempt that initialization. Provider-level threading changes
+need separate qualification against those SDK constraints.
+
 ### Core Runtime Resources
 
 | Resource                      | Created by                              | Owner                                           | Teardown site                                                                                                                                                      | Idempotent?      |
@@ -77,6 +106,12 @@ loop. Ambient packages cannot change the selected storage driver.
 Writable connections enable WAL mode, a 5-second busy timeout, and foreign-key
 enforcement. Read-only connections use SQLite URI `mode=ro` and the same busy
 timeout.
+
+**Interrupted opening.** Initialization and read-only inspection retain the
+opening task until its worker settles. A returned connection is adopted before
+cancellation propagates, so initialization rollback closes both the native
+handle and the private executor. Cancelling the caller cannot discard a worker's
+late connection result.
 
 **Teardown.** `close()` is idempotent. An early-return guard
 (`if self._closed: return`) prevents concurrent callers from racing. On first

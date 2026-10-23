@@ -254,9 +254,8 @@ class _SQLiteStorageBase:
             raise PreReleaseSchemaMismatchError(
                 path=self._db_path, table=table, missing_columns=missing
             )
-        self._db = await self._run_in_thread(sync_open, self._db_path)
-
         try:
+            await self._open_connection(sync_open)
             # Verify schema version after DDL.
             await self._verify_schema_version()
 
@@ -280,6 +279,24 @@ class _SQLiteStorageBase:
                     exc_info=True,
                 )
             raise
+
+    async def _open_connection(
+        self, opener: Callable[[str], sqlite3.Connection]
+    ) -> None:
+        """Adopt a worker-created handle before propagating cancellation.
+
+        Cancelling an executor await cannot interrupt its synchronous opener.
+        Retain the task until it settles so the caller's failure cleanup can
+        close the returned connection and its executor, even after cancellation.
+        """
+        opening = asyncio.create_task(self._run_in_thread(opener, self._db_path))
+        error, cancelled = await self._await_deferring_cancel(opening)
+        if error is None:
+            self._db = opening.result()
+        if cancelled is not None:
+            raise cancelled from error
+        if error is not None:
+            raise error
 
     async def _verify_schema_version(self) -> None:
         """Check that the stored schema version matches the expected version.
@@ -447,11 +464,8 @@ class _SQLiteStorageBase:
             )
 
         instance = cls(db_path)
-        instance._db = await instance._run_in_thread(
-            sync_open_readonly, instance._db_path
-        )
-
         try:
+            await instance._open_connection(sync_open_readonly)
             # Validate metadata and shape without writing anything.
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()

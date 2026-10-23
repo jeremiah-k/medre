@@ -68,18 +68,31 @@ async def _start_interruptibly(app: Any) -> bool:
                 logger.info("Shutdown requested during startup — cancelling startup")
                 start_task.cancel()
                 try:
-                    await start_task
+                    await asyncio.shield(start_task)
                 except asyncio.CancelledError:
-                    pass
-                try:
-                    await app.stop()
-                except Exception as exc:
-                    logger.error("Error stopping after interrupted startup: %s", exc)
+                    current = asyncio.current_task()
+                    if current is not None and current.cancelling():
+                        raise
+                # start() owns rollback, including partially initialized core
+                # resources. Calling stop() here would tear them down twice.
                 return False
         await start_task
         return True
     except asyncio.CancelledError:
+        # Startup owns its resources until rollback finishes. Repeated caller
+        # cancellation must not detach that owner or interrupt its cleanup.
         start_task.cancel()
+        while not start_task.done():
+            try:
+                await asyncio.shield(start_task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                # Preserve caller cancellation even if startup fails during
+                # rollback; awaiting the task has retrieved its exception.
+                break
+        if not start_task.cancelled():
+            start_task.exception()
         raise
 
 

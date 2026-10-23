@@ -701,8 +701,11 @@ class TestCatastrophicLoopFailureCleanup:
         with patch.object(
             _app_mod, "_monotonic_ms", side_effect=_exploding_monotonic_ms
         ):
-            with pytest.raises(RuntimeError, match="catastrophic loop failure"):
+            with pytest.raises(
+                RuntimeStartupError, match="Adapter startup orchestration failed"
+            ) as failure:
                 await app.start()
+            assert isinstance(failure.value.__cause__, ExceptionGroup)
 
         # Verify started adapter was stopped.
         assert alpha.stopped, "Started adapter stop() was not called"

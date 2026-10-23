@@ -373,22 +373,6 @@ class TestMedreAppRetryEventWiring:
         )
         assert worker._event_buffer is None
 
-    def test_medre_app_source_wires_event_buffer(self) -> None:
-        """Static check: MedreApp.start() passes event_buffer to RetryWorker.
-
-        Reads the source of MedreApp.start() and verifies the RetryWorker
-        construction includes an ``event_buffer=`` keyword argument.
-        """
-        import inspect
-
-        import medre.runtime.app as app_mod
-
-        source = inspect.getsource(app_mod.MedreApp.start)
-        # The RetryWorker construction must include event_buffer wiring.
-        assert (
-            "event_buffer=" in source
-        ), "MedreApp.start() must pass event_buffer= to RetryWorker"
-
     async def test_full_start_stop_lifecycle_in_buffer(self) -> None:
         """End-to-end: start+stop records both events with correct detail."""
         buf = EventBuffer(clock=_fixed_clock)

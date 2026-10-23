@@ -313,6 +313,9 @@ class StorageBackend(Protocol):
         shape, and structural constraints (see Section 10).  Schema and
         index DDL each execute as a single transaction, so a failed or
         interrupted initialize leaves no partial schema.
+        Cancellation MUST retain ownership of an in-flight connection opener
+        until it settles, close any returned handle and its executor, and then
+        propagate cancellation. The same rule applies to open_readonly().
         """
         ...
 

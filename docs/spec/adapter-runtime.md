@@ -65,7 +65,18 @@ class AdapterContract(ABC):
 
 ### 3.2 `start(context)`
 
-The runtime calls `start()` once during initialization. The adapter **MUST**:
+The runtime calls `start()` once during initialization. Independent adapter
+instances start concurrently after storage, projection repair and pipeline setup.
+The runtime MUST own all startup tasks in one structured task group and wait for
+them to settle before activating durable ingress, retries or transient activity.
+Scheduling and reported adapter IDs MUST use stable identifier order; connection
+completion order is not guaranteed. Each successful start receives one initial
+health probe with a one-second async budget. A degraded, unknown, failed or
+unavailable health response MUST NOT be reported as healthy merely because
+start() returned; the started instance remains degraded and keeps its routes.
+Normal shutdown uses reverse identifier order, independent of connection timing.
+
+The adapter **MUST**:
 
 1. Establish whatever connection or session its transport requires.
 2. Register internal listeners or callbacks that feed into `context.publish_inbound()`.
@@ -73,7 +84,32 @@ The runtime calls `start()` once during initialization. The adapter **MUST**:
 4. Call `self._mark_started(ctx)` to record the adapter's start time for stale-event filtering.
 5. Return only after the adapter is ready to accept delivery work or after the connection attempt has progressed far enough to report a definitive health state.
 
-The runtime does not time out `start()`. The adapter **MUST** handle its own connection timeouts internally and report `"failed"` if the transport cannot be reached.
+The runtime does not impose a transport-blind deadline on `start()`. The adapter
+MUST bound its native connection attempts and SHOULD move blocking SDK
+construction off the asyncio event loop where the SDK supports that threading
+model. SDK initialization that owns process-global signal handlers requires
+explicit thread-affinity qualification; task scheduling does not preempt it.
+Where its transport profile supports owned recovery, it MAY return started and
+degraded while retaining one pending attempt or capped
+retries; otherwise it MUST fail startup. Invalid configuration and missing
+dependencies remain startup failures.
+
+An ordinary startup failure and its cleanup MUST be isolated from independent
+adapter starts. Parent cancellation MUST settle all startup tasks before rolling
+back partially started and ready adapters, the pipeline and storage.
+A concurrent `stop()` while startup remains STARTING MUST reject teardown:
+the caller MUST cancel and await the `start()` task's owned rollback first.
+Cancellation or failure during core preparation MUST also retire partial storage
+and pipeline resources before startup returns. The CLI MUST await its owned
+startup task's rollback when interrupted and MUST NOT independently repeat that
+teardown. Repeated caller cancellation MUST NOT detach the startup task.
+A child that cancels its own start without caller cancellation MUST fail startup
+with RuntimeStartupError after rollback, rather than impersonating an operator
+shutdown. Unexpected orchestration failure MUST retain its grouped causes.
+Caller cancellation MUST take precedence when it coincides with a child failure.
+Internal task-group cancellation MUST NOT alter the caller's cancellation depth.
+Structured task ownership cannot preempt synchronous code or forcibly terminate
+native SDK threads; providers MUST cooperate with cancellation.
 
 ### 3.3 `stop(timeout)`
 
@@ -108,7 +144,10 @@ This is the only outbound method. There is no `send()`, no `push()`, no `emit()`
 
 ### 3.5 `health_check()`
 
-The runtime calls `health_check()` periodically via the lifecycle manager. It **MUST** be cheap and non-blocking. It **MUST** return a fresh `AdapterInfo` describing the adapter's current state.
+The runtime performs one bounded initial health probe and supports explicit
+operator-triggered refreshes. It does not run generic periodic health polling
+or restart adapters. health_check() MUST be cheap, non-blocking and
+cancellation-cooperative, returning a fresh AdapterInfo describing native state.
 
 ### 3.6 Stale Event Filtering
 
