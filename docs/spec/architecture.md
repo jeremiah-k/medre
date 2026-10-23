@@ -197,8 +197,14 @@ vocabulary for individual transitions is owned by
    admit work while delivery targets are still coming up.
 5. Retry worker construction — only when retry is enabled and storage is
    present (LIVE scope only).
-6. Adapters, in sorted `adapter_id` order. Adapter start failures are
-   logged and attributed; they do not abort sibling adapters.
+6. Adapters, scheduled concurrently in sorted `adapter_id` order. Each start
+   MUST receive a cooperative deadline from runtime.adapter_start_timeout_seconds
+   (60 seconds by default). Expiry MUST cancel setup and retire partial resources
+   before classifying that adapter as FAILED. A provider's own timeout MUST retain
+   its native diagnosis. Start failures MUST NOT abort sibling adapters. Provider
+   code MUST cooperate with cancellation; synchronous SDK threads require their
+   own bounded embedding or worker-process boundary. A coroutine deadline does
+   not terminate native threads or guarantee immediate process exit.
 7. LIVE worker activation at the post-adapter boundary: after every
    adapter has reached its terminal startup state (READY or FAILED) and
    startup-derived route readiness has been computed, the retry worker

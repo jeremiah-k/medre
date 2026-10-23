@@ -95,7 +95,7 @@ _GLOBAL_RETRY_KNOWN_KEYS: frozenset[str] = frozenset(
 
 #: Keys accepted in the top-level ``[runtime]`` section.
 _RUNTIME_KNOWN_KEYS: frozenset[str] = frozenset(
-    {"name", "shutdown_timeout_seconds", "limits"}
+    {"name", "shutdown_timeout_seconds", "adapter_start_timeout_seconds", "limits"}
 )
 
 #: Keys accepted in the ``[runtime.limits]`` subsection.
@@ -388,6 +388,9 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
     runtime = RuntimeOptions(
         name=runtime_data.get("name", "medre"),
         shutdown_timeout_seconds=runtime_data.get("shutdown_timeout_seconds", 10),
+        adapter_start_timeout_seconds=runtime_data.get(
+            "adapter_start_timeout_seconds", 60.0
+        ),
     ).validate()
 
     # [runtime.limits] section (nested under [runtime]) — same pattern.

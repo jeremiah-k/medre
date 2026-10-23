@@ -1370,7 +1370,18 @@ class MedreApp:
                 ),
                 report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
             )
-            await adapter.start(ctx)
+            startup_budget = self.config.runtime.adapter_start_timeout_seconds
+            startup_deadline = asyncio.timeout(startup_budget)
+            try:
+                async with startup_deadline:
+                    await adapter.start(ctx)
+            except TimeoutError as exc:
+                if startup_deadline.expired():
+                    raise RuntimeStartupError(
+                        f"Adapter startup exceeded {startup_budget:g}s; "
+                        "check the configured endpoint and transport"
+                    ) from exc
+                raise
             # Readiness and native health are distinct. The initial probe is
             # bounded and runs inside this owned task, alongside peer starts.
             initial_health = "degraded"

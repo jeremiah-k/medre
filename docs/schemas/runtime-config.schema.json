@@ -18,6 +18,12 @@
           "minLength": 1,
           "pattern": "\\S"
         },
+        "adapter_start_timeout_seconds": {
+          "type": "number",
+          "default": 60.0,
+          "exclusiveMinimum": 0,
+          "description": "Cooperative startup deadline per adapter; expiry cancels setup, retires partial resources, and isolates that adapter as failed."
+        },
         "shutdown_timeout_seconds": {
           "type": "integer",
           "default": 10,
