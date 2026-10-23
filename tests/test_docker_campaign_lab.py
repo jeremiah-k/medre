@@ -406,3 +406,32 @@ def test_log_review_rejects_unexpected_generation_evidence(tmp_path):
         review(tmp_path)
     result = json.loads((tmp_path / "results/log-review.json").read_text())
     assert len(result["unexpected_streams"]) == 3
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX lab directory permissions")
+def test_lab_account_password_can_begin_with_an_option_prefix(tmp_path, monkeypatch):
+    """Pass generated credentials as values even when they start with a hyphen."""
+    project = "medre-lab-0123456789ab"
+    tmp_path.chmod(0o700)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/ca.crt").touch()
+    (tmp_path / "actions.jsonl").touch()
+    password = "-Jfixture-password"
+    write_json(tmp_path / "state.json", {"version": 1, "project": project})
+    write_json(tmp_path / "compose.json", {"name": project})
+    write_json(
+        tmp_path / "config/accounts.json", {"users": ["medre"], "password": password}
+    )
+    commands = {}
+
+    def command(directory, name, argv, **kwargs):
+        commands[name] = argv
+
+    monkeypatch.setattr(control, "command", command)
+    monkeypatch.setattr(control.subprocess, "check_output", lambda *a, **k: b"local\n")
+    control.operate(argparse.Namespace(action="up", directory=tmp_path))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--password")
+    parsed, _ = parser.parse_known_args(commands["account-medre"])
+    assert parsed.password == password
+    assert (tmp_path / "config/smp-fingerprint").read_bytes() == b"local\n"
