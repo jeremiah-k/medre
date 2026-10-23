@@ -7,6 +7,7 @@ import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 
+from .meshtastic_connection import connection_config, open_owned_interface
 from .worker import commands, emit, receiver
 
 
@@ -14,23 +15,11 @@ async def meshtastic(settings: dict) -> None:
     from pubsub import pub
 
     peer = settings["peer"]
-    if "serial_port" in peer:
-        from meshtastic.serial_interface import SerialInterface
-
-        interface = await asyncio.to_thread(
-            SerialInterface, peer["serial_port"], timeout=15
-        )
-    else:
-        from meshtastic.tcp_interface import TCPInterface
-
-        interface = await asyncio.to_thread(
-            TCPInterface,
-            hostname=peer["host"],
-            portNumber=peer.get("port", 4403),
-            timeout=15,
-        )
+    # Validate connection and observer settings before opening native resources.
+    connection_config(peer)
     received = receiver(settings)
-    channel = int(peer.get("channel", settings["channel"]))
+    channel = int(peer.get("channel", settings.get("channel")))
+    interface = await open_owned_interface(peer, timeout=15)
 
     def receive(packet, interface=None):
         if interface is not owned_interface:
@@ -45,8 +34,10 @@ async def meshtastic(settings: dict) -> None:
             )
 
     owned_interface = interface
+    subscribed = False
     try:
         pub.subscribe(receive, "meshtastic.receive")
+        subscribed = True
         emit("ready", identity=str(interface.myInfo.my_node_num))
 
         async def send(text):
@@ -57,8 +48,11 @@ async def meshtastic(settings: dict) -> None:
 
         await commands(send)
     finally:
-        pub.unsubscribe(receive, "meshtastic.receive")
-        await asyncio.to_thread(interface.close)
+        try:
+            if subscribed:
+                pub.unsubscribe(receive, "meshtastic.receive")
+        finally:
+            await asyncio.to_thread(interface.close)
 
 
 async def meshcore(settings: dict) -> None:
@@ -67,6 +61,7 @@ async def meshcore(settings: dict) -> None:
     from .meshcore_ble import open_meshcore_ble
 
     peer = settings["peer"]
+    received = receiver(settings)
     async with AsyncExitStack() as resources:
         if "ble_address" in peer:
             connection = await resources.enter_async_context(
@@ -79,7 +74,6 @@ async def meshcore(settings: dict) -> None:
             if connection is None:
                 raise RuntimeError("MeshCore peer unavailable")
             resources.push_async_callback(connection.disconnect)
-        received = receiver(settings)
         channel = int(peer.get("channel", settings["channel"]))
 
         async def receive(event):
@@ -113,6 +107,7 @@ async def lxmf(settings: dict) -> None:
     import RNS
 
     peer = settings["peer"]
+    received = receiver(settings)
     identity_path = Path(peer["identity_path"])
     identity = RNS.Identity.from_file(str(identity_path))
     if identity is None:
@@ -120,7 +115,6 @@ async def lxmf(settings: dict) -> None:
     RNS.Reticulum(
         configdir=peer["reticulum_config_dir"], loglevel=peer.get("loglevel", 2)
     )
-    received = receiver(settings)
     router = None
     try:
         interfaces = RNS.Transport.interfaces

@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from ..meshtastic_connection import open_interface, role_connection
 from .sources import write_json
 
 
@@ -15,14 +16,16 @@ async def inspect_hardware(root: Path) -> dict:
     report = {}
     if "meshtastic" in requested:
         from google.protobuf.json_format import MessageToDict
-        from meshtastic.serial_interface import SerialInterface
 
+        connections = {
+            role: role_connection(requested["meshtastic"], role)
+            for role in ("gateway", "peer")
+        }
         results = {}
-        for role in ("gateway", "peer"):
-            port = requested["meshtastic"][role + "_serial_port"]
+        for role, connection in connections.items():
 
-            def probe(port=port, role=role):
-                interface = SerialInterface(port, timeout=20)
+            def probe(connection=connection, role=role):
+                interface = open_interface(connection, timeout=20)
                 try:
                     node = interface.getMyNodeInfo()
                     channels = [

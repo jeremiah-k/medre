@@ -49,6 +49,15 @@ when that hardware is intentionally unavailable. Devices are inspected before
 use; the harness does not provision radio settings, flash firmware, pair BLE
 devices, or modify host services and certificate trust.
 
+Each Meshtastic role selects exactly one of `gateway_serial_port`,
+`gateway_ble_address`, or `gateway_host`; the independent peer uses the
+corresponding `peer_` field. TCP ports are optional `gateway_port` and
+`peer_port`. Replace the serial field rather than adding a second selector.
+Hardware inspection, MEDRE campaign provisioning and the MMRelay campaign use
+these same choices. BLE selection grants only the runner access to the system
+D-Bus socket with a container-local AppArmor exception; other containers retain
+their policies.
+
 If a previously used MeshCore board reports a BLE operation in progress, stop
 competing clients and explicitly disconnect only that board before retrying:
 

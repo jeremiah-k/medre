@@ -45,6 +45,7 @@ async def test_synchronization_announces_peer_before_measured_sends(monkeypatch)
     await radio_peers.lxmf(
         {
             "expected_sender": (b"b" * 16).hex(),
+            "marker_prefix": "fixture",
             "peer": {
                 "identity_path": "fixture-identity",
                 "reticulum_config_dir": "fixture-config",

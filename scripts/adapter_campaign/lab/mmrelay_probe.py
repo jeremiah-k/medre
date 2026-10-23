@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import yaml
 
+from ..meshtastic_connection import connection_config, role_connection
 from ..process import Peer
 from ..run import native_receipt
 from .sources import write_json
@@ -65,8 +66,7 @@ async def run(root: Path) -> None:
         {"id": room, "meshtastic_channel": int(hardware.get("channel", 0))}
     ]
     config["meshtastic"] = {
-        "connection_type": "serial",
-        "serial_port": hardware["gateway_serial_port"],
+        **connection_config(role_connection(hardware, "gateway")),
         "meshnet_name": "Radio lab",
     }
     config["logging"] = {"level": "info", "color_enabled": False, "log_to_file": False}
@@ -81,7 +81,7 @@ async def run(root: Path) -> None:
         "channel": str(hardware.get("channel", 0)),
         "expected_sender": health["gateway"]["node_id"],
         "expected_prefixes": {"matrix": "Peer[M]: "},
-        "peer": {"serial_port": hardware["peer_serial_port"]},
+        "peer": role_connection(hardware, "peer"),
     }
     matrix_endpoint = {
         **fixture,

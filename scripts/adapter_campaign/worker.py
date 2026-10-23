@@ -21,6 +21,15 @@ def emit(kind: str, **data) -> None:
 
 
 def receiver(settings: dict):
+    marker = settings.get("marker_prefix")
+    if (
+        not isinstance(marker, str)
+        or not marker.strip()
+        or len(marker) > 128
+        or any(char in marker for char in "\x00\r\n")
+    ):
+        raise ValueError("Campaign marker_prefix must be a nonempty bounded string")
+
     def received(
         *,
         text: str,
@@ -31,7 +40,7 @@ def receiver(settings: dict):
         native_details: dict | None = None,
     ):
         # Retain only this campaign's bounded nonces, never unrelated traffic.
-        if settings["marker_prefix"] in text:
+        if marker in text:
             emit(
                 "received",
                 text=text,
