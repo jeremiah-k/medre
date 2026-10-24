@@ -15,7 +15,7 @@ set -euo pipefail
 #   uv run --no-sync bash scripts/ci/run-docker-integration.sh [pytest arguments...]
 #
 # Environment variables:
-#   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.163.1)
+#   MEDRE_SYNAPSE_IMAGE       — Synapse Docker image (default: matrixdotorg/synapse:v1.163.2)
 #   MEDRE_MESHTASTICD_IMAGE   — meshtasticd Docker image (default: meshtastic/meshtasticd:2.7.26)
 #   MEDRE_SYNAPSE_PORT        — Synapse port (default: 8008)
 #   MEDRE_MESHTASTICD_PORT    — meshtasticd port (default: 4403)
