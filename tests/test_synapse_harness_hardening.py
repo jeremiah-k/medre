@@ -14,7 +14,7 @@ import subprocess
 import pytest
 
 from tests.helpers.docker_probe import docker_daemon_reachable
-from tests.helpers.synapse_starter import _fresh_credentials
+from tests.helpers.synapse_starter import _docker, _fresh_credentials
 
 
 def test_fresh_credentials_differ_across_runs() -> None:
@@ -35,6 +35,22 @@ def test_fresh_credentials_shape() -> None:
     assert len(secret) >= len(bot_password)
     assert bot_password == bot_password.strip()
     assert peer_password == peer_password.strip()
+
+
+def test_registration_failure_does_not_expose_password(monkeypatch) -> None:
+    """Neither Docker arguments nor a provider's echoed secret enters diagnostics."""
+    password = "-private-test-password"
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args, 2, stderr=f"registration failed for {password}"
+        ),
+    )
+    with pytest.raises(RuntimeError) as caught:
+        _docker(["exec", "test-container", f"--password={password}"])
+    assert password not in str(caught.value)
+    assert "<redacted>" in str(caught.value)
 
 
 @pytest.fixture(autouse=True)
