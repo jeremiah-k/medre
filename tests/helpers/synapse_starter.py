@@ -141,7 +141,9 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
             _SYNAPSE_IMAGE,
             "chmod",
             "-R",
-            "a+rw",
+            # Synapse generates /data with mode 700 under its container UID.
+            # X restores directory traversal without making config files executable.
+            "a+rwX",
             "/data",
         ],
         timeout=30,
