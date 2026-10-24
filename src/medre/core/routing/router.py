@@ -193,6 +193,11 @@ class Router:
 
     # -- Query ------------------------------------------------------------
 
+    @property
+    def registered_route_ids(self) -> tuple[str, ...]:
+        """Return a stable snapshot of the routes actually retained by the router."""
+        return tuple(sorted(self._routes))
+
     def typing_routes(self, adapter: str, channel: str) -> list[Route]:
         """Select explicit enabled typing grants, independently of message kinds.
 

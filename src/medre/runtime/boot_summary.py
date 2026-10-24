@@ -60,7 +60,9 @@ class BootSummary:
         Sorted tuple of adapter IDs that started successfully.
     route_count:
         Number of routes successfully registered on the router at startup
-        time.  Excludes disabled, skipped, and unavailable routes.
+        time, after destination-safety pruning. A failed-source route may
+        remain registered for stored work even though fresh live ingress is
+        unavailable. Live eligibility is reported separately.
     storage_backend:
         Storage backend name (e.g. ``"sqlite"``, ``"memory"``), or ``"none"``.
     storage_path:

@@ -18,6 +18,7 @@ from medre.runtime.summaries import (
     format_duration_ms,
     shutdown_summary,
     startup_summary,
+    startup_route_summary,
 )
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
@@ -281,31 +282,36 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         summary = startup_summary(startup_results)
         _print(summary)
 
-        # Route eligibility summary (build-time classification).
-        route_elig = getattr(app, "route_eligibility", None)
+        route_elig = app.route_eligibility
         if route_elig is not None:
-            n_registered = len(route_elig.registered)
-            n_degraded = len(route_elig.degraded)
-            n_skipped = len(route_elig.skipped)
-            parts = [f"{n_registered} enabled"]
-            if n_degraded:
-                parts.append(f"{n_degraded} degraded")
-            if n_skipped:
-                parts.append(f"{n_skipped} skipped")
-            _print(f"  Route eligibility: {', '.join(parts)}")
+            _print(startup_route_summary(route_elig, app.startup_readiness))
 
-        _print("  Run `medre diagnostics --refresh-health` for live adapter health")
+        from .bridge_commands import _command_example
+
+        health_command = ["medre", "diagnostics"]
+        if config_path:
+            health_command += ["--config", config_path]
+        health_command.append("--refresh-health")
+        _print("  For a separate live health probe, stop this bridge first, then run:")
+        _print("    " + _command_example(*health_command))
 
         # Print boot summary diagnostics if available.
         if app.boot_summary is not None:
             bs = app.boot_summary
             if bs.runtime_health == "degraded":
                 _print(
-                    f"  \u26a0 Runtime is DEGRADED: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
+                    f"  \u26a0 Runtime is DEGRADED at startup: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
                     level=logging.WARNING,
                 )
                 if bs.failed_adapter_ids:
                     _print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
+                degraded = [
+                    name
+                    for name, state in sorted(app.adapter_states.items())
+                    if state.value == "degraded"
+                ]
+                if degraded:
+                    _print(f"    Degraded adapters: {', '.join(degraded)}")
             if bs.persisted_events_count is not None:
                 _print(f"  Persisted events: {bs.persisted_events_count}")
             if bs.adapters_disabled > 0:
@@ -359,6 +365,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                     "Failed to refresh outbox state before shutdown", exc_info=True
                 )
 
+            stopping_ids = tuple(app.started_adapter_ids)
             try:
                 await app.stop()
             except Exception as exc:
@@ -379,7 +386,13 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 )
 
             summary = shutdown_summary(
-                list(app.adapters.keys()), shutdown_errors or None
+                [
+                    name
+                    for name in stopping_ids
+                    if app.adapter_states.get(name) is not None
+                    and app.adapter_states[name].value == "stopped"
+                ],
+                shutdown_errors or None,
             )
             _print(summary)
 

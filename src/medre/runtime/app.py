@@ -957,7 +957,6 @@ class MedreApp:
                 disabled_count += 1
 
         # -- Route count ------------------------------------------------------
-        route_count = len(self._registered_routes) if self._registered_routes else 0
 
         # -- Storage backend name ---------------------------------------------
         storage_backend = "none"
@@ -965,27 +964,6 @@ class MedreApp:
         if self.storage is not None:
             storage_backend = getattr(self.config.storage, "backend", "unknown")
             storage_path = getattr(self.storage, "_db_path", None)
-
-        # -- Build boot summary -----------------------------------------------
-        self._boot_summary = build_boot_summary(
-            startup_timestamp=self._startup_wall,
-            startup_outcome=outcome.value,
-            runtime_health=health.value,
-            adapters_started=started_count,
-            adapters_failed=effective_failed,
-            adapters_total=attempted_total,
-            adapters_disabled=disabled_count,
-            build_failure_count=build_failed,
-            build_failure_ids=[bf.adapter_id for bf in self.build_failures],
-            failed_adapter_ids=failed_adapter_ids,
-            started_adapter_ids=list(self.started_adapter_ids),
-            route_count=route_count,
-            storage_backend=storage_backend,
-            storage_path=storage_path,
-            replay_available=self._replay_engine is not None,
-            persisted_events_count=persisted_count,
-            recovery_run_id=self._recovery_run_id or "",
-        )
 
         # -- Compute startup-derived route readiness ----------------------------
         if self._route_eligibility is not None and self._route_provenance is not None:
@@ -1038,6 +1016,27 @@ class MedreApp:
                         self.router.remove_route(skipped_route.route_id)
                     except KeyError:
                         pass
+
+        # -- Build boot summary -----------------------------------------------
+        self._boot_summary = build_boot_summary(
+            startup_timestamp=self._startup_wall,
+            startup_outcome=outcome.value,
+            runtime_health=health.value,
+            adapters_started=started_count,
+            adapters_failed=effective_failed,
+            adapters_total=attempted_total,
+            adapters_disabled=disabled_count,
+            build_failure_count=build_failed,
+            build_failure_ids=[bf.adapter_id for bf in self.build_failures],
+            failed_adapter_ids=failed_adapter_ids,
+            started_adapter_ids=list(self.started_adapter_ids),
+            route_count=len(self.router.registered_route_ids),
+            storage_backend=storage_backend,
+            storage_path=storage_path,
+            replay_available=self._replay_engine is not None,
+            persisted_events_count=persisted_count,
+            recovery_run_id=self._recovery_run_id or "",
+        )
 
         # -- Emit startup classified event ------------------------------------
         self._emit_event(
@@ -1324,7 +1323,54 @@ class MedreApp:
             raise RuntimeStartupError(
                 "Adapter startup cancelled itself: " + ", ".join(cancelled)
             )
+        # Early adapters can finish their first sync while a slower peer starts.
+        # Sample all started providers again at the barrier, concurrently, before
+        # startup health/readiness is classified. This remains startup-owned work.
+        async with asyncio.TaskGroup() as probes:
+            health_tasks = {
+                adapter_id: probes.create_task(
+                    self._probe_startup_health(adapter_id),
+                    name=f"adapter-startup-health:{adapter_id}",
+                )
+                for adapter_id in sorted(self.started_adapter_ids)
+            }
+        cancelled_health = [
+            adapter_id for adapter_id, task in health_tasks.items() if task.cancelled()
+        ]
+        if cancelled_health:
+            raise RuntimeStartupError(
+                "Adapter startup health cancelled itself: "
+                + ", ".join(cancelled_health)
+            )
+        for adapter_id, task in health_tasks.items():
+            health = task.result()
+            state = AdapterState.READY if health == "healthy" else AdapterState.DEGRADED
+            previous = self._adapter_states[adapter_id]
+            self._set_adapter_state(adapter_id, state)
+            if previous is not state:
+                _logger.info(
+                    "Adapter %s startup health changed: %s -> %s",
+                    adapter_id,
+                    previous.value,
+                    state.value,
+                )
         return [adapter_id for adapter_id, task in tasks.items() if not task.result()]
+
+    async def _probe_startup_health(self, adapter_id: str) -> str:
+        """Read cheap native health under the same bounded startup policy."""
+        deadline = asyncio.timeout(_STARTUP_HEALTH_TIMEOUT_SECONDS)
+        try:
+            async with deadline:
+                info = await self.adapters[adapter_id].health_check()
+            if not deadline.expired() and info.health == "healthy":
+                return "healthy"
+        except Exception as exc:
+            _logger.warning(
+                "Adapter %s startup health unavailable (%s); retaining degraded health",
+                adapter_id,
+                type(exc).__name__,
+            )
+        return "degraded"
 
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.
@@ -1393,19 +1439,7 @@ class MedreApp:
                 raise
             # Readiness and native health are distinct. The initial probe is
             # bounded and runs inside this owned task, alongside peer starts.
-            initial_health = "degraded"
-            try:
-                async with asyncio.timeout(_STARTUP_HEALTH_TIMEOUT_SECONDS):
-                    info = await adapter.health_check()
-                    if info.health == "healthy":
-                        initial_health = "healthy"
-            except Exception as health_exc:
-                _logger.warning(
-                    "Adapter %s.%s initial health unavailable (%s); started degraded",
-                    transport,
-                    adapter_id,
-                    type(health_exc).__name__,
-                )
+            initial_health = await self._probe_startup_health(adapter_id)
             elapsed = _monotonic_ms() - t0
             self.adapter_start_monotonic[adapter_id] = t0
             self.adapter_start_duration_ms[adapter_id] = elapsed
