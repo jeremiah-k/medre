@@ -23,8 +23,8 @@ jobs:
       # Source of truth: docker-compose.integration.yaml (kept in sync by
       # tests/test_integration_image_alignment.py). Update digests when
       # bumping versions — verify with:
-      #   docker pull matrixdotorg/synapse:v1.163.1 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.163.1
-      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.163.1@sha256:41d8a4edfdc6220e4c627383c7a568dd81933e7a8d299eb2490828ce766ea095
+      #   docker pull matrixdotorg/synapse:v1.163.2 && docker image inspect --format='{{index .RepoDigests 0}}' matrixdotorg/synapse:v1.163.2
+      MEDRE_SYNAPSE_IMAGE: matrixdotorg/synapse:v1.163.2@sha256:c3c21919a322f74d177a43bce8031adc81ef839ddd117a8dd03cfec350e76e02
       MEDRE_MESHTASTICD_IMAGE: meshtastic/meshtasticd:2.7.26@sha256:23e92b1331a3a471eaef0c63cbca4365ca40b3111a9781cfdbe5a5114e5773d4
       MEDRE_CI_ARTIFACT_DIR: ${{ github.workspace }}/.ci-artifacts/docker-integration
       # Step-level `if` cannot reference the secrets context (actionlint);
