@@ -144,8 +144,12 @@ This is the only outbound method. There is no `send()`, no `push()`, no `emit()`
 
 ### 3.5 `health_check()`
 
-The runtime performs one bounded initial health probe and supports explicit
-operator-triggered refreshes. It does not run generic periodic health polling
+The runtime performs a bounded initial health probe per adapter, then samples
+all successfully started adapters concurrently once more after startup attempts
+settle. Startup health and route readiness MUST use that final sample so an
+early adapter that recovered during a slower peer's startup is not reported as
+still degraded. Each sample retains the same bounded, cancellation-cooperative
+policy. The runtime also supports explicit operator-triggered refreshes. It does not run generic periodic health polling
 or restart adapters. health_check() MUST be cheap, non-blocking and
 cancellation-cooperative, returning a fresh AdapterInfo describing native state.
 

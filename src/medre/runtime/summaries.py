@@ -9,6 +9,10 @@ Provides:
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
 __all__ = [
     "format_duration_ms",
@@ -142,3 +146,33 @@ def shutdown_summary(
         lines.append(f"Runtime stopped ({len(adapter_ids)} adapter(s))")
 
     return "\n".join(lines)
+
+
+def startup_route_summary(
+    eligibility: RouteEligibility, readiness: RouteStartupReadiness | None
+) -> str:
+    """Separate build registration from current live-source/target availability.
+
+    A source-failed route may remain registered for stored work. It must still
+    count as unavailable for fresh live ingress in the operator summary.
+    """
+    registered = set(eligibility.registered)
+    blocked = (
+        {route.route_id for route in readiness.skipped} & registered
+        if readiness is not None
+        else set()
+    )
+    partial = (
+        {route.route_id for route in readiness.degraded} & registered
+        if readiness is not None
+        else {route.route_id for route in eligibility.degraded}
+    ) - blocked
+    message = (
+        f"Route eligibility: {len(registered - blocked)} live-eligible, "
+        f"{len(blocked)} startup-blocked ({len(registered)} build-registered)"
+    )
+    if partial:
+        message += f", {len(partial)} with partial target loss"
+    if eligibility.skipped:
+        message += f", {len(eligibility.skipped)} excluded at build"
+    return message

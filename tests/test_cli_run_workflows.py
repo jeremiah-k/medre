@@ -34,7 +34,7 @@ async def _trigger_shutdown_after_startup(
     returns as soon as the marker appears, so the larger default costs
     nothing on the happy path.
     """
-    marker = "Run `medre diagnostics --refresh-health` for live adapter health"
+    marker = "For a separate live health probe, stop this bridge first"
     ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=wait_timeout)
     assert ok, (
         f"runtime did not reach post-startup marker within {wait_timeout}s; "

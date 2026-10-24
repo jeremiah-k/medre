@@ -505,3 +505,129 @@ async def test_suppressed_start_deadline_does_not_mark_adapter_ready(
         assert app._adapter_states["alpha"].value == "failed"
     finally:
         await app.stop()
+
+
+@pytest.mark.parametrize(
+    ("early", "settled"), [("degraded", "healthy"), ("healthy", "degraded")]
+)
+async def test_startup_classification_uses_health_after_slow_peer_settles(
+    tmp_path, monkeypatch, early, settled
+):
+    """An early sync/reconnect observation cannot freeze final startup health."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    info = await app.adapters["alpha"].health_check()
+    sampled = asyncio.Event()
+    peer_settled = False
+    calls = 0
+    beta_start = app.adapters["beta"].start
+
+    async def native_health():
+        """Expose native health changing while the independent peer starts."""
+        nonlocal calls
+        calls += 1
+        sampled.set()
+        return replace(info, health=settled if peer_settled else early)
+
+    async def slow_peer(ctx):
+        """Settle only after the first health observation was consumed."""
+        nonlocal peer_settled
+        await sampled.wait()
+        peer_settled = True
+        await beta_start(ctx)
+
+    monkeypatch.setattr(app.adapters["alpha"], "health_check", native_health)
+    monkeypatch.setattr(app.adapters["beta"], "start", slow_peer)
+    try:
+        await app.start()
+        assert calls == 2
+        assert app.boot_summary.runtime_health == settled
+        assert app.adapter_states["alpha"].value == (
+            "ready" if settled == "healthy" else "degraded"
+        )
+    finally:
+        await app.stop()
+
+
+async def test_cancellation_during_final_health_sample_owns_startup_rollback(
+    tmp_path, monkeypatch
+):
+    """The final health barrier cannot outlive operator cancellation or cleanup."""
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    info = await app.adapters["alpha"].health_check()
+    sampling = asyncio.Event()
+    calls = 0
+
+    async def pending_sample():
+        """Only the final sample waits, after all native starts completed."""
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            sampling.set()
+            await asyncio.Event().wait()
+        return replace(info, health="healthy")
+
+    monkeypatch.setattr(app.adapters["alpha"], "health_check", pending_sample)
+    starting = asyncio.create_task(app.start())
+    await sampling.wait()
+    starting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    assert app.state.value == "failed"
+    assert app.started_adapter_ids == []
+    assert not app.pipeline_runner.running
+    assert not any(
+        task.get_name().startswith("adapter-startup-health:") and not task.done()
+        for task in asyncio.all_tasks()
+    )
+
+
+async def test_boot_route_count_tracks_retained_stored_work_routes(
+    tmp_path, monkeypatch
+):
+    """Live-unavailable source routes remain registered for admitted stored work."""
+    from medre.runtime.summaries import startup_route_summary
+
+    config = replace(
+        _config_with_two_fake_adapters(),
+        routes=RouteConfigSet(
+            routes=(
+                RouteConfig(
+                    route_id="pair",
+                    source_adapters=("alpha",),
+                    dest_adapters=("beta",),
+                    directionality="bidirectional",
+                ),
+            )
+        ),
+    )
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+
+    async def offline(ctx):
+        """Represent a provider which failed to start, not recoverable health."""
+        raise ConnectionError("offline fixture")
+
+    monkeypatch.setattr(app.adapters["alpha"], "start", offline)
+    try:
+        await app.start()
+        assert len(app.route_eligibility.registered) == 2
+        assert len(app.startup_readiness.skipped) == 2
+        assert len(app.router.registered_route_ids) == 1
+        assert app.boot_summary.route_count == 1
+        assert "0 live-eligible, 2 startup-blocked (2 build-registered)" in (
+            startup_route_summary(app.route_eligibility, app.startup_readiness)
+        )
+        assert app.router.match(
+            SimpleNamespace(
+                source_adapter="alpha",
+                source_channel_id="room",
+                event_kind="message.text",
+            )
+        )
+    finally:
+        await app.stop()
