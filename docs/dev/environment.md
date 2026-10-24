@@ -20,6 +20,17 @@ with `uv sync --locked --extra dev --python 3.13` when reproducing a CI leg.
 CI tests CPython 3.11–3.14 and pins its uv tool version in `.tool-versions`.
 `pyproject.toml` declares the minimum supported uv version.
 
+Core supports Python 3.11+. Providers can require a newer interpreter: the Matrix
+adapter requires Python 3.12+ for its durable mindroom-nio sync backend. CI records
+provider minimum minor versions as `python_requires` (for example, `>=3.12`) in
+the compatibility snapshot, and selects only supported provider/interpreter pairs.
+Full cross-adapter tests use interpreters supported by every selected provider;
+the adapter-free core suite also runs on Python 3.11. Individual provider contract
+jobs retain Python 3.11 coverage wherever the provider supports it.
+Package metadata remains authoritative during installation. On Python 3.11,
+select providers explicitly with `medre dev sync meshtastic meshcore` or another
+compatible subset; use Python 3.12+ for Matrix and the full development selection.
+
 MEDRE's `dev` dependencies are an optional extra, not a dependency group.
 Use `--extra dev`; `--dev` alone does not select those tools. This preserves the
 existing `pip install -e ".[dev]"` interface.

@@ -2,10 +2,11 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "dc6c04e7b33333c883fd8d678eb4d27e3cd9f606",
+    "ref": "601fdc35f8ddf45e3a9c46dbef87d0093bdcc823",
     "extras": "e2e",
     "local_integration": false,
-    "distribution": "medre-adapter-matrix"
+    "distribution": "medre-adapter-matrix",
+    "python_requires": ">=3.12"
   },
   {
     "transport": "meshtastic",

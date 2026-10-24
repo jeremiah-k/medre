@@ -74,7 +74,7 @@ from medre.core.storage.sqlite.storage import (
 )
 from medre.runtime.retry import RetryWorker
 
-from .conftest import SynapseEnvironment
+from .conftest import SynapseEnvironment, close_nio_store, login_synapse_device
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +224,8 @@ class _AttachmentHarness:
     the same way production bridges run: the source adapter syncs the
     source room (bot), and a destination adapter uploads into the target
     room.  Plaintext destinations run as the test user; the encrypted
-    destination runs as a second bot instance sharing the fixture's
-    pre-bootstrapped crypto store (only that instance touches the store).
+    destination runs as a second bot instance. Each side has a test-owned
+    durable store; restart tests reopen those same directories.
     """
 
     def __init__(
@@ -233,16 +233,15 @@ class _AttachmentHarness:
         *,
         env: SynapseEnvironment,
         storage: SQLiteStorage,
+        store_root: Path,
         source_room: str,
         target_room: str,
         source_adapter_id: str,
         dest_adapter_id: str,
         source_encryption: str = "plaintext",
-        source_store_path: str | None = None,
         dest_user_id: str | None = None,
         dest_access_token: str | None = None,
         dest_encryption: str = "plaintext",
-        dest_store_path: str | None = None,
         dest_device_id: str | None = None,
     ) -> None:
         self.env = env
@@ -254,6 +253,10 @@ class _AttachmentHarness:
         self.admissions: list[
             tuple[AdmissionResult, InboundAttachmentContent | None]
         ] = []
+        # The harness owns its store-root precondition; ordinary nio clients
+        # in this suite do not create parent directories.
+        (store_root / "source").mkdir(parents=True, exist_ok=True)
+        (store_root / "destination").mkdir(parents=True, exist_ok=True)
 
         route = Route(
             id="attachment-smoke-route",
@@ -298,7 +301,7 @@ class _AttachmentHarness:
             access_token=env.bot_access_token,
             room_allowlist={source_room},
             encryption_mode=source_encryption,
-            store_path=source_store_path,
+            store_path=str(store_root / "source"),
         ).validate()
         self.source_adapter = MatrixAdapter(source_config)
         self.config.adapters[source_adapter_id] = self.source_adapter
@@ -311,7 +314,7 @@ class _AttachmentHarness:
             device_id=dest_device_id,
             room_allowlist={target_room},
             encryption_mode=dest_encryption,
-            store_path=dest_store_path,
+            store_path=str(store_root / "destination"),
         ).validate()
         self.dest_adapter = MatrixAdapter(dest_config)
         self.config.adapters[dest_adapter_id] = self.dest_adapter
@@ -378,13 +381,29 @@ class _AttachmentHarness:
         await self.runner.handle_ingress(event)
 
     async def stop(self) -> None:
+        """Stop every component and release captured stores on every exit."""
+        # Capture clients before stop() clears their session references.
+        clients = [
+            getattr(getattr(adapter, "_session", None), "_client", None)
+            for adapter in (self.dest_adapter, self.source_adapter)
+        ]
         try:
-            await self.dest_adapter.stop()
-        finally:
             try:
-                await self.source_adapter.stop()
+                await self.dest_adapter.stop()
             finally:
-                await self.runner.stop()
+                try:
+                    await self.source_adapter.stop()
+                finally:
+                    await self.runner.stop()
+        finally:
+            # nio's client.close() does not close its SQLite store. Both
+            # stores must close even if an adapter or the runner fails to stop.
+            for client in clients:
+                if client is not None:
+                    try:
+                        close_nio_store(client)
+                    except Exception:
+                        logger.debug("adapter store cleanup error", exc_info=True)
 
     async def wait_until_live(self, timeout: float = 30.0) -> None:
         """Wait until BOTH adapter sessions crossed the live sync boundary."""
@@ -466,10 +485,11 @@ class _AttachmentHarness:
 class TestSynapseAttachmentSmoke:
     async def test_plaintext_media_relays_with_identical_bytes(
         self,
-        synapse_env: SynapseEnvironment,
+        isolated_synapse_env: SynapseEnvironment,
         tmp_path: Path,
     ) -> None:
         """Full plaintext relay: fetch → durable admission → re-upload → download."""
+        synapse_env = isolated_synapse_env
         destination_room = _create_room(
             synapse_env, synapse_env.test_access_token, "attachment-dst-plain"
         )
@@ -477,6 +497,7 @@ class TestSynapseAttachmentSmoke:
         storage = SQLiteStorage(str(tmp_path / "plain.sqlite"))
         await storage.initialize()
         harness = _AttachmentHarness(
+            store_root=tmp_path / "matrix-stores",
             env=synapse_env,
             storage=storage,
             source_room=synapse_env.test_room_id,
@@ -565,7 +586,7 @@ class TestSynapseAttachmentSmoke:
 
     async def test_restart_replays_retained_bytes_after_source_loss(
         self,
-        synapse_env: SynapseEnvironment,
+        isolated_synapse_env: SynapseEnvironment,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -574,6 +595,7 @@ class TestSynapseAttachmentSmoke:
         Also proves one transient send failure records no native ref while
         the durable retry worker finally records exactly one handoff.
         """
+        synapse_env = isolated_synapse_env
         destination_room = _create_room(
             synapse_env, synapse_env.test_access_token, "attachment-dst-restart"
         )
@@ -582,6 +604,7 @@ class TestSynapseAttachmentSmoke:
         storage = SQLiteStorage(db_path)
         await storage.initialize()
         harness = _AttachmentHarness(
+            store_root=tmp_path / "matrix-stores",
             env=synapse_env,
             storage=storage,
             source_room=synapse_env.test_room_id,
@@ -634,6 +657,7 @@ class TestSynapseAttachmentSmoke:
         reopened = SQLiteStorage(db_path)
         await reopened.initialize()
         harness2 = _AttachmentHarness(
+            store_root=tmp_path / "matrix-stores",
             env=synapse_env,
             storage=reopened,
             source_room=synapse_env.test_room_id,
@@ -776,6 +800,7 @@ class TestSynapseEncryptedAttachmentSmoke:
         storage = SQLiteStorage(str(tmp_path / "e2ee-src.sqlite"))
         await storage.initialize()
         harness = _AttachmentHarness(
+            store_root=tmp_path / "matrix-stores",
             env=env.synapse_env,
             storage=storage,
             source_room=env.encrypted_room_id,
@@ -783,7 +808,6 @@ class TestSynapseEncryptedAttachmentSmoke:
             source_adapter_id="attach-e2ee-src-src",
             dest_adapter_id="attach-e2ee-src-dst",
             source_encryption="e2ee_required",
-            source_store_path=env.bot_store_path,
             dest_user_id=env.test_user_id,
             dest_access_token=env.test_access_token,
         )
@@ -891,10 +915,14 @@ class TestSynapseEncryptedAttachmentSmoke:
         """Plaintext source → encrypted destination: ciphertext on the wire."""
         env = synapse_e2ee_env
         destination_room = env.encrypted_room_id
+        destination = login_synapse_device(
+            env.synapse_env, env.bot_user_id, env.synapse_env.bot_password
+        )
 
         storage = SQLiteStorage(str(tmp_path / "e2ee-dst.sqlite"))
         await storage.initialize()
         harness = _AttachmentHarness(
+            store_root=tmp_path / "matrix-stores",
             env=env.synapse_env,
             storage=storage,
             source_room=env.synapse_env.test_room_id,
@@ -902,8 +930,9 @@ class TestSynapseEncryptedAttachmentSmoke:
             source_adapter_id="attach-e2ee-dst-src",
             dest_adapter_id="attach-e2ee-dst-dst",
             dest_encryption="e2ee_required",
-            dest_store_path=env.bot_store_path,
-            dest_device_id=env.bot_device_id,
+            dest_user_id=destination["user_id"],
+            dest_access_token=destination["access_token"],
+            dest_device_id=destination["device_id"],
         )
         try:
             await harness.start()
@@ -986,15 +1015,22 @@ class TestSynapseEncryptedAttachmentSmoke:
                         "client decryption is not"
                     )
                 # Full receiving-client proof: decrypt event AND attachment.
-                sync = await receiver.sync(full_state=True, timeout=5000)
-                assert isinstance(sync, object)
+                from nio import RoomEncryptedMedia
+
                 decrypted_event = None
-                for room in receiver.rooms.values():
-                    for ev in getattr(room, "timeline", []) or []:
-                        if getattr(ev, "decrypted", False) and getattr(
-                            ev, "msgtype", ""
-                        ) in ("m.file", "m.image", "m.video", "m.audio"):
-                            decrypted_event = ev
+                deadline = time.monotonic() + _DELIVERY_WAIT_SECONDS
+                while decrypted_event is None and time.monotonic() < deadline:
+                    sync = await receiver.sync(timeout=1000)
+                    assert hasattr(sync, "rooms"), f"receiver sync failed: {sync}"
+                    for room in sync.rooms.join.values():
+                        for ev in room.timeline.events:
+                            if (
+                                getattr(ev, "event_id", None)
+                                == encrypted_event["event_id"]
+                                and getattr(ev, "decrypted", False)
+                                and isinstance(ev, RoomEncryptedMedia)
+                            ):
+                                decrypted_event = ev
                 if decrypted_event is None:
                     pytest.xfail(
                         "Megolm key exchange did not complete within the "

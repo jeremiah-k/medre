@@ -83,6 +83,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
+from medre.core.ingress import DurableIngressWorker
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
@@ -93,7 +94,6 @@ from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.matrix import matrix_payload_content
 
 from .conftest import E2EETestEnvironment, close_nio_client, close_nio_store
-from .synapse_helpers import make_context as _make_context
 from .synapse_helpers import (
     send_client_side_encrypted_message,
     send_encrypted_message_as_test_user,
@@ -116,7 +116,9 @@ pytestmark: list[Any] = [
 # ---------------------------------------------------------------------------
 
 
-def _make_e2ee_matrix_config(e2ee_env: E2EETestEnvironment) -> MatrixConfig:
+def _make_e2ee_matrix_config(
+    e2ee_env: E2EETestEnvironment, store_path: str
+) -> MatrixConfig:
     """Build a MatrixConfig for E2EE mode pointing at the Docker Synapse."""
     return MatrixConfig(
         adapter_id="synapse-e2ee-bot",
@@ -124,7 +126,7 @@ def _make_e2ee_matrix_config(e2ee_env: E2EETestEnvironment) -> MatrixConfig:
         user_id=e2ee_env.bot_user_id,
         access_token=e2ee_env.bot_access_token,
         device_id=e2ee_env.bot_device_id,
-        store_path=e2ee_env.bot_store_path,
+        store_path=store_path,
         room_allowlist={e2ee_env.encrypted_room_id},
         encryption_mode="e2ee_required",
         auto_join_rooms=(e2ee_env.encrypted_room_id,),
@@ -158,15 +160,30 @@ def _make_e2ee_pipeline_config(
 def _make_adapter_context_for_pipeline(
     adapter_id: str,
     runner: PipelineRunner,
+    storage: SQLiteStorage,
 ) -> AdapterContext:
-    """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
+    """Wire production admission and checkpoint ownership to the test pipeline."""
 
     async def _publish(event: Any) -> None:
         await runner.handle_ingress(event)
 
+    async def _admit(event: Any, provenance: Any, attachment: Any = None) -> Any:
+        return await runner.admit_ingress(event, provenance, attachment=attachment)
+
+    async def _load_checkpoint(stream: str) -> Any:
+        return await storage.get_adapter_checkpoint(adapter_id, stream)
+
+    async def _commit_checkpoint(stream: str, cursor: str, metadata_json: str) -> None:
+        await storage.put_adapter_checkpoint(
+            adapter_id, stream, cursor, metadata_json=metadata_json
+        )
+
     return AdapterContext(
         adapter_id=adapter_id,
         publish_inbound=_publish,
+        admit_inbound=_admit,
+        load_checkpoint=_load_checkpoint,
+        commit_checkpoint=_commit_checkpoint,
         logger=logging.getLogger(f"test.e2ee.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
@@ -182,7 +199,7 @@ def _redact_device_id(device_id: str | None) -> str:
     return device_id[:2] + "****" + device_id[-2:]
 
 
-async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
+async def _open_bot_e2ee_client(env: E2EETestEnvironment, store_path: str) -> Any:
     """Open the bot's real nio E2EE client against the Docker homeserver."""
     import nio
 
@@ -193,7 +210,7 @@ async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
         homeserver=env.base_url,
         user=env.bot_user_id,
         device_id=env.bot_device_id,
-        store_path=env.bot_store_path,
+        store_path=store_path,
         config=config,
     )
     client.restore_login(
@@ -214,12 +231,15 @@ async def _open_bot_e2ee_client(env: E2EETestEnvironment) -> Any:
 
 async def test_cross_signing_bootstrap_persists_and_runtime_verifies(
     synapse_e2ee_env: E2EETestEnvironment,
+    tmp_path: Path,
 ) -> None:
     """Prove authenticated bootstrap and passwordless persisted verification."""
     from medre.adapters.matrix.identity import MatrixCrossSigningService
 
     env = synapse_e2ee_env
-    client = await _open_bot_e2ee_client(env)
+    store_path = str(tmp_path / "bootstrap-store")
+    Path(store_path).mkdir()
+    client = await _open_bot_e2ee_client(env, store_path)
     try:
         service = MatrixCrossSigningService(client, logger=logger)
         bootstrap_result = await service.reconcile(
@@ -239,7 +259,7 @@ async def test_cross_signing_bootstrap_persists_and_runtime_verifies(
 
     # Reopen the exact same E2EE store. Runtime reconciliation deliberately
     # receives no password and no bootstrap/reset authority.
-    runtime_client = await _open_bot_e2ee_client(env)
+    runtime_client = await _open_bot_e2ee_client(env, store_path)
     try:
         runtime_service = MatrixCrossSigningService(runtime_client, logger=logger)
         runtime_result = await runtime_service.reconcile()
@@ -364,6 +384,7 @@ class TestSynapseE2EESmoke:
         self,
         synapse_e2ee_env: E2EETestEnvironment,
         temp_storage: SQLiteStorage,
+        tmp_path: Path,
     ) -> None:
         """Send client-side encrypted message from test nio client; bot decrypts.
 
@@ -408,7 +429,7 @@ class TestSynapseE2EESmoke:
         )
         router = Router(routes=[route])
 
-        config = _make_e2ee_matrix_config(e2ee_env)
+        config = _make_e2ee_matrix_config(e2ee_env, str(tmp_path / "bot-store"))
         matrix_adapter = MatrixAdapter(config)
 
         pipeline_config = _make_e2ee_pipeline_config(
@@ -421,6 +442,7 @@ class TestSynapseE2EESmoke:
             runtime_accounting=accounting,
         )
         runner = PipelineRunner(pipeline_config)
+        ingress_worker = DurableIngressWorker(storage=temp_storage, pipeline=runner)
 
         # Track whether we used client-side encryption.
         client_side_encrypted = False
@@ -429,14 +451,18 @@ class TestSynapseE2EESmoke:
         try:
             # Start all components inside try for exception-safety.
             await runner.start()
+            await ingress_worker.start()
 
             matrix_ctx = _make_adapter_context_for_pipeline(
                 "synapse-e2ee-bot",
                 runner,
+                temp_storage,
             )
             await matrix_adapter.start(matrix_ctx)
 
-            fake_ctx = _make_adapter_context_for_pipeline("fake-out-e2ee", runner)
+            fake_ctx = _make_adapter_context_for_pipeline(
+                "fake-out-e2ee", runner, temp_storage
+            )
             await fake_out.start(fake_ctx)
 
             # 2. Allow time for the bot's initial sync and key upload.
@@ -655,6 +681,7 @@ class TestSynapseE2EESmoke:
             # does not prevent the others from being stopped.
             for _name, _stop_coro in [
                 ("matrix_adapter", matrix_adapter.stop()),
+                ("ingress_worker", ingress_worker.stop(grace_seconds=5.0)),
                 ("fake_out", fake_out.stop()),
                 ("runner", runner.stop()),
             ]:
@@ -673,6 +700,8 @@ class TestSynapseE2EESmoke:
     async def test_e2ee_diagnostics(
         self,
         synapse_e2ee_env: E2EETestEnvironment,
+        temp_storage: SQLiteStorage,
+        tmp_path: Path,
     ) -> None:
         """Verify E2EE diagnostics fields are truthful after session start.
 
@@ -687,12 +716,18 @@ class TestSynapseE2EESmoke:
         - ``encryption_mode`` matches the configured mode.
         """
         e2ee_env = synapse_e2ee_env
-        config = _make_e2ee_matrix_config(e2ee_env)
+        config = _make_e2ee_matrix_config(e2ee_env, str(tmp_path / "bot-store"))
         adapter = MatrixAdapter(config)
-        ctx = _make_context(adapter_id="synapse-e2ee-diag")
+        runner = PipelineRunner(
+            _make_e2ee_pipeline_config(temp_storage, Router(routes=[]))
+        )
+        ctx = _make_adapter_context_for_pipeline(
+            config.adapter_id, runner, temp_storage
+        )
 
-        await adapter.start(ctx)
         try:
+            await runner.start()
+            await adapter.start(ctx)
             diag = adapter.diagnostics()
 
             # Core diagnostic field assertions.
@@ -764,4 +799,22 @@ class TestSynapseE2EESmoke:
                 report["device_id_configured"],
             )
         finally:
-            await adapter.stop()
+            # adapter.stop() does not close the store's SQLite connection;
+            # capture the client first and close the store after teardown.
+            adapter_session = getattr(adapter, "_session", None)
+            adapter_client = (
+                getattr(adapter_session, "_client", None)
+                if adapter_session is not None
+                else None
+            )
+            try:
+                try:
+                    await adapter.stop()
+                finally:
+                    await runner.stop()
+            finally:
+                if adapter_client is not None:
+                    try:
+                        close_nio_store(adapter_client)
+                    except Exception:
+                        logger.debug("adapter store cleanup error", exc_info=True)

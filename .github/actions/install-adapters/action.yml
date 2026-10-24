@@ -15,12 +15,16 @@ runs:
         import json
         import os
         import subprocess
+        import sys
         from pathlib import Path
         from importlib.util import module_from_spec, spec_from_file_location
         spec = spec_from_file_location("adapter_matrix", "scripts/ci/adapter_matrix.py")
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
         path = Path(os.environ["RUNNER_TEMP"]) / "medre-adapter-requirements.txt"
-        path.write_text(module.requirements(json.loads(os.environ["ADAPTER_SNAPSHOT"])["include"]))
-        subprocess.run(["uv", "pip", "install", "--no-deps", "-r", str(path)], check=True)
+        python = f"{sys.version_info.major}.{sys.version_info.minor}"
+        requirements = module.requirements(json.loads(os.environ["ADAPTER_SNAPSHOT"])["include"], python=python)
+        path.write_text(requirements)
+        if requirements:
+            subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--no-deps", "-r", str(path)], check=True)
         PYCODE
