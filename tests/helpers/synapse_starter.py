@@ -53,9 +53,13 @@ def _docker(
         timeout=timeout,
     )
     if check and proc.returncode != 0:
+        details = proc.stderr.strip()
+        for argument in args:
+            if argument.startswith("--password="):
+                details = details.replace(argument.partition("=")[2], "<redacted>")
         raise RuntimeError(
-            f"docker {' '.join(args)} failed with {proc.returncode}: "
-            f"{proc.stderr.strip()}"
+            f"docker {args[0] if args else 'command'} failed with {proc.returncode}: "
+            f"{details}"
         )
     return proc
 
@@ -203,8 +207,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
                 "register_new_matrix_user",
                 "-u",
                 localpart,
-                "-p",
-                password,
+                f"--password={password}",
                 "-c",
                 "/data/homeserver.yaml",
                 "-a" if admin else "--no-admin",
