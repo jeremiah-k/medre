@@ -231,7 +231,8 @@ def test_adapter_check_rejects_selections_with_accurate_guidance(capsys):
         main(["adapters", "check", "matrix"])
     assert exc.value.code == 2
     assert (
-        "only install, remove, and upgrade accept selections" in capsys.readouterr().err
+        "only install, remove, upgrade, and reset accept selections"
+        in capsys.readouterr().err
     )
 
 

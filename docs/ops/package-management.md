@@ -88,6 +88,55 @@ sources. Keep credentials out of requirement URLs. The source file is deployment
 configuration, separate from bridge YAML, and is read only by explicit management
 commands. Loading a bridge config or starting MEDRE never installs packages.
 
+## Test a branch and return to main
+
+Select a development branch in a separate source catalog:
+
+```yaml
+adapters:
+  matrix: medre-adapter-matrix[integration] @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@integration/medre-matrix-continuity
+```
+
+Select only extras actually provided by that branch. Full commit SHAs freeze a
+qualified combination; moving branch names follow subsequent branch updates.
+Install the selection explicitly:
+
+```bash
+medre adapters install 'matrix[integration]' --sources candidate-sources.yaml --dry-run
+medre adapters install 'matrix[integration]' --sources candidate-sources.yaml
+medre update
+```
+
+The installation records the branch in uv's request, so ordinary updates follow
+it. Editing the catalog alone does not change installed sources. Return selected
+adapters, or every installed first-party adapter, to their default main sources:
+
+```bash
+medre adapters reset matrix --dry-run
+medre adapters reset matrix
+medre adapters reset matrix meshtastic
+medre adapters reset
+```
+
+Reset uses MEDRE's built-in first-party source defaults, independently of saved
+catalog overrides. It removes the development-only `integration` extra while
+retaining other extras such as `e2e`. It selects only installed providers and
+retains the core request, community providers and unrelated package requests.
+Community providers have no host-owned default: select their source explicitly
+with `install`. uv may re-resolve shared dependencies and other moving sources
+when rebuilding the complete tool request.
+
+Saved source catalogs remain available for later experiments. An explicit
+`--sync-sources` can apply their overrides again; ordinary `medre update` follows
+the newly recorded main sources. Package source changes do not restore older
+persistent state. Back up state and stop the bridge before switching sources,
+then validate the configuration and restart. The Windows command handoff and
+uv-tool ownership checks described above also apply to reset.
+
+For source checkout development, use `medre dev sync --sources PATH` or
+`--editable ALIAS=PATH`. That manages a checkout's environment separately from
+the persistent CLI installation.
+
 ## Upgrade core and adapters
 
 ```bash

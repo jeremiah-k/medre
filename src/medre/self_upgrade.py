@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 from medre.tool_management import (
+    DEFAULT_SOURCES,
     _REQUIREMENT,
     _SELECTION,
     SourceCatalog,
@@ -193,3 +194,61 @@ def plan_upgrade(
     else:
         command.append("--upgrade")
     return UpgradePlan(tuple(command), tuple(packages), tuple(notes))
+
+
+def plan_adapter_reset(
+    installation: ToolInstallation, *, selections: tuple[str, ...] = ()
+) -> UpgradePlan:
+    """Return installed first-party providers to defaults without consulting overrides.
+
+    Reset is an explicit source change: it removes the candidate-only integration
+    extra but retains ordinary features, core, and other requested packages.
+    Community providers have no host-owned default and are never guessed.
+    """
+    requirements = installation.requirements()
+    providers = installed_adapters()
+    defaults = {package_name(raw): raw for raw in DEFAULT_SOURCES.values()}
+    catalog = SourceCatalog(None, DEFAULT_SOURCES)
+    if any(_SELECTION.fullmatch(value) is None or "[" in value for value in selections):
+        raise ToolManagementError(
+            "Reset accepts installed adapter aliases or distribution names without extras."
+        )
+    names = (
+        sorted({_selection(value, catalog, providers) for value in selections})
+        if selections
+        else sorted(providers.keys() & defaults.keys())
+    )
+    for name in names:
+        if name not in defaults:
+            raise ToolManagementError(
+                f"No first-party default source for {name}; use 'medre adapters install' with an explicit source catalog."
+            )
+    if not names:
+        return UpgradePlan((), (), ("No installed first-party adapters to reset.",))
+    desired = {package_name(raw): raw for raw in requirements}
+    for name in names:
+        source = defaults[name]
+        previous = _REQUIREMENT.match(desired.get(name, source))
+        assert previous is not None
+        default = _REQUIREMENT.match(source)
+        assert default is not None
+        extras = sorted(
+            (set((previous[2] or "").split(",")) | set((default[2] or "").split(",")))
+            - {"", "integration"}
+        )
+        desired[name] = (
+            default[1]
+            + ("[" + ",".join(extras) + "]" if extras else "")
+            + source[default.end() :]
+        )
+    command = installation.install_request(list(desired.values()))
+    for name in names:
+        command.extend(["--upgrade-package", name])
+    notes = [
+        "Restore selected first-party adapter sources to main; remove the integration extra and retain other extras.",
+        "Retain core and unrelated requirements; uv may re-resolve shared dependencies and other moving sources.",
+        "Source catalog overrides remain saved; --sync-sources can apply them again.",
+    ]
+    if providers.keys() - defaults.keys() and not selections:
+        notes.append("Community adapter sources remain unchanged.")
+    return UpgradePlan(tuple(command), tuple(names), tuple(notes))

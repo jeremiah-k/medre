@@ -1234,6 +1234,10 @@ medre adapters install ALIAS... [--sources PATH] [--dry-run]
 medre adapters remove ALIAS... [--sources PATH] [--dry-run]
     Remove explicit adapter package requirements.
 
+medre adapters reset [ALIAS...] [--dry-run]
+    Return selected installed first-party adapters, or all by default, to main.
+    Drop the integration extra, retain ordinary extras and unrelated requests.
+
 medre dev sync [ALIAS...] [--project PATH] [--editable ALIAS=PATH]
     Sync a standalone checkout's locked core and CI-pinned SDK-free providers.
     Read local .medre-dev.yaml preferences; use --sdk for constrained native

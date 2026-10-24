@@ -288,7 +288,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     adapters_p.add_argument(
         "action",
         nargs="?",
-        choices=("check", "sources", "install", "remove", "upgrade", "update"),
+        choices=("check", "sources", "install", "remove", "upgrade", "update", "reset"),
         default=None,
     )
     adapters_p.add_argument(
@@ -779,7 +779,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate command handler."""
     arguments = list(argv) if argv is not None else sys.argv[1:]
-    package_actions = {"sources", "install", "remove", "upgrade", "update"}
+    package_actions = {"sources", "install", "remove", "upgrade", "update", "reset"}
     adapter_action = None
     if arguments and arguments[0] == "adapters":
         tail = iter(arguments[1:])
@@ -806,14 +806,17 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "adapters":
         managing = args.action in ("install", "remove")
         upgrading = args.action in ("upgrade", "update")
+        resetting = args.action == "reset"
         if (managing and not args.packages) or (
-            args.packages and not (managing or upgrading)
+            args.packages and not (managing or upgrading or resetting)
         ):
             parser.error(
-                "adapters install/remove require a package selection; only install, remove, and upgrade accept selections"
+                "adapters install/remove require a package selection; only install, remove, upgrade, and reset accept selections"
             )
-        if args.dry_run and not (managing or upgrading):
-            parser.error("--dry-run requires adapters install, remove, or upgrade")
+        if args.dry_run and not (managing or upgrading or resetting):
+            parser.error(
+                "--dry-run requires adapters install, remove, upgrade, or reset"
+            )
         if args.sync_sources and not upgrading:
             parser.error("--sync-sources requires adapters upgrade")
         if upgrading and args.sources and not (args.packages or args.sync_sources):
@@ -836,8 +839,7 @@ def main(argv: list[str] | None = None) -> None:
 
         _development(args)
     elif args.command in ("init", "update", "upgrade") or (
-        args.command == "adapters"
-        and args.action in ("sources", "install", "remove", "upgrade", "update")
+        args.command == "adapters" and args.action in package_actions
     ):
         from .install_commands import _manage_installation
 
