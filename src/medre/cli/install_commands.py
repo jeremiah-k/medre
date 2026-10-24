@@ -36,7 +36,8 @@ def _manage_installation(args: argparse.Namespace) -> None:
         upgrading = args.command in ("upgrade", "update") or (
             args.command == "adapters" and args.action in ("upgrade", "update")
         )
-        if args.command == "adapters" and not upgrading:
+        resetting = args.command == "adapters" and args.action == "reset"
+        if args.command == "adapters" and not (upgrading or resetting):
             if args.action == "sources":
                 import yaml
 
@@ -53,7 +54,18 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 return
             sources = load_sources(Path(args.sources) if args.sources else None)
         installation = ToolInstallation.inspect()
-        if upgrading:
+        if resetting:
+            from medre.self_upgrade import plan_adapter_reset
+
+            plan = plan_adapter_reset(installation, selections=tuple(args.packages))
+            print(f"Tool environment: {installation.prefix}")
+            for note in plan.notes:
+                print(note)
+            if not plan.command:
+                return
+            print("Reset adapter sources: " + ", ".join(plan.packages))
+            command = list(plan.command)
+        elif upgrading:
             from medre.self_upgrade import plan_upgrade
 
             upgrade_catalog = (
@@ -83,7 +95,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
             )
         from .bridge_commands import _command_example
 
-        if not upgrading:
+        if not (upgrading or resetting):
             print(f"Tool environment: {installation.prefix}")
         print(_command_example(*command), flush=True)
         if args.dry_run:
