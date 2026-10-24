@@ -2,8 +2,8 @@
 """Shared fixtures for Docker-based integration tests.
 
 Manages the lifecycle of Synapse and meshtasticd containers used by
-``tests/integration/`` test modules.  Every fixture is session-scoped so
-containers are started once and reused across the whole integration run.
+``tests/integration/`` test modules. Containers are session-scoped; crypto
+devices and stores can be test-scoped to preserve device-key ownership.
 
 Skip strategy
 -------------
@@ -499,6 +499,7 @@ class SynapseEnvironment:
         bot_device_id: str | None = None,
         bot_store_path: str | None = None,
         test_device_id: str | None = None,
+        test_password: str = "",
     ) -> None:
         self.container_name = container_name
         self.base_url = base_url
@@ -513,6 +514,7 @@ class SynapseEnvironment:
         self.bot_device_id = bot_device_id
         self.bot_store_path = bot_store_path
         self.test_device_id = test_device_id
+        self.test_password = test_password
 
 
 @pytest.fixture(scope="session")
@@ -626,7 +628,13 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
             fh.write("enable_registration_without_verification: true\n")
             fh.write("registration_shared_secret: medre-ci-shared-secret\n")
             fh.write("rc_message:\n  per_second: 25\n  burst_count: 100\n")
-            fh.write("rc_login:\n  account:\n    per_second: 5\n    burst_count: 30\n")
+            # Test-scoped device logins all originate from Docker's one host
+            # address; relax both buckets without changing production policy.
+            fh.write(
+                "rc_login:\n"
+                "  account:\n    per_second: 5\n    burst_count: 100\n"
+                "  address:\n    per_second: 5\n    burst_count: 100\n"
+            )
 
     # Start Synapse.
     _docker_run(
@@ -801,6 +809,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
         test_access_token=test_access_token,
         bot_device_id=bot_device_id or None,
         test_device_id=test_device_id or None,
+        test_password=user_password,
     )
 
     logger.info(
@@ -834,6 +843,42 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 # ---------------------------------------------------------------------------
 # Synapse E2EE fixtures
 # ---------------------------------------------------------------------------
+
+
+def login_synapse_device(
+    env: SynapseEnvironment, user_id: str, password: str
+) -> dict[str, Any]:
+    """Create a distinct server device for a test-owned crypto store."""
+    return _make_request(
+        f"{env.base_url}/_matrix/client/v3/login",
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "type": "m.login.password",
+                "identifier": {"type": "m.id.user", "user": user_id},
+                "password": password,
+            }
+        ).encode(),
+    )
+
+
+@pytest.fixture
+def isolated_synapse_env(synapse_env: SynapseEnvironment) -> SynapseEnvironment:
+    """Reuse the server and accounts with independent per-test device keys.
+
+    Fresh stores must never replace keys uploaded by another test for the same
+    device. A shallow copy preserves the shared room/server infrastructure.
+    The session-scoped container teardown removes these ephemeral devices.
+    """
+    from copy import copy
+
+    env = copy(synapse_env)
+    bot = login_synapse_device(env, env.bot_user_id, env.bot_password)
+    user = login_synapse_device(env, env.test_user_id, env.test_password)
+    env.bot_access_token, env.bot_device_id = bot["access_token"], bot["device_id"]
+    env.test_access_token, env.test_device_id = user["access_token"], user["device_id"]
+    return env
 
 
 def close_nio_store(client: Any) -> None:
@@ -1060,21 +1105,21 @@ def _make_request(
         raise RuntimeError(f"HTTP {exc.code} for {method} {url}: {body}") from exc
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def synapse_e2ee_env(
-    synapse_env: SynapseEnvironment,
+    isolated_synapse_env: SynapseEnvironment,
 ) -> Generator[E2EETestEnvironment, None, None]:
     """Create an encrypted room for E2EE smoke tests.
 
-    Requires ``synapse_env`` (session-scoped), so this fixture is also
-    session-scoped.  Creates a new room, joins both users, and enables
-    encryption via ``m.room.encryption`` state event.
+    Share the session's server but isolate device credentials, room, and crypto
+    stores per test. Enable encryption via ``m.room.encryption`` state.
 
     Teardown is handled by ``synapse_env`` — this fixture only creates
     the encrypted room and store directories.
     """
     import tempfile
 
+    synapse_env = isolated_synapse_env
     base_url = synapse_env.base_url
     bot_token = synapse_env.bot_access_token
     test_token = synapse_env.test_access_token
@@ -1087,7 +1132,6 @@ def synapse_e2ee_env(
     # 1. Bot creates a new room for E2EE testing.
     room_payload = json.dumps(
         {
-            "room_alias_name": "medre-ci-e2ee",
             "name": "MEDRE CI E2EE Test Room",
             "preset": "public_chat",
         }

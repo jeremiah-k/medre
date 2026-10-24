@@ -293,9 +293,7 @@ class TestP03MatrixSyncTokenOwnership:
                 assert kwargs == {
                     "encryption_enabled": True,
                     "max_timeouts": 0,
-                    "backfill_limited_timelines": False,
                     "store_sync_tokens": True,
-                    "backfill_persist_recovery": False,
                 }
             finally:
                 await session.stop()
