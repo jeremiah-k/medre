@@ -126,6 +126,68 @@ def test_installer_rejects_moving_refs() -> None:
         matrix.requirements([_entry()])
 
 
+@pytest.mark.parametrize("floor", [None, "3.12", ">=3.12.1", ">=3.12,<3.14", 312])
+def test_invalid_python_floors_fail_before_pinned_ref_shortcut(tmp_path, floor):
+    """CI floors describe minor lanes, rather than arbitrary package specifiers."""
+    with pytest.raises(ValueError, match="python_requires"):
+        matrix.resolve_adapters(
+            _manifest(tmp_path, [_entry(ref="a" * 40, python_requires=floor)]),
+            resolve=False,
+        )
+
+
+def test_python_selection_preserves_unrestricted_providers_and_exact_sources():
+    """Filtering a lane retains the same pins used by unfiltered jobs."""
+    entries = [
+        _entry(ref="a" * 40),
+        _entry(ref="b" * 40, python_requires=">=3.12"),
+    ]
+    assert matrix.requirements(entries, python="3.11") == matrix.requirements(
+        entries[:1]
+    )
+    assert matrix.requirements(entries, python="3.12") == matrix.requirements(entries)
+    assert matrix.requirements(entries[1:], python="3.11") == ""
+    assert matrix.supports_python(_entry(python_requires=">=3.9"), "3.11")
+
+
+def test_plan_emits_only_supported_contract_pairs(tmp_path):
+    """The generated job matrix and installer agree on provider compatibility."""
+    import subprocess
+    import sys
+
+    entries = [
+        _entry(ref="a" * 40),
+        _entry(transport="new_runtime", ref="b" * 40, python_requires=">=3.12"),
+    ]
+    output = tmp_path / "github-output"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPT),
+            "--manifest",
+            str(_manifest(tmp_path, entries)),
+            "--github-output",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    plan = json.loads(result.stdout)
+    jobs = plan["contract_matrix"]["include"]
+    assert len(jobs) == 7
+    assert {job["python-version"] for job in jobs} == set(matrix.PYTHON_VERSIONS)
+    for python in matrix.PYTHON_VERSIONS:
+        providers = [job["provider"] for job in jobs if job["python-version"] == python]
+        assert matrix.requirements(providers) == matrix.requirements(
+            entries, python=python
+        )
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert json.loads(outputs["contract_matrix"]) == plan["contract_matrix"]
+    assert plan["compatibility_matrix"] == {"python-version": ["3.12", "3.13", "3.14"]}
+    assert json.loads(outputs["compatibility_matrix"]) == plan["compatibility_matrix"]
+
+
 @pytest.mark.parametrize("status", ["ahead", "identical", "behind", "diverged"])
 def test_merge_gate_distinguishes_landed_pins_from_candidate_branches(
     monkeypatch, status

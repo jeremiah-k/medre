@@ -86,6 +86,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       adapters: ${{ steps.plan.outputs.adapters }}
+      contract_matrix: ${{ steps.plan.outputs.contract_matrix }}
+      compatibility_matrix: ${{ steps.plan.outputs.compatibility_matrix }}
       local_adapters: ${{ steps.plan.outputs.local_adapters }}
       has_local: ${{ steps.plan.outputs.has_local }}
     steps:
@@ -101,22 +103,23 @@ jobs:
         run: uv run --no-project --python 3.13 python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
 
   core:
-    name: Core without adapters (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.shards }})
+    name: Core without adapters (${{ matrix.os }}, py${{ matrix.python-version }}, ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, shard: 0, shards: 1 }
-          - { os: macos-latest, shard: 0, shards: 1 }
-          - { os: windows-latest, shard: 0, shards: 8 }
-          - { os: windows-latest, shard: 1, shards: 8 }
-          - { os: windows-latest, shard: 2, shards: 8 }
-          - { os: windows-latest, shard: 3, shards: 8 }
-          - { os: windows-latest, shard: 4, shards: 8 }
-          - { os: windows-latest, shard: 5, shards: 8 }
-          - { os: windows-latest, shard: 6, shards: 8 }
-          - { os: windows-latest, shard: 7, shards: 8 }
+          - { os: ubuntu-latest, python-version: "3.11", shard: 0, shards: 1 }
+          - { os: ubuntu-latest, python-version: "3.13", shard: 0, shards: 1 }
+          - { os: macos-latest, python-version: "3.13", shard: 0, shards: 1 }
+          - { os: windows-latest, python-version: "3.13", shard: 0, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 1, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 2, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 3, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 4, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 5, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 6, shards: 8 }
+          - { os: windows-latest, python-version: "3.13", shard: 7, shards: 8 }
     defaults:
       run:
         shell: bash
@@ -128,7 +131,7 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version-file: .tool-versions
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --extra dev
@@ -148,8 +151,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+      matrix: ${{ fromJSON(needs.adapter-plan.outputs.compatibility_matrix) }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -228,9 +230,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-        provider: ${{ fromJSON(needs.adapter-plan.outputs.adapters).include }}
+      matrix: ${{ fromJSON(needs.adapter-plan.outputs.contract_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

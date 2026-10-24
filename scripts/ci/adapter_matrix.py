@@ -21,6 +21,22 @@ from urllib.parse import quote
 
 _MANIFEST = Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
 _SHA = re.compile(r"[0-9a-f]{40}")
+PYTHON_VERSIONS = ("3.11", "3.12", "3.13", "3.14")
+
+
+def supports_python(entry: dict[str, Any], python: str) -> bool:
+    """Match a CI minor-version lane against an optional minimum Python minor.
+
+    Floors deliberately use only ``>=3.N``: CI selects the latest patch in
+    each minor lane, so patch-level requirements are not represented here.
+    Package metadata remains authoritative during installation.
+    """
+    if not re.fullmatch(r"3\.(0|[1-9][0-9]*)", python):
+        raise ValueError("Python lane must be a minor version such as 3.12")
+    floor = entry.get("python_requires", ">=3.0")
+    if not isinstance(floor, str) or not re.fullmatch(r">=3\.(0|[1-9][0-9]*)", floor):
+        raise ValueError("python_requires must be a minimum minor such as >=3.12")
+    return int(python.split(".")[1]) >= int(floor.split(".")[1])
 
 
 def resolve_adapters(path: Path, *, resolve: bool) -> list[dict[str, Any]]:
@@ -59,6 +75,7 @@ def resolve_adapters(path: Path, *, resolve: bool) -> list[dict[str, Any]]:
         ):
             raise ValueError("extras must be a single package extra")
         distribution = entry.get("distribution")
+        supports_python(entry, PYTHON_VERSIONS[0])
         if distribution is not None and (
             not isinstance(distribution, str)
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", distribution)
@@ -197,10 +214,12 @@ def write_manifest_atomic(path: Path, entries: list[dict[str, Any]]) -> None:
             Path(temp_name).unlink(missing_ok=True)
 
 
-def requirements(entries: list[dict[str, Any]]) -> str:
+def requirements(entries: list[dict[str, Any]], *, python: str | None = None) -> str:
     """Produce ordinary commit-pinned pip requirements from a CI snapshot."""
     lines = []
     for entry in entries:
+        if python is not None and not supports_python(entry, python):
+            continue
         if not re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*",
             entry["repository"],
@@ -211,7 +230,7 @@ def requirements(entries: list[dict[str, Any]]) -> str:
         # The repository is an installable Python project; egg-name assumptions
         # and distribution naming conventions are unnecessary.
         lines.append(f"git+https://github.com/{entry['repository']}.git@{entry['ref']}")
-    return "\n".join(lines) + "\n"
+    return "".join(line + "\n" for line in lines)
 
 
 def check_merged(entries: list[dict[str, Any]]) -> None:
@@ -325,6 +344,21 @@ def main() -> None:
         return
     outputs = {
         "adapters": {"include": entries},
+        "contract_matrix": {
+            "include": [
+                {"python-version": python, "provider": entry}
+                for python in PYTHON_VERSIONS
+                for entry in entries
+                if supports_python(entry, python)
+            ]
+        },
+        "compatibility_matrix": {
+            "python-version": [
+                python
+                for python in PYTHON_VERSIONS
+                if all(supports_python(entry, python) for entry in entries)
+            ]
+        },
         "by_transport": {entry["transport"]: entry for entry in entries},
         "has_local": any(entry["local_integration"] for entry in entries),
         "local_adapters": {"include": [e for e in entries if e["local_integration"]]},

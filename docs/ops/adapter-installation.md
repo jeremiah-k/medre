@@ -26,11 +26,14 @@ name belongs in dependencies; the source belongs in `tool.uv.sources`.
 A bridge using MEDRE, Matrix, and MeshCore directly from Git can use
 (replace example commits with real **full commit SHAs**):
 
+Matrix requires Python 3.12+ for its durable sync backend. Core and providers
+whose package metadata permits it can run on Python 3.11.
+
 ```toml
 [project]
 name = "my-medre-bridge"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "medre",
   "medre-adapter-matrix[e2e]",
@@ -194,9 +197,10 @@ package indexes, local workspaces, and community distribution conventions.
 MEDRE core has no transport SDK extras. Install adapter distributions from
 PyPI, Git revisions, or local paths in a deployment project, then lock the
 complete environment with uv. The adapter package's own dependencies bring
-in its SDK. Install `medre-adapter-matrix[e2e]` when enabling Matrix encryption.
+in its SDK. Matrix includes its crypto backend; `medre-adapter-matrix[e2e]`
+remains a compatible install spelling. Configure encryption policy separately.
 
-For development, install all five repos as editable packages with a local
+For development, install provider repos as editable packages with a local
 `pyproject.toml` deployment manifest or run `uv pip install -e` for each after
 `uv sync` of MEDRE's core `dev` dependencies. SDK-free fakes belong to the
 corresponding adapter distribution and are not a feature of a core-only install.
