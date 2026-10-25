@@ -185,6 +185,7 @@ async def matrix(settings: dict) -> None:
 
 
 async def xmpp(settings: dict) -> None:
+    """Own an independent Slixmpp witness for native text, IDs and relay claims."""
     import slixmpp
 
     peer = settings["peer"]
@@ -216,6 +217,7 @@ async def xmpp(settings: dict) -> None:
                 ready.set_exception(exc)
 
     def message(stanza):
+        """Record native stanza facts without using the production adapter decoder."""
         if str(stanza["type"]) == "groupchat" and str(stanza["from"].bare) == room:
             if settings.get("observe_typing") is True:
                 for child in stanza.xml:
