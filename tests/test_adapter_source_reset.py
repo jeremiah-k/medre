@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -196,13 +197,20 @@ def test_failed_reset_reports_recovery_without_retrying(
                 *(["--include-core"] if include_core else []),
             ]
         )
-    assert caught.value.code == 17
-    assert len(calls) == 1
     output = capsys.readouterr()
     assert "complete." not in output.out
-    assert ("retired core ref" in output.err) is not include_core
-    if not include_core:
-        assert "medre adapters reset matrix --include-core" in output.err
+    if sys.platform == "win32":
+        # The running executable must not invoke uv on Windows. Another test
+        # covers the printed handoff; no subprocess failure can occur here.
+        assert caught.value.code == 2
+        assert not calls
+        assert "No packages changed" in output.err
+    else:
+        assert caught.value.code == 17
+        assert len(calls) == 1
+        assert ("retired core ref" in output.err) is not include_core
+        if not include_core:
+            assert "medre adapters reset matrix --include-core" in output.err
 
 
 @pytest.mark.parametrize("action", ["install", "remove", "upgrade", "sources", "check"])
