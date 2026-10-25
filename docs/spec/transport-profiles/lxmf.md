@@ -86,7 +86,7 @@ No reply or reaction event kinds are produced (capabilities declare both `"unsup
 The LXMF renderer (`LxmfRenderer`) produces:
 
 - **Plain text with optional title** — `content` (body) and `title` extracted from the canonical event payload.
-- **MEDRE metadata envelope** — when `metadata_embedding=True`, a provenance envelope is embedded in the LXMF `fields` dict under key `0xFD` (`FIELD_MEDRE_ENVELOPE`). The envelope contains: `schema_version`, `event_id`, `source_adapter`, `source_transport_id`, `source_channel_id`, `lineage`, `relations`, and `metadata_keys`. No secrets or private keys are ever embedded.
+- **MEDRE metadata envelope** — when `metadata_embedding=True`, a provenance envelope is embedded in the LXMF `fields` dict under key `0xFD` (`FIELD_MEDRE_ENVELOPE`). The envelope contains: `schema_version`, `event_id`, `source_adapter`, `source_transport_id`, `source_channel_id`, `lineage`, `relations`, and `metadata_keys`. Adapters MAY add the bounded shared `bridge_context` described in [relay attribution](../relay-attribution.md#structured-relay-context). No secrets or private keys are ever embedded.
 - **fallback_text envelope semantics** — under `delivery_strategy="fallback_text"`, the envelope's `relations` field is always an empty list (`[]`). Relations are represented **exclusively** as inline text in the content field (via `_degrade_relations_inline`). This prevents duplicate representation of relation data as both structured envelope fields and inline text, maintaining strict fallback semantics where the degraded text is the sole relation carrier.
 - **Destination hash** — empty string placeholder in current release scope; populated by the routing layer before delivery.
 
@@ -117,9 +117,10 @@ Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
 list of supported template variables.
 
 **Default:** `""` (no prefix). LXMF sender identity is a hex Reticulum
-identity hash — templates referencing `{sender}` or `{sender_short}` resolve
-to empty strings for LXMF-origin events. Operators SHOULD prefer
-`{origin_label}` or `{sender_id}` for LXMF-bound prefixes.
+identity hash. Templates referencing `{sender}` or `{sender_short}` use the
+announce-derived display name when present and otherwise resolve to empty
+strings. Operators MAY use `{origin_label}` or `{sender_id}` when a sender
+has no display name.
 
 **Order of operations:** The MEDRE metadata envelope is embedded in the
 LXMF `fields` dict first; the relay prefix is then prepended to the
@@ -140,8 +141,9 @@ character budget.
 
 **Attribution caveat:** The prefix is human-readable attribution only. It
 does not constitute delivery evidence. The MEDRE metadata namespace
-(embedded in the LXMF `fields` envelope) remains the authoritative source
-for machine-readable provenance. Local LXMRouter acceptance does not
+(embedded in the LXMF `fields` envelope) carries machine-readable relay
+claims. Received claims MUST NOT override native identity or local relation
+binding authority. Local LXMRouter acceptance does not
 confirm remote delivery.
 
 ---
