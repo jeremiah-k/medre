@@ -168,6 +168,11 @@ async def run(plan: Plan, directory: Path, *, suite: str = "smoke") -> dict:
         "expected_pairs": plan.pairs,
         "completed_pairs": [],
         "cases": [],
+        "bridge_context_expectations": {
+            name: endpoint["transport"] == "matrix"
+            or endpoint.get("expect_bridge_context", False)
+            for name, endpoint in plan.endpoints.items()
+        },
         # Retain fixture-derived expectations separately from the delivery rows
         # under audit. Never infer trusted destinations from the outbox itself.
         "native_expectations": {
@@ -320,7 +325,7 @@ async def run(plan: Plan, directory: Path, *, suite: str = "smoke") -> dict:
                     message=text,
                     max_text_bytes=budget,
                 )
-                if suite == SUITE and endpoint["transport"] == "matrix":
+                if suite == SUITE and report["bridge_context_expectations"][target]:
                     verify_bridge_context(
                         receipts[target],
                         item["event"],

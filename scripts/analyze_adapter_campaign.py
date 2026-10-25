@@ -70,6 +70,12 @@ def summarize(report: dict) -> dict:
     ) != len(event_ids):
         findings.append("Source cases reuse or omit canonical event identities.")
     topology = report["native_expectations"]
+    context_expectations = report.get("bridge_context_expectations", {})
+    if not isinstance(context_expectations, dict) or any(
+        target not in endpoints or type(required) is not bool
+        for target, required in context_expectations.items()
+    ):
+        raise ValueError("Invalid native bridge context expectations")
     if set(topology) != endpoints or any(
         not isinstance(identity, dict)
         or any(
@@ -164,7 +170,9 @@ def summarize(report: dict) -> dict:
                             max_text_bytes=contract["max_text_bytes"],
                         )
                         assert source in contract["prefixes"]
-                        if expectation["transport"] == "matrix":
+                        if expectation[
+                            "transport"
+                        ] == "matrix" or context_expectations.get(target, False):
                             verify_bridge_context(
                                 receipt,
                                 case["core"]["event"],
