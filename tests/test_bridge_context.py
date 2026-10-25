@@ -16,6 +16,7 @@ from medre.core.rendering.bridge_context import (
 
 
 def event() -> CanonicalEvent:
+    """Build a reply with exact source and target references plus private metadata."""
     return CanonicalEvent(
         event_id="canonical-original",
         event_kind="message.created",
@@ -52,6 +53,7 @@ def event() -> CanonicalEvent:
 
 @pytest.mark.parametrize("raw", [None, "", "Peer"])
 def test_context_preserves_raw_names_and_exact_source(raw):
+    """Keep raw sender claims and scoped IDs while excluding private event metadata."""
     source = event()
     context = build_bridge_context(
         source,
@@ -81,6 +83,7 @@ def test_context_preserves_raw_names_and_exact_source(raw):
 
 
 def test_text_fallback_omits_relation_hints_without_mutating_event():
+    """Suppress structured reply hints without changing the canonical source relation."""
     source = event()
     context = build_bridge_context(source, include_relations=False)
     assert context is not None
@@ -99,6 +102,7 @@ def test_text_fallback_omits_relation_hints_without_mutating_event():
     ],
 )
 def test_malformed_context_is_ignored(field, value):
+    """Discard unsupported versions and invalid context containers instead of trusting them."""
     context = build_bridge_context(event())
     context[field] = value
     assert normalize_bridge_context(context) is None
@@ -118,6 +122,7 @@ def test_malformed_context_is_ignored(field, value):
 )
 @pytest.mark.parametrize("location", ["source", "relation"])
 def test_malformed_native_reference_is_rejected(ref, location):
+    """Reject malformed or unscoped references in both source and relation-target hints."""
     context = build_bridge_context(event())
     assert context is not None
     if location == "source":
@@ -129,6 +134,7 @@ def test_malformed_native_reference_is_rejected(ref, location):
 
 @pytest.mark.parametrize("length,valid", [(1024, True), (1025, False)])
 def test_source_claim_bounds(length, valid):
+    """Accept the maximum name length and omit context when a claim exceeds it."""
     context = build_bridge_context(
         event(), RelayAttribution(source_sender_label="x" * length)
     )
@@ -136,6 +142,7 @@ def test_source_claim_bounds(length, valid):
 
 
 def test_normalization_discards_unknown_data_and_copies_nested_claims():
+    """Strip unknown claims and detach nested references from the caller’s input."""
     context = build_bridge_context(event())
     context["source"]["password"] = "PRIVATE_SENTINEL"
     context["relations"][0]["target_fact"] = {"authorization": "owned"}
@@ -148,6 +155,7 @@ def test_normalization_discards_unknown_data_and_copies_nested_claims():
 
 
 def test_normalization_drops_unknown_native_ref_fields_on_both_paths():
+    """Drop private source and target reference fields without mutating either input."""
     context = build_bridge_context(event())
     assert context is not None
     source_ref = context["source"]["native_ref"]
