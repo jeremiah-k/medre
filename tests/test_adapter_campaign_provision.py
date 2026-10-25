@@ -9,6 +9,14 @@ from scripts.adapter_campaign.lab import provision
 from scripts.adapter_campaign.lab.sources import write_json
 
 
+async def test_matrix_provisioning_refuses_a_device_without_its_existing_store(
+    tmp_path,
+):
+    """Do not reuse OAuth credentials while allowing a fresh crypto account."""
+    with pytest.raises(ValueError, match="OAuth and its crypto store"):
+        await provision.matrix(tmp_path, {})
+
+
 @pytest.fixture
 def ready_fixtures(tmp_path):
     (tmp_path / "config").mkdir()

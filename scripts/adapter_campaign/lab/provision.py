@@ -20,6 +20,21 @@ from .sources import write_json
 
 
 async def matrix(root: Path, accounts: dict) -> tuple[dict, dict]:
+    """Provision a room while retaining the CLI device's existing crypto store."""
+    from medre.config.paths import resolve
+
+    profile = root / "profiles/medre"
+    paths = resolve(
+        environ={
+            "XDG_CONFIG_HOME": str(profile / "config"),
+            "XDG_STATE_HOME": str(profile / "state"),
+            "XDG_DATA_HOME": str(profile / "data"),
+        }
+    )
+    store = paths.adapter_transport_state_dir("matrix", "matrix") / "store"
+    if not store.is_dir():
+        raise ValueError("Qualify MEDRE OAuth and its crypto store before provisioning")
+
     import aiohttp
 
     server = accounts["homeserver"]
@@ -98,6 +113,9 @@ async def matrix(root: Path, accounts: dict) -> tuple[dict, dict]:
             "access_token": "",
             "room_allowlist": [room],
             "encryption_mode": "plaintext",
+            # Core evidence is isolated per run, but crypto belongs to the
+            # OAuth device across every baseline, fidelity and recovery run.
+            "store_path": str(store),
         },
         {
             "transport": "matrix",
