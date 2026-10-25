@@ -104,6 +104,29 @@ def test_malformed_context_is_ignored(field, value):
     assert normalize_bridge_context(context) is None
 
 
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "not-a-dict",
+        {"adapter": "", "native_message_id": "m"},
+        {"adapter": "a", "native_message_id": ""},
+        {"adapter": 42, "native_message_id": "m"},
+        {"adapter": "a", "native_message_id": "m", "native_thread_id": 1},
+        {"adapter": "a", "native_message_id": "m" * 1025},
+        {"adapter": "a", "native_message_id": "m", "native_channel_id": "c" * 1025},
+    ],
+)
+@pytest.mark.parametrize("location", ["source", "relation"])
+def test_malformed_native_reference_is_rejected(ref, location):
+    context = build_bridge_context(event())
+    assert context is not None
+    if location == "source":
+        context["source"]["native_ref"] = ref
+    else:
+        context["relations"][0]["target_native_ref"] = ref
+    assert normalize_bridge_context(context) is None
+
+
 @pytest.mark.parametrize("length,valid", [(1024, True), (1025, False)])
 def test_source_claim_bounds(length, valid):
     context = build_bridge_context(
@@ -122,3 +145,18 @@ def test_normalization_discards_unknown_data_and_copies_nested_claims():
     assert "target_fact" not in json.dumps(normalized)
     normalized["source"]["native_ref"]["native_message_id"] = "changed"
     assert context["source"]["native_ref"]["native_message_id"] == "native-original"
+
+
+def test_normalization_drops_unknown_native_ref_fields_on_both_paths():
+    context = build_bridge_context(event())
+    assert context is not None
+    source_ref = context["source"]["native_ref"]
+    target_ref = context["relations"][0]["target_native_ref"]
+    source_ref["private_key"] = "PRIVATE_SENTINEL"
+    target_ref["access_token"] = "PRIVATE_SENTINEL"
+
+    normalized = normalize_bridge_context(context)
+    assert normalized is not None
+    assert "PRIVATE_SENTINEL" not in json.dumps(normalized)
+    assert source_ref["private_key"] == "PRIVATE_SENTINEL"
+    assert target_ref["access_token"] == "PRIVATE_SENTINEL"
