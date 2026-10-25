@@ -975,3 +975,45 @@ def test_future_matrix_schema_is_detected_without_projecting_unknown_fields() ->
     assert fields["source_platform"] == "matrix"
     assert fields["source_sender_id"] is None
     assert fields["source_sender_label"] is None
+
+
+@pytest.mark.parametrize(
+    "label,raw,expected",
+    [("Node (unverified)", "Node", "Node"), ("Alice", None, "Alice"), ("Node", "", "")],
+)
+def test_raw_sender_template_preserves_claim_and_explicit_empty(label, raw, expected):
+    """Presentation can omit annotations without changing verification evidence."""
+    attr = RelayAttribution(
+        source_sender_label=label,
+        source_sender_label_raw=raw,
+        source_sender_verification="unverified",
+    )
+    result = format_relay_prefix("{sender_raw}|{sender}|{sender_verification}", attr)
+    assert result.rendered_prefix == f"{expected}|{label}|unverified"
+    assert not result.unknown_variables
+
+
+def test_raw_short_sender_and_unknown_verification_defaults():
+    """Providers without raw-name/trust fields retain useful prefix defaults."""
+    attr = RelayAttribution(source_sender_short_label="Alice")
+    result = format_relay_prefix("{sender_short_raw}:{sender_verification}", attr)
+    assert result.rendered_prefix == "Alice:unknown"
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("Jeremiah", "Jerem"),
+        ("Élodie", "Élodi"),
+        ("雪山ラジオ局", "雪山ラジオ"),
+        ("", ""),
+    ],
+)
+def test_compact_sender_uses_five_unicode_codepoints(name, expected):
+    """Radio prefixes abbreviate raw display names without cutting UTF-8 bytes."""
+    attr = RelayAttribution(
+        source_sender_label="decorated", source_sender_label_raw=name
+    )
+    result = format_relay_prefix("{sender_compact}", attr)
+    assert result.rendered_prefix == expected
+    assert not result.unknown_variables
