@@ -24,14 +24,15 @@ _RESILIENCE_DEFAULTS: dict[str, int | float] = {
     "queue_max_size": 1024,
     "queue_warning_threshold_pct": 75.0,
     "queue_critical_threshold_pct": 90.0,
-    "reconnect_backoff_initial_seconds": 1.0,
-    "reconnect_backoff_max_seconds": 30.0,
+    "reconnect_backoff_initial_seconds": 10.0,
+    "reconnect_backoff_max_seconds": 300.0,
     "tcp_liveness_interval_seconds": 60.0,
     "tcp_liveness_timeout_seconds": 30.0,
 }
 
 
 def test_resilience_defaults_match_schema_example_and_sample() -> None:
+    """Keep operator schemas and examples aligned with the adopted provider defaults."""
     root = Path(__file__).resolve().parents[1]
     config = _config().validate()
     schema = json.loads(
@@ -58,12 +59,13 @@ def test_resilience_defaults_match_schema_example_and_sample() -> None:
 
 
 def test_resilience_defaults_are_safe_and_bounded() -> None:
+    """Default outage recovery starts at ten seconds and caps at five minutes."""
     config = _config().validate()
     assert config.queue_max_size == 1024
     assert config.queue_warning_threshold_pct == 75.0
     assert config.queue_critical_threshold_pct == 90.0
-    assert config.reconnect_backoff_initial_seconds == 1.0
-    assert config.reconnect_backoff_max_seconds == 30.0
+    assert config.reconnect_backoff_initial_seconds == 10.0
+    assert config.reconnect_backoff_max_seconds == 300.0
     assert config.tcp_liveness_interval_seconds == 60.0
     assert config.tcp_liveness_timeout_seconds == 30.0
 

@@ -220,13 +220,13 @@
         },
         "reconnect_backoff_initial_seconds": {
           "type": "number",
-          "default": 1.0,
+          "default": 10.0,
           "exclusiveMinimum": 0,
           "description": "Initial MEDRE session-level reconnect delay after a started adapter loses transport."
         },
         "reconnect_backoff_max_seconds": {
           "type": "number",
-          "default": 30.0,
+          "default": 300.0,
           "exclusiveMinimum": 0,
           "description": "Maximum MEDRE session-level reconnect delay. Typed validation requires this to be at least the initial delay."
         },
