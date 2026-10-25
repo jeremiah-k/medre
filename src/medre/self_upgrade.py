@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 from medre.tool_management import (
+    DEFAULT_CORE_SOURCE,
     DEFAULT_SOURCES,
     _REQUIREMENT,
     _SELECTION,
@@ -197,12 +198,16 @@ def plan_upgrade(
 
 
 def plan_adapter_reset(
-    installation: ToolInstallation, *, selections: tuple[str, ...] = ()
+    installation: ToolInstallation,
+    *,
+    selections: tuple[str, ...] = (),
+    include_core: bool = False,
 ) -> UpgradePlan:
     """Return installed first-party providers to defaults without consulting overrides.
 
     Reset is an explicit source change: it removes the candidate-only integration
-    extra but retains ordinary features, core, and other requested packages.
+    extra but retains ordinary features and other requested packages. Core
+    keeps its recorded source unless include_core explicitly selects main.
     Community providers have no host-owned default and are never guessed.
     """
     requirements = installation.requirements()
@@ -223,7 +228,7 @@ def plan_adapter_reset(
             raise ToolManagementError(
                 f"No first-party default source for {name}; use 'medre adapters install' with an explicit source catalog."
             )
-    if not names:
+    if not names and not include_core:
         return UpgradePlan((), (), ("No installed first-party adapters to reset.",))
     desired = {package_name(raw): raw for raw in requirements}
     for name in names:
@@ -241,14 +246,22 @@ def plan_adapter_reset(
             + ("[" + ",".join(extras) + "]" if extras else "")
             + source[default.end() :]
         )
+    if include_core:
+        desired["medre"] = _retain_extras(DEFAULT_CORE_SOURCE, desired["medre"])
+    packages = (["medre"] if include_core else []) + names
     command = installation.install_request(list(desired.values()))
-    for name in names:
+    for name in packages:
         command.extend(["--upgrade-package", name])
     notes = [
         "Restore selected first-party adapter sources to main; remove the integration extra and retain other extras.",
-        "Retain core and unrelated requirements; uv may re-resolve shared dependencies and other moving sources.",
+        (
+            "Restore core to main and retain its extras and unrelated requirements."
+            if include_core
+            else "Retain core and unrelated requirements."
+        ),
+        "uv may re-resolve shared dependencies and other moving sources.",
         "Source catalog overrides remain saved; --sync-sources can apply them again.",
     ]
     if providers.keys() - defaults.keys() and not selections:
         notes.append("Community adapter sources remain unchanged.")
-    return UpgradePlan(tuple(command), tuple(names), tuple(notes))
+    return UpgradePlan(tuple(command), tuple(packages), tuple(notes))

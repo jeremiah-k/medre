@@ -126,6 +126,19 @@ Community providers have no host-owned default: select their source explicitly
 with `install`. uv may re-resolve shared dependencies and other moving sources
 when rebuilding the complete tool request.
 
+If uv cannot fetch a deleted core branch, adapter reset still retains that
+saved core requirement. Explicitly restore core to main as well:
+
+```bash
+medre adapters reset --include-core --dry-run
+medre adapters reset --include-core
+```
+
+This preserves core extras, unrelated package requests, and saved catalogs.
+Omit `--include-core` to retain a deliberate core pin. On older installations
+without this option, use `medre upgrade --sync-sources --sources PATH` with a
+catalog whose `core` requirement explicitly names main; inspect its dry-run first.
+
 Saved source catalogs remain available for later experiments. An explicit
 `--sync-sources` can apply their overrides again; ordinary `medre update` follows
 the newly recorded main sources. Package source changes do not restore older

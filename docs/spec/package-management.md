@@ -15,8 +15,9 @@ the operator runs the command after the MEDRE executable exits to release its
 Windows file lock. A dry-run preview MUST exit successfully on every platform.
 `--dry-run` MUST perform no package or configuration writes.
 
-Adapter changes MUST preserve the core requirement and every unrelated explicit
-requirement from uv's receipt, including supported extras, markers, source refs,
+Adapter changes MUST preserve the core requirement unless the operator explicitly
+selects `adapters reset --include-core` (see below). They MUST preserve every
+unrelated explicit requirement from uv's receipt, including supported extras, markers, source refs,
 and version constraints. Unsupported receipt settings MUST cause refusal before
 installation rather than silent loss. A URL source with an existing fragment and
 a separately recorded subdirectory MUST be refused; two fragments can change
@@ -62,3 +63,21 @@ NOT be installed implicitly and removed aliases MUST NOT uninstall packages.
 Removal by explicit installed distribution name MUST remain possible when its
 alias is absent. No runtime YAML changes or automatic service restart are implied
 by package updates.
+
+## Explicit source reset
+
+`adapters reset [SELECTION ...]` MUST restore only selected installed first-party
+adapters to built-in main sources. Without selections it MUST select all installed
+first-party adapters. It MUST remove only the `integration` extra and preserve
+other selected-adapter extras. Saved catalogs MUST remain unchanged; reset MUST
+NOT consult them. Unknown and community selections MUST fail before execution.
+
+`--include-core` MUST be accepted only with `adapters reset`. It MUST explicitly
+replace the saved core requirement with MEDRE's built-in main source, preserving
+core extras and unrelated requests. This opt-in MUST work without installed
+first-party adapters. Without it, reset MUST preserve the recorded core source,
+including a retired branch; a failed reset MUST report the explicit recovery
+command without retrying or rewriting uv's request. Both forms MUST retain uv's
+failure exit status (negative subprocess statuses map to 1), dry-run behavior,
+and Windows executable handoff. Neither form guarantees that unselected mutable
+sources remain at their previously resolved commits.
