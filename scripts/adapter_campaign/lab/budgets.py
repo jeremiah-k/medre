@@ -6,6 +6,7 @@ MARGIN_SECONDS = 300
 NATIVE_STAGES = (
     "oauth",
     "provision",
+    "hardware",
     "campaign",
     "resilience",
     "fidelity",

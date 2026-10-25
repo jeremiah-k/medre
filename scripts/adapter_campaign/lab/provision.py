@@ -471,10 +471,13 @@ async def campaign(root: Path) -> None:
 
     provisions = json.loads((root / "results/provision.json").read_text())
     hardware = json.loads((root / "hardware.json").read_text())
-    health = json.loads((root / "results/hardware.json").read_text())
+    health_file = root / "results/hardware.json"
+    health = json.loads(health_file.read_text()) if health_file.exists() else {}
     # Device identities and names come from the independent provisioning read,
     # never from the outbox or bodies under examination.
     for name in ("meshtastic", "meshcore"):
+        if name == "meshcore" and (root / "results/meshcore-paused.json").exists():
+            continue
         pair = health.get(name, {})
         if not pair or any(
             pair.get(role, {}).get("status") != "available"

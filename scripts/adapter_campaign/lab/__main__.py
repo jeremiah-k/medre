@@ -37,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Record tracked worktree edits in source evidence",
     )
     parser.add_argument(
+        "--meshcore-repaired",
+        action="store_true",
+        help="Acknowledge operator re-pairing and permit one fresh MeshCore hardware probe",
+    )
+    parser.add_argument(
         "--stage",
         default="all",
         choices=[
@@ -50,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         ],
     )
     args = parser.parse_args(argv)
+    if args.meshcore_repaired and (args.action != "test" or args.stage != "hardware"):
+        parser.error("--meshcore-repaired requires test --stage hardware")
     os.umask(0o077)
     from .control import operate
 

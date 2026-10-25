@@ -230,7 +230,10 @@ def main() -> int:
         else:
             from .scenarios import run
 
-            asyncio.run(run(stage))
+            repaired = sys.argv[2:] == ["--meshcore-repaired"]
+            if sys.argv[2:] and (not repaired or stage != "hardware"):
+                raise ValueError("Repair acknowledgement requires the hardware stage")
+            asyncio.run(run(stage, meshcore_repaired=repaired))
         result["status"] = "passed"
         if stage in {"all", "native"}:
             result["status"] = json.loads(
