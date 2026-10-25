@@ -633,6 +633,7 @@ class TestPerAdapterErrorClassification:
         adapter._config.connection_type = "tcp"
 
         result = _make_rendering_result()
+        result.payload["text"] = "hello"
         with pytest.raises(AdapterPermanentError, match="Session not initialised"):
             await adapter.deliver(result)
 
@@ -652,6 +653,7 @@ class TestPerAdapterErrorClassification:
         adapter._session = mock_session
 
         result = _make_deferred_rendering_result()
+        result.payload["text"] = "hello"
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -796,6 +798,7 @@ class TestPerAdapterErrorClassification:
         adapter._session = mock_session
 
         result = _make_deferred_rendering_result()
+        result.payload["text"] = "hello"
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)

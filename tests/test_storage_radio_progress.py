@@ -6,6 +6,7 @@ import asyncio
 import json
 from contextlib import closing
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -336,3 +337,61 @@ async def test_missing_part_fields_are_not_reconstructed_from_defaults(storage, 
     storage._db.commit()
     with pytest.raises(StorageError, match="evidence is invalid"):
         await storage.recover_radio_attempt(provenance, "sender-1")
+
+
+async def test_queued_parent_cannot_authorize_another_native_radio_call(storage):
+    """A local-queue handoff releases the worker, so no further packet may start."""
+    item, provenance = await claim(storage)
+    bound = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    assert bound is not None
+    assert await storage.mark_outbox_queued(
+        item.outbox_id, attempt_number=1, expected_worker_id="sender-1"
+    )
+    queued = await storage.get_outbox_item(item.outbox_id)
+    assert queued.status == "queued" and queued.worker_id is None
+    assert await storage.begin_radio_part(bound, None, 1) is None
+    assert await storage.recover_radio_attempt(provenance, None) is None
+    assert await storage.get_radio_attempt_snapshot(item.outbox_id, 1) == (
+        bound.progress.to_data()
+    )
+
+
+async def test_expired_dispatch_lease_cannot_authorize_radio_submission(storage):
+    """An expired reservation may be inspected but must not grant a native send."""
+    item, provenance = await claim(storage)
+    bound = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    assert bound is not None
+    storage._db.execute(
+        "UPDATE delivery_outbox SET lease_until=? WHERE outbox_id=?",
+        ("2000-01-01T00:00:00+00:00", item.outbox_id),
+    )
+    storage._db.commit()
+    assert await storage.begin_radio_part(bound, "sender-1", 1) is None
+    assert await storage.recover_radio_attempt(provenance, "sender-1") is None
+    assert await storage.get_radio_attempt_snapshot(item.outbox_id, 1) == (
+        bound.progress.to_data()
+    )
+
+
+def test_radio_schema_has_no_duplicate_keys_and_retains_recovery_guidance():
+    """Strict JSON parsing must not silently discard inspection semantics."""
+
+    def reject_duplicates(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    schema = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "docs/schemas/radio-attempt-progress.schema.json"
+        ).read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicates,
+    )
+    description = schema["description"]
+    assert "Read-only inspection" in description
+    assert "restart recovery" in description
+    assert "exact plan reconstruction" in description
