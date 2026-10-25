@@ -256,6 +256,19 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
+CREATE TABLE IF NOT EXISTS radio_attempt_progress (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    plan_fingerprint TEXT NOT NULL CHECK (length(plan_fingerprint) = 64),
+    plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
+    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
 CREATE TABLE IF NOT EXISTS durable_ingress_work (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     provenance TEXT NOT NULL,
@@ -620,6 +633,19 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "value",
         }
     ),
+    "radio_attempt_progress": frozenset(
+        {
+            "outbox_id",
+            "attempt_number",
+            "plan_fingerprint",
+            "plan_json",
+            "provenance_json",
+            "parts_json",
+            "revision",
+            "created_at",
+            "updated_at",
+        }
+    ),
 }
 
 # Structural constraints that cannot be inferred from column presence alone.
@@ -629,6 +655,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # so column-presence validation alone is insufficient: an older pre-release
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
+    "radio_attempt_progress": frozenset({("outbox_id", "attempt_number")}),
     "delivery_outbox": frozenset(
         {
             (
@@ -643,6 +670,9 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 }
 
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
+    "radio_attempt_progress": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
     "conversation_membership": frozenset(
         {
             ("event_id", "canonical_events", "event_id"),
@@ -663,6 +693,21 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "radio_attempt_progress": (
+        ("CHECK (attempt_number >= 1)", r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)"),
+        ("CHECK (revision >= 0)", r"CHECK\s*\(\s*revision\s*>=\s*0\s*\)"),
+        (
+            "CHECK (length(plan_fingerprint) = 64)",
+            r"CHECK\s*\(\s*length\s*\(\s*plan_fingerprint\s*\)\s*=\s*64\s*\)",
+        ),
+        *tuple(
+            (
+                f"CHECK (json_valid({column}))",
+                rf"CHECK\s*\(\s*json_valid\s*\(\s*{column}\s*\)\s*\)",
+            )
+            for column in ("plan_json", "provenance_json", "parts_json")
+        ),
+    ),
     "delivery_receipts": (
         (
             "CHECK (attempt_number >= 1)",

@@ -51,6 +51,22 @@ commit each in-flight transition before calling the SDK, and commit each
 observation under compare-and-swap ownership.** No sending path may infer
 acceptance merely from a snapshot supplied by an untrusted caller.
 
+## Durable checkpoint boundary
+
+`StorageBackend` now provides atomic binding, submission, observation, recovery
+and read-only inspection for the pure progress model. The exact API, SQLite
+schema, ownership guards and prerelease database compatibility are specified in
+[storage.md §4.16](storage.md#416-radio_attempt_progress). Stored progress MUST
+use the existing core database; adapters MUST NOT create a second canonical
+outbox or fragment ledger. A new outbox row or generation MUST NOT bypass prior
+native handoff evidence for the same delivery identity.
+
+Inspection MUST leave retained submitting records unchanged. Explicit recovery
+MUST commit their transition to unknown before exposing them to a sender. A
+returned submitting checkpoint authorizes one local invocation under the
+current claim; it does not make a call atomic with SQLite. A crash after its
+commit but before invocation remains conservatively unknown after restart.
+
 ## Production integration boundary
 
 This planner does not enable splitting in production adapters. MeshCore and

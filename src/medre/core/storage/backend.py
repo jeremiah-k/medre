@@ -20,6 +20,7 @@ from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryAttemptProvenance,
     DeliveryObservation,
     DeliveryReceipt,
     DeliverySource,
@@ -37,6 +38,8 @@ from medre.core.ingress import (
     IngressWorkItem,
     StoredAttachmentContent,
 )
+from medre.core.rendering.radio_text import RadioTextPlan
+from medre.core.storage.radio import StoredRadioAttempt
 
 # ---------------------------------------------------------------------------
 # Lazy cached helpers for circular-import-safe access to delivery_state
@@ -1715,6 +1718,51 @@ class StorageBackend(Protocol):
         guard failed (lost claim, lease theft, replay/sibling supersession, or
         a competing reservation) — the caller must not invoke the transport.
         """
+        ...
+
+    async def bind_radio_attempt(
+        self,
+        provenance: DeliveryAttemptProvenance,
+        worker_id: str | None,
+        plan: RadioTextPlan,
+    ) -> StoredRadioAttempt | None:
+        """Atomically bind the current owned attempt's immutable radio wire plan."""
+        ...
+
+    async def begin_radio_part(
+        self,
+        expected: StoredRadioAttempt,
+        worker_id: str | None,
+        ordinal: int,
+    ) -> StoredRadioAttempt | None:
+        """Persist a CAS submission grant before invoking the native sender."""
+        ...
+
+    async def observe_radio_part(
+        self,
+        expected: StoredRadioAttempt,
+        worker_id: str | None,
+        ordinal: int,
+        *,
+        handoff_id: str | None = None,
+    ) -> StoredRadioAttempt | None:
+        """Commit exact part-local handoff evidence; never finalize the parent."""
+        ...
+
+    async def recover_radio_attempt(
+        self,
+        provenance: DeliveryAttemptProvenance,
+        worker_id: str | None,
+    ) -> StoredRadioAttempt | None:
+        """Persist interrupted native submissions as unknown before returning."""
+        ...
+
+    async def get_radio_attempt_snapshot(
+        self,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> dict[str, object] | None:
+        """Read stored progress without mutating it or granting native submission."""
         ...
 
     async def renew_outbox_lease(
