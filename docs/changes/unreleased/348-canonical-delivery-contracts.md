@@ -6,3 +6,5 @@ handoffs, and restore interrupted submissions as unknown. The new progress schem
 documents the persisted shape; storage transactions and native multipart dispatch
 remain separate integration work and are not enabled by this change.
 The compatibility catalog also adopts the merged, hardened Chatmail revision.
+Core metadata and lockfile now declare 0.1.1 so adapters can require this contract
+without claiming compatibility with earlier core packages lacking the selector.
