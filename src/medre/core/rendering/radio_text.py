@@ -74,8 +74,9 @@ def _fragment_bodies(
         if not candidate:
             raise ValueError("radio budget cannot fit the next Unicode code point")
         if cursor + len(_utf8(candidate)) < len(source):
-            for index in range(len(candidate) - 1, -1, -1):
-                if candidate[index].isspace() and candidate[: index + 1].strip():
+            first_content = len(candidate) - len(candidate.lstrip())
+            for index in range(len(candidate) - 1, first_content, -1):
+                if candidate[index].isspace():
                     candidate = candidate[: index + 1]
                     break
         bodies.append(candidate)

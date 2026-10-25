@@ -90,6 +90,16 @@ def test_leading_whitespace_does_not_waste_a_part_before_an_oversized_word():
     assert "".join(part.body for part in plan.parts) == " " + "x" * 30
 
 
+def test_long_leading_whitespace_does_not_scan_quadratically():
+    """Large all-whitespace slices stay intact and planning stays bounded."""
+    text = " " * 120_000 + "end"
+    plan = plan_radio_text(text, max_text_bytes=120_000, max_parts=3)
+    assert len(plan.parts) == 2
+    assert plan.parts[0].body.isspace()
+    assert "".join(part.body for part in plan.parts) == text
+    assert all(part.wire_bytes <= 120_000 for part in plan.parts)
+
+
 def test_multibyte_prefix_counts_against_the_same_budget_as_body():
     """Compact Unicode sender names consume bytes even when they look short."""
     plan = plan_radio_text("雪" * 8, prefix="雪: ", max_text_bytes=20)
