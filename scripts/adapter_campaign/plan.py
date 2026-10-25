@@ -85,13 +85,24 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
             or not required <= set(endpoint)
             or set(endpoint)
             - required
-            - {"expected_prefixes", "expected_source_attribution"}
+            - {
+                "expected_prefixes",
+                "expected_source_attribution",
+                "expect_bridge_context",
+            }
         ):
             raise PlanError(
                 f"{name}: require transport, channel, expected_sender, peer"
             )
         if endpoint["transport"] not in TRANSPORTS:
             raise PlanError(f"{name}: unknown campaign transport")
+        if "expect_bridge_context" in endpoint and (
+            type(endpoint["expect_bridge_context"]) is not bool
+            or endpoint["transport"] not in {"matrix", "xmpp"}
+        ):
+            raise PlanError(
+                f"{name}: expect_bridge_context requires a boolean and a supported native observer"
+            )
         if not all(
             isinstance(endpoint[key], str) and endpoint[key]
             for key in ("channel", "expected_sender")

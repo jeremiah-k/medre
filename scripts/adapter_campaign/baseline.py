@@ -62,9 +62,9 @@ def validate_attributions(endpoints: dict[str, dict]) -> None:
 def verify_bridge_context(
     record: dict, event: dict, source: str, transport: str, expected: dict
 ) -> None:
-    """Compare native Matrix hints with independent fixture claims and scoped ingress facts."""
+    """Compare native relay hints with authored claims and scoped canonical ingress facts."""
     context = record.get("native_details", {}).get("bridge_context")
-    assert isinstance(context, dict), "Native Matrix bridge context is missing"
+    assert isinstance(context, dict), "Native bridge context is missing"
     assert (
         type(context.get("schema_version")) is int and context["schema_version"] == 1
     ), "Native context version differs"

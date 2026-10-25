@@ -9,9 +9,56 @@ import ssl
 import subprocess
 from urllib.parse import quote
 from uuid import uuid4
-from xml.etree.ElementTree import SubElement
+from xml.etree.ElementTree import Element, SubElement
 
 from .worker import commands, emit, receiver
+
+
+def xmpp_bridge_context(stanza: Element) -> dict | None:
+    """Observe the native wire shape independently of the adapter's serializer.
+
+    Do not call a production decoder to predict its own output. The baseline
+    oracle compares these literal claims against authored source expectations
+    and the separately captured canonical ingress event.
+    """
+    namespace = "{urn:medre:bridge-context:1}"
+    roots = stanza.findall(namespace + "context")
+    if len(roots) != 1 or roots[0].get("schema_version") != "1":
+        return None
+    sources = roots[0].findall(namespace + "source")
+    groups = roots[0].findall(namespace + "relations")
+    if len(sources) != 1 or len(groups) != 1:
+        return None
+    source = sources[0]
+    refs = source.findall(namespace + "native_ref")
+    if len(refs) > 1:
+        return None
+    ref = refs[0] if refs else None
+    fields = ("adapter", "native_channel_id", "native_message_id", "native_thread_id")
+    return {
+        "schema_version": 1,
+        "source": {
+            **{
+                key: source.get(key)
+                for key in (
+                    "adapter",
+                    "platform",
+                    "canonical_event_id",
+                    "channel",
+                    "sender_id",
+                    "sender_name",
+                    "sender_short_name",
+                    "sender_verification",
+                    "origin_label",
+                )
+            },
+            "native_ref": (
+                {key: ref.get(key) for key in fields} if ref is not None else None
+            ),
+        },
+        # Plain fixture messages must never acquire any relation hints.
+        "relations": [dict(node.attrib) for node in groups[0]],
+    }
 
 
 async def matrix(settings: dict) -> None:
@@ -195,6 +242,7 @@ async def xmpp(settings: dict) -> None:
                 channel=room,
                 native_id=str(stanza["id"]),
                 native_details={
+                    "bridge_context": xmpp_bridge_context(stanza.xml),
                     "unstyled": stanza.xml.find("{urn:xmpp:styling:0}unstyled")
                     is not None,
                     "origin_id": origins[0].get("id") if len(origins) == 1 else None,

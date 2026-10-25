@@ -30,3 +30,18 @@ The uniform fixture profile uses full sender/origin prefixes on chat transports
 and compact sender/source-instance prefixes on Meshtastic and MeshCore. Radio
 host identity remains a separate native header. This profile does not change
 production defaults; smoke qualification retains the default rendering profile.
+
+
+A targeted XMPP endpoint MAY set `expect_bridge_context: true`. The runner MUST
+retain that expectation separately from delivery rows, capture context from the
+independent Slixmpp peer's actual XML stanza, and compare its source claims and
+scoped references with authored expectations and canonical ingress evidence.
+Retained-evidence analysis MUST reject missing or substituted context when it
+was explicitly required. Existing baseline-v1 fixtures remain regression evidence;
+this opt-in property MUST NOT require re-running the seven-platform baseline.
+
+The report's `bridge_context_expectations` map MUST contain only selected adapter
+IDs and boolean values, as described in
+[native-bridge-context-expectations.schema.json](../schemas/native-bridge-context-expectations.schema.json).
+Malformed maps MUST be rejected. Matrix requirements remain mandatory even when
+a supplied map contains false or omits the Matrix destination.
