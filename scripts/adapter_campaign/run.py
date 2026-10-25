@@ -151,7 +151,11 @@ async def run(plan: Plan, directory: Path, *, suite: str = "smoke") -> dict:
     if not __debug__:
         raise RuntimeError("Qualification requires enabled assertions")
     expected_turns = turns(plan.endpoints, suite)
-    if suite == SUITE:
+    if suite == SUITE or any(
+        endpoint["transport"] == "matrix"
+        or endpoint.get("expect_bridge_context", False)
+        for endpoint in plan.endpoints.values()
+    ):
         validate_attributions(plan.endpoints)
     directory.mkdir(mode=0o700)  # Refuse reuse, symlinks, and concurrent runs.
     run_id = uuid4().hex[:12]
@@ -325,7 +329,7 @@ async def run(plan: Plan, directory: Path, *, suite: str = "smoke") -> dict:
                     message=text,
                     max_text_bytes=budget,
                 )
-                if suite == SUITE and report["bridge_context_expectations"][target]:
+                if report["bridge_context_expectations"][target]:
                     verify_bridge_context(
                         receipts[target],
                         item["event"],

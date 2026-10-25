@@ -7,8 +7,9 @@ from xml.etree.ElementTree import fromstring
 import pytest
 
 from scripts.adapter_campaign.ip_peers import xmpp_bridge_context
+from scripts.adapter_campaign.plan import Plan
 from scripts.analyze_adapter_campaign import summarize
-from tests.test_adapter_campaign_baseline import baseline_report
+from tests.helpers.campaign_evidence import baseline_report
 
 
 @pytest.mark.parametrize("expectations", [[], {"right": "yes"}, {"unknown": True}])
@@ -74,3 +75,78 @@ def test_targeted_native_claims_are_checked_against_canonical_ingress(field):
             "bridge_context": {"schema_version": 1, "source": claim, "relations": []},
         }
     assert (summarize(data)["assessment"] == "passed") is (field is None)
+
+
+def test_smoke_targeted_context_cannot_pass_without_native_context():
+    data = baseline_report()
+    data["suite"] = "smoke"
+    data["cases"] = [case for case in data["cases"] if case["fixture"] == "unicode"]
+    for case in data["cases"]:
+        case["fixture"] = "smoke"
+    data["bridge_context_expectations"] = {"right": True}
+    assert summarize(data)["assessment"] == "failed"
+
+
+def test_trusted_plan_rejects_downgraded_xmpp_requirement():
+    data = baseline_report()
+    endpoints = {}
+    for name, identity in data["native_expectations"].items():
+        endpoints[name] = {
+            "transport": identity["transport"],
+            "channel": identity["source_channel"],
+            "expected_sender": identity["receipt_sender"],
+            "peer": {"channel": identity["receipt_channel"]},
+            "expected_source_attribution": data["expected_source_attribution"][name],
+            "expect_bridge_context": False,
+        }
+    trusted = Plan(
+        Path("/private/source-plan.yaml"),
+        endpoints,
+        timeout=30.0,
+        pacing=0.0,
+        settle=0.0,
+    )
+    data["bridge_context_expectations"] = {"left": True, "right": False}
+    assert summarize(data, trusted_plan=trusted)["assessment"] == "passed"
+    trusted.endpoints["right"]["expect_bridge_context"] = True
+    with pytest.raises(ValueError, match="trusted plan"):
+        summarize(data, trusted_plan=trusted)
+
+
+def test_authored_short_name_must_match_native_claim():
+    data = baseline_report()
+    data["bridge_context_expectations"] = {"right": True}
+    data["expected_source_attribution"]["left"]["sender_short_name"] = "K"
+    for case in data["cases"]:
+        if case["source"] != "left":
+            continue
+        claim = {
+            "adapter": "left",
+            "platform": "matrix",
+            "canonical_event_id": case["core"]["event"]["event_id"],
+            "channel": "group:1",
+            "sender_id": "native-peer",
+            "sender_name": "Known",
+            "sender_short_name": "K",
+            "origin_label": "Network",
+            "sender_verification": "unknown",
+            "native_ref": None,
+        }
+        case["native_receipts"]["right"]["native_details"] = {
+            "bridge_context": {"schema_version": 1, "source": claim, "relations": []},
+        }
+    assert summarize(data)["assessment"] == "passed"
+    claim = data["cases"][0]["native_receipts"]["right"]["native_details"][
+        "bridge_context"
+    ]["source"]
+    claim["sender_short_name"] = "not-K"
+    assert summarize(data)["assessment"] == "failed"
+
+
+def test_cli_requires_independent_plan_for_xmpp_report(tmp_path, capsys):
+    from scripts.analyze_adapter_campaign import main
+    import json
+
+    (tmp_path / "results.json").write_text(json.dumps(baseline_report()))
+    assert main([str(tmp_path)]) == 1
+    assert "unreadable" in capsys.readouterr().out

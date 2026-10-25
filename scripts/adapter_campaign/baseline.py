@@ -45,7 +45,9 @@ def validate_attributions(endpoints: dict[str, dict]) -> None:
         expected = endpoint.get("expected_source_attribution")
         if (
             not isinstance(expected, dict)
-            or set(expected) != {"sender_name", "origin_label", "verification"}
+            or not {"sender_name", "origin_label", "verification"} <= set(expected)
+            or set(expected)
+            - {"sender_name", "sender_short_name", "origin_label", "verification"}
             or not all(
                 value is None or isinstance(value, str) and len(value) <= 1024
                 for key, value in expected.items()
@@ -84,6 +86,9 @@ def verify_bridge_context(
     assert (
         claim["sender_name"] == expected["sender_name"]
     ), "Native context sender name differs"
+    assert claim.get("sender_short_name") == expected.get(
+        "sender_short_name"
+    ), "Native context short sender name differs"
     assert (
         claim["origin_label"] == expected["origin_label"]
     ), "Native context origin differs"

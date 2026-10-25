@@ -184,7 +184,7 @@ Commit the harness and sanitized templates, not generated evidence.
 The existing analyzer can be run offline against a retained native campaign:
 
 ```console
-python -m scripts.analyze_adapter_campaign /private/bench/campaign-001/results/native-RUN
+python -m scripts.analyze_adapter_campaign /private/bench/campaign-001/results/native-RUN --plan /private/bench/campaign.yaml
 ```
 
 An incomplete campaign remains incomplete even when some messages arrived.

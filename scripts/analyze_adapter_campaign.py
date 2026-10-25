@@ -15,11 +15,11 @@ from scripts.adapter_campaign.baseline import (
     turns,
     verify_bridge_context,
 )
-from scripts.adapter_campaign.plan import TRANSPORTS
-from scripts.adapter_campaign.run import native_receipt
+from scripts.adapter_campaign.plan import TRANSPORTS, Plan, load_plan
+from scripts.adapter_campaign.run import native_expectation, native_receipt
 
 
-def summarize(report: dict) -> dict:
+def summarize(report: dict, *, trusted_plan: Plan | None = None) -> dict:
     """Audit recorded coverage and provenance; never print native message content."""
     if not __debug__:
         raise ValueError("Analysis requires enabled assertions")
@@ -76,6 +76,34 @@ def summarize(report: dict) -> dict:
         for target, required in context_expectations.items()
     ):
         raise ValueError("Invalid native bridge context expectations")
+    if trusted_plan is not None:
+        trusted_endpoints = trusted_plan.endpoints
+        trusted_expectations = {
+            name: endpoint["transport"] == "matrix"
+            or endpoint.get("expect_bridge_context", False)
+            for name, endpoint in trusted_endpoints.items()
+        }
+        if (
+            set(trusted_endpoints) != endpoints
+            or any(
+                topology.get(name, {}).get("transport") != endpoint["transport"]
+                for name, endpoint in trusted_endpoints.items()
+            )
+            or any(
+                context_expectations.get(name, False) != required
+                for name, required in trusted_expectations.items()
+            )
+            or any(
+                report.get("expected_source_attribution", {}).get(name)
+                != endpoint.get("expected_source_attribution")
+                or topology.get(name) != native_expectation(endpoint)
+                for name, endpoint in trusted_endpoints.items()
+            )
+        ):
+            raise ValueError(
+                "Retained bridge context expectations differ from the trusted plan"
+            )
+        context_expectations = trusted_expectations
     if set(topology) != endpoints or any(
         not isinstance(identity, dict)
         or any(
@@ -184,6 +212,19 @@ def summarize(report: dict) -> dict:
                         findings.append(
                             "Native baseline presentation differs from its contract."
                         )
+            if context_expectations.get(target, False) and (suite != SUITE):
+                try:
+                    verify_bridge_context(
+                        receipt,
+                        case["core"]["event"],
+                        source,
+                        topology[source]["transport"],
+                        report["expected_source_attribution"][source],
+                    )
+                except (AssertionError, KeyError, TypeError):
+                    findings.append(
+                        "Required native bridge context differs from its contract."
+                    )
         item = case["core"]
         destinations = {
             target: topology[target]["source_channel"] for target in targets
@@ -221,12 +262,28 @@ def summarize(report: dict) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="Private native campaign output")
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        help="Original trusted campaign plan; required to qualify XMPP evidence",
+    )
     args = parser.parse_args(argv)
     if not __debug__:
         print("Analysis requires enabled assertions; do not run with -O.")
         return 1
     try:
-        result = summarize(json.loads((args.directory / "results.json").read_text()))
+        report = json.loads((args.directory / "results.json").read_text())
+        topology = report["native_expectations"]
+        if args.plan is None and any(
+            identity.get("transport") == "xmpp" for identity in topology.values()
+        ):
+            raise ValueError("XMPP evidence requires a trusted campaign plan")
+        trusted = (
+            load_plan(args.plan, only={v["transport"] for v in topology.values()})
+            if args.plan is not None
+            else None
+        )
+        result = summarize(report, trusted_plan=trusted)
     except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
         # Parser exceptions can include complete source lines from private data.
         print("Campaign report is unreadable or has an unsupported structure.")

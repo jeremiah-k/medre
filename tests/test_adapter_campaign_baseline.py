@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+
 import pytest
 
 from scripts.adapter_campaign.baseline import (
@@ -13,7 +14,7 @@ from scripts.adapter_campaign.baseline import (
 )
 from scripts.adapter_campaign.plan import TRANSPORTS
 from scripts.analyze_adapter_campaign import summarize
-from tests.helpers.campaign_evidence import report
+from tests.helpers.campaign_evidence import baseline_report
 
 
 def test_every_transport_has_every_fixed_text_variant():
@@ -43,78 +44,6 @@ def test_budget_fixture_never_generates_oversized_radio_ingress(transport):
         transport in {"meshtastic", "meshcore", "lxmf"}
     )
     assert "café ✓" in body
-
-
-def baseline_report():
-    """Create native/durable observations without calling a production renderer."""
-    data = report()
-    originals = data["cases"]
-    data["cases"] = []
-    data["suite"] = SUITE
-    data["expected_source_attribution"] = {
-        name: {
-            "sender_name": "Known",
-            "origin_label": "Network",
-            "verification": "unknown",
-        }
-        for name in ("left", "right")
-    }
-    data["presentation_expectations"] = {
-        target: {
-            "prefixes": {
-                source: "[Known/Network]: "
-                for source in ("left", "right")
-                if source != target
-            },
-            "max_text_bytes": None,
-        }
-        for target in ("left", "right")
-    }
-    for original in originals:
-        source = original["source"]
-        target = next(iter(original["native_receipts"]))
-        for index, name in enumerate(FIXTURES):
-            case = deepcopy(original)
-            event_id = f"event-{source}-{index}"
-            case["core"]["event"]["event_id"] = event_id
-            for row in case["core"]["receipts"] + case["core"]["outbox"]:
-                row.update(
-                    event_id=event_id,
-                    outbox_id=f"outbox-{source}-{index}",
-                    delivery_plan_id=f"plan-{source}-{index}",
-                )
-            case["fixture"] = name
-            case["marker"] = original["marker"] + f"-{index} "
-            case["sent_text"] = text(
-                name, case["marker"], data["native_expectations"][source]["transport"]
-            )
-            case["core"]["event"]["payload"]["body"] = case["sent_text"]
-            case["native_receipts"][target]["text"] = (
-                "[Known/Network]: " + case["sent_text"]
-            )
-            case["core"]["event"].update(
-                source_transport_id="native-peer", source_native_ref=None
-            )
-            if target == "left":
-                case["native_receipts"][target]["native_details"] = {
-                    "bridge_context": {
-                        "schema_version": 1,
-                        "source": {
-                            "adapter": source,
-                            "platform": "xmpp",
-                            "canonical_event_id": event_id,
-                            "channel": "group:1",
-                            "sender_id": "native-peer",
-                            "sender_name": "Known",
-                            "origin_label": "Network",
-                            "sender_verification": "unknown",
-                            "native_ref": None,
-                        },
-                        "relations": [],
-                    }
-                }
-            data["cases"].append(case)
-    return data
 
 
 def test_baseline_analyzer_checks_every_fixture_and_native_presentation():
