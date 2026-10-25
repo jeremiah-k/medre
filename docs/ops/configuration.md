@@ -1363,6 +1363,10 @@ medre adapter matrix auth logout
     removes its credential sidecar after successful revocation. Retains E2EE
     keys and cross-signing identity state.
 
+medre adapter matrix auth restore-signing --adapter-id ID --from PATH
+    Validate and import an existing account-signing backup without rotating
+    server identity keys. Stop bridges using this adapter before importing.
+
 medre support bundle [--config PATH] [--output PATH]
     Write an offline, redacted support bundle ZIP. Built from config
     discovery, config check, route plan, adapter inventory, schemas,

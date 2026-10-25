@@ -557,7 +557,7 @@ class TestNestedCommandCoverage:
         """Every Matrix authentication subcommand must appear in the inventory."""
         actual = _subparser_choices(root_parser, "adapter", "matrix", "auth")
         assert actual, "Parser exposes no subcommands under 'adapter matrix auth'"
-        expected = {"login", "logout", "status"}
+        expected = {"login", "logout", "status", "restore-signing"}
         missing_from_parser = expected - actual
         assert not missing_from_parser, (
             "Parser is missing 'adapter matrix auth' subcommands: "

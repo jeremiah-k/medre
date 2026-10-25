@@ -727,12 +727,20 @@ class TestP10MeshCoreAppstartValidation:
             await session.stop()
             remove_mock_module()
 
-    def test_reconnect_loop_uses_connect_real(self) -> None:
-        """_reconnect_loop recreates the SDK client through _connect_real."""
-        source = inspect.getsource(
-            meshcore_session_mod.MeshCoreSession._reconnect_loop,
+    async def test_reconnect_loop_uses_connect_real(self) -> None:
+        """Recovery reaches native setup through its owned connection boundary."""
+        session = meshcore_session_mod.MeshCoreSession(
+            _make_meshcore_config(), "mc-parity-test"
         )
-        assert "_connect_real" in source
+        with (
+            patch.object(session, "_connect_real", new_callable=AsyncMock) as connect,
+            patch(
+                "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+            ),
+        ):
+            await session._reconnect_loop()
+        connect.assert_awaited_once()
+        assert not session._diag.reconnecting
 
 
 # ===================================================================
