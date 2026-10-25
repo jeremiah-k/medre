@@ -61,6 +61,7 @@ from medre.core.storage.sqlite._pressure import (  # noqa: F401  -- public re-ex
     PRESSURE_WINDOW_SECONDS,
     _PressureMixin,
 )
+from medre.core.storage.sqlite._radio import _RadioMixin
 from medre.core.storage.sqlite._receipt import _ReceiptMixin
 from medre.core.storage.sqlite._recovery_query import _RecoveryQueryMixin
 from medre.core.storage.sqlite._relation import _RelationMixin
@@ -686,6 +687,7 @@ class SQLiteStorage(
     _ReceiptMixin,
     _ObservationMixin,
     _OutboxMixin,
+    _RadioMixin,
     _PressureMixin,
     _DeliveryFinalizationMixin,
     _RecoveryQueryMixin,

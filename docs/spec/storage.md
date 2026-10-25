@@ -13,7 +13,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 This document specifies the MEDRE storage layer. The current SQLite backend persists
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
 projection and its `conversation_projection_state`, `native_message_refs`,
-`delivery_receipts`, `delivery_outbox`,
+`delivery_receipts`, `delivery_outbox`, `radio_attempt_progress`,
 `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
 `attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
 `plugin_state` table,
@@ -1256,6 +1256,76 @@ All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, 
 - Adding or changing an index **MUST NOT** bump `_EXPECTED_SCHEMA_VERSION`.
 - SQLite autoindexes from table-level `UNIQUE` constraints **MUST NOT** be duplicated with manual `CREATE INDEX`.
 
+### 4.16 radio_attempt_progress
+
+```sql
+CREATE TABLE IF NOT EXISTS radio_attempt_progress (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    plan_fingerprint TEXT NOT NULL CHECK (length(plan_fingerprint) = 64),
+    plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
+    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+```
+
+This table retains attempt-local operational facts under the same SQLite owner
+as outbox authority. `plan_json` MUST retain the initial, wholly unsent
+[radio progress snapshot](../schemas/radio-attempt-progress.schema.json).
+`provenance_json` MUST retain the full `DeliveryAttemptProvenance`;
+`parts_json` retains current ordered part records. Identity, provenance and wire
+plan MUST remain immutable after binding. Only part progress, revision and
+`updated_at` MAY change. The revision MUST equal committed part transitions:
+zero per unsent part, one per submitting part, two per accepted or unknown part.
+
+Every writer MUST check the full current outbox claim, its effective attempt
+(`active_attempt` when present), its exact worker (including an explicit NULL
+worker), and absence of an equal or newer sibling generation. Claim checking and
+writing MUST share one `BEGIN IMMEDIATE` transaction on the storage owner's
+connection, executor and lock. This API MUST NOT renew a lease, allocate an
+attempt, append a receipt, or change parent outbox state. Corrupt retained
+progress MUST raise `StorageError` before granting native work.
+
+The following `StorageBackend` methods define the checkpoint boundary:
+
+- `bind_radio_attempt(provenance, worker_id, plan)` MUST atomically bind the exact
+  wire plan and full claim, returning `StoredRadioAttempt` at revision zero.
+  Duplicate binding MUST return `None`, not a new submission grant. Across all
+  sibling outbox rows for the same delivery identity, any prior native work
+  MUST block rebinding; a wholly unsent predecessor MAY be rebound only with
+  the same exact wire plan. A contradictory plan MUST raise `StorageError`.
+- `begin_radio_part(expected, worker_id, ordinal)` MUST compare the entire stored
+  checkpoint and revision, persist the next submitting part, and commit before
+  returning a new checkpoint. Only a returned checkpoint permits the caller's
+  next native invocation; `None` MUST prevent that invocation.
+- `observe_radio_part(expected, worker_id, ordinal, handoff_id=None)` MUST use the
+  same compare-and-swap boundary to retain local acceptance or explicit unknown.
+  A stale checkpoint MUST return `None`, including after restart recovery.
+- `recover_radio_attempt(provenance, worker_id)` MUST atomically convert a retained
+  submitting part to unknown before returning it. An unchanged checkpoint MAY
+  be returned without advancing its revision. Recovery MUST NOT replay native
+  work, promote late observations, or bypass claim ownership.
+- `get_radio_attempt_snapshot(outbox_id, attempt_number)` MUST return validated
+  stored snapshot data or `None`, without recovery, mutation or submission
+  permission. A persisted submitting record remains submitting in inspection.
+
+Invalid pure-model transitions MUST raise `ValueError`; lost ownership or CAS
+conflicts MUST return `None`. SQLite failures MUST raise `StorageError` and roll
+back the checkpoint transaction. No returned checkpoint guarantees remote RF
+receipt. Even acceptance of every part MUST NOT finalize the parent delivery;
+that remains the delivery lifecycle's responsibility.
+
+This is a required prerelease table, not an additive-DDL exception. A previously
+stamped database missing it MUST be rejected before schema DDL, without mutation,
+under §10.2. The schema marker remains `1`. Operators MUST retain their original
+database and follow the explicit backup/reset procedure in §10.4 when choosing
+this development schema. Native multipart sending remains disabled pending
+serialized adapter integration and exact-attempt feedback aggregation.
+
 ## 5. Append-Only Guarantees
 
 ### 5.1 Events
@@ -1836,6 +1906,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                                   | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
 | `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                                    | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
 | `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                                   | Cursor-owning adapters                                            | None                                          | Forever                          |
+| `radio_attempt_progress` | Owned radio checkpoint API after full outbox claim validation | CAS part transitions and restart-to-unknown only | None | Forever |
 | `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
 | `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                                     | `initialize()` (version row)                                      | None                                          | Forever                          |
 

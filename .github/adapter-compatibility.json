@@ -11,7 +11,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "491343c88c84dd6ec6ad74308123c71f2a287079",
+    "ref": "2ed958470cfe4ea90265c1e61811b8d38219913a",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -19,7 +19,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "a543ae42c4bf23dbbc1106fa65b6df8e283c55dd",
+    "ref": "6727bd86a0073949b66aec2644da1029145afdce",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
@@ -27,7 +27,7 @@
   {
     "transport": "lxmf",
     "repository": "jeremiah-k/medre-adapter-lxmf",
-    "ref": "65e063f765e15ef7a153d1cbff64f9c4813d4311",
+    "ref": "388dbc23e2515dca60a97dfb49a1bfd26f3c2d76",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-lxmf"
@@ -35,7 +35,7 @@
   {
     "transport": "xmpp",
     "repository": "jeremiah-k/medre-adapter-xmpp",
-    "ref": "ce0ae1ef539f48067210142aab68bc3c59798f37",
+    "ref": "1c41a6eebd6a5ae9af3c8276b14413ab6f5bcee3",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "914dd186a7a109f3aa91a0ca41bed40ac7383a1c",
+    "ref": "7ac80c41174647f1cce25dc723e90eb1de9f1564",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "4392eb830e77dfdcd1311d96d56d6ecbceea3f80",
+    "ref": "f462a34915034fdf77e729b4a3a54c0f11e9442c",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"
