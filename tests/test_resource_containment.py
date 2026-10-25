@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from medre.adapters.lxmf.session import (
     LxmfDeliveryState,
@@ -297,10 +297,31 @@ class TestMeshCoreSessionResourceContainment:
         await session.stop()
         await session.stop()  # Should not raise.
 
-    async def test_reconnect_budget_is_bounded(self) -> None:
-        from medre.adapters.meshcore.session import _RECONNECT_MAX_ATTEMPTS
+    async def test_reconnect_survives_outage_until_stop_with_bounded_backoff(
+        self,
+    ) -> None:
+        """Recovery survives more than ten failures and observes the stop flag."""
+        session = MeshCoreSession(_meshcore_config(), "rc-test")
+        attempts = 0
 
-        assert _RECONNECT_MAX_ATTEMPTS == 10
+        async def unavailable():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 12:
+                session._stop_requested = True
+            raise ConnectionError("radio offline")
+
+        with (
+            patch.object(session, "_connection_attempt", side_effect=unavailable),
+            patch(
+                "medre.adapters.meshcore.session.asyncio.sleep", new_callable=AsyncMock
+            ) as delay,
+        ):
+            await session._reconnect_loop()
+        assert attempts == 12
+        assert delay.await_count == attempts
+        assert all(0 <= call.args[0] <= 30 for call in delay.await_args_list)
+        assert not session._diag.reconnecting
 
     async def test_send_retry_budget_is_bounded(self) -> None:
         from medre.adapters.meshcore.session import _SEND_MAX_RETRIES

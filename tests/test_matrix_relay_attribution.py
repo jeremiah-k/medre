@@ -289,8 +289,9 @@ class TestMatrixMissingTargetFallback:
         # No body/msgtype on true reactions
         assert "msgtype" not in _payload_content(result)
         assert "body" not in _payload_content(result)
-        # Must NOT use canonical target_event_id
-        assert "canonical-orig-002" not in str(result.payload)
+        # Matrix relations use native IDs; canonical correlation remains in
+        # the explicit bridge-context metadata for cross-platform projection.
+        assert "canonical-orig-002" not in str(_payload_content(result)["m.relates_to"])
 
     async def test_reaction_no_target_no_broken_annotation(self) -> None:
         """Reaction without any target produces emote fallback, not m.annotation.

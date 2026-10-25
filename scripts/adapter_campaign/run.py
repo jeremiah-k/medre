@@ -14,6 +14,13 @@ from uuid import uuid4
 
 from medre.runtime.builder import RuntimeBuilder
 
+from .baseline import (
+    SUITE,
+    text as baseline_text,
+    turns,
+    validate_attributions,
+    verify_bridge_context,
+)
 from .evidence import snapshots, verify, wait_evidence
 from .plan import Plan, runtime_config
 from .process import Peer
@@ -59,7 +66,8 @@ def native_receipt(
     assert (
         hits[0]["channel"] == expected["receipt_channel"]
     ), f"{peer.name}: incorrect native conversation"
-    assert "café ✓" in hits[0]["text"], f"{peer.name}: UTF-8 body was altered"
+    if message is None:
+        assert "café ✓" in hits[0]["text"], f"{peer.name}: UTF-8 body was altered"
     assert "\ufffd" not in hits[0]["text"], f"{peer.name}: invalid UTF-8 rendering"
     assert hits[0]["text"].count(marker) == 1, f"{peer.name}: duplicated rendered body"
     record = hits[0]
@@ -133,14 +141,28 @@ async def _radio_budget(app: object, target: str, endpoint: dict) -> int | None:
     return info.capabilities.max_text_bytes
 
 
-async def run(plan: Plan, directory: Path) -> dict:
+async def run(plan: Plan, directory: Path, *, suite: str = "smoke") -> dict:
+    """Keep native owners alive while each fixed source fixture fans out.
+
+    Coverage records directions and source fixtures separately. Smoke retains
+    the short single-turn bench; baseline-v1 exercises all fixed text variants
+    through every selected pair without repeated cold starts.
+    """
     if not __debug__:
         raise RuntimeError("Qualification requires enabled assertions")
+    expected_turns = turns(plan.endpoints, suite)
+    if suite == SUITE:
+        validate_attributions(plan.endpoints)
     directory.mkdir(mode=0o700)  # Refuse reuse, symlinks, and concurrent runs.
     run_id = uuid4().hex[:12]
     prefix = f"MR-{run_id}-"
     report = {
         "run": run_id,
+        "suite": suite,
+        "expected_source_attribution": {
+            name: endpoint.get("expected_source_attribution")
+            for name, endpoint in plan.endpoints.items()
+        },
         "status": "running",
         "coverage": "full" if plan.full else "partial",
         "expected_pairs": plan.pairs,
@@ -226,14 +248,26 @@ async def run(plan: Plan, directory: Path) -> dict:
         # must finish after the bridge identity becomes available.
         for peer in peers.values():
             await peer.synchronize()
-        for source, peer in peers.items():
+        report["presentation_expectations"] = {
+            name: {
+                "prefixes": dict(endpoint["expected_prefixes"]),
+                "max_text_bytes": await _radio_budget(app, name, endpoint),
+            }
+            for name, endpoint in plan.endpoints.items()
+        }
+        for index, (source, fixture) in enumerate(expected_turns):
+            peer = peers[source]
             for owner in peers.values():
                 owner.check()
             # The trailing space keeps one source's marker from matching
             # inside another's when one endpoint name prefixes another.
-            marker = prefix + source + " "
-            text = marker + "café ✓"
-            if plan.endpoints[source]["transport"] == "matrix":
+            marker = prefix + source + (f"-{index:02d} " if suite == SUITE else " ")
+            text = (
+                baseline_text(fixture, marker, plan.endpoints[source]["transport"])
+                if suite == SUITE
+                else marker + "café ✓"
+            )
+            if suite == "smoke" and plan.endpoints[source]["transport"] == "matrix":
                 # One ordinary and one byte-constrained target observe the same
                 # long body. Do not generate oversized ingress on a radio.
                 text += " " + "🌍é" * 64
@@ -286,6 +320,14 @@ async def run(plan: Plan, directory: Path) -> dict:
                     message=text,
                     max_text_bytes=budget,
                 )
+                if suite == SUITE and endpoint["transport"] == "matrix":
+                    verify_bridge_context(
+                        receipts[target],
+                        item["event"],
+                        source,
+                        plan.endpoints[source]["transport"],
+                        plan.endpoints[source]["expected_source_attribution"],
+                    )
 
             transport = plan.endpoints[source]["transport"]
             if transport in {"matrix", "meshtastic", "lxmf"}:
@@ -296,6 +338,7 @@ async def run(plan: Plan, directory: Path) -> dict:
             report["cases"].append(
                 {
                     "source": source,
+                    "fixture": fixture,
                     "marker": marker,
                     "sent_text": text,
                     "native_send": sent,
@@ -303,16 +346,21 @@ async def run(plan: Plan, directory: Path) -> dict:
                     "native_receipts": receipts,
                 }
             )
-            report["completed_pairs"].extend((source, target) for target in targets)
+            report["completed_pairs"] = sorted(
+                set(map(tuple, report["completed_pairs"]))
+                | {(source, target) for target in targets}
+            )
             report.pop("active_case", None)
             write_report(directory, report)
-            print(f"PASS {source} -> {', '.join(targets)}", flush=True)
+            print(f"PASS {fixture}: {source} -> {', '.join(targets)}", flush=True)
             await asyncio.sleep(plan.pacing)  # Explicit on-air budget between turns.
         await asyncio.sleep(
             plan.settle
         )  # Observe late echoes/duplicates after the final turn.
         final = await snapshots(app.storage, prefix)
-        assert len(final) == len(peers), "Unexpected canonical replay or bridge echo"
+        assert len(final) == len(
+            expected_turns
+        ), "Unexpected canonical replay or bridge echo"
         for case in report["cases"]:
             source, marker = case["source"], case["marker"]
             items = [item for item in final if marker in str(item["event"]["payload"])]

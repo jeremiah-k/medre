@@ -11,8 +11,16 @@ from ..meshtastic_connection import open_interface, role_connection
 from .sources import write_json
 
 
-async def inspect_hardware(root: Path) -> dict:
+async def inspect_hardware(root: Path, *, meshcore_repaired: bool = False) -> dict:
+    """Probe independent devices once; retain a MeshCore pause until repair is acknowledged."""
     requested = json.loads((root / "hardware.json").read_text())
+    pause = root / "results/meshcore-paused.json"
+    if meshcore_repaired:
+        if "meshcore" not in requested:
+            raise ValueError(
+                "MeshCore repair acknowledgement requires configured hardware"
+            )
+        pause.unlink(missing_ok=True)
     report = {}
     if "meshtastic" in requested:
         from google.protobuf.json_format import MessageToDict
@@ -65,24 +73,28 @@ async def inspect_hardware(root: Path) -> dict:
                 }
         report["meshtastic"] = results
     if "meshcore" in requested:
-        from meshcore import EventType
-
-        from ..meshcore_ble import open_meshcore_ble
-
         results = {}
         for role in ("gateway", "peer"):
+            if pause.exists():
+                results[role] = {
+                    "status": "not_attempted",
+                    "reason": "re_pair_required",
+                }
+                continue
             try:
-                async with asyncio.timeout(35):
+                from ..meshcore_ble import open_meshcore_ble
+
+                async with asyncio.timeout(45):
                     async with open_meshcore_ble(
                         requested["meshcore"][role + "_ble_address"]
                     ) as connection:
-                        info = await connection.commands.send_appstart()
-                        if info.type != EventType.SELF_INFO:
+                        info = connection.self_info
+                        if not isinstance(info, dict) or not info.get("name"):
                             raise ConnectionError("MeshCore self-info unavailable")
                         clock = await connection.commands.get_time()
                         results[role] = {
                             "status": "available",
-                            "name": info.payload["name"],
+                            "name": info["name"],
                             "clock": clock.payload,
                         }
             except Exception as exc:
@@ -91,6 +103,10 @@ async def inspect_hardware(root: Path) -> dict:
                     "status": "unavailable",
                     "error_type": type(exc).__name__,
                 }
+                write_json(pause, {"role": role, "error_type": type(exc).__name__})
+                print(
+                    "MeshCore hardware paused: re-pair the boards before acknowledging repair."
+                )
         report["meshcore"] = results
     write_json(root / "results/hardware.json", report)
     return report

@@ -19,6 +19,12 @@ def main(argv: list[str] | None = None) -> int:
         "--only", help="Explicit partial run: comma-separated transport names"
     )
     parser.add_argument(
+        "--suite",
+        choices=["smoke", "baseline-v1"],
+        default="smoke",
+        help="Fixed text fixture set; baseline-v1 keeps peers alive across all cases",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Fresh private evidence directory; required with --run",
@@ -49,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--run requires --output pointing to a fresh directory")
         from .run import run
 
-        asyncio.run(run(plan, args.output.resolve()))
+        asyncio.run(run(plan, args.output.resolve(), suite=args.suite))
     except PlanError as exc:
         print(f"Campaign plan rejected: {exc}")
         return 1

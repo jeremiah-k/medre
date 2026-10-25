@@ -15,7 +15,7 @@ from .sources import write_json
 ROOT = Path("/lab")
 
 
-async def run(stage: str) -> None:
+async def run(stage: str, *, meshcore_repaired: bool = False) -> None:
     """Execute a qualification stage using the lab at ROOT.
 
     Grouped "all" and "native" runs retain outcomes in qualification.json,
@@ -96,10 +96,15 @@ async def run(stage: str) -> None:
         if failures:
             raise RuntimeError("Native OAuth failed: " + ", ".join(failures))
     elif stage == "provision":
-        await inspect_hardware(ROOT)
         from .provision import provision
 
         await provision(ROOT)
+    elif stage == "hardware":
+        await inspect_hardware(ROOT, meshcore_repaired=meshcore_repaired)
+    elif stage == "baseline":
+        from .provision import campaign
+
+        await campaign(ROOT, suite="baseline-v1")
     elif stage == "campaign":
         from .provision import campaign
 

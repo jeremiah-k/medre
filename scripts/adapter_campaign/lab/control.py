@@ -254,10 +254,13 @@ def operate(args: argparse.Namespace) -> None:
         )
         (directory / "config/smp-fingerprint").write_bytes(fingerprint)
     elif args.action == "test":
+        stage_command = compose(directory, "run", "--rm", "runner", args.stage)
+        if getattr(args, "meshcore_repaired", False):
+            stage_command.append("--meshcore-repaired")
         command(
             directory,
             args.stage,
-            compose(directory, "run", "--rm", "runner", args.stage),
+            stage_command,
             timeout=stage_timeout(
                 args.stage, len(json.loads((directory / "sources.json").read_text()))
             ),
