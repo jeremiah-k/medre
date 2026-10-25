@@ -296,8 +296,12 @@ fixture failures and implementation defects remain distinguishable.
 Analyze a retained report without opening devices or native profiles:
 
 ```bash
-uv run --no-sync python -m scripts.analyze_adapter_campaign /private/bench/run-001
+uv run --no-sync python -m scripts.analyze_adapter_campaign /private/bench/run-001 --plan /private/bench/campaign.yaml
 ```
+
+For XMPP-inclusive campaigns, the analyzer requires the independently authored
+`--plan` file. It rejects retained reports whose context requirement flags
+differ from that trusted plan, including flags changed or removed after the run.
 
 The JSON summary checks every selected directed pair, nonempty and unambiguous
 source nonces, fixture-derived native receipt identities and source/destination
