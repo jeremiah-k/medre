@@ -14,6 +14,7 @@ from scripts.adapter_campaign.baseline import (
     text as baseline_text,
     turns,
     verify_bridge_context,
+    validate_attributions,
 )
 from scripts.adapter_campaign.plan import TRANSPORTS, Plan, load_plan
 from scripts.adapter_campaign.run import native_expectation, native_receipt
@@ -78,6 +79,16 @@ def summarize(report: dict, *, trusted_plan: Plan | None = None) -> dict:
         raise ValueError("Invalid native bridge context expectations")
     if trusted_plan is not None:
         trusted_endpoints = trusted_plan.endpoints
+        if any(
+            endpoint.get("expect_bridge_context") is True
+            for endpoint in trusted_endpoints.values()
+        ):
+            try:
+                validate_attributions(trusted_endpoints)
+            except ValueError:
+                raise ValueError(
+                    "Invalid authored attribution in the trusted plan"
+                ) from None
         trusted_expectations = {
             name: endpoint["transport"] == "matrix"
             or endpoint.get("expect_bridge_context", False)

@@ -41,6 +41,9 @@ def turns(sources: Iterable[str], suite: str) -> list[tuple[str, str]]:
 
 def validate_attributions(endpoints: dict[str, dict]) -> None:
     """Require fixture-authored sender claims before native baseline owners start."""
+    require_short_names = any(
+        endpoint.get("expect_bridge_context") is True for endpoint in endpoints.values()
+    )
     for endpoint in endpoints.values():
         expected = endpoint.get("expected_source_attribution")
         if (
@@ -48,6 +51,7 @@ def validate_attributions(endpoints: dict[str, dict]) -> None:
             or not {"sender_name", "origin_label", "verification"} <= set(expected)
             or set(expected)
             - {"sender_name", "sender_short_name", "origin_label", "verification"}
+            or (require_short_names and "sender_short_name" not in expected)
             or not all(
                 value is None or isinstance(value, str) and len(value) <= 1024
                 for key, value in expected.items()
@@ -86,9 +90,10 @@ def verify_bridge_context(
     assert (
         claim["sender_name"] == expected["sender_name"]
     ), "Native context sender name differs"
-    assert claim.get("sender_short_name") == expected.get(
-        "sender_short_name"
-    ), "Native context short sender name differs"
+    if "sender_short_name" in expected:
+        assert (
+            claim.get("sender_short_name") == expected["sender_short_name"]
+        ), "Native context short sender name differs"
     assert (
         claim["origin_label"] == expected["origin_label"]
     ), "Native context origin differs"

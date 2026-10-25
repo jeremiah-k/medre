@@ -45,3 +45,10 @@ IDs and boolean values, as described in
 [native-bridge-context-expectations.schema.json](../schemas/native-bridge-context-expectations.schema.json).
 Malformed maps MUST be rejected. Matrix requirements remain mandatory even when
 a supplied map contains false or omits the Matrix destination.
+
+New explicitly requested context properties MUST declare `sender_short_name` for
+every source, including explicit null when the source has no short name. Generated
+lab plans MUST author this value from fixture identities and hardware inventory,
+independently of destination receipts. Legacy plans and frozen reports without
+this field retain their original coverage; absence MUST NOT be interpreted as
+an assertion that the native short name is null or as compact-name qualification.

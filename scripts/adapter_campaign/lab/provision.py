@@ -563,6 +563,20 @@ async def campaign(root: Path, *, suite: str = "smoke") -> None:
             else {}
         ),
     }
+    raw_short_names: dict[str, str | None] = {
+        "matrix": "peer",
+        "xmpp": "peer",
+        "chatmail": "MailPeer",
+        "simplexchat": "SimpleXPeer",
+        "lxmf": "MEDREcampaignpeer",
+    }
+    if "meshtastic" in selected:
+        raw_short_names["meshtastic"] = (
+            health["meshtastic"]["peer"]["short_name"] or None
+        )
+    if "meshcore" in selected:
+        peer_words = health["meshcore"]["peer"]["name"].split()
+        raw_short_names["meshcore"] = peer_words[0] if peer_words else None
     labels = {name: name.capitalize() + " lab" for name in selected}
     labels["meshtastic"] = "Radio lab"
     runtime = {"adapters": {}}
@@ -612,6 +626,7 @@ async def campaign(root: Path, *, suite: str = "smoke") -> None:
         endpoint["expected_prefixes"] = prefixes
         endpoint["expected_source_attribution"] = {
             "sender_name": raw_names[name],
+            "sender_short_name": raw_short_names[name],
             "origin_label": labels[name],
             "verification": "unverified" if name == "meshcore" else "unknown",
         }
