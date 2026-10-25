@@ -80,6 +80,33 @@ class TextSpan:
             raise ValueError("Only text links may carry an href")
 
 
+def select_message_body(
+    payload: Mapping[str, object], *, strict: bool = True
+) -> str:
+    """Select one canonical text body for every transport renderer.
+
+    Styled messages bind offsets to ``body`` and must not use a stale ``text``
+    alias. Unstyled legacy messages retain ``text`` precedence. Strict native
+    text adapters reject non-string bodies instead of inventing wire content.
+    The permissive rendering helper retains historical string coercion.
+    """
+    body = payload.get("body")
+    # A malformed explicit body cannot borrow validity from a compatibility
+    # alias. It may otherwise acquire spans belonging to different text.
+    if strict and "body" in payload and not isinstance(body, str):
+        raise ValueError("Message body must be text")
+    selected: object
+    if "formatting" in payload and isinstance(body, str):
+        selected = body
+    else:
+        selected = payload.get("text", payload.get("body", ""))
+    if not isinstance(selected, str):
+        if strict:
+            raise ValueError("Message body must be text")
+        return str(selected)
+    return selected
+
+
 @dataclass(frozen=True, slots=True)
 class StyledText:
     """Immutable plain body and canonical ordered presentation spans.
@@ -164,14 +191,17 @@ class StyledText:
     def from_payload(cls, payload: Mapping[str, object]) -> StyledText:
         """Read optional v1 formatting, retaining plain text on invalid metadata.
 
-        Missing body falls back to the legacy text alias, then an empty string.
+        Unstyled payloads retain legacy text-first authority; styled payloads
+        bind offsets to the body. Missing values resolve to an empty string.
         Unknown versions/fields, malformed ranges, and excessive nesting discard
         the formatting as a whole. Never mutate the supplied payload.
         """
-        body = payload.get("body", payload.get("text", ""))
-        if not isinstance(body, str):
-            raise ValueError("Styled text requires a plain string body")
+        body = select_message_body(payload)
         value = payload.get("formatting")
+        # Span offsets are meaningful only for an explicitly authored body.
+        # Do not reinterpret spans against a compatibility-only text alias.
+        if "body" not in payload:
+            return cls(body)
         if (
             not isinstance(value, Mapping)
             or len(value) != 2
