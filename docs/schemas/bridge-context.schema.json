@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/bridge-context.schema.json",
+  "title": "MEDRE cross-platform relay context",
+  "$ref": "#/$defs/BridgeContext",
+  "$defs": {
+    "BridgeContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source",
+        "relations"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "source": {
+          "$ref": "#/$defs/BridgeSource"
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/BridgeRelation"
+          }
+        }
+      }
+    },
+    "BridgeSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter",
+        "canonical_event_id",
+        "channel",
+        "sender_id",
+        "native_ref"
+      ],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "canonical_event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "channel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "sender_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "sender_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "sender_short_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "sender_verification": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "origin_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "native_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/BridgeNativeRef"
+            }
+          ]
+        }
+      }
+    },
+    "BridgeRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_type",
+        "target_event_id",
+        "target_native_ref",
+        "key"
+      ],
+      "properties": {
+        "relation_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "target_event_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "target_native_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/BridgeNativeRef"
+            }
+          ]
+        }
+      }
+    },
+    "BridgeNativeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter",
+        "native_channel_id",
+        "native_message_id",
+        "native_thread_id"
+      ],
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "native_channel_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        },
+        "native_message_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "native_thread_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        }
+      }
+    }
+  }
+}

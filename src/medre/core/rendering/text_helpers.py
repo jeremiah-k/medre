@@ -1,17 +1,22 @@
 """Shared text extraction and truncation helpers for renderers.
 
-Provides :func:`extract_relation_text` and :func:`truncate_text` as
-public utilities so that adapters (e.g. MatrixRenderer) do not need to
+Provides :func:`extract_message_body`, :func:`extract_relation_text` and
+:func:`truncate_text` as public utilities so adapters do not need to
 reach into the private methods of :class:`~medre.core.rendering.text.TextRenderer`.
 
-Both functions are pure and do not mutate the original event.
+These functions are pure and do not mutate the original event.
 """
 
 from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 
-__all__ = ["extract_relation_text", "truncate_text", "truncate_text_bytes"]
+__all__ = [
+    "extract_message_body",
+    "extract_relation_text",
+    "truncate_text",
+    "truncate_text_bytes",
+]
 
 # Maximum characters for rendered text before truncation.
 _DEFAULT_MAX_TEXT_LENGTH: int = 500
@@ -72,7 +77,7 @@ def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | No
     return None
 
 
-def _message_body(event: CanonicalEvent) -> str:
+def extract_message_body(event: CanonicalEvent) -> str:
     """Use authoritative body for styled events, preserving legacy text aliases.
 
     A stale ``text`` compatibility alias must never override the body whose
@@ -123,7 +128,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
         rel = event.relations[0]
 
         if rel.relation_type == "reply":
-            payload_text = _message_body(event)
+            payload_text = extract_message_body(event)
             target = _resolve_target_display(rel)
             sender_display = (
                 rel.metadata.get("sender_displayname")
@@ -148,7 +153,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return f"{actor} reacted"
 
         if rel.relation_type == "edit":
-            payload_text = _message_body(event)
+            payload_text = extract_message_body(event)
             if payload_text:
                 return f"[edited] {payload_text}"
             return "[edited]"
@@ -160,7 +165,7 @@ def extract_relation_text(event: CanonicalEvent) -> str:
             return "[deleted]"
 
         if rel.relation_type == "thread":
-            payload_text = _message_body(event)
+            payload_text = extract_message_body(event)
             target = _resolve_target_display(rel)
             if payload_text:
                 return f"[thread: {target}] {payload_text}"
@@ -168,16 +173,16 @@ def extract_relation_text(event: CanonicalEvent) -> str:
 
     # Kind-based rendering
     if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-        return _message_body(event)
+        return extract_message_body(event)
 
     if kind == EventKind.MESSAGE_EDITED:
-        return "[edited] " + _message_body(event)
+        return "[edited] " + extract_message_body(event)
 
     if kind == EventKind.MESSAGE_DELETED:
         return "[deleted]"
 
     if kind == EventKind.MESSAGE_REACTED:
-        return _message_body(event)
+        return extract_message_body(event)
 
     if kind == EventKind.PRESENCE_CHANGED:
         user = str(event.payload.get("user", "unknown"))
@@ -185,9 +190,9 @@ def extract_relation_text(event: CanonicalEvent) -> str:
         return f"{user} is now {status}"
 
     if kind == EventKind.PLUGIN_CUSTOM:
-        return _message_body(event)
+        return extract_message_body(event)
 
-    return _message_body(event)
+    return extract_message_body(event)
 
 
 def truncate_text(
