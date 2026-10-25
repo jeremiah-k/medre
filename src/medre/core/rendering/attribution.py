@@ -52,6 +52,9 @@ _CANONICAL_NAMES = frozenset(
         "source_sender_label",
         "source_sender_short_label",
         "source_sender_handle",
+        "source_sender_label_raw",
+        "source_sender_short_label_raw",
+        "source_sender_verification",
         "source_room_or_channel",
         "source_origin_label",
         "source_native_message_id",
@@ -67,13 +70,18 @@ _PREFERRED_ALIASES: dict[str, str] = {
     "sender_short": "source_sender_short_label",
     "sender_id": "source_sender_id",
     "sender_handle": "source_sender_handle",
+    "sender_raw": "source_sender_label_raw",
+    "sender_short_raw": "source_sender_short_label_raw",
+    "sender_verification": "source_sender_verification",
     "platform": "source_platform",
     "route_id": "route_id",
     "channel": "source_room_or_channel",
     "origin_label": "source_origin_label",
 }
 
-_ALL_KNOWN_NAMES = _CANONICAL_NAMES | frozenset(_PREFERRED_ALIASES.keys())
+_ALL_KNOWN_NAMES = (
+    _CANONICAL_NAMES | frozenset(_PREFERRED_ALIASES.keys()) | {"sender_compact"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +120,12 @@ class RelayAttribution:
         Primary human-readable sender label (display name, long name, etc.).
     source_sender_short_label:
         Abbreviated sender label (localpart, short name, etc.).
+    source_sender_label_raw / source_sender_short_label_raw:
+        Provider-reported names without presentation annotations. These remain
+        claims unless the provider supplies independent verification evidence.
+    source_sender_verification:
+        Provider-reported verification description; absence means unknown.
+        Prefix formatting never changes the underlying identity assurance.
     source_sender_handle:
         Sender handle or address (Matrix handle, callsign, etc.).
     source_room_or_channel:
@@ -136,6 +150,9 @@ class RelayAttribution:
     source_sender_label: str | None = None
     source_sender_short_label: str | None = None
     source_sender_handle: str | None = None
+    source_sender_label_raw: str | None = None
+    source_sender_short_label_raw: str | None = None
+    source_sender_verification: str | None = None
     source_room_or_channel: str | None = None
     source_origin_label: str | None = None
     source_native_message_id: str | None = None
@@ -176,6 +193,17 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
         "source_sender_id": sender_id,
         "source_sender_label": sender_label,
         "source_sender_short_label": sender_short_label,
+        "source_sender_label_raw": (
+            attr.source_sender_label_raw
+            if attr.source_sender_label_raw is not None
+            else sender_label
+        ),
+        "source_sender_short_label_raw": (
+            attr.source_sender_short_label_raw
+            if attr.source_sender_short_label_raw is not None
+            else sender_short_label
+        ),
+        "source_sender_verification": attr.source_sender_verification or "unknown",
         "source_sender_handle": (
             attr.source_sender_handle if attr.source_sender_handle is not None else ""
         ),
@@ -191,6 +219,8 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
     # Add preferred aliases pointing to coalesced canonical values.
     for alias, canonical in _PREFERRED_ALIASES.items():
         canon[alias] = canon[canonical]
+    # MMRelay-style display abbreviation uses Unicode code points, not bytes.
+    canon["sender_compact"] = canon["source_sender_label_raw"][:5]
 
     return canon
 
