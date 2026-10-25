@@ -57,13 +57,17 @@ def _manage_installation(args: argparse.Namespace) -> None:
         if resetting:
             from medre.self_upgrade import plan_adapter_reset
 
-            plan = plan_adapter_reset(installation, selections=tuple(args.packages))
+            plan = plan_adapter_reset(
+                installation,
+                selections=tuple(args.packages),
+                include_core=args.include_core,
+            )
             print(f"Tool environment: {installation.prefix}")
             for note in plan.notes:
                 print(note)
             if not plan.command:
                 return
-            print("Reset adapter sources: " + ", ".join(plan.packages))
+            print("Reset package sources: " + ", ".join(plan.packages))
             command = list(plan.command)
         elif upgrading:
             from medre.self_upgrade import plan_upgrade
@@ -112,6 +116,16 @@ def _manage_installation(args: argparse.Namespace) -> None:
         )
         result = subprocess.run(command, check=False)
         if result.returncode:
+            if resetting and not args.include_core:
+                retry = _command_example(
+                    "medre", "adapters", "reset", *args.packages, "--include-core"
+                )
+                print(
+                    "Adapter reset retained the saved core source. If uv cannot fetch "
+                    "a retired core ref, explicitly restore core to main with "
+                    f"'{retry}'. Preview it first with --dry-run.",
+                    file=sys.stderr,
+                )
             raise SystemExit(result.returncode if result.returncode > 0 else 1)
         print(
             f"{'Upgrade' if upgrading else 'Installation'} complete. Run 'medre adapters' to inspect providers, then 'medre config check --config PATH' before restarting your bridge."

@@ -20,6 +20,8 @@ from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.paths import resolve
 
+DEFAULT_CORE_SOURCE = "medre @ git+https://github.com/jeremiah-k/medre.git@main"
+
 DEFAULT_SOURCES = {
     name: f"medre-adapter-{name} @ git+https://github.com/jeremiah-k/medre-adapter-{name}.git@main"
     for name in (

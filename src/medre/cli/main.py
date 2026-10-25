@@ -314,6 +314,12 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Apply configured sources during adapter upgrades",
     )
 
+    adapters_p.add_argument(
+        "--include-core",
+        action="store_true",
+        help="With reset, also restore core to main while retaining its extras",
+    )
+
     # diagnostics
     diag_p = sub.add_parser(
         "diagnostics",
@@ -807,6 +813,8 @@ def main(argv: list[str] | None = None) -> None:
         managing = args.action in ("install", "remove")
         upgrading = args.action in ("upgrade", "update")
         resetting = args.action == "reset"
+        if args.include_core and not resetting:
+            parser.error("--include-core requires adapters reset")
         if (managing and not args.packages) or (
             args.packages and not (managing or upgrading or resetting)
         ):
