@@ -34,12 +34,17 @@ accepted part must retain a non-empty scoped handoff identifier. Completion
 means **all local handoffs accepted**, not remote RF or peer delivery.
 
 The snapshot serializes as closed JSON-compatible data; loading requires the
-outbox ID and generation from an independent authoritative outbox claim, and
+outbox ID, generation and immutable plan fingerprint from an independent
+authoritative outbox claim, and
 recomputes source fragments, wire bytes and plan digests before accepting its
 contents.
-A restored `submitting` part becomes `unknown`, blocking automatic replay. An
+`from_data` converts a restored `submitting` part to `unknown` before returning,
+blocking automatic replay and late-observation promotion. An
 `unknown` part has no automatic retry transition. Explicit reconciliation
 requires separate externally observed evidence and a future authorized API.
+The progress shape is declared in `../schemas/radio-attempt-progress.schema.json`.
+Recomputed digests establish internal consistency, not authenticity; loading MUST
+compare the independently held plan fingerprint as well as attempt identity.
 The pure transition object does not itself persist anything. **Production MUST
 atomically bind the snapshot to an outbox attempt before native submission,
 commit each in-flight transition before calling the SDK, and commit each

@@ -10,7 +10,7 @@ relation-binding authority.
 | Matrix | Qualified | Qualified | Frozen 42-direction baseline; native bridge context correlated with canonical ingress. Core #337 and Matrix #21 share the implementation. |
 | LXMF | Qualified | Implemented | LXMF #10 passed SDK/codec qualification. Independent native observation of the new complete context remains unqualified; prior native transport used TCP rather than RF. |
 | XMPP | Qualified | Qualified on native egress | Prosody TLS delivered full sender/origin claims and an exact source reference to an independent Slixmpp peer. The source was an authored canonical Matrix fixture; this is a destination vertical, not a new all-pairs campaign. |
-| Chatmail | Qualified | Native sender/origin presentation qualified in candidate adapter; full context not carried | Two independent Delta Chat core receipts through GreenMail preserve distinct per-message sender/origin names, exact bodies and an unchanged bridge contact. [Chatmail #4](https://github.com/jeremiah-k/medre-adapter-chatmail/pull/4) includes source hashes and receipts; core remains pinned to the merged adapter until that PR lands. |
+| Chatmail | Qualified | Native sender/origin presentation qualified; full context not carried | Two independent Delta Chat core receipts through GreenMail preserve distinct per-message sender/origin names, exact bodies and an unchanged bridge contact. [Chatmail #4](https://github.com/jeremiah-k/medre-adapter-chatmail/pull/4) includes source hashes and receipts; core now pins its merged revision, including display-name hardening. |
 | SimpleX Chat | Qualified | Pending adapter capability work | Frozen baseline proves readable prefixes, without proving an SDK metadata carrier for original cross-platform attribution. |
 | Meshtastic | Qualified | Not carried by the current text adapter | Physical native receipts prove compact readable attribution; no blanket claim is made about every possible protocol payload. |
 | MeshCore | Qualified | Not carried by the current text adapter | Physical native receipts distinguish the radio host header from compact original-sender attribution. |
@@ -27,7 +27,7 @@ independent observation parser. Only the disposable Prosody service was started;
 its container, network and volume were removed after evidence capture.
 
 The Chatmail vertical is retained under `/tmp/medre-chatmail-native-2026-10-25/`.
-Its candidate adapter retains sanitized receipts and exact source hashes in
+The adapter retains sanitized receipts and exact source hashes in
 `docs/evidence/native-sender-2026-10-25.json`. Only the disposable GreenMail service
 was started; its container and network were removed after the two receipts. The
 Delta Chat per-message override carries display attribution, without carrying the

@@ -13,6 +13,7 @@ from typing import Literal, Mapping
 from medre.core.rendering.radio_text import (
     MAX_RADIO_SOURCE_BYTES,
     MAX_RADIO_TEXT_PARTS,
+    RadioTextPart,
     RadioTextPlan,
     plan_radio_text,
 )
@@ -34,6 +35,7 @@ class RadioPartProgress:
     handoff_id: str | None = None
 
     def __post_init__(self) -> None:
+        """Reject malformed ordinals, states and ambiguous handoff references."""
         if (
             type(self.ordinal) is not int
             or not 1 <= self.ordinal <= MAX_RADIO_TEXT_PARTS
@@ -66,6 +68,7 @@ class RadioAttemptProgress:
     parts: tuple[RadioPartProgress, ...]
 
     def __post_init__(self) -> None:
+        """Verify the immutable wire plan and the ordered native handoff boundary."""
         if (
             not isinstance(self.outbox_id, str)
             or not self.outbox_id
@@ -76,6 +79,18 @@ class RadioAttemptProgress:
             raise ValueError("attempt generation must be positive")
         if not isinstance(self.plan, RadioTextPlan):
             raise ValueError("radio attempt requires a valid plan")
+        if (
+            type(self.plan.schema_version) is not int
+            or self.plan.schema_version != 1
+            or not isinstance(self.plan.parts, tuple)
+            or any(
+                not isinstance(part, RadioTextPart)
+                or type(part.ordinal) is not int
+                or type(part.wire_bytes) is not int
+                for part in self.plan.parts
+            )
+        ):
+            raise ValueError("radio attempt requires a typed immutable wire plan")
         # Verify that the loaded plan is exactly reproducible. No changed
         # budget, prefix, text, marker or digest can silently be adopted.
         if (
@@ -86,33 +101,33 @@ class RadioAttemptProgress:
             raise ValueError("radio attempt plan exceeds bounded source limits")
         original_text = "".join(part.body for part in self.plan.parts)
         expected = plan_radio_text(
-            original_text, max_text_bytes=self.plan.max_text_bytes,
-            prefix=self.plan.prefix, max_parts=MAX_RADIO_TEXT_PARTS,
+            original_text,
+            max_text_bytes=self.plan.max_text_bytes,
+            prefix=self.plan.prefix,
+            max_parts=MAX_RADIO_TEXT_PARTS,
         )
         if self.plan != expected:
             raise ValueError(
                 "radio attempt plan does not match source and wire digests"
             )
+        if not isinstance(self.parts, tuple) or any(
+            not isinstance(part, RadioPartProgress) for part in self.parts
+        ):
+            raise ValueError("radio progress requires immutable typed part records")
         if len(self.parts) != len(self.plan.parts):
             raise ValueError("radio attempt progress does not cover every part")
         if any(part.ordinal != i for i, part in enumerate(self.parts, 1)):
             raise ValueError("radio attempt ordinals are not contiguous")
+        # The first non-accepted record owns the boundary. Every later record
+        # must remain unsent, including when that boundary is itself unsent.
         blocked = False
         for part in self.parts:
-            if part.state == "accepted":
-                if blocked:
-                    raise ValueError("accepted radio parts must form a prefix")
-            else:
-                if part.state in {"submitting", "unknown"}:
-                    if any(
-                        after.state != "unsent" for after in self.parts[part.ordinal :]
-                    ):
-                        raise ValueError(
-                            "work cannot advance past an uncertain handoff"
-                        )
+            if blocked and part.state != "unsent":
+                raise ValueError(
+                    "accepted parts must form a prefix; later parts remain unsent"
+                )
+            if part.state != "accepted":
                 blocked = True
-        if sum(part.state in {"submitting", "unknown"} for part in self.parts) > 1:
-            raise ValueError("only one radio part may own the native handoff")
 
     @classmethod
     def bind(
@@ -120,7 +135,9 @@ class RadioAttemptProgress:
     ) -> RadioAttemptProgress:
         """Build the snapshot to commit *before* any native side effect."""
         return cls(
-            outbox_id, attempt_number, plan,
+            outbox_id,
+            attempt_number,
+            plan,
             tuple(RadioPartProgress(part.ordinal) for part in plan.parts),
         )
 
@@ -172,6 +189,7 @@ class RadioAttemptProgress:
     def _replace_part(
         self, ordinal: int, progress: RadioPartProgress
     ) -> RadioAttemptProgress:
+        """Return another validated snapshot without changing retained evidence."""
         parts = list(self.parts)
         parts[ordinal - 1] = progress
         return replace(self, parts=tuple(parts))
@@ -190,21 +208,67 @@ class RadioAttemptProgress:
 
     @classmethod
     def from_data(
-        cls, data: Mapping[str, object], *,
-        expected_outbox_id: str, expected_attempt_number: int,
+        cls,
+        data: Mapping[str, object],
+        *,
+        expected_outbox_id: str,
+        expected_attempt_number: int,
+        expected_plan_fingerprint: str,
     ) -> RadioAttemptProgress:
-        """Reload under independently held attempt identity, refusing rebinding."""
-        if not isinstance(data, Mapping) or set(data) != {
-            "schema_version", "outbox_id", "attempt_number", "plan", "parts"
-        } or type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        """Restore a trusted claim's plan and freeze interrupted native calls.
+
+        Identity, generation and plan fingerprint must come from independent
+        claim authority, never from the snapshot being loaded. Recomputed wire
+        digests validate consistency; they cannot authenticate caller content.
+        An in-flight record becomes unknown before a restored object escapes.
+        """
+        if (
+            not isinstance(expected_outbox_id, str)
+            or not expected_outbox_id
+            or len(expected_outbox_id) > 1024
+            or type(expected_attempt_number) is not int
+            or expected_attempt_number < 1
+            or not isinstance(expected_plan_fingerprint, str)
+            or len(expected_plan_fingerprint) != 64
+            or any(char not in "0123456789abcdef" for char in expected_plan_fingerprint)
+        ):
+            raise ValueError("invalid authoritative radio attempt claim")
+        if (
+            not isinstance(data, Mapping)
+            or set(data)
+            != {"schema_version", "outbox_id", "attempt_number", "plan", "parts"}
+            or type(data["schema_version"]) is not int
+            or data["schema_version"] != 1
+        ):
             raise ValueError("unknown radio progress record")
+        outbox_id = data["outbox_id"]
+        attempt_number = data["attempt_number"]
+        if not isinstance(outbox_id, str) or type(attempt_number) is not int:
+            raise ValueError("invalid retained attempt identity")
+        if outbox_id != expected_outbox_id or attempt_number != expected_attempt_number:
+            raise ValueError("retained radio evidence belongs to another attempt")
         raw_plan = data["plan"]
         raw_parts = data["parts"]
-        if not isinstance(raw_plan, Mapping) or set(raw_plan) != {
-            "max_text_bytes", "prefix", "source_sha256", "parts",
-            "fingerprint", "schema_version",
-        } or not isinstance(raw_parts, list):
+        if (
+            not isinstance(raw_plan, Mapping)
+            or set(raw_plan)
+            != {
+                "max_text_bytes",
+                "prefix",
+                "source_sha256",
+                "parts",
+                "fingerprint",
+                "schema_version",
+            }
+            or not isinstance(raw_parts, list)
+        ):
             raise ValueError("invalid radio plan or progress record")
+        if (
+            type(raw_plan["schema_version"]) is not int
+            or raw_plan["schema_version"] != 1
+            or raw_plan["fingerprint"] != expected_plan_fingerprint
+        ):
+            raise ValueError("retained plan does not match the authoritative claim")
         # Reconstruct from the original body fragments, and compare every
         # persisted field to the computed plan to detect changed snapshots.
         stored_wire_parts = raw_plan["parts"]
@@ -213,10 +277,15 @@ class RadioAttemptProgress:
             or not 1 <= len(stored_wire_parts) <= MAX_RADIO_TEXT_PARTS
         ):
             raise ValueError("invalid retained radio part count")
+        if len(raw_parts) != len(stored_wire_parts):
+            raise ValueError("radio attempt progress does not cover every part")
         if any(
-            not isinstance(part, Mapping) or set(part) != {
-                "ordinal", "body", "wire_text", "wire_bytes", "wire_sha256"
-            } for part in stored_wire_parts
+            not isinstance(part, Mapping)
+            or set(part)
+            != {"ordinal", "body", "wire_text", "wire_bytes", "wire_sha256"}
+            or type(part["ordinal"]) is not int
+            or type(part["wire_bytes"]) is not int
+            for part in stored_wire_parts
         ):
             raise ValueError("invalid retained radio part shape")
         if (
@@ -225,9 +294,8 @@ class RadioAttemptProgress:
             > MAX_RADIO_SOURCE_BYTES
         ):
             raise ValueError("invalid retained radio body")
-        if (
-            type(raw_plan["max_text_bytes"]) is not int
-            or not isinstance(raw_plan["prefix"], str)
+        if type(raw_plan["max_text_bytes"]) is not int or not isinstance(
+            raw_plan["prefix"], str
         ):
             raise ValueError("invalid retained radio budget or prefix")
         computed = plan_radio_text(
@@ -249,13 +317,4 @@ class RadioAttemptProgress:
         ):
             raise ValueError("invalid radio progress row")
         progress = tuple(RadioPartProgress(**part) for part in raw_parts)
-        outbox_id = data["outbox_id"]
-        attempt_number = data["attempt_number"]
-        if not isinstance(outbox_id, str) or type(attempt_number) is not int:
-            raise ValueError("invalid retained attempt identity")
-        if (
-            outbox_id != expected_outbox_id
-            or attempt_number != expected_attempt_number
-        ):
-            raise ValueError("retained radio evidence belongs to another attempt")
-        return cls(outbox_id, attempt_number, computed, progress)
+        return cls(outbox_id, attempt_number, computed, progress).after_restart()
