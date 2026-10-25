@@ -80,9 +80,7 @@ class TextSpan:
             raise ValueError("Only text links may carry an href")
 
 
-def select_message_body(
-    payload: Mapping[str, object], *, strict: bool = True
-) -> str:
+def select_message_body(payload: Mapping[str, object], *, strict: bool = True) -> str:
     """Select one canonical text body for every transport renderer.
 
     Styled messages bind offsets to ``body`` and must not use a stale ``text``

@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "62d9815243e9f311d263d07aad66f4c2b06b9896",
+    "ref": "914dd186a7a109f3aa91a0ca41bed40ac7383a1c",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/radio-attempt-progress.schema.json",
+  "title": "Attempt-bound radio local handoff progress",
+  "description": "Owned evidence only. Runtime enforces exact plan reconstruction, independently held claim identity/fingerprint, ordered states and restart refusal; this schema cannot authenticate native acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "outbox_id",
+    "attempt_number",
+    "plan",
+    "parts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "outbox_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "attempt_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "plan": {
+      "$ref": "radio-text-plan.schema.json"
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/part"
+      }
+    }
+  },
+  "$defs": {
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "state",
+        "handoff_id"
+      ],
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "state": {
+          "enum": [
+            "unsent",
+            "submitting",
+            "accepted",
+            "unknown"
+          ]
+        },
+        "handoff_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "accepted"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "handoff_id": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "handoff_id": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

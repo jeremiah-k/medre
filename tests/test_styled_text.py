@@ -308,14 +308,16 @@ def test_unicode_links_validate_with_format_assertions_enabled():
         ({"body": "new body", "text": "legacy alias"}, "legacy alias"),
         (
             {
-                "body": "new body", "text": "legacy alias",
+                "body": "new body",
+                "text": "legacy alias",
                 "formatting": {"version": 1, "spans": []},
             },
             "new body",
         ),
         (
             {
-                "body": "new body", "text": "legacy alias",
+                "body": "new body",
+                "text": "legacy alias",
                 "formatting": {"invalid": True},
             },
             "new body",
@@ -351,7 +353,10 @@ def test_formatting_without_authored_body_cannot_decorate_legacy_alias():
     """Span offsets must never acquire authority over a fallback text alias."""
     payload = {
         "text": "legacy",
-        "formatting": {"version": 1, "spans": [{"start": 0, "end": 3, "style": "strong"}]},
+        "formatting": {
+            "version": 1,
+            "spans": [{"start": 0, "end": 3, "style": "strong"}],
+        },
     }
     selected = StyledText.from_payload(payload)
     assert selected.body == "legacy"
