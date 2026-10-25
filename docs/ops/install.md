@@ -94,7 +94,7 @@ python -m pip install 'medre-adapter-matrix @ git+https://github.com/jeremiah-k/
 ```
 
 For an existing environment or CI artifact, use
-`python -m pip install ./dist/medre-0.1.1-py3-none-any.whl`, or a Git direct URL
+`python -m pip install ./dist/medre-0.1.0-py3-none-any.whl`, or a Git direct URL
 requirement as documented in [adapter installation](adapter-installation.md).
 Pip does not consume `uv.lock`; use a separate pinned requirements/constraints
 workflow if you need reproducibility with pip.
