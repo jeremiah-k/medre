@@ -1,6 +1,6 @@
 [project]
 name = "medre"
-version = "0.1.1"
+version = "0.1.0"
 description = "Modular event communications runtime"
 readme = "README.md"
 requires-python = ">=3.11"

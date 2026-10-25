@@ -189,7 +189,7 @@ uv run --no-sync python scripts/check_installed_package.py
 
 # Reuse a built wheel instead of building it again
 uv run --no-sync python scripts/check_installed_package.py \
-  --wheel dist/medre-0.1.1-py3-none-any.whl
+  --wheel dist/medre-0.1.0-py3-none-any.whl
 ```
 
 `uv build` uses the declared setuptools backend; it does not change the package
