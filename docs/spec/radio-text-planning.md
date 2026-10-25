@@ -23,6 +23,29 @@ prefix, source digest and ordered wire payloads. The fingerprint is a content
 identifier; it MUST NOT be treated as a native message ID or delivery evidence.
 The JSON shape is declared in `../schemas/radio-text-plan.schema.json`.
 
+## Attempt-bound progress and restart refusal
+
+`medre.core.rendering.radio_progress.RadioAttemptProgress` now supplies a pure
+versioned snapshot for binding the exact `RadioTextPlan` to one `outbox_id` and
+attempt generation. Its ordered part records distinguish `unsent`, `submitting`,
+`accepted` and `unknown`. A caller may begin only the first unsent part, and
+only after all earlier parts have confirmed local handoff evidence. Every
+accepted part must retain a non-empty scoped handoff identifier. Completion
+means **all local handoffs accepted**, not remote RF or peer delivery.
+
+The snapshot serializes as closed JSON-compatible data; loading requires the
+outbox ID and generation from an independent authoritative outbox claim, and
+recomputes source fragments, wire bytes and plan digests before accepting its
+contents.
+A restored `submitting` part becomes `unknown`, blocking automatic replay. An
+`unknown` part has no automatic retry transition. Explicit reconciliation
+requires separate externally observed evidence and a future authorized API.
+The pure transition object does not itself persist anything. **Production MUST
+atomically bind the snapshot to an outbox attempt before native submission,
+commit each in-flight transition before calling the SDK, and commit each
+observation under compare-and-swap ownership.** No sending path may infer
+acceptance merely from a snapshot supplied by an untrusted caller.
+
 ## Production integration boundary
 
 This planner does not enable splitting in production adapters. MeshCore and

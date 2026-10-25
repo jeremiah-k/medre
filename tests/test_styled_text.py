@@ -300,3 +300,59 @@ def test_unicode_links_validate_with_format_assertions_enabled():
         validator.validate(
             StyledText("link", (TextSpan(0, 4, "link", href),)).to_payload()
         )
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"body": "new body", "text": "legacy alias"}, "legacy alias"),
+        (
+            {
+                "body": "new body", "text": "legacy alias",
+                "formatting": {"version": 1, "spans": []},
+            },
+            "new body",
+        ),
+        (
+            {
+                "body": "new body", "text": "legacy alias",
+                "formatting": {"invalid": True},
+            },
+            "new body",
+        ),
+        ({"body": "only body"}, "only body"),
+        ({"text": "only text"}, "only text"),
+    ],
+)
+def test_shared_text_authority_matches_styled_and_plain_rendering(payload, expected):
+    """Text-only and styled renderers must agree on the selected source bytes."""
+    from medre.core.events.text import select_message_body
+
+    before = deepcopy(payload)
+    assert select_message_body(payload) == expected
+    assert StyledText.from_payload(payload).body == expected
+    assert payload == before
+
+
+def test_shared_text_authority_rejects_invalid_selected_value():
+    """Invalid native text cannot be stringified into unexpected wire content."""
+    from medre.core.events.text import select_message_body
+
+    with pytest.raises(ValueError, match="must be text"):
+        select_message_body({"text": 42, "body": "valid but not selected"})
+    with pytest.raises(ValueError, match="must be text"):
+        select_message_body({"body": 42, "text": "legacy"})
+    with pytest.raises(ValueError, match="must be text"):
+        StyledText.from_payload({"body": 42, "text": "legacy"})
+    assert select_message_body({"text": 42}, strict=False) == "42"
+
+
+def test_formatting_without_authored_body_cannot_decorate_legacy_alias():
+    """Span offsets must never acquire authority over a fallback text alias."""
+    payload = {
+        "text": "legacy",
+        "formatting": {"version": 1, "spans": [{"start": 0, "end": 3, "style": "strong"}]},
+    }
+    selected = StyledText.from_payload(payload)
+    assert selected.body == "legacy"
+    assert selected.spans == ()

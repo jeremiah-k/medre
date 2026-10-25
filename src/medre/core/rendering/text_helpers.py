@@ -10,6 +10,7 @@ These functions are pure and do not mutate the original event.
 from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
+from medre.core.events.text import select_message_body
 
 __all__ = [
     "extract_message_body",
@@ -84,11 +85,7 @@ def extract_message_body(event: CanonicalEvent) -> str:
     offsets are described by the optional presentation metadata. Unstyled
     legacy messages retain their established text-first behavior.
     """
-    payload = event.payload
-    body = payload.get("body")
-    if "formatting" in payload and isinstance(body, str):
-        return body
-    return str(payload.get("text", payload.get("body", "")))
+    return select_message_body(event.payload, strict=False)
 
 
 # ---------------------------------------------------------------------------
