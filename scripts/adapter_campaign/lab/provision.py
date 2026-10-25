@@ -465,7 +465,8 @@ async def provision(root: Path) -> None:
         raise RuntimeError("Native provisioning failed: " + ", ".join(failures))
 
 
-async def campaign(root: Path) -> None:
+async def campaign(root: Path, *, suite: str = "smoke") -> None:
+    """Generate independently attributed conversations and run the selected suite."""
     from ..plan import TRANSPORTS
     from .control import command
 
@@ -536,6 +537,14 @@ async def campaign(root: Path) -> None:
         names["meshtastic"] = health["meshtastic"]["peer"]["long_name"]
     if "meshcore" in selected:
         names["meshcore"] = health["meshcore"]["peer"]["name"] + " (unverified)"
+    raw_names = {
+        **names,
+        **(
+            {"meshcore": health["meshcore"]["peer"]["name"]}
+            if "meshcore" in selected
+            else {}
+        ),
+    }
     labels = {name: name.capitalize() + " lab" for name in selected}
     labels["meshtastic"] = "Radio lab"
     runtime = {"adapters": {}}
@@ -547,6 +556,17 @@ async def campaign(root: Path) -> None:
             "origin_label": labels[name],
             **fixture["runtime"],
         }
+        if suite == "baseline-v1":
+            prefix_field = {
+                "meshtastic": "radio_relay_prefix",
+                "meshcore": "meshcore_relay_prefix",
+                "lxmf": "lxmf_relay_prefix",
+            }.get(name, "relay_prefix")
+            config[prefix_field] = (
+                "{sender_compact}[{source_adapter_id}]: "
+                if name in {"meshtastic", "meshcore"}
+                else "[{sender_raw}/{origin_label}]: "
+            )
         runtime["adapters"][name] = {name: config}
         endpoint = fixture["endpoint"]
         prefixes = {}
@@ -554,7 +574,13 @@ async def campaign(root: Path) -> None:
             if source == name:
                 continue
             sender = names[source]
-            if name == "matrix":
+            if suite == "baseline-v1":
+                prefix = (
+                    f"{raw_names[source][:5]}[{source}]: "
+                    if name in {"meshtastic", "meshcore"}
+                    else f"[{raw_names[source]}/{labels[source]}]: "
+                )
+            elif name == "matrix":
                 prefix = f"[{sender}/{labels[source]}]: "
             elif name == "meshtastic":
                 prefix = (
@@ -566,6 +592,11 @@ async def campaign(root: Path) -> None:
                 prefix = f"[{labels[source]}] {sender}: "
             prefixes[source] = prefix
         endpoint["expected_prefixes"] = prefixes
+        endpoint["expected_source_attribution"] = {
+            "sender_name": raw_names[name],
+            "origin_label": labels[name],
+            "verification": "unverified" if name == "meshcore" else "unknown",
+        }
         endpoints[name] = endpoint
     (root / "runtime.yaml").write_text(yaml.safe_dump(runtime, sort_keys=False))
     (root / "campaign.yaml").write_text(
@@ -586,6 +617,10 @@ async def campaign(root: Path) -> None:
         {
             "requested": sorted(TRANSPORTS),
             "selected": sorted(selected),
+            "substrates": {
+                name: fixture.get("substrate", "native_service")
+                for name, fixture in selected.items()
+            },
             "excluded": {
                 name: health.get(
                     name, provisions.get(name, {"status": "not_configured"})
@@ -603,7 +638,7 @@ async def campaign(root: Path) -> None:
         XDG_STATE_HOME=str(profile / "state"),
         XDG_DATA_HOME=str(profile / "data"),
     )
-    output = root / "results" / ("native-" + str(time.time_ns()))
+    output = root / "results" / (suite + "-" + str(time.time_ns()))
     argv = [
         sys.executable,
         "-m",
@@ -611,6 +646,8 @@ async def campaign(root: Path) -> None:
         "--config",
         str(root / "campaign.yaml"),
         "--run",
+        "--suite",
+        suite,
         "--output",
         str(output),
     ]

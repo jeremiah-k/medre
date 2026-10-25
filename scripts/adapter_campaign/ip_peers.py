@@ -72,16 +72,26 @@ async def matrix(settings: dict) -> None:
                     .get("events", [])
                 ):
                     if event.get("type") == "m.room.message":
+                        content = event.get("content", {})
+                        bridge = content.get("medre")
+                        metadata = (
+                            bridge.get("metadata") if isinstance(bridge, dict) else None
+                        )
                         received(
                             text=event.get("content", {}).get("body", ""),
                             sender=event["sender"],
                             channel=channel,
                             native_id=event["event_id"],
                             native_details={
+                                "bridge_context": (
+                                    metadata.get("bridge_context")
+                                    if isinstance(metadata, dict)
+                                    else None
+                                ),
                                 "reply_to": event.get("content", {})
                                 .get("m.relates_to", {})
                                 .get("m.in_reply_to", {})
-                                .get("event_id")
+                                .get("event_id"),
                             },
                             formatted_body=event.get("content", {}).get(
                                 "formatted_body"

@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
             "native",
             "contracts",
             "presentation",
+            "baseline",
             "encrypted",
             "typing",
             *NATIVE_STAGES,

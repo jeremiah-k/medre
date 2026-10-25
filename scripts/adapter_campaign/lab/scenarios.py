@@ -101,6 +101,10 @@ async def run(stage: str, *, meshcore_repaired: bool = False) -> None:
         await provision(ROOT)
     elif stage == "hardware":
         await inspect_hardware(ROOT, meshcore_repaired=meshcore_repaired)
+    elif stage == "baseline":
+        from .provision import campaign
+
+        await campaign(ROOT, suite="baseline-v1")
     elif stage == "campaign":
         from .provision import campaign
 

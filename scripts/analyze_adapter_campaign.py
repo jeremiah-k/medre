@@ -5,10 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from medre.config.identifiers import adapter_id_problem
 from scripts.adapter_campaign.evidence import verify
+from scripts.adapter_campaign.baseline import (
+    SUITE,
+    text as baseline_text,
+    turns,
+    verify_bridge_context,
+)
 from scripts.adapter_campaign.plan import TRANSPORTS
+from scripts.adapter_campaign.run import native_receipt
 
 
 def summarize(report: dict) -> dict:
@@ -51,8 +59,16 @@ def summarize(report: dict) -> dict:
         )
     sources = {source for source, _ in expected}
     cases = report["cases"]
-    if len(cases) != len(sources) or {case["source"] for case in cases} != sources:
+    suite = report.get("suite", "smoke")
+    expected_turns = set(turns(sources, suite))
+    actual_turns = [(case["source"], case.get("fixture", "smoke")) for case in cases]
+    if len(actual_turns) != len(expected_turns) or set(actual_turns) != expected_turns:
         findings.append("Source cases differ from expected coverage.")
+    event_ids = [case["core"]["event"]["event_id"] for case in cases]
+    if any(not isinstance(value, str) or not value for value in event_ids) or len(
+        set(event_ids)
+    ) != len(event_ids):
+        findings.append("Source cases reuse or omit canonical event identities.")
     topology = report["native_expectations"]
     if set(topology) != endpoints or any(
         not isinstance(identity, dict)
@@ -90,6 +106,15 @@ def summarize(report: dict) -> dict:
     native_count, durable_count = 0, 0
     for case in cases:
         source = case["source"]
+        if suite == SUITE:
+            try:
+                assert case["sent_text"] == baseline_text(
+                    case["fixture"], case["marker"], topology[source]["transport"]
+                )
+            except (AssertionError, KeyError):
+                findings.append(
+                    "Authored text differs from the fixed baseline fixture."
+                )
         targets = {target for origin, target in expected if origin == source}
         receipts = case["native_receipts"]
         if set(receipts) != targets:
@@ -114,6 +139,43 @@ def summarize(report: dict) -> dict:
                 )
             else:
                 native_count += 1
+                if suite == SUITE:
+                    try:
+                        contract = report["presentation_expectations"][target]
+                        if expectation["transport"] in {"meshtastic", "meshcore"}:
+                            assert type(contract["max_text_bytes"]) is int
+                            assert contract["max_text_bytes"] >= 0
+                        native_receipt(
+                            SimpleNamespace(name=target, records=[receipt]),
+                            {
+                                "transport": expectation["transport"],
+                                "expected_sender": expectation["receipt_sender"],
+                                "channel": expectation["source_channel"],
+                                "peer": {"channel": expectation["receipt_channel"]},
+                                "expected_prefixes": contract["prefixes"],
+                            },
+                            case["marker"],
+                            source=source,
+                            message=baseline_text(
+                                case["fixture"],
+                                case["marker"],
+                                topology[source]["transport"],
+                            ),
+                            max_text_bytes=contract["max_text_bytes"],
+                        )
+                        assert source in contract["prefixes"]
+                        if expectation["transport"] == "matrix":
+                            verify_bridge_context(
+                                receipt,
+                                case["core"]["event"],
+                                source,
+                                topology[source]["transport"],
+                                report["expected_source_attribution"][source],
+                            )
+                    except (AssertionError, KeyError, TypeError):
+                        findings.append(
+                            "Native baseline presentation differs from its contract."
+                        )
         item = case["core"]
         destinations = {
             target: topology[target]["source_channel"] for target in targets
@@ -124,6 +186,10 @@ def summarize(report: dict) -> dict:
                 "body", item["event"]["payload"].get("text", "")
             )
             assert isinstance(body, str) and body.count(case["marker"]) == 1
+            if suite == SUITE:
+                assert body == baseline_text(
+                    case["fixture"], case["marker"], topology[source]["transport"]
+                )
             verify(
                 item,
                 source=source,

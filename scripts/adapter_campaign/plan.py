@@ -83,7 +83,9 @@ def load_plan(path: Path, only: set[str] | None = None) -> Plan:
         if (
             not isinstance(endpoint, dict)
             or not required <= set(endpoint)
-            or set(endpoint) - required - {"expected_prefixes"}
+            or set(endpoint)
+            - required
+            - {"expected_prefixes", "expected_source_attribution"}
         ):
             raise PlanError(
                 f"{name}: require transport, channel, expected_sender, peer"

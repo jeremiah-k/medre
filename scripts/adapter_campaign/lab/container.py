@@ -213,6 +213,7 @@ def contracts() -> None:
 
 
 def main() -> int:
+    """Execute one bounded stage and retain its private outcome evidence."""
     if not __debug__:
         print("Qualification requires enabled assertions")
         return 1

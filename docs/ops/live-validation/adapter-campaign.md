@@ -1,5 +1,31 @@
 # Cross-adapter message campaign
 
+For a uniform basic rendering baseline, use `--suite baseline-v1` with the
+campaign runner, or `--stage baseline` with the Docker lab controller. It sends
+Unicode, multiline spacing, literal HTML characters and byte-budget fixtures
+through each selected source's fanout while keeping the native owners alive.
+Five Docker transports produce 20 directed pairs and 80 independent receipts;
+all seven transports produce 42 pairs and 168 receipts. The LXMF Docker fixture
+uses TCP and does not qualify RF delivery.
+
+Each baseline endpoint additionally declares independently expected source
+claims (the Docker provisioner supplies these):
+
+```yaml
+expected_source_attribution:
+  sender_name: MeshCorePeer
+  origin_label: MeshCore lab
+  verification: unverified
+```
+
+Matrix destination witnesses check these raw claims and the scoped source
+reference inside the actual received bridge context, as well as visible text.
+The uniform profile uses `[{sender_raw}/{origin_label}]: ` for chat transports
+and `{sender_compact}[{source_adapter_id}]: ` for Meshtastic and MeshCore.
+The ordinary smoke campaign retains provider defaults. Radio qualification is
+an [explicit separate stage](hardware-qualification.md), with a persistent
+MeshCore pause after a communication failure.
+
 Use the native campaign to pass messages from every adapter through MEDRE to
 independent peers on every other adapter. The default topology includes Matrix,
 Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat: seven source sends exercise all 42
