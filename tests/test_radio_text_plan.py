@@ -109,6 +109,12 @@ def test_multibyte_prefix_counts_against_the_same_budget_as_body():
         plan_radio_text("😀😀😀", prefix="雪: ", max_text_bytes=13)
 
 
+def test_prefix_limit_counts_utf8_bytes_independently_of_the_wire_budget():
+    """A large wire allowance cannot admit more than one MiB of prefix bytes."""
+    with pytest.raises(ValueError, match="prefix exceeds one MiB"):
+        plan_radio_text("x", prefix="😀" * 262_145, max_text_bytes=2_097_152)
+
+
 @pytest.mark.parametrize(
     "text,kwargs",
     [

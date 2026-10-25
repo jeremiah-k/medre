@@ -14,7 +14,8 @@ when possible. Oversized words MAY split at Unicode code-point boundaries;
 grapheme clusters are not guaranteed indivisible. Encoded UTF-8 sequences MUST
 NOT split. Marker digit growth MUST trigger replanning. An unusable budget or
 exceeded part limit MUST reject the complete plan rather than truncate text or
-return a partial plan. Input is bounded to one MiB and at most 128 parts.
+return a partial plan. Source text and attribution prefix are each bounded to
+one MiB of UTF-8, independently of the wire budget, with at most 128 parts.
 
 The versioned plan records each part's ordinal, body, exact wire text, byte
 length and SHA-256 digest. Its fingerprint covers the version, effective budget,
