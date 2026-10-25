@@ -196,7 +196,7 @@ def summarize(report: dict) -> dict:
                 channel=topology[source]["source_channel"],
                 targets=destinations,
             )
-        except AssertionError:
+        except (AssertionError, KeyError, TypeError):
             findings.append("Durable source or delivery provenance is inconsistent.")
         else:
             durable_count += 1

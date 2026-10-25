@@ -19,6 +19,7 @@ def native_ble(monkeypatch):
     client = SimpleNamespace(
         connect=AsyncMock(return_value="test-board"),
         disconnect=AsyncMock(),
+        self_info={"name": "peer"},
         commands=SimpleNamespace(
             send_appstart=AsyncMock(
                 return_value=SimpleNamespace(type="self_info", payload={"name": "peer"})
@@ -121,7 +122,11 @@ async def test_hardware_cleanup_failure_does_not_qualify_pair(native_ble, tmp_pa
         (tmp_path / name).mkdir()
     native_ble.client.disconnect.side_effect = RuntimeError("cleanup failed")
     report = await inspect_hardware(tmp_path)
-    assert all(
-        report["meshcore"][role]["status"] == "unavailable"
-        for role in ("gateway", "peer")
-    )
+    assert report["meshcore"]["gateway"]["status"] == "unavailable"
+    assert report["meshcore"]["peer"] == {
+        "status": "not_attempted",
+        "reason": "re_pair_required",
+    }
+    native_ble.client.commands.get_time.assert_awaited_once()
+    native_ble.client.disconnect.assert_awaited_once()
+    assert (tmp_path / "results/meshcore-paused.json").is_file()
