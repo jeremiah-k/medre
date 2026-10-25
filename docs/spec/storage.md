@@ -1282,11 +1282,13 @@ plan MUST remain immutable after binding. Only part progress, revision and
 `updated_at` MAY change. The revision MUST equal committed part transitions:
 zero per unsent part, one per submitting part, two per accepted or unknown part.
 
-Every writer MUST check the full current outbox claim, its effective attempt
-(`active_attempt` when present), its exact worker (including an explicit NULL
-worker), and absence of an equal or newer sibling generation. Claim checking and
-writing MUST share one `BEGIN IMMEDIATE` transaction on the storage owner's
-connection, executor and lock. This API MUST NOT renew a lease, allocate an
+Every writer MUST require an `in_progress` outbox row with an unexpired lease
+(if set), check its effective attempt (`active_attempt` when present), its exact
+worker (including an explicit NULL worker), and absence of an equal or newer
+sibling generation. Once the parent advances to `queued` and releases its
+worker claim, it MUST NOT authorize another radio part submission. Claim
+checking and writing MUST share one `BEGIN IMMEDIATE` transaction on the
+storage owner's connection, executor and lock. This API MUST NOT renew a lease, allocate an
 attempt, append a receipt, or change parent outbox state. Corrupt retained
 progress MUST raise `StorageError` before granting native work.
 

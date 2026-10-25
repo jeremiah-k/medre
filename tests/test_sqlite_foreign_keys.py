@@ -182,6 +182,10 @@ async def test_existing_outbox_without_fk_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute("PRAGMA foreign_keys=OFF")
+        # This fixture modifies only the outbox FK. Without legacy rename mode,
+        # SQLite also rewrites the new radio table's FK to the temporary name,
+        # producing an unrelated schema mismatch before the intended assertion.
+        conn.execute("PRAGMA legacy_alter_table=ON")
         conn.execute("ALTER TABLE delivery_outbox RENAME TO delivery_outbox_current")
         original_sql = conn.execute(
             "SELECT sql FROM sqlite_master "

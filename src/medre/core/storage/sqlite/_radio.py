@@ -80,11 +80,16 @@ def _owns(
     claim: DeliveryAttemptProvenance,
     worker_id: str | None,
 ) -> bool:
-    """Check current claim identity and reject superseded sibling generations."""
+    """Require an active, unexpired dispatch claim and fence newer generations.
+
+    Once the parent enters queued it has relinquished its worker reservation;
+    a checkpoint must never resurrect native submission authority from that row.
+    """
     row = db.execute(
         """SELECT * FROM delivery_outbox AS current
            WHERE outbox_id = ? AND worker_id IS ?
-             AND status IN ('in_progress', 'queued')
+             AND status = 'in_progress'
+             AND (lease_until IS NULL OR lease_until > ?)
              AND COALESCE(active_attempt, attempt_number) = ?
              AND NOT EXISTS (
                  SELECT 1 FROM delivery_outbox AS sibling
@@ -95,7 +100,13 @@ def _owns(
                     AND COALESCE(sibling.target_channel, '') = COALESCE(current.target_channel, '')
                     AND COALESCE(sibling.active_attempt, sibling.attempt_number) >= ?
              )""",
-        (claim.outbox_id, worker_id, claim.attempt_number, claim.attempt_number),
+        (
+            claim.outbox_id,
+            worker_id,
+            _now_iso(),
+            claim.attempt_number,
+            claim.attempt_number,
+        ),
     ).fetchone()
     return row is not None and (
         row["event_id"],
