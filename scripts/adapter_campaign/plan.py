@@ -57,6 +57,12 @@ def _seconds(value, name: str, minimum: float) -> float:
 
 
 def load_plan(path: Path, only: set[str] | None = None) -> Plan:
+    """Validate an explicit native topology and independently authored expectations.
+
+    Partial transport sets require an explicit selection. New context properties
+    are opt-in and limited to peers that actually observe their native carrier;
+    they cannot silently broaden the frozen baseline's evidence claims.
+    """
     data = parse_yaml_config(path.read_text(), str(path))
     if (
         set(data)
