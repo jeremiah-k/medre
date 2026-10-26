@@ -38,6 +38,7 @@ from medre.config.model import (
 )
 from medre.config.paths import MedrePaths, MedrePathsError
 from medre.core.contracts.adapter import AdapterContract
+from medre.core.contracts.typing import TypingSender
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.events.bus import EventBus
@@ -53,7 +54,6 @@ from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
 from medre.runtime.errors import RuntimeConfigError
-from medre.core.contracts.typing import TypingSender
 from medre.runtime.typing import TypingRelay
 
 if TYPE_CHECKING:

@@ -54,7 +54,6 @@ from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.retry import RetryWorkerState
 
 if TYPE_CHECKING:
-    from medre.runtime.typing import TypingRelay
     from medre.config.model import RuntimeConfig
     from medre.config.paths import MedrePaths
     from medre.core.contracts.adapter import AdapterContract
@@ -73,6 +72,7 @@ if TYPE_CHECKING:
     from medre.runtime.builder import AdapterBuildFailure
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
+    from medre.runtime.typing import TypingRelay
 
 __all__ = ["MedreApp", "RuntimeState", "StartupScope"]
 

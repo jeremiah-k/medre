@@ -7,9 +7,9 @@ import pytest
 from scripts.adapter_campaign.encrypted_evidence import (
     CASES,
     PREFIX,
+    assert_no_crypto,
     example,
     verify_case,
-    assert_no_crypto,
 )
 
 NONCE = "ME-0123456789ab-"

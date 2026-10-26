@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 
-
 import pytest
 
 from scripts.adapter_campaign.baseline import (

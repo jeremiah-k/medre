@@ -5,9 +5,16 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "adapters": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-    "sdk": {"type": "boolean"},
-    "sources": {"type": "string", "minLength": 1},
-    "editable": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}}
+    "adapters": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "sdk": { "type": "boolean" },
+    "sources": { "type": "string", "minLength": 1 },
+    "editable": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
   }
 }

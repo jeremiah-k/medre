@@ -18,16 +18,10 @@
       "maximum": 128
     },
     "native_message_id": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "native_channel_id": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "confirmation_level": {
       "enum": [
@@ -41,10 +35,7 @@
     "origin": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "outbox_id",
-        "attempt_number"
-      ],
+      "required": ["outbox_id", "attempt_number"],
       "description": "Original accepting radio-attempt row; continuation preserves this origin rather than claiming a new native call. Absent on a local reference in its original attempt.",
       "properties": {
         "outbox_id": {

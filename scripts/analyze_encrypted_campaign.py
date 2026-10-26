@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
-
 from scripts.adapter_campaign.encrypted_evidence import CASES, example, verify_case
 from scripts.adapter_campaign.lab.log_review import analyze as analyze_log
 from scripts.adapter_campaign.recovery import read_event

@@ -53,12 +53,12 @@ the complete walkthrough and live setup.
 
 ## Providers
 
-| Adapter | Transport | Setup |
-| --- | --- | --- |
-| [Matrix](https://github.com/jeremiah-k/medre-adapter-matrix) | Accounts, rooms, optional E2EE | [Guide](docs/ops/transport-setup/matrix.md) |
-| [Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Radio nodes and channels | [Guide](docs/ops/transport-setup/meshtastic.md) |
-| [MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore) | Companion nodes, contacts and channels | [Guide](docs/ops/transport-setup/meshcore.md) |
-| [LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf) | Reticulum identities and destinations | [Guide](docs/ops/transport-setup/lxmf.md) |
+| Adapter                                                              | Transport                              | Setup                                           |
+| -------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| [Matrix](https://github.com/jeremiah-k/medre-adapter-matrix)         | Accounts, rooms, optional E2EE         | [Guide](docs/ops/transport-setup/matrix.md)     |
+| [Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Radio nodes and channels               | [Guide](docs/ops/transport-setup/meshtastic.md) |
+| [MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore)     | Companion nodes, contacts and channels | [Guide](docs/ops/transport-setup/meshcore.md)   |
+| [LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf)             | Reticulum identities and destinations  | [Guide](docs/ops/transport-setup/lxmf.md)       |
 
 Install only the providers you need. Community adapters can implement the same
 entry-point contracts; runtime startup never downloads packages. See
@@ -67,12 +67,12 @@ and [adapter sources](docs/ops/adapter-installation.md) for pinned projects.
 
 ## Documentation
 
-| Start here | For |
-| --- | --- |
-| [Getting Started](docs/ops/getting-started.md) | Install, smoke, guided bridge, native connections |
-| [Operator guides](docs/ops/README.md) | Package management, running, evidence, recovery, troubleshooting |
-| [Developer guides](docs/dev/README.md) | Contributing, testing, authoring adapters |
-| [Technical specification](docs/spec/README.md) | Normative contracts and supported guarantees |
+| Start here                                     | For                                                              |
+| ---------------------------------------------- | ---------------------------------------------------------------- |
+| [Getting Started](docs/ops/getting-started.md) | Install, smoke, guided bridge, native connections                |
+| [Operator guides](docs/ops/README.md)          | Package management, running, evidence, recovery, troubleshooting |
+| [Developer guides](docs/dev/README.md)         | Contributing, testing, authoring adapters                        |
+| [Technical specification](docs/spec/README.md) | Normative contracts and supported guarantees                     |
 
 New operators can optionally use [AI-assisted setup](docs/ops/ai-assisted-setup.md).
 Real-world testing and reproducible, sanitized bug reports are welcome—never

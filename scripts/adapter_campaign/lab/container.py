@@ -11,8 +11,8 @@ import sys
 import time
 from pathlib import Path
 
-from .sources import write_json
 from .budgets import PROVIDER_CONTRACT_SECONDS
+from .sources import write_json
 
 ROOT = Path("/lab")
 

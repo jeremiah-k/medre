@@ -16,11 +16,9 @@ from medre.runtime.builder import RuntimeBuilder
 
 from .baseline import (
     SUITE,
-    text as baseline_text,
-    turns,
-    validate_attributions,
-    verify_bridge_context,
 )
+from .baseline import text as baseline_text
+from .baseline import turns, validate_attributions, verify_bridge_context
 from .evidence import snapshots, verify, wait_evidence
 from .plan import Plan, runtime_config
 from .process import Peer

@@ -12,13 +12,13 @@ SDK is included in core; adapters are separately installable distributions.
 
 ## Which installation method?
 
-| Goal                                           | Use                                                                         | Repeatability                                      |
-| ---------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
+| Goal                                           | Use                                                                           | Repeatability                                      |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------- |
 | Operate a bridge                               | [Locked uv deployment project](getting-started.md#set-up-a-locked-deployment) | Pin Git commits and commit `uv.lock`               |
-| Keep a short `medre` command without a project | `uv tool install` below                                                     | Explicit Git revisions, but no deployment lockfile |
-| Try help or version once                       | `uvx --from ... medre version`                                              | Temporary isolated tool environment                |
-| Develop MEDRE                                  | Editable source checkout below                                              | Core `uv.lock`                                     |
-| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement                              | Depends on your requirements lock                  |
+| Keep a short `medre` command without a project | `uv tool install` below                                                       | Explicit Git revisions, but no deployment lockfile |
+| Try help or version once                       | `uvx --from ... medre version`                                                | Temporary isolated tool environment                |
+| Develop MEDRE                                  | Editable source checkout below                                                | Core `uv.lock`                                     |
+| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement                                | Depends on your requirements lock                  |
 
 Adapters install from **Git, local paths, or package indexes**; no PyPI
 publication is required. See [adapter installation](adapter-installation.md)

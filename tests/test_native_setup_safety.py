@@ -1,9 +1,9 @@
 """Failure contracts for provider prompts and bounded route revision."""
 
 import io
+import warnings
 from argparse import Namespace
 from dataclasses import replace
-import warnings
 from unittest.mock import patch
 
 import pytest

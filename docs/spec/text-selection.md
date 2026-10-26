@@ -11,7 +11,7 @@ renderers MUST use the same selection. Plaintext providers MUST reject a
 selected non-string instead of stringifying it into native wire content; the
 legacy generic rendering helper may continue coercing text for backwards
 compatibility. The selector MUST NOT change source events, insert formatting,
-or decide native relation authority. Relation fallback is applied *after*
+or decide native relation authority. Relation fallback is applied _after_
 selection, and provider budgets and prefixes remain transport-owned.
 
 Production MeshCore/Meshtastic output remains bounded by the currently

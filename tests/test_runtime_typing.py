@@ -5,8 +5,8 @@ import asyncio
 import pytest
 
 from medre.config.errors import ConfigValidationError
-from medre.config.routes import RouteConfig
 from medre.config.route_expansion import expand_route_config
+from medre.config.routes import RouteConfig
 from medre.core.contracts.typing import TypingActivity
 from medre.core.policies.route_policy import RoutePolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
@@ -235,6 +235,7 @@ def test_schema_and_model_agree_on_explicit_typing_scopes(schema_name, definitio
     """All schema copies reject wildcard activity and accept concrete mapping forms."""
     import json
     from pathlib import Path
+
     from jsonschema import Draft202012Validator
 
     schema = json.loads(

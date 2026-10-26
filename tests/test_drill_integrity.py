@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+
 from medre import adapter_registry
 from medre.adapter_registry import AdapterTypeRegistry
 from medre.adapter_spec import SymbolRef

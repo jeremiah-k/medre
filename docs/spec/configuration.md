@@ -52,11 +52,11 @@ changing the root config model.
 
 ### 2.1 RuntimeOptions
 
-| Field                      | Default   | Description               |
-| -------------------------- | --------- | ------------------------- |
-| `name`                     | `"medre"` | Runtime name              |
-| `adapter_start_timeout_seconds` | `60` | Finite positive per-adapter cooperative startup deadline (seconds) |
-| `shutdown_timeout_seconds` | `10`      | Graceful shutdown timeout |
+| Field                           | Default   | Description                                                        |
+| ------------------------------- | --------- | ------------------------------------------------------------------ |
+| `name`                          | `"medre"` | Runtime name                                                       |
+| `adapter_start_timeout_seconds` | `60`      | Finite positive per-adapter cooperative startup deadline (seconds) |
+| `shutdown_timeout_seconds`      | `10`      | Graceful shutdown timeout                                          |
 
 ### 2.2 LoggingConfig
 

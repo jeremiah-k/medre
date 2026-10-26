@@ -1,11 +1,11 @@
 """Native activity evidence cannot borrow identity or count runtime claims."""
 
-from copy import deepcopy
-from contextlib import closing
 import io
 import json
 import sqlite3
 import sys
+from contextlib import closing
+from copy import deepcopy
 from unittest.mock import AsyncMock
 
 import pytest

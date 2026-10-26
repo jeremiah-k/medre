@@ -23,8 +23,9 @@ async def test_inspection_preserves_inflight_checkpoint_and_validates_report(
     tmp_path, capsys
 ):
     """An operator sees the exact plan and current parent without any database writes."""
-    import jsonschema
     from pathlib import Path
+
+    import jsonschema
     from referencing import Registry, Resource
 
     path = tmp_path / "inspect.db"

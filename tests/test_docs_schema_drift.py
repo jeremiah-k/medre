@@ -335,6 +335,7 @@ def test_mirror_audit_preserves_property_names_and_default_data(
 def test_radio_multipart_schema_matches_merged_provider_bounds(platform: str) -> None:
     """Each qualified radio part cap agrees with its provider and published example."""
     from jsonschema import Draft202012Validator
+
     from medre.config.adapters.meshcore import MeshCoreConfig
     from medre.config.adapters.meshtastic import MeshtasticConfig
 

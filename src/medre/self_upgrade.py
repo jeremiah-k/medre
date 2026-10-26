@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 from medre.tool_management import (
-    DEFAULT_CORE_SOURCE,
-    DEFAULT_SOURCES,
     _REQUIREMENT,
     _SELECTION,
+    DEFAULT_CORE_SOURCE,
+    DEFAULT_SOURCES,
     SourceCatalog,
     ToolInstallation,
     ToolManagementError,

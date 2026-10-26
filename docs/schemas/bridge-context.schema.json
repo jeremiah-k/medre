@@ -7,11 +7,7 @@
     "BridgeContext": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "schema_version",
-        "source",
-        "relations"
-      ],
+      "required": ["schema_version", "source", "relations"],
       "properties": {
         "schema_version": {
           "const": 1
@@ -45,10 +41,7 @@
           "maxLength": 1024
         },
         "platform": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "canonical_event_id": {
@@ -57,45 +50,27 @@
           "maxLength": 1024
         },
         "channel": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "sender_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "sender_name": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "sender_short_name": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "sender_verification": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "origin_label": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "native_ref": {
@@ -126,17 +101,11 @@
           "maxLength": 1024
         },
         "target_event_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "key": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "target_native_ref": {
@@ -167,10 +136,7 @@
           "maxLength": 1024
         },
         "native_channel_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         },
         "native_message_id": {
@@ -179,10 +145,7 @@
           "maxLength": 1024
         },
         "native_thread_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "maxLength": 1024
         }
       }

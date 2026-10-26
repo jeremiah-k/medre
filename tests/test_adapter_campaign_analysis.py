@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from scripts.analyze_adapter_campaign import main, summarize
-
 from tests.helpers.campaign_evidence import report
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

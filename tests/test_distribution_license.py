@@ -1,7 +1,7 @@
 """Package licensing metadata is independent of optional transport SDKs."""
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 

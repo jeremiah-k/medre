@@ -31,7 +31,6 @@ and compact sender/source-instance prefixes on Meshtastic and MeshCore. Radio
 host identity remains a separate native header. This profile does not change
 production defaults; smoke qualification retains the default rendering profile.
 
-
 A targeted XMPP endpoint MAY set `expect_bridge_context: true`. The runner MUST
 retain that expectation separately from delivery rows, capture context from the
 independent Slixmpp peer's actual XML stanza, and compare its source claims and

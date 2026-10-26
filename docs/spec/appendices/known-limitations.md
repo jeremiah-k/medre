@@ -16,19 +16,19 @@ behaviour.
 This index was checked against the **2026-10-18 05:25** six-repository stack.
 These are repository-relative paths, not files in the MEDRE core checkout:
 
-| Repository | Inspected commit |
-| --- | --- |
-| `medre` | `a63b31dbb250984011e5c475f554c03a933dbabf` |
-| `medre-adapter-matrix` | `4dd48892b30bca8b8d1b271591a1e1c22a4e3577` |
+| Repository                 | Inspected commit                           |
+| -------------------------- | ------------------------------------------ |
+| `medre`                    | `a63b31dbb250984011e5c475f554c03a933dbabf` |
+| `medre-adapter-matrix`     | `4dd48892b30bca8b8d1b271591a1e1c22a4e3577` |
 | `medre-adapter-meshtastic` | `f3925afb238e257ecd75d66e40041264edc67da8` |
-| `medre-adapter-meshcore` | `b326a233bb3d51e4168f48713da6c73ad4868d76` |
-| `medre-adapter-lxmf` | `24f8873e03c83dc9546b3e2216b10456afa14e0a` |
-| `medre-adapter-xmpp` | `28aab6b5140d4f16bc3b2d39648344324cdd0980` |
+| `medre-adapter-meshcore`   | `b326a233bb3d51e4168f48713da6c73ad4868d76` |
+| `medre-adapter-lxmf`       | `24f8873e03c83dc9546b3e2216b10456afa14e0a` |
+| `medre-adapter-xmpp`       | `28aab6b5140d4f16bc3b2d39648344324cdd0980` |
 
 Core-owned test references use `tests/...`; provider-owned references name the
 repository explicitly. A **test path records where a claim is exercised**, not
 proof it passed on these five commits. Historical pass counts and hardware
-observations below are dated evidence, *not* an automatic current-tree native
+observations below are dated evidence, _not_ an automatic current-tree native
 qualification. Re-run the relevant opt-in tiers with the exact provider pins
 and record environment, SDK revisions, and raw evidence for a new claim.
 

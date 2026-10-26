@@ -10,13 +10,11 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fakes.presentation import (
-    FakePresentationAdapter,
     _MAX_FAKE_HISTORY as _PRESENTATION_HISTORY_CAP,
 )
-from medre.adapters.fakes.transport import (
-    FakeTransportAdapter,
-    _MAX_FAKE_HISTORY as _TRANSPORT_HISTORY_CAP,
-)
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.adapters.fakes.transport import _MAX_FAKE_HISTORY as _TRANSPORT_HISTORY_CAP
+from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import (
     AdapterInfo,
     AdapterRole,

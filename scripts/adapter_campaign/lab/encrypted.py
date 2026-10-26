@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 import yaml
@@ -151,8 +151,9 @@ async def provision(root: Path, directory: Path) -> dict:
 
 async def run(root: Path) -> None:
     """Qualify real encrypted traffic, restart persistence, and offline evidence."""
-    from ..encrypted import run as campaign
     from scripts.analyze_encrypted_campaign import analyze
+
+    from ..encrypted import run as campaign
 
     directory = root / "results" / ("encrypted-" + str(time.time_ns()))
     directory.mkdir(mode=0o700)

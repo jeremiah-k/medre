@@ -68,6 +68,7 @@ snapshot after syncing core, and do not sync an environment while tests run in i
    Both branch/tag refs and SHAs belonging only to unmerged branches are rejected.
    The **Merged adapter compatibility pins** CI job runs this on the committed
    manifest, alongside the existing core, provider, SDK, and integration jobs.
+
 5. Merge core only after its final revision passes every gate. Re-run adapter
    default-branch workflows against the new core default to verify the resulting
    consumer state. Keep hardware/live/soak qualification explicit.

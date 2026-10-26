@@ -17,8 +17,8 @@ from medre.core.observability.sanitization import sanitize_error, sanitize_for_l
 from medre.runtime.summaries import (
     format_duration_ms,
     shutdown_summary,
-    startup_summary,
     startup_route_summary,
+    startup_summary,
 )
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP

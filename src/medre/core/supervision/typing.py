@@ -7,10 +7,10 @@ as best-effort desired state, independently of message delivery authority.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 import math
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from medre.core.contracts.typing import (
     MAX_TYPING_SECONDS,

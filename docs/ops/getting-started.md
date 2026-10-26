@@ -103,12 +103,12 @@ noninteractive use, source contexts, and existing native connections.
 Use the transport-specific setup instructions for credentials, identity
 storage, device permissions, encryption, and native context formats:
 
-| Provider | Configure | Conversation example |
-| --- | --- | --- |
-| [Matrix](transport-setup/matrix.md) | Account, room membership, optional E2EE | Room ID `!room:server` (not a `#` alias) |
-| [Meshtastic](transport-setup/meshtastic.md) | Node connection and RF provisioning | Channel index `0` |
-| [MeshCore](transport-setup/meshcore.md) | Companion connection, contacts and channels | Provider-declared contact or channel |
-| [LXMF](transport-setup/lxmf.md) | Reticulum identity, RNS configuration and destination | Native LXMF destination |
+| Provider                                    | Configure                                             | Conversation example                     |
+| ------------------------------------------- | ----------------------------------------------------- | ---------------------------------------- |
+| [Matrix](transport-setup/matrix.md)         | Account, room membership, optional E2EE               | Room ID `!room:server` (not a `#` alias) |
+| [Meshtastic](transport-setup/meshtastic.md) | Node connection and RF provisioning                   | Channel index `0`                        |
+| [MeshCore](transport-setup/meshcore.md)     | Companion connection, contacts and channels           | Provider-declared contact or channel     |
+| [LXMF](transport-setup/lxmf.md)             | Reticulum identity, RNS configuration and destination | Native LXMF destination                  |
 
 Create native instances through the provider-declared interactive setup (Matrix,
 Meshtastic, or MeshCore), or follow the individual transport guides for manual

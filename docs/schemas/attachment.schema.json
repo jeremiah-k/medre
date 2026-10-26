@@ -5,74 +5,43 @@
   "description": "Canonical primary attachment metadata. Retained content references and unavailable reasons are mutually exclusive. Native locators, keys, and bytes are excluded.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "kind"
-  ],
+  "required": ["kind"],
   "properties": {
     "kind": {
       "type": "string",
-      "enum": [
-        "audio",
-        "file",
-        "image",
-        "video"
-      ]
+      "enum": ["audio", "file", "image", "video"]
     },
     "filename": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "minLength": 1
     },
     "mime_type": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "minLength": 1
     },
     "size_bytes": {
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "width": {
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "height": {
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "duration_ms": {
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": ["integer", "null"],
       "minimum": 0
     },
     "content_ref": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "pattern": "^sha256:[0-9a-f]{64}$",
       "maxLength": 71
     },
     "unavailable_reason": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "enum": [
         null,
         "content_missing",
@@ -90,9 +59,7 @@
   },
   "oneOf": [
     {
-      "required": [
-        "content_ref"
-      ],
+      "required": ["content_ref"],
       "properties": {
         "content_ref": {
           "type": "string"
@@ -103,9 +70,7 @@
       }
     },
     {
-      "required": [
-        "unavailable_reason"
-      ],
+      "required": ["unavailable_reason"],
       "properties": {
         "unavailable_reason": {
           "type": "string"
@@ -121,59 +86,34 @@
       "description": "Retention-pending adapter input only; not a persisted descriptor.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
+      "required": ["kind"],
       "properties": {
         "kind": {
           "type": "string",
-          "enum": [
-            "audio",
-            "file",
-            "image",
-            "video"
-          ]
+          "enum": ["audio", "file", "image", "video"]
         },
         "filename": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "minLength": 1
         },
         "mime_type": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "minLength": 1
         },
         "size_bytes": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "width": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "height": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "duration_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         }
       }

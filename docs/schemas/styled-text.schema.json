@@ -5,9 +5,7 @@
   "description": "Optional bounded presentation over authoritative body text. Body-relative ranges, nesting, line boundaries and allowed link schemes are validated by StyledText.",
   "type": "object",
   "additionalProperties": true,
-  "required": [
-    "body"
-  ],
+  "required": ["body"],
   "properties": {
     "body": {
       "type": "string"
@@ -15,10 +13,7 @@
     "formatting": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "version",
-        "spans"
-      ],
+      "required": ["version", "spans"],
       "properties": {
         "version": {
           "type": "integer",
@@ -38,11 +33,7 @@
     "TextSpan": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "start",
-        "end",
-        "style"
-      ],
+      "required": ["start", "end", "style"],
       "properties": {
         "start": {
           "type": "integer",
@@ -80,15 +71,11 @@
             }
           },
           "then": {
-            "required": [
-              "href"
-            ]
+            "required": ["href"]
           },
           "else": {
             "not": {
-              "required": [
-                "href"
-              ]
+              "required": ["href"]
             }
           }
         }
@@ -98,14 +85,10 @@
   "allOf": [
     {
       "if": {
-        "required": [
-          "formatting"
-        ],
+        "required": ["formatting"],
         "properties": {
           "formatting": {
-            "required": [
-              "spans"
-            ],
+            "required": ["spans"],
             "properties": {
               "spans": {
                 "minItems": 1

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 import yaml
@@ -17,6 +17,7 @@ from .sources import write_json
 async def provision(root: Path, directory: Path) -> Path:
     """Use isolated password accounts; OAuth and crypto retain separate tiers."""
     import aiohttp
+
     from .provision import xmpp
 
     accounts = json.loads((root / "config/accounts.json").read_text())

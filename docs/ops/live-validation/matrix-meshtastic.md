@@ -12,14 +12,14 @@ your current core, adapter commits, SDKs, and endpoints.
 
 ## Prerequisites
 
-| Requirement        | Details                                                                                        |
-| ------------------ | ---------------------------------------------------------------------------------------------- |
-| Matrix homeserver  | Synapse or Conduit reachable over the network (localhost is fine)                              |
-| Matrix bot account | Dedicated user, not your personal account                                                      |
-| Meshtastic radio   | Connected via USB-serial (`/dev/ttyACM0` typical)                                              |
-| Python             | 3.11 or later                                                                                  |
+| Requirement        | Details                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| Matrix homeserver  | Synapse or Conduit reachable over the network (localhost is fine)                      |
+| Matrix bot account | Dedicated user, not your personal account                                              |
+| Meshtastic radio   | Connected via USB-serial (`/dev/ttyACM0` typical)                                      |
+| Python             | 3.11 or later                                                                          |
 | Package install    | Install matrix, meshtastic in the MEDRE environment; see [installation](../install.md) |
-| Serial port access | User must have read/write on the tty device (e.g. `dialout` group on Linux)                    |
+| Serial port access | User must have read/write on the tty device (e.g. `dialout` group on Linux)            |
 
 After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI
 steps below. For built-package installations, see [installation](../install.md).

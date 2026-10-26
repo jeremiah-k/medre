@@ -33,8 +33,8 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `queue_max_size`                    | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |
 | `queue_warning_threshold_pct`       | `float`                                | `75.0`               | Advisory queue-pressure threshold                                 |
 | `queue_critical_threshold_pct`      | `float`                                | `90.0`               | Health-degrading queue-pressure threshold                         |
-| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`                | Initial session-level reconnect delay                             |
-| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`               | Maximum session-level reconnect delay                             |
+| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`               | Initial session-level reconnect delay                             |
+| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`              | Maximum session-level reconnect delay                             |
 | `tcp_liveness_interval_seconds`     | `float`                                | `60.0`               | TCP round-trip probe interval; `0` disables                       |
 | `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`               | TCP round-trip probe timeout                                      |
 | `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |

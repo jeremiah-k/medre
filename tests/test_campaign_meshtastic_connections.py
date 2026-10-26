@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from scripts.adapter_campaign.lab import hardware, provision, control
+from scripts.adapter_campaign.lab import control, hardware, provision
 from scripts.adapter_campaign.lab.sources import write_json
 from scripts.adapter_campaign.meshtastic_connection import (
     connection_config,

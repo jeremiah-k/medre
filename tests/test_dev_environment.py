@@ -1,9 +1,9 @@
 """Checkout development selection, environment ownership, and subprocess boundaries."""
 
-from pathlib import Path
-from types import SimpleNamespace
 import json
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -337,8 +337,9 @@ def test_checkout_refuses_parent_uv_workspace(checkout):
 
 
 def test_profile_schema_matches_documented_preferences(checkout):
-    import jsonschema
     from pathlib import Path
+
+    import jsonschema
 
     schema_path = (
         Path(__file__).resolve().parents[1] / "docs/schemas/dev-environment.schema.json"
@@ -371,6 +372,7 @@ def test_adapter_suite_refuses_a_different_installed_core(
     checkout, monkeypatch, capsys
 ):
     import importlib.metadata
+
     from medre.dev_environment import _test_installed_adapter
 
     distribution = SimpleNamespace(
@@ -421,6 +423,7 @@ def test_sync_reports_missing_uv_without_needing_it_installed(checkout, monkeypa
 
 def test_windows_pytest_runner_waits_and_propagates_failure(checkout, monkeypatch):
     import importlib.metadata
+
     import medre.dev_environment as dev
 
     distributions = [
@@ -654,6 +657,7 @@ def test_installed_metadata_scan_skips_foreign_and_malformed_distributions(
 ):
     """The launcher bootstrap ignores distributions it cannot identify."""
     import importlib.metadata
+
     import medre.dev_environment as dev
 
     def record(name, url):
@@ -690,6 +694,7 @@ def test_installed_metadata_scan_skips_foreign_and_malformed_distributions(
 
 def test_unreadable_direct_url_fails_closed(checkout, monkeypatch, capsys):
     import importlib.metadata
+
     import medre.dev_environment as dev
 
     def record(name, direct_url_body):
