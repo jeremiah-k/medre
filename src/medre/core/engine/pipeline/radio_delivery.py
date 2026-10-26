@@ -147,8 +147,8 @@ async def deliver_radio_plan(
     retries for that invocation. A failed or cancelled native call retains unknown
     progress; no accepted or uncertain prefix is replayed by a new generation.
 
-    ``resume_from`` is an explicit caller-selected continuation, never inferred
-    by automatic retry or accepted from a renderer. Storage independently checks
+    ``resume_from`` is selected explicitly by the owning caller, including the
+    configured retry owner; a renderer cannot supply it. Storage independently checks
     the exact retained predecessor and a newer current claim. Only plain channel
     text is eligible; reply or other native payload semantics are not persisted
     by the text plan and therefore cannot be reconstructed safely here.
