@@ -16,6 +16,8 @@ from dataclasses import fields as dc_fields
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Paths / helpers
 # ---------------------------------------------------------------------------
@@ -329,18 +331,21 @@ def test_mirror_audit_preserves_property_names_and_default_data(
             test_canonical_json_and_yaml_validation_shapes_match()
 
 
-def test_meshcore_multipart_schema_matches_merged_provider_bounds() -> None:
-    """The qualified MeshCore part cap must not drift from its published config."""
+@pytest.mark.parametrize("platform", ["meshcore", "meshtastic"])
+def test_radio_multipart_schema_matches_merged_provider_bounds(platform: str) -> None:
+    """Each qualified radio part cap agrees with its provider and published example."""
     from jsonschema import Draft202012Validator
     from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshtastic import MeshtasticConfig
 
+    config_type = {"meshcore": MeshCoreConfig, "meshtastic": MeshtasticConfig}[platform]
     schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
     arm = next(
-        part for part in schema["oneOf"] if part.get("title") == "MeshCoreConfig"
+        part for part in schema["oneOf"] if part.get("title") == config_type.__name__
     )
     field = arm["properties"]["max_text_parts"]
     assert field["type"] == "integer"
-    assert field["default"] == MeshCoreConfig(adapter_id="mesh").max_text_parts == 1
+    assert field["default"] == config_type(adapter_id="radio").max_text_parts == 1
     assert field["minimum"] == 1 and field["maximum"] == 128
     assert "guarded multipart" in field["description"]
     validator = Draft202012Validator(field)
@@ -349,6 +354,6 @@ def test_meshcore_multipart_schema_matches_merged_provider_bounds() -> None:
     for invalid in (0, 129, True, False, 1.5, "2", None):
         assert not validator.is_valid(invalid)
     example = _load_json(
-        _SCHEMAS_DIR / "examples" / "adapter-config-meshcore-example.json"
+        _SCHEMAS_DIR / "examples" / f"adapter-config-{platform}-example.json"
     )
     assert example["max_text_parts"] == field["default"]
