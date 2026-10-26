@@ -1,6 +1,6 @@
-# MeshCore multipart text
+# Radio multipart text
 
-The coordinated core and MeshCore changes add opt-in multipart ordinary text.
+Merged core #343 and MeshCore #13 add opt-in multipart ordinary text.
 Short messages retain their existing wire form. The default `max_text_parts: 1`
 retains bounded single-packet rendering. Set a larger limit only with the reviewed
 core and adapter revisions installed together:
@@ -40,8 +40,36 @@ operator command here to force resend or promote unknown packets.
 Deterministic tests cover the renderer, real session send owner, storage, core
 aggregation and failures without hardware. Installed-SDK contracts and a bounded
 physical MeshCore qualification are still required before describing this path
-as hardware-qualified. Meshtastic multipart delivery is not enabled by this work.
+as hardware-qualified. The coordinated Meshtastic candidate extends this path through its existing
+paced queue; see the following section before selecting that source.
 
 The required radio storage table was introduced in core #342; old prerelease
 storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#104-pre-release-stale-database-reset).
 This handoff change introduces no additional database shape change.
+
+## Meshtastic candidate
+
+The coordinated Meshtastic PR uses the same `max_text_parts` opt-in. With that
+candidate installed against merged core #343, add the limit to each selected
+Meshtastic instance while retaining its existing connection and route settings:
+
+```yaml
+adapters:
+  meshtastic:
+    FXLF:
+      max_text_parts: 16
+      message_delay_seconds: 2.2
+```
+
+Core keeps the multipart delivery in progress while each packet waits for its
+native handoff through the paced queue. Ordinary messages retain deferred queue
+admission. A stopped or replaced client, cancellation, missing native packet ID
+or uncertain SDK call holds the remaining message for inspection. No individual
+packet acknowledgement means the whole message reached a recipient.
+
+The queue measures its gap from completion so slower grant/SDK work cannot cause
+the following message to burst. Cancelling a native operation already executing
+in a thread cannot prove that it stopped; retain its uncertain evidence. Partial
+messages do not automatically resume after restart. Select only the intended
+candidate sources, qualify them independently, and keep hardware evidence
+separate from local SDK handoffs. Defaults and package versions are unchanged.

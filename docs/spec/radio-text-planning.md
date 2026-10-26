@@ -69,10 +69,12 @@ commit but before invocation remains conservatively unknown after restart.
 
 ## Production integration boundary
 
-MeshCore MAY opt into the synchronous guarded handoff described below. Meshtastic
-retains single-packet bounded rendering; its deferred queue requires a separate
-claim-ownership integration before it can participate. Physical transport
-qualification remains separate from deterministic implementation tests.
+MeshCore MAY opt into the synchronous guarded handoff described below. A
+Meshtastic implementation MAY participate by keeping the dispatch in progress
+while each planned packet waits on its existing paced native queue. Its ordinary
+deferred sends retain their existing behavior. A planned packet MUST NOT release
+core's claim and then borrow that queued row as new native submission authority.
+Physical transport qualification remains separate from deterministic tests.
 
 Before sending any part, production integration MUST bind and persist the exact
 plan to its outbox attempt. Every native handoff observation MUST retain part
@@ -139,3 +141,34 @@ identity/status. Inspection MUST leave submitting unchanged and MUST NOT start
 an adapter, recover progress, infer recipient delivery or grant submission.
 The output follows `../schemas/radio-attempt-inspection.schema.json`; absent
 attempts exit 5 and invalid generations exit 2.
+
+## Guarded packet waiters on an existing queue
+
+An adapter MAY use a bounded, serialized native queue beneath the synchronous
+contract. Its guarded packet waiter MUST return only after the local native
+handoff, retaining core's independently held in-progress claim throughout.
+Queue admission alone MUST NOT complete this waiter. Every planned and ordinary
+packet MUST share the same send owner and pacing; concurrent manual and
+background drains MUST serialize through that owner.
+
+Cancellation MUST close the packet waiter and fence a pending native worker.
+Shutdown or loss of queue ownership MUST settle guarded waiters without emitting
+`DeferredHandoffCompleted` or `DeferredHandoffFailed` for individual parts.
+Ordinary deferred work MUST retain its existing parent feedback contract. A
+native call already running when cancellation arrives remains uncertain;
+coroutine cancellation MUST NOT be described as terminating an SDK thread.
+
+SDK-client identity, connection generation and cancellation MUST be checked
+around the core grant and again immediately before the worker's native call.
+The captured client MUST NOT be replaced by a newer client after consuming the
+grant. Neither SDK nor queue retries may replay a consumed grant. Failed result
+normalization MUST settle the waiter and leave progress blocking rather than
+hang or falsely complete its parent. Runtime callbacks, futures and cancellation
+fences MUST remain outside the radio-facing payload and durable canonical data.
+
+Meshtastic planned packets MUST retain the SDK-assigned uint32 packet
+ID. Missing or malformed packet identity MUST remain unconfirmed and MUST stop
+remaining parts. This provider constraint does not change MeshCore channel
+handoffs, whose native protocol explicitly returns no packet ID. The whole-plan
+confirmation ceiling remains local transport; individual packet IDs and ACKs
+MUST NOT imply recipient acceptance of the full message.
