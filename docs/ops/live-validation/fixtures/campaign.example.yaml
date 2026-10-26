@@ -94,13 +94,13 @@ endpoints:
       xmpp: "[XMPP lab] peer: "
   sx:
     transport: simplexchat
-    channel: "group:7"
+    channel: group:7
     # Bot's groupMemberId in the peer profile, not the bot's local membership ID.
     expected_sender: "2"
     peer:
       database_prefix: /private/bench/simplex-peer/profile
       user_id: 1
-      channel: "group:3"
+      channel: group:3
     expected_prefixes:
       matrix: "[Matrix lab] Peer: "
       mt: "[Forx] MeshPeer: "

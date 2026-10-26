@@ -20,8 +20,14 @@ expected_source_attribution:
 
 Matrix destination witnesses check these raw claims and the scoped source
 reference inside the actual received bridge context, as well as visible text.
+
+<!-- Rendered sender prefixes keep their trailing space inside the code spans. -->
+<!-- markdownlint-disable MD038 -->
+
 The uniform profile uses `[{sender_raw}/{origin_label}]: ` for chat transports
 and `{sender_compact}[{source_adapter_id}]: ` for Meshtastic and MeshCore.
+<!-- markdownlint-enable MD038 -->
+
 The ordinary smoke campaign retains provider defaults. Radio qualification is
 an [explicit separate stage](hardware-qualification.md), with a persistent
 MeshCore pause after a communication failure.
@@ -233,13 +239,13 @@ for SDK or hardware qualification.
 
 Record each native startup profile separately in private campaign evidence:
 
-| Profile | Required observation |
-| ------- | -------------------- |
-| Online and offline instances together | The online instance progresses independently; the offline instance reaches a bounded provider failure or degraded recovery state. |
-| Device returns after startup | A provider with owned recovery becomes healthy without overlapping connection attempts; routes and durable work remain consistent. |
-| Shutdown before readiness | The CLI awaits startup rollback, retires partial resources and child tasks, and preserves cancellation. |
-| Matrix without its encryption extra | Optional encryption reports degraded health with installation guidance; encrypted-room delivery remains refused. |
-| Signals during native construction | The enclosing shutdown handler receives the signal, or the report explicitly records an unqualified SDK constructor window. |
+| Profile                               | Required observation                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Online and offline instances together | The online instance progresses independently; the offline instance reaches a bounded provider failure or degraded recovery state.  |
+| Device returns after startup          | A provider with owned recovery becomes healthy without overlapping connection attempts; routes and durable work remain consistent. |
+| Shutdown before readiness             | The CLI awaits startup rollback, retires partial resources and child tasks, and preserves cancellation.                            |
+| Matrix without its encryption extra   | Optional encryption reports degraded health with installation guidance; encrypted-room delivery remains refused.                   |
+| Signals during native construction    | The enclosing shutdown handler receives the signal, or the report explicitly records an unqualified SDK constructor window.        |
 
 Report native SDK versions, connection mode, missing extras and skipped profiles.
 The pinned Reticulum/LXMF constructors install handlers synchronously; checking

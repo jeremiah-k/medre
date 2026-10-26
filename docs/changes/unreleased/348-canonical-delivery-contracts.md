@@ -1,3 +1,5 @@
+# 348: Shared text-selection contract for canonical delivery
+
 Canonical styled parsing and text rendering now share one text-selection contract:
 styled bodies remain authoritative, while unstyled messages retain legacy text
 aliases. Native text paths reject malformed values. Pure radio progress snapshots

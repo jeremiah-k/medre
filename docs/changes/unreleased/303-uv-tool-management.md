@@ -1,3 +1,5 @@
+# 303: Explicit uv-managed adapter source commands
+
 Add explicit `medre adapters sources`, `install`, and `remove` commands with a
 configurable YAML source catalog defaulting to the first-party Git repositories.
 Preserve unrelated tool requirements and refuse environments or receipt settings
