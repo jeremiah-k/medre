@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Selected stopped installation snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "medre-stopped-state"
+    },
+    "version": {
+      "const": 1
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\/$)[^\\\\:\\u0000]+$"
+          },
+          "role": {
+            "enum": ["core_sqlite", "adapter_ledger", "native_identity"]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1073741824
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "format": {
+            "enum": ["sqlite", "opaque"],
+            "description": "Explicit capture protocol, independent of semantic role."
+          }
+        },
+        "required": ["path", "role", "bytes", "sha256", "format"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "role": {
+                  "const": "core_sqlite"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "format": {
+                  "const": "sqlite"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": ["format", "version", "files"],
+  "description": "Selected stopped state only. Runtime validation enforces one core database, unique paths, verified bytes and SQLite integrity. Checksums do not authenticate the source or authorize replay.",
+  "$id": "https://medre.dev/schemas/stopped-state-snapshot.schema.json"
+}
