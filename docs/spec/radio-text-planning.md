@@ -122,8 +122,13 @@ progress where claim ownership still permits the observation. If that write
 fails or loses ownership, the persisted submitting record MUST remain blocking.
 Cancellation MUST propagate. An outage proven to precede the first grant MAY
 remain transient under the existing delivery policy. Failure after an accepted
-prefix MUST be permanent for automatic retry purposes; no new generation may
-blindly replay that prefix. This API does not authorize operator reconciliation.
+prefix MUST NOT authorize replay of that prefix. A transient adapter failure
+before entry to the next submission grant MAY retain retry eligibility only for
+a proven plain-channel accepted prefix followed by a wholly unsent tail. A
+configured retry owner MUST reserve a strictly newer attempt and independently
+revalidate the retained history before continuing. A consumed, uncertain or
+interrupted grant MUST remain held. This API does not authorize operator
+reconciliation.
 
 Only synchronous `transport_handoff` results MAY accept a part. Each retained
 handoff reference (the JSON shape in `../schemas/radio-local-handoff.schema.json`)
@@ -187,9 +192,11 @@ MUST NOT imply recipient acceptance of the full message.
 
 ## Explicit continuation of a proven-unsent tail
 
-Default dispatch and automatic retry MUST retain the existing partial-progress
-hold. An internal caller MAY explicitly supply `resume_from` to the synchronous
-radio service only after independently reserving a newer current outbox claim.
+Default live dispatch and replay MUST NOT infer continuation authority from a
+retained partial plan. A configured runtime retry MAY explicitly supply
+`resume_from` to the synchronous radio service only after independently reserving
+a newer current outbox claim. Ordinary retry limits, backoff, deadlines,
+capacity and worker leases MUST remain authoritative.
 The caller MUST supply the exact typed predecessor read from owned storage;
 serialized progress alone MUST NOT authorize native work. No operator force-send
 command or automatic restart integration is introduced by this API.
@@ -229,3 +236,28 @@ Explicit continuation MUST match that fingerprint for every inherited fact.
 Replies, native commands, changed channel semantics and legacy evidence lacking
 this fingerprint MUST remain held. Digests establish consistency, not authenticity;
 only independently read storage plus the current claim can grant submission.
+
+## Runtime retry integration
+
+After reserving its dispatch generation, the existing retry owner MAY continue a
+plain-channel accepted prefix and proven-unsent suffix through target delivery.
+Target delivery MUST read the latest earlier radio checkpoint for that exact
+outbox ID; an intervening consumed reservation need not have a radio checkpoint.
+That read MUST NOT grant submission. The existing continuation transaction MUST
+independently compare the complete historical delivery identity and latest
+predecessor under the fresh claim before each accepted fact is inherited.
+
+The current renderer MUST agree with the exact retained plan and native payload
+scope. A missing radio plan, changed budget, prefix, channel, reply command or
+other changed native semantics MUST hold the attempt before any native call;
+retry MUST NOT fall through to ordinary single-packet delivery. Native channel
+IDs explicitly contradicting the target MUST also prevent continuation.
+
+Only a transient adapter error proven to precede entry to the next grant MAY be
+retried after an accepted prefix. Cancellation, consumed grants, submitting or
+unknown records, completed plans and invalid references MUST remain held. No
+accepted packet may be sent again. The retry owner MUST preserve the existing
+terminal/cancelled-row rules and MUST NOT reopen them to create continuation.
+Without a retry policy, or after its budget is exhausted, existing lifecycle
+finalization remains authoritative. A successful continued plan MUST aggregate
+the weakest inherited and fresh local handoff and omit a scalar native reply ID.

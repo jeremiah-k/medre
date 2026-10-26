@@ -916,6 +916,31 @@ class TargetDeliveryService:
         delivery_exc: Exception | None = None
         adapter_result: AdapterHandoffResult | None = None
         try:
+            predecessor = None
+            if (
+                source == "retry"
+                and outbox_id is not None
+                and reserved_attempt_number is not None
+            ):
+                predecessor = await self._storage.get_latest_radio_attempt(
+                    outbox_id, before_attempt=reserved_attempt_number
+                )
+                if predecessor is not None and (
+                    rendering_result.radio_plan is None
+                    or rendering_result.radio_plan != predecessor.progress.plan
+                ):
+                    raise AdapterPermanentError(
+                        "retained radio plan differs from retry rendering; native work held"
+                    )
+            resume_from = None
+            if predecessor is not None and any(
+                part.state != "unsent" for part in predecessor.progress.parts
+            ):
+                if plan.retry_policy is None:
+                    raise AdapterPermanentError(
+                        "radio continuation requires a configured retry policy"
+                    )
+                resume_from = predecessor
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(
@@ -927,6 +952,7 @@ class TargetDeliveryService:
                     expected_outbox_worker_id,
                     deliver_fn,
                     deadline=plan.deadline,
+                    resume_from=resume_from,
                 )
             else:
                 raw_result = await deliver_fn(rendering_result)

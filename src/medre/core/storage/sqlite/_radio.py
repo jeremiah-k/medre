@@ -470,3 +470,22 @@ class _RadioMixin:
             (outbox_id, attempt_number),
         )
         return None if row is None else _decode(row)
+
+    async def get_latest_radio_attempt(
+        self, outbox_id: str, *, before_attempt: int
+    ) -> StoredRadioAttempt | None:
+        """Select retained evidence across consumed generations, never a native grant.
+
+        The continuation transaction independently checks the complete delivery
+        history, exact predecessor and fresh worker claim before inheriting any
+        fact. An intervening reservation need not have submitted a radio packet.
+        """
+        if type(before_attempt) is not int or before_attempt < 1:
+            raise ValueError("radio lookup requires a positive attempt boundary")
+        row = await self._read_one(
+            """SELECT * FROM radio_attempt_progress
+               WHERE outbox_id=? AND attempt_number<?
+               ORDER BY attempt_number DESC LIMIT 1""",
+            (outbox_id, before_attempt),
+        )
+        return None if row is None else _decode(row)

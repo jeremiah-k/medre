@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import msgspec
 
-from medre.core.contracts.adapter import AdapterPermanentError
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.storage.backend import StorageBackend
@@ -67,6 +67,36 @@ def _continuation_payload_fingerprint(result: RenderingResult) -> str | None:
     if type(channel) is not int or channel < 0 or str(channel) != result.target_channel:
         return None
     return plain_channel_payload_fingerprint(channel)
+
+
+def _matches_plain_channel(
+    checkpoint: StoredRadioAttempt, fingerprint: str | None
+) -> bool:
+    """Check retry eligibility without treating retained evidence as a send grant.
+
+    Every accepted fact must attest the same plain native payload. Unknown or
+    submitting records have no unsent-tail transition, including during restart.
+    Storage independently resolves original acceptance and active claim authority.
+    """
+    parts = checkpoint.progress.parts
+    if (
+        fingerprint is None
+        or not any(part.state == "accepted" for part in parts)
+        or not any(part.state == "unsent" for part in parts)
+        or any(part.state in {"submitting", "unknown"} for part in parts)
+    ):
+        return False
+    channel = checkpoint.provenance.target_channel
+    for part in parts:
+        if part.state != "accepted":
+            continue
+        fact = RadioLocalHandoff.from_part(part, checkpoint.provenance)
+        if fact.payload_fingerprint != fingerprint or fact.native_channel_id not in {
+            None,
+            channel,
+        }:
+            return False
+    return True
 
 
 @dataclass
@@ -132,14 +162,7 @@ async def deliver_radio_plan(
         checkpoint = await storage.bind_radio_attempt(provenance, worker_id, plan)
     else:
         try:
-            eligible = payload_fingerprint is not None and all(
-                RadioLocalHandoff.from_part(
-                    part, resume_from.provenance
-                ).payload_fingerprint
-                == payload_fingerprint
-                for part in resume_from.progress.parts
-                if part.state == "accepted"
-            )
+            eligible = _matches_plain_channel(resume_from, payload_fingerprint)
         except (ValueError, msgspec.DecodeError) as exc:
             raise AdapterPermanentError(
                 "radio continuation evidence is invalid"
@@ -228,6 +251,23 @@ async def deliver_radio_plan(
                 raise
             if not isinstance(exc, Exception):
                 raise
+            if (
+                isinstance(exc, AdapterSendError)
+                and exc.transient
+                and not grant.entered
+            ):
+                retryable_tail = False
+                try:
+                    retryable_tail = _matches_plain_channel(
+                        checkpoint, payload_fingerprint
+                    )
+                except (ValueError, msgspec.DecodeError):
+                    pass  # Invalid retained evidence remains permanently held.
+                if retryable_tail:
+                    # Preserve the adapter's backoff hint. A later retry
+                    # reserves its own generation and revalidates storage;
+                    # this classification grants no native resubmission.
+                    raise
             if grant.submitting is not None or any(
                 p.state != "unsent" for p in checkpoint.progress.parts
             ):
