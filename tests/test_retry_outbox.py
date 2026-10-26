@@ -65,6 +65,10 @@ class TestDueOutboxRetry:
         assert len(claimed) == 1
         assert claimed[0].outbox_id == created.outbox_id
         assert claimed[0].status == "in_progress"
+        # The retry dispatcher passes this returned identity to the guarded
+        # radio grant. A pre-claim/stale worker would incorrectly deny sends.
+        assert claimed[0].worker_id == "worker-1"
+        assert claimed[0].lease_until is not None
 
     async def test_not_due_retry_wait_not_claimable(
         self, outbox_temp_storage: SQLiteStorage
