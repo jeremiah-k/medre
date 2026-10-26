@@ -1745,6 +1745,12 @@ class StorageBackend(Protocol):
         """Read typed attempt facts without recovery, mutation or submission authority."""
         ...
 
+    async def get_latest_radio_attempt(
+        self, outbox_id: str, *, before_attempt: int
+    ) -> StoredRadioAttempt | None:
+        """Read the latest earlier checkpoint for one outbox without granting a send."""
+        ...
+
     async def begin_radio_part(
         self,
         expected: StoredRadioAttempt,

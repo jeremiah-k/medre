@@ -1313,6 +1313,11 @@ The following `StorageBackend` methods define the checkpoint boundary:
 - `get_radio_attempt(outbox_id, attempt_number)` MUST return typed provenance,
   progress and revision without mutation or submission permission. It supports
   independently pinning an explicit predecessor, not acquiring its claim.
+- `get_latest_radio_attempt(outbox_id, before_attempt=...)` MUST read the latest
+  earlier checkpoint for that exact outbox without writing or granting native
+  authority. The boundary MUST be a positive integer. Consumed dispatch
+  generations without radio work MUST NOT hide the original retained prefix.
+  The continuation transaction remains the independent claim/history authority.
 - `begin_radio_part(expected, worker_id, ordinal)` MUST compare the entire stored
   checkpoint and revision, persist the next submitting part, and commit before
   returning a new checkpoint. Only a returned checkpoint permits the caller's

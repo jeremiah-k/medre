@@ -42,8 +42,10 @@ packet acknowledgement means the whole message reached a recipient.
 The queue measures its gap from completion so slower grant/SDK work cannot cause
 the following message to burst. Cancelling a native operation already executing
 in a thread cannot prove that it stopped; retain its uncertain evidence. Partial
-messages do not automatically resume after restart. Select only the intended
-reviewed sources, qualify them independently, and keep hardware evidence
+messages with a proven-unsent tail can continue through the configured retry
+worker after a reconnect or restart. Accepted packets are retained; unknown
+submissions remain held. Existing retry limits and backoff apply. Select only
+the intended reviewed sources and keep hardware evidence
 separate from local SDK handoffs. Defaults and package versions are unchanged.
 
 ## Troubleshoot an interrupted multipart message
@@ -80,9 +82,10 @@ handoff references, alongside current parent identity/status. Inspection does
 not start adapters, mutate progress, recover submissions or authorize another
 send. A submitting packet remains submitting in the report; after explicit
 owned recovery it becomes unknown. Neither state is proof of RF delivery.
-Automatic restart does not resume a partially accepted multipart message in this
-implementation. Retain this evidence and hold uncertain work for investigation. There is no
-operator command here to force resend or promote unknown packets.
+The configured retry worker can continue a proven-unsent suffix under a fresh
+owned attempt. Changed rendering or channel semantics keeps the message held.
+Retain uncertain evidence for investigation; inspection does not force resend
+or promote unknown packets.
 
 Deterministic tests cover the renderer, real session send owner, storage, core
 aggregation and failures without hardware. Installed-SDK contracts and a bounded
