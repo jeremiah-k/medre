@@ -145,12 +145,25 @@ async def deliver_radio_plan(
                 # This write may lose its claim too. The retained submitting
                 # record is still fail-closed and becomes unknown on recovery.
                 try:
-                    await storage.observe_radio_part(
+                    marked = await storage.observe_radio_part(
                         grant.submitting, worker_id, part.ordinal
                     )
+                    if marked is None:
+                        _logger.warning(
+                            "Radio uncertainty checkpoint not committed; retained submission blocks replay: "
+                            "outbox_id=%s attempt=%d part=%d",
+                            provenance.outbox_id,
+                            provenance.attempt_number,
+                            part.ordinal,
+                        )
                 except Exception:
                     _logger.warning(
-                        "Radio uncertainty checkpoint failed; retained submission blocks replay"
+                        "Radio uncertainty checkpoint failed; retained submission blocks replay: "
+                        "outbox_id=%s attempt=%d part=%d",
+                        provenance.outbox_id,
+                        provenance.attempt_number,
+                        part.ordinal,
+                        exc_info=True,
                     )
             if isinstance(exc, asyncio.CancelledError):
                 raise

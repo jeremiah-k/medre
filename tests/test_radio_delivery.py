@@ -194,7 +194,9 @@ async def test_invalid_or_deferred_handoff_cannot_complete_radio_plan(
     assert snapshot["parts"][1]["state"] == "unsent"
 
 
-async def test_failed_evidence_commit_does_not_resend_accepted_native_work(storage):
+async def test_failed_evidence_commit_does_not_resend_accepted_native_work(
+    storage, caplog
+):
     """An accepted-before-commit crash window remains submitting and fail-closed."""
     result = await rendering(storage)
     native_calls = []
@@ -213,6 +215,14 @@ async def test_failed_evidence_commit_does_not_resend_accepted_native_work(stora
     snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
     assert snapshot["parts"][0]["state"] == "submitting"
     assert len(native_calls) == 1
+    record = next(
+        record
+        for record in caplog.records
+        if "uncertainty checkpoint failed" in record.message
+    )
+    assert result.outbox_id in record.message
+    assert "attempt=1 part=1" in record.message
+    assert record.exc_info is not None
 
 
 async def test_pipeline_owns_plan_completion_and_preserves_worker_fencing(storage):
@@ -326,3 +336,22 @@ async def test_deadline_expiring_during_pacing_prevents_native_submission(storag
     assert native_calls == []
     snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
     assert all(part["state"] == "unsent" for part in snapshot["parts"])
+
+
+async def test_lost_claim_during_uncertainty_checkpoint_is_correlated(storage, caplog):
+    """A rejected observation is visible without erasing its blocking submission."""
+    result = await rendering(storage)
+
+    async def deliver(packet):
+        await packet.before_native_send()
+        storage._db.execute("UPDATE delivery_outbox SET worker_id='replacement'")
+        storage._db.commit()
+        raise TimeoutError("acceptance unknown")
+
+    with pytest.raises(AdapterPermanentError):
+        await deliver_radio_plan(storage, result, "radio-owner", deliver)
+    assert result.outbox_id in caplog.text
+    assert "uncertainty checkpoint not committed" in caplog.text
+    assert "attempt=1 part=1" in caplog.text
+    snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
+    assert snapshot["parts"][0]["state"] == "submitting"
