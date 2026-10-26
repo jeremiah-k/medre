@@ -15,20 +15,16 @@ The six valid health strings are defined in :data:`VALID_HEALTH_STRINGS`:
 
 This module also defines :class:`AdapterLiveHealth` and
 :class:`LiveHealthSnapshot` — lightweight, frozen dataclasses that
-represent per-adapter and aggregate live health from a single manual
-refresh cycle.  These types are populated by
-:meth:`~medre.runtime.app.MedreApp.refresh_live_health`; they do not
-implement background polling, scheduling, or automatic refresh.
+represent per-adapter and aggregate observations. A manual refresh samples
+providers; a native notification changes only its provider's retained entry.
+Neither path schedules background polls or changes delivery evidence.
 
-This module does **not** add background health polling, circuit breakers,
-or auto-degrade logic.  Live health refresh is explicitly manual and
-caller-initiated.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from medre.core.contracts.adapter import AdapterInfo
 from medre.core.lifecycle.states import AdapterState
@@ -259,12 +255,11 @@ def normalize_adapter_health(
 
 @dataclass(frozen=True)
 class AdapterLiveHealth:
-    """Per-adapter live health result from a single ``health_check()`` call.
+    """Per-adapter observation from a health sample or native notification.
 
     Lightweight, JSON-safe, frozen dataclass.  No SDK objects, no secrets.
-    Constructed by the runtime during ``refresh_live_health()`` by calling
-    :meth:`~medre.core.contracts.adapter.AdapterContract.health_check` and normalizing
-    through :func:`normalize_adapter_health`.
+    Constructed by the runtime from a bounded startup sample, an explicit
+    ``refresh_live_health()`` call or an adapter's scoped native health report.
 
     Per-adapter failures during refresh are isolated — a failure on one
     adapter is recorded in ``error`` and does not prevent other adapters
@@ -277,14 +272,14 @@ class AdapterLiveHealth:
     health:
         One of :data:`VALID_HEALTH_STRINGS`.
     adapter_state:
-        Lifecycle state inferred from the poll result.
+        Diagnostic state inferred from the observation, separate from ownership.
     fake_or_live:
         ``"fake"``, ``"live"``, or ``"unknown"``.
     poll_timestamp_monotonic:
-        ``time.monotonic()`` value at poll completion (seconds).
+        ``time.monotonic()`` value at sample start or notification receipt (seconds).
         Primary timestamp for ordering and deduplication.
     poll_timestamp_wall:
-        ISO-8601 UTC string at poll completion.
+        ISO-8601 UTC string at sample start or notification receipt.
         Human-readable timestamp for operators and log correlation.
     error:
         Non-``None`` when ``health_check()`` raised an exception.
@@ -314,7 +309,7 @@ class AdapterLiveHealth:
 
 @dataclass(frozen=True)
 class LiveHealthSnapshot:
-    """Aggregate runtime live health from a single manual refresh cycle.
+    """Aggregate current health from manual samples or native notifications.
 
     Frozen, JSON-safe, deterministic.  Populated by
     ``MedreApp.refresh_live_health()`` which iterates adapters in
@@ -324,10 +319,11 @@ class LiveHealthSnapshot:
     The snapshot is stored as ``MedreApp._live_health_state`` and
     read by :func:`~medre.runtime.snapshot.build_runtime_snapshot` to
     populate the ``health.live_health`` section.  Before the first
-    refresh call, ``health.live_health`` is ``None``.
+    manual sample or native notification, ``health.live_health`` is ``None``.
 
-    There is no background polling loop, scheduler, or automatic
-    refresh.  Refresh is explicitly manual and caller-initiated.
+    There is no background polling loop. Native provider notifications can
+    update retained observations without incrementing the manual poll counter.
+    The source field distinguishes notifications from a manual refresh.
 
     Attributes
     ----------
@@ -339,13 +335,16 @@ class LiveHealthSnapshot:
     adapters:
         Per-adapter live health entries, keyed by adapter ID (sorted).
     poll_timestamp_monotonic:
-        ``time.monotonic()`` at poll-cycle completion.
+        ``time.monotonic()`` at aggregate publication.
     poll_timestamp_wall:
-        ISO-8601 UTC string at poll-cycle completion.
+        ISO-8601 UTC string at aggregate publication.
     poll_count:
         Monotonically increasing counter — one increment per successful
         poll cycle.  Used for quick staleness checks without float
-        comparison.
+        comparison. Native notifications preserve this manual counter.
+    source:
+        Whether the aggregate was published by a manual refresh or a native
+        provider notification. Entry timestamps retain their own freshness.
     """
 
     runtime_health: str
@@ -354,6 +353,7 @@ class LiveHealthSnapshot:
     poll_timestamp_monotonic: float
     poll_timestamp_wall: str
     poll_count: int
+    source: Literal["manual", "adapter_notification"] = "manual"
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict representation with sorted keys."""
@@ -364,4 +364,5 @@ class LiveHealthSnapshot:
             "poll_timestamp_monotonic": self.poll_timestamp_monotonic,
             "poll_timestamp_wall": self.poll_timestamp_wall,
             "runtime_health": self.runtime_health,
+            "source": self.source,
         }

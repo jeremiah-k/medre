@@ -84,8 +84,8 @@ The adapter **MUST**:
 4. Call `self._mark_started(ctx)` to record the adapter's start time for stale-event filtering.
 5. Return only after the adapter is ready to accept delivery work or after the connection attempt has progressed far enough to report a definitive health state.
 
-The runtime does not impose a transport-blind deadline on `start()`. The adapter
-MUST bound its native connection attempts and SHOULD move blocking SDK
+The runtime bounds `start()` by its configured adapter startup budget. Each adapter
+MUST also bound its native connection attempts and SHOULD move blocking SDK
 construction off the asyncio event loop where the SDK supports that threading
 model. SDK initialization that owns process-global signal handlers requires
 explicit thread-affinity qualification; task scheduling does not preempt it.
@@ -820,7 +820,31 @@ This containment rule ensures that diagnostics are serializable, loggable, and s
 
 ### 16.1 Health Transitions
 
-The adapter owns its health state machine. The runtime observes it through `health_check()`. Valid transitions:
+The adapter owns its health state machine. The runtime observes it through
+`health_check()` and optional `AdapterContext.report_health(AdapterInfo)` reports.
+Reports MUST describe the same completed native state as a health probe. A
+confirmed connection MUST clear transient degradation; stale session callbacks
+MUST NOT report health for a replacement lifetime. Notification consumers MUST
+NOT control connection retries, packet sends or delivery confirmation.
+The sink accepts only `AdapterInfo` with the context's bound adapter ID and
+`healthy`, `degraded` or `failed` health. Invalid reports raise `ValueError`;
+SDK callback owners MUST contain observer exceptions. Startup and manual health
+samples MUST also match their bound adapter ID; a mismatched sample MUST NOT
+establish readiness for either owner.
+
+Core MUST bind reports to the adapter and runtime lifetime, ignore retired or
+stopping owners, and marshal native-thread reports onto the runtime event loop.
+Reports update current health without rewriting the historical startup result.
+A native health failure MUST NOT be confused with a failed startup or release of
+native ownership. A healthy report cannot resurrect an owner that core stopped
+or failed to start. Reports received while startup is initializing MUST remain
+provisional until the owned start succeeds; failed-start cleanup MUST discard
+them. A notification observed after a startup or manual health sample began
+MUST supersede that sample, including if the sample fails or times out. The
+startup barrier MUST retain transitions received while waiting for other
+providers. Notifications MUST NOT initiate background polling.
+
+Valid provider health transitions:
 
 ```text
 unknown -> healthy

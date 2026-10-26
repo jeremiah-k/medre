@@ -23,11 +23,12 @@ import enum
 import logging
 import time as _time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from medre.adapter_registry import get_adapter_spec
+from medre.core.contracts.adapter import AdapterInfo
 from medre.core.delivery_authority import effective_generation
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.core.supervision.accounting import RuntimeAccounting
@@ -51,6 +52,7 @@ from medre.runtime.errors import (
     RuntimeStartupError,
 )
 from medre.runtime.events import EventBuffer, RuntimeEventType
+from medre.runtime.health_reporting import observed_health, reported_health_snapshot
 from medre.runtime.retry import RetryWorkerState
 
 if TYPE_CHECKING:
@@ -355,6 +357,12 @@ class MedreApp:
         default_factory=set, init=False
     )
     _live_health_state: LiveHealthSnapshot | None = field(default=None, init=False)
+    _pending_health_reports: set[str] = field(default_factory=set, init=False)
+    _native_health_epoch: object = field(default_factory=object, init=False)
+    _observed_adapter_health: dict[str, AdapterLiveHealth] = field(
+        default_factory=dict, init=False
+    )
+
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
     _outbox_storage_authoritative: bool = field(default=False, init=False)
@@ -560,19 +568,151 @@ class MedreApp:
 
     # -- Live Health ------------------------------------------------------------
 
+    @property
+    def live_health(self) -> LiveHealthSnapshot | None:
+        """Return the latest current-health observation, separate from startup history."""
+        snapshot = self._live_health_state
+        if snapshot is None:
+            return None
+        return replace(
+            snapshot,
+            adapters=dict(snapshot.adapters),
+            adapter_summary=dict(snapshot.adapter_summary),
+        )
+
+    def _health_reporter(self, adapter_id: str) -> Callable[[AdapterInfo], None]:
+        """Bind reports to one adapter and runtime lifetime, including SDK threads."""
+        loop = asyncio.get_running_loop()
+        epoch = self._native_health_epoch
+
+        def report(info: AdapterInfo) -> None:
+            """Queue a completed observation without calling native health probes."""
+            if not isinstance(info, AdapterInfo) or info.adapter_id != adapter_id:
+                raise ValueError("health report must match its bound adapter")
+            if info.health not in {"healthy", "degraded", "failed"}:
+                raise ValueError("health report requires a settled health state")
+            try:
+                loop.call_soon_threadsafe(
+                    self._apply_health_report,
+                    adapter_id,
+                    info,
+                    epoch,
+                    _time.monotonic(),
+                    _utc_now().isoformat(),
+                )
+            except RuntimeError:
+                # A stopped event loop cannot accept reports from retired SDKs.
+                return
+
+        return report
+
+    def _apply_health_report(
+        self,
+        adapter_id: str,
+        info: AdapterInfo,
+        epoch: object,
+        observed_mono: float,
+        observed_wall: str,
+    ) -> None:
+        """Publish current health without rewriting startup history or terminal owners."""
+        if epoch is not self._native_health_epoch or self._state not in {
+            RuntimeState.STARTING,
+            RuntimeState.RUNNING,
+        }:
+            return
+        previous = self._adapter_states.get(adapter_id)
+        if previous is None:
+            return
+        initializing = (
+            self._state is RuntimeState.STARTING
+            and previous is AdapterState.INITIALIZING
+        )
+        if not initializing and (
+            adapter_id not in self.started_adapter_ids
+            or previous not in {AdapterState.READY, AdapterState.DEGRADED}
+        ):
+            return
+        state = health_to_adapter_state(info.health)
+        before = self._observed_adapter_health.get(adapter_id)
+        if before is not None and before.poll_timestamp_monotonic > observed_mono:
+            return
+        entry = observed_health(
+            info,
+            state,
+            self.adapters[adapter_id],
+            adapter_id=adapter_id,
+            observed_mono=observed_mono,
+            observed_wall=observed_wall,
+        )
+        self._observed_adapter_health[adapter_id] = entry
+        if initializing:
+            # Retain observations during an awaited startup probe without
+            # claiming that adapter.start() has completed successfully.
+            return
+        # Native failure is health evidence, not failed-start ownership. Keep
+        # the started lifetime recoverable until core actually stops it.
+        lifecycle = (
+            AdapterState.READY if info.health == "healthy" else AdapterState.DEGRADED
+        )
+        self._set_adapter_state(adapter_id, lifecycle)
+        if before is not None and before.health == entry.health:
+            return
+        self._pending_health_reports.add(adapter_id)
+        _logger.info(
+            "Adapter %s health changed: %s -> %s",
+            adapter_id,
+            before.health if before is not None else previous.value,
+            entry.health,
+        )
+        if self._state is RuntimeState.RUNNING:
+            self._publish_health_reports()
+
+    def _publish_health_reports(self) -> None:
+        """Commit pending native reports after runtime activation; never lose startup recovery."""
+        if not self._pending_health_reports:
+            return
+        changed = sorted(self._pending_health_reports)
+        self._pending_health_reports.clear()
+        entries = dict(self._observed_adapter_health)
+        for aid, lifecycle in self._adapter_states.items():
+            if aid not in entries or (
+                lifecycle is AdapterState.FAILED
+                and entries[aid].adapter_state is not AdapterState.FAILED
+            ):
+                entries[aid] = AdapterLiveHealth(
+                    adapter_id=aid,
+                    health="failed" if lifecycle is AdapterState.FAILED else "unknown",
+                    adapter_state=lifecycle,
+                    fake_or_live="unknown",
+                    poll_timestamp_monotonic=self._startup_monotonic or 0.0,
+                    poll_timestamp_wall=self._startup_wall or "",
+                )
+        snapshot = reported_health_snapshot(entries, self._live_health_poll_count)
+        self._live_health_state = snapshot
+        _logger.info("Runtime current health: %s", snapshot.runtime_health)
+        self._emit_event(
+            RuntimeEventType.HEALTH_REFRESHED,
+            {
+                "runtime_health": snapshot.runtime_health,
+                "source": snapshot.source,
+                "changed_adapters": changed,
+                "adapter_summary": snapshot.adapter_summary,
+                "poll_count": snapshot.poll_count,
+            },
+        )
+
     async def refresh_live_health(self) -> LiveHealthSnapshot:
         """Perform a one-shot, caller-triggered health refresh of all adapters.
 
-        This is a **manual** operation — there is no background polling,
-        no scheduler, and no automatic refresh.  The caller (e.g. ``medre
-        diagnostics --refresh-health``) invokes this explicitly when live
-        adapter health state is needed.
+        This method explicitly samples providers; no background polling or
+        scheduler invokes it. Native provider notifications separately update
+        retained observations without starting another health probe.
 
         Callable only when the runtime is :attr:`RUNNING`; non-``RUNNING``
         states raise :class:`RuntimeError`.
 
         Iterates adapters in deterministic ``adapter_id`` order (same as
-        startup),         calls each adapter's :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`
+        startup), calls each adapter's :meth:`~medre.core.contracts.adapter.AdapterContract.health_check`
         once, builds per-adapter :class:`~medre.core.supervision.health.AdapterLiveHealth`
         entries, classifies aggregate runtime health from the live results,
         and stores the resulting :class:`LiveHealthSnapshot` on the app.
@@ -606,10 +746,7 @@ class MedreApp:
 
         adapter_ids = sorted(self.adapters.keys())
 
-        _time.monotonic()
         adapter_entries: dict[str, AdapterLiveHealth] = {}
-        live_states: list[AdapterState] = []
-        failed_adapter_ids: list[str] = []
 
         for adapter_id in adapter_ids:
             adapter = self.adapters[adapter_id]
@@ -617,9 +754,10 @@ class MedreApp:
             poll_wall = _utc_now().isoformat()
             try:
                 info = await adapter.health_check()
+                if info.adapter_id != adapter_id:
+                    raise ValueError("health sample must match its bound adapter")
                 # Derive adapter state from the live health_check result.
                 live_state = health_to_adapter_state(info.health)
-                live_states.append(live_state)
 
                 # Detect fake/live mode.
                 norm = normalize_adapter_health(
@@ -641,8 +779,6 @@ class MedreApp:
             except Exception as exc:
                 error_str = truncate_health_error(str(exc))
                 live_state = AdapterState.FAILED
-                live_states.append(live_state)
-                failed_adapter_ids.append(adapter_id)
 
                 adapter_entries[adapter_id] = AdapterLiveHealth(
                     adapter_id=adapter_id,
@@ -654,6 +790,19 @@ class MedreApp:
                     error=error_str,
                 )
 
+        # A native transition during an awaited poll is more recent evidence
+        # than that poll's start. Preserve it instead of overwriting recovery.
+        for aid, reported in getattr(self, "_observed_adapter_health", {}).items():
+            sampled = adapter_entries.get(aid)
+            if (
+                sampled is not None
+                and reported.poll_timestamp_monotonic > sampled.poll_timestamp_monotonic
+            ):
+                adapter_entries[aid] = reported
+        live_states = [entry.adapter_state for entry in adapter_entries.values()]
+        failed_adapter_ids = [
+            aid for aid, entry in adapter_entries.items() if entry.error is not None
+        ]
         # Classify aggregate runtime health from live poll results.
         runtime_health = classify_runtime_health(live_states)
         operational, partial, failed, transitional = count_adapter_state_categories(
@@ -682,6 +831,7 @@ class MedreApp:
         prev_snapshot = self._live_health_state
         self._live_health_state = snapshot
         self._live_health_poll_count = next_poll_count
+        self._observed_adapter_health = dict(snapshot.adapters)
 
         # Build event detail (cheap derived data only).
         event_detail: dict[str, Any] = {
@@ -1145,6 +1295,7 @@ class MedreApp:
             ) from exc
 
         self._set_state(RuntimeState.RUNNING)
+        self._publish_health_reports()
 
         # -- Emit route eligibility events (passive observation) ---------------
         if self._route_eligibility is not None:
@@ -1172,6 +1323,9 @@ class MedreApp:
         an await is cancelled. The caller retires them on every preparation
         failure, before any adapter receives its context.
         """
+        self._native_health_epoch = object()
+        self._observed_adapter_health.clear()
+        self._pending_health_reports.clear()
         # 0. Create required directories.
         self._ensure_dirs()
 
@@ -1344,6 +1498,11 @@ class MedreApp:
             )
         for adapter_id, task in health_tasks.items():
             health = task.result()
+            observed = self._observed_adapter_health.get(adapter_id)
+            if observed is not None:
+                # A peer may report a transition after its probe completed
+                # while another provider is still holding the startup barrier.
+                health = observed.health
             state = AdapterState.READY if health == "healthy" else AdapterState.DEGRADED
             previous = self._adapter_states[adapter_id]
             self._set_adapter_state(adapter_id, state)
@@ -1359,18 +1518,43 @@ class MedreApp:
     async def _probe_startup_health(self, adapter_id: str) -> str:
         """Read cheap native health under the same bounded startup policy."""
         deadline = asyncio.timeout(_STARTUP_HEALTH_TIMEOUT_SECONDS)
+        sampled_mono, sampled_wall = _time.monotonic(), _utc_now().isoformat()
+        sampled: AdapterLiveHealth | None = None
         try:
             async with deadline:
                 info = await self.adapters[adapter_id].health_check()
-            if not deadline.expired() and info.health == "healthy":
-                return "healthy"
+            if not deadline.expired():
+                sampled = observed_health(
+                    info,
+                    health_to_adapter_state(info.health),
+                    self.adapters[adapter_id],
+                    adapter_id=adapter_id,
+                    observed_mono=sampled_mono,
+                    observed_wall=sampled_wall,
+                )
         except Exception as exc:
             _logger.warning(
-                "Adapter %s startup health unavailable (%s); retaining degraded health",
+                "Adapter %s startup health unavailable (%s)",
                 adapter_id,
                 type(exc).__name__,
             )
-        return "degraded"
+        existing = self._observed_adapter_health.get(adapter_id)
+        if existing is not None and existing.poll_timestamp_monotonic > sampled_mono:
+            return "healthy" if existing.health == "healthy" else "degraded"
+        if sampled is None:
+            self._observed_adapter_health[adapter_id] = AdapterLiveHealth(
+                adapter_id=adapter_id,
+                health="degraded",
+                adapter_state=AdapterState.DEGRADED,
+                fake_or_live=(
+                    existing.fake_or_live if existing is not None else "unknown"
+                ),
+                poll_timestamp_monotonic=sampled_mono,
+                poll_timestamp_wall=sampled_wall,
+            )
+            return "degraded"
+        self._observed_adapter_health[adapter_id] = sampled
+        return "healthy" if sampled.health == "healthy" else "degraded"
 
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.
@@ -1415,6 +1599,7 @@ class MedreApp:
                     else None
                 ),
                 report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
+                report_health=self._health_reporter(adapter_id),
             )
             startup_budget = self.config.runtime.adapter_start_timeout_seconds
             startup_deadline = asyncio.timeout(startup_budget)
@@ -1500,6 +1685,7 @@ class MedreApp:
                         adapter_id,
                     )
             self._set_adapter_state(adapter_id, AdapterState.FAILED)
+            self._observed_adapter_health.pop(adapter_id, None)
             _logger.error(
                 "Adapter %s.%s failed to start (%.0fms): %s",
                 transport,

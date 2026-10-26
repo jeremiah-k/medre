@@ -309,6 +309,14 @@ class AdapterContext:
         Optional source-bound, non-durable activity sink. False means activity
         was not admitted; it never acknowledges native delivery. Available only
         when explicit typing routes are configured.
+    report_health:
+        Optional thread-safe sink for completed provider health observations.
+        Report the same health that health_check() exposes after native state
+        changes. Reports update current health, never delivery receipts or a
+        prior startup record. Retired runtime contexts ignore late callbacks.
+        The sink requires an AdapterInfo for this context's adapter_id with
+        health ``healthy``, ``degraded`` or ``failed``; otherwise it raises
+        ValueError. SDK-thread callers must contain observer exceptions.
     attachments:
         Optional runtime-wide attachment seam (policy snapshot, bounded
         transfer permits, and content access). Protocol adapters use it to
@@ -329,6 +337,7 @@ class AdapterContext:
     )
     attachments: AttachmentRuntimeSeam | None = None
     publish_typing: Callable[[TypingSignal], Awaitable[bool]] | None = None
+    report_health: Callable[[AdapterInfo], None] | None = None
 
 
 # ---------------------------------------------------------------------------
