@@ -241,3 +241,53 @@ async def _inspect_replay(
         await storage.close()
     if _exit_code is not None:
         sys.exit(_exit_code)
+
+
+async def _inspect_radio_attempt(
+    outbox_id: str,
+    attempt: int,
+    *,
+    storage_path: str,
+) -> None:
+    """Print exact retained radio facts without recovery, SDKs or submission authority.
+
+    The parent row is current operational authority; progress belongs to the
+    explicitly selected historical generation. Reading a submitting checkpoint
+    does not turn it into unknown or authorize a late native observation.
+    """
+    from medre.core.storage.backend import StorageError
+
+    from .exit_codes import EXIT_BUILD
+
+    storage = await _open_readonly_storage(storage_path)
+    try:
+        snapshot = await storage.get_radio_attempt_snapshot(outbox_id, attempt)
+        if snapshot is None:
+            print("Error: radio attempt not found", file=sys.stderr)
+            raise SystemExit(EXIT_NOT_FOUND)
+        parent = await storage.get_outbox_item(outbox_id)
+        if parent is None:
+            raise StorageError("Retained radio attempt has no outbox parent")
+        print(
+            to_json(
+                {
+                    "schema_version": 1,
+                    "outbox": {
+                        "outbox_id": parent.outbox_id,
+                        "event_id": parent.event_id,
+                        "delivery_plan_id": parent.delivery_plan_id,
+                        "target_adapter": parent.target_adapter,
+                        "target_channel": parent.target_channel,
+                        "current_status": parent.status,
+                        "current_attempt_number": parent.active_attempt
+                        or parent.attempt_number,
+                    },
+                    "progress": snapshot,
+                }
+            )
+        )
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD) from None
+    finally:
+        await storage.close()

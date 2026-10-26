@@ -1463,6 +1463,7 @@ class PipelineRunner:
         ) = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryExecutionEvidence:
         """Late-bind orchestration-facing target execution evidence.
 
@@ -1480,6 +1481,7 @@ class PipelineRunner:
             cached_list_fn=cached_list_fn,
             outbox_id=outbox_id,
             reserved_attempt_number=reserved_attempt_number,
+            expected_outbox_worker_id=expected_outbox_worker_id,
         )
 
     async def _deliver_to_targets_fan_out(
@@ -1519,6 +1521,7 @@ class PipelineRunner:
         ) = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryExecutionEvidence:
         """Execute one target and return validated immutable evidence.
 
@@ -1545,6 +1548,7 @@ class PipelineRunner:
             replay_run_id=replay_run_id,
             outbox_id=outbox_id,
             reserved_attempt_number=reserved_attempt_number,
+            expected_outbox_worker_id=expected_outbox_worker_id,
         )
 
     async def deliver_to_target(
@@ -1562,6 +1566,7 @@ class PipelineRunner:
         ) = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver one target and return the primary receipt for lineage callers.
 
@@ -1579,6 +1584,7 @@ class PipelineRunner:
             cached_list_fn=cached_list_fn,
             outbox_id=outbox_id,
             reserved_attempt_number=reserved_attempt_number,
+            expected_outbox_worker_id=expected_outbox_worker_id,
         )
         receipt = evidence.primary_receipt
         if receipt is None:

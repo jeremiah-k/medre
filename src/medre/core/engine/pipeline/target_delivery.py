@@ -55,6 +55,7 @@ from medre.core.contracts.adapter import (
 from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.radio_delivery import deliver_radio_plan
 from medre.core.engine.pipeline.receipt_factory import (
     build_delivery_receipt,
     plan_capability_receipt_fields,
@@ -374,6 +375,7 @@ class TargetDeliveryService:
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryExecutionEvidence:
         """Execute one target and return its validated immutable evidence.
 
@@ -407,6 +409,7 @@ class TargetDeliveryService:
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
                 reserved_attempt_number=reserved_attempt_number,
+                expected_outbox_worker_id=expected_outbox_worker_id,
                 _receipt_id=receipt_id,
             )
         if receipt.receipt_kind == "lifecycle":
@@ -425,6 +428,7 @@ class TargetDeliveryService:
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryReceipt:
         """Execute one target and return its primary receipt.
 
@@ -442,6 +446,7 @@ class TargetDeliveryService:
             replay_run_id=replay_run_id,
             outbox_id=outbox_id,
             reserved_attempt_number=reserved_attempt_number,
+            expected_outbox_worker_id=expected_outbox_worker_id,
         )
         receipt = evidence.primary_receipt
         if receipt is None:  # Defensive: every normal execution persists evidence.
@@ -460,6 +465,7 @@ class TargetDeliveryService:
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
         _receipt_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
@@ -518,6 +524,12 @@ class TargetDeliveryService:
             outbox will admit. Receipt lineage (``parent_receipt_id``) is
             still derived from *previous_receipt*. ``None`` is only valid
             when no durable outbox attempt identity exists.
+
+        expected_outbox_worker_id:
+            Independently held dispatch worker, forwarded by the coordinator or
+            retry owner. Guarded radio packets retain this exact identity at
+            every native boundary; they never adopt a worker read back from
+            the current database row. None matches only a genuinely unowned row.
 
         Returns
         -------
@@ -844,6 +856,7 @@ class TargetDeliveryService:
                 outbox_id=outbox_id,
                 attempt_number=attempt_number,
                 attempt_provenance=attempt_provenance,
+                before_native_send=None,
             )
         except (TypeError, ValueError) as exc:
             provenance_error = f"Invalid rendering attempt provenance: {exc}"
@@ -903,7 +916,20 @@ class TargetDeliveryService:
         delivery_exc: Exception | None = None
         adapter_result: AdapterHandoffResult | None = None
         try:
-            raw_result = await deliver_fn(rendering_result)
+            if rendering_result.radio_plan is not None:
+                if getattr(adapter, "supports_radio_multipart", False) is not True:
+                    raise AdapterPermanentError(
+                        "adapter does not support guarded radio plans"
+                    )
+                raw_result = await deliver_radio_plan(
+                    self._storage,
+                    rendering_result,
+                    expected_outbox_worker_id,
+                    deliver_fn,
+                    deadline=plan.deadline,
+                )
+            else:
+                raw_result = await deliver_fn(rendering_result)
             if not isinstance(raw_result, AdapterHandoffResult):
                 raise AdapterPermanentError(
                     f"adapter {adapter_id!r} violated the delivery contract: "

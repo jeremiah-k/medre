@@ -69,9 +69,10 @@ commit but before invocation remains conservatively unknown after restart.
 
 ## Production integration boundary
 
-This planner does not enable splitting in production adapters. MeshCore and
-Meshtastic retain their existing bounded rendering until durable part progress
-and exact-attempt feedback aggregation are implemented together.
+MeshCore MAY opt into the synchronous guarded handoff described below. Meshtastic
+retains single-packet bounded rendering; its deferred queue requires a separate
+claim-ownership integration before it can participate. Physical transport
+qualification remains separate from deterministic implementation tests.
 
 Before sending any part, production integration MUST bind and persist the exact
 plan to its outbox attempt. Every native handoff observation MUST retain part
@@ -93,3 +94,48 @@ whitespace, long words, part limits, queue pressure, reconnect between parts,
 shutdown, crashes around handoff, restart progress and exact/ambiguous relations.
 Installed-SDK tests qualify API use; serial/BLE/TCP and MeshCore RF campaigns
 are required to claim native transport qualification.
+
+## Synchronous guarded handoff
+
+A participating adapter MUST explicitly declare `supports_radio_multipart=True`.
+The renderer MAY supply a typed `RenderingResult.radio_plan` containing the exact
+wire text for every packet. Core MUST bind the complete plan to the durable
+attempt before invoking the adapter and MUST preserve the original rendered
+payload keys while substituting only the already-planned `text` for each part.
+This is materialization of renderer-owned wire bytes, not a second rendering pass.
+
+For each packet, core MUST supply a fresh, one-use `before_native_send` callback.
+The adapter MUST invoke it inside its existing serialized send owner, after
+pacing and immediately before the SDK command. The callback MUST commit
+`begin_radio_part` under the dispatch's independently supplied worker identity;
+reading the current worker from storage MUST NOT authorize an older dispatch.
+An expired, superseded or reused grant MUST prevent the SDK call. The dispatch
+deadline MUST be checked again at this boundary after pacing. Core MUST
+discard any grant callback supplied by a renderer.
+
+A granted invocation MUST NOT use an adapter-internal retry loop. A timeout or
+other uncertain result after the grant MUST stop the plan and retain unknown
+progress where claim ownership still permits the observation. If that write
+fails or loses ownership, the persisted submitting record MUST remain blocking.
+Cancellation MUST propagate. An outage proven to precede the first grant MAY
+remain transient under the existing delivery policy. Failure after an accepted
+prefix MUST be permanent for automatic retry purposes; no new generation may
+blindly replay that prefix. This API does not authorize operator reconciliation.
+
+Only synchronous `transport_handoff` results MAY accept a part. Each retained
+handoff reference (the JSON shape in `../schemas/radio-local-handoff.schema.json`)
+MUST include its ordinal, native channel, actual native ID
+(or explicit null), and the declared confirmation level. Local acceptance with
+no native ID MUST NOT manufacture a native message ID. Every part MUST have
+committed acceptance before core returns a whole-plan handoff. Its confirmation
+level MUST be the weakest declared part level, without promotion to recipient
+delivery. A multipart aggregate MUST omit scalar native message/channel IDs so
+one arbitrary packet cannot become the canonical message's native reply target.
+The delivery lifecycle remains the sole owner of parent outbox completion.
+
+`medre inspect radio-attempt OUTBOX_ID ATTEMPT --storage-path PATH` MUST open
+storage read-only and report the selected snapshot together with current parent
+identity/status. Inspection MUST leave submitting unchanged and MUST NOT start
+an adapter, recover progress, infer recipient delivery or grant submission.
+The output follows `../schemas/radio-attempt-inspection.schema.json`; absent
+attempts exit 5 and invalid generations exit 2.

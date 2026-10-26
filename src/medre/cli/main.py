@@ -482,6 +482,19 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
     inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
 
+    inspect_radio = inspect_sub.add_parser(
+        "radio-attempt",
+        help="Inspect exact radio packet progress without granting sends",
+    )
+    inspect_radio.add_argument("outbox_id", help="Exact durable outbox ID")
+    inspect_radio.add_argument("attempt", type=int, help="Positive attempt generation")
+    inspect_radio.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
+
     # inspect event <event_id>
     inspect_evt = inspect_sub.add_parser("event", help="Inspect a canonical event")
     inspect_evt.add_argument(
@@ -803,6 +816,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser(include_adapter_cli=not managing_packages)
     args = parser.parse_args(arguments)
 
+    if (
+        args.command == "inspect"
+        and args.inspect_command == "radio-attempt"
+        and args.attempt < 1
+    ):
+        parser.error("radio-attempt requires a positive attempt generation")
+
     if args.command in ("upgrade", "update"):
         if args.core_only and args.packages:
             parser.error("--core-only cannot select adapters")
@@ -971,11 +991,18 @@ def main(argv: list[str] | None = None) -> None:
             _inspect_event,
             _inspect_native_ref,
             _inspect_pressure,
+            _inspect_radio_attempt,
             _inspect_receipts,
             _inspect_replay,
         )
 
-        if args.inspect_command == "event":
+        if args.inspect_command == "radio-attempt":
+            asyncio.run(
+                _inspect_radio_attempt(
+                    args.outbox_id, args.attempt, storage_path=args.storage_path
+                )
+            )
+        elif args.inspect_command == "event":
             asyncio.run(
                 _inspect_event(
                     args.event_id,

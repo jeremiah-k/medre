@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/radio-attempt-inspection.schema.json",
+  "title": "Read-only exact radio attempt inspection",
+  "description": "Current parent authority and exact historical radio progress. Inspection performs no recovery and grants no native submission or remote delivery authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "outbox", "progress"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "outbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outbox_id", "event_id", "delivery_plan_id", "target_adapter", "target_channel", "current_status", "current_attempt_number"],
+      "properties": {
+        "outbox_id": {"type": "string", "minLength": 1},
+        "event_id": {"type": "string", "minLength": 1},
+        "delivery_plan_id": {"type": "string", "minLength": 1},
+        "target_adapter": {"type": "string", "minLength": 1},
+        "target_channel": {"type": ["string", "null"]},
+        "current_status": {"enum": ["pending", "in_progress", "queued", "sent", "retry_wait", "dead_lettered", "cancelled", "abandoned"]},
+        "current_attempt_number": {"type": "integer", "minimum": 1}
+      }
+    },
+    "progress": {"$ref": "radio-attempt-progress.schema.json"}
+  }
+}

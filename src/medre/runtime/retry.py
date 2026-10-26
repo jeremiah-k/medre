@@ -1237,6 +1237,7 @@ class RetryWorker:
                 replay_run_id=item.replay_run_id,
                 outbox_id=item.outbox_id,
                 reserved_attempt_number=reserved_attempt,
+                expected_outbox_worker_id=item.worker_id,
             )
         except asyncio.CancelledError:
             raise

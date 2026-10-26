@@ -589,7 +589,19 @@ class RenderingResult:
     outbox_id: str | None = None
     attempt_number: int | None = None
     attempt_provenance: DeliveryAttemptProvenance | None = None
+    radio_plan: RadioTextPlan | None = None
+    before_native_send: Callable[[], Awaitable[None]] | None = None
 ```
+
+Synchronous radio adapters MAY explicitly declare `supports_radio_multipart=True`
+and participate in [guarded radio handoff](radio-text-planning.md#synchronous-guarded-handoff).
+The default is false. A renderer-owned `radio_plan` contains already-rendered
+packet bytes; the core-owned `before_native_send` callback is ephemeral dispatch
+context, not serialized payload, provenance or metadata. Adapters MUST invoke it
+once inside their existing paced send owner immediately before the SDK call and
+MUST disable native retries for that granted call. Core MUST replace any
+renderer-supplied callback with its own. Deferred queues MUST NOT opt in until
+they implement the required ownership boundary.
 
 ### 10.3 Rendering Boundary
 
@@ -610,6 +622,11 @@ The rendering boundary is strictly enforced:
 
 The renderer owns payload construction. The adapter owns transport delivery.
 
+- For an explicitly planned radio handoff, core MAY copy that payload and replace
+  only `text` with the renderer's exact planned packet text. The adapter MUST
+  transport those precomputed bytes without re-rendering. Core MUST persist
+  the full immutable plan before the first packet; one packet MUST NOT complete
+  the parent delivery.
 - The renderer produces the complete `RenderingResult.payload` dict. This dict is the adapter-ready payload in the target's native format. The adapter **MUST NOT** modify, augment, or restructure the payload.
 - The adapter receives the `RenderingResult` and transports the payload as-is to the external platform. The adapter's `deliver()` method is a transport boundary, not a formatting boundary.
 - When `delivery_strategy` is `"fallback_text"`, the target-native renderer already embedded the degraded relation text in the payload. The adapter does not need to handle fallback logic.
