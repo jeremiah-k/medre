@@ -9,7 +9,10 @@ import ssl
 import subprocess
 from urllib.parse import quote
 from uuid import uuid4
-from xml.etree.ElementTree import Element, SubElement
+from xml.etree.ElementTree import (  # nosec B405 - builds and types witness stanzas only; this module never parses XML
+    Element,
+    SubElement,
+)
 
 from .worker import commands, emit, receiver
 

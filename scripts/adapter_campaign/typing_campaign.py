@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import closing
-from pathlib import Path
 import sqlite3
 import sys
 import time
+from contextlib import closing
+from pathlib import Path
 
 from .fidelity import expectations
 from .plan import Plan
@@ -23,7 +23,9 @@ def counts(directory: Path) -> dict[str, int]:
     uri = (directory / "medre.sqlite3").resolve().as_uri() + "?mode=ro"
     with closing(sqlite3.connect(uri, uri=True)) as database:
         return {
-            table: database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            table: database.execute(
+                f"SELECT COUNT(*) FROM {table}"  # nosec B608 - table names come from the module-level TABLES constant
+            ).fetchone()[0]
             for table in TABLES
         }
 

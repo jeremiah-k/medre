@@ -376,7 +376,9 @@ def _test_installed_adapter(
     command = [sys.executable, "-m", "pytest", *arguments]
     if sys.platform == "win32":
         raise SystemExit(subprocess.run(command, check=False).returncode)
-    os.execv(sys.executable, command)
+    os.execv(
+        sys.executable, command
+    )  # nosec B606 - replaces this process with the pinned interpreter and a literal argv
 
 
 if __name__ == "__main__":
