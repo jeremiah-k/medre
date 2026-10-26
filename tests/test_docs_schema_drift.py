@@ -327,3 +327,28 @@ def test_mirror_audit_preserves_property_names_and_default_data(
         (tmp_path / "canonical-event.schema.yaml").write_text(yaml.safe_dump(mirror))
         with pytest.raises(AssertionError):
             test_canonical_json_and_yaml_validation_shapes_match()
+
+
+def test_meshcore_multipart_schema_matches_merged_provider_bounds() -> None:
+    """The qualified MeshCore part cap must not drift from its published config."""
+    from jsonschema import Draft202012Validator
+    from medre.config.adapters.meshcore import MeshCoreConfig
+
+    schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+    arm = next(
+        part for part in schema["oneOf"] if part.get("title") == "MeshCoreConfig"
+    )
+    field = arm["properties"]["max_text_parts"]
+    assert field["type"] == "integer"
+    assert field["default"] == MeshCoreConfig(adapter_id="mesh").max_text_parts == 1
+    assert field["minimum"] == 1 and field["maximum"] == 128
+    assert "guarded multipart" in field["description"]
+    validator = Draft202012Validator(field)
+    for valid in (1, 2, 128):
+        assert validator.is_valid(valid)
+    for invalid in (0, 129, True, False, 1.5, "2", None):
+        assert not validator.is_valid(invalid)
+    example = _load_json(
+        _SCHEMAS_DIR / "examples" / "adapter-config-meshcore-example.json"
+    )
+    assert example["max_text_parts"] == field["default"]

@@ -12,3 +12,6 @@ retain their existing deferred behavior. Native ACK aggregation and automatic
 partial-message restart resumption remain outside this qualification.
 
 Package versions and storage shape/marker are unchanged.
+
+The MeshCore adapter configuration schema and example also declare the
+qualified `max_text_parts` setting with its 1–128 bound and default of 1.
