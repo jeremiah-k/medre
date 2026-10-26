@@ -39,8 +39,16 @@ when the same delivery attempt is retried after restart.
 
 ## Qualification limits
 
-The native SDK tier proves profile creation, group history, local queue
-acceptance, durable duplicate suppression, and worker cleanup. It does not prove
-receipt by an independent profile. SimpleX is outside the six-adapter native
-campaign until an independent peer helper and dedicated group fixture are
-qualified. SDK-free pair tests provide routing and rendering evidence only.
+The installed-SDK tier proves profile creation, group history, local queue
+acceptance, duplicate suppression and worker cleanup; those tests alone do not
+prove independent peer delivery. The retained seven-provider native baseline
+reports separate SimpleX SDK profiles in an accepted group and native peer
+observations for its directed pairs. This group-specific campaign evidence is
+**not** a qualification of direct-contact delivery or worker-death recipient
+recovery. The private per-peer receipts are not shipped in this repository, so
+this profile links their recorded qualification rather than recreating them.
+
+SDK-free pair tests prove routing and rendering only. A `local_queue` result
+remains local acceptance even when historical group peer receipts exist. See
+[the native evidence index](../../dev/native-evidence-index.json) for the
+source/substrate and property boundaries.
