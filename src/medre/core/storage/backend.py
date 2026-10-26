@@ -1156,6 +1156,18 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def append_radio_packet_observation(
+        self, observation: DeliveryObservation
+    ) -> bool:
+        """Append a packet-scoped native observation at its original attempt.
+
+        This storage-owned path validates the original accepted packet and
+        immutable parent identity atomically. Later retry generations do not
+        invalidate genuine delayed radio observations. It never promotes the
+        parent or authenticates the adapter's native observation source.
+        """
+        ...
+
     async def list_delivery_observations_for_event(
         self, event_id: str
     ) -> list[DeliveryObservation]:

@@ -85,7 +85,7 @@
       "properties": {
         "radio_packet": {
           "type": "object",
-          "description": "Packet-specific scope; positive evidence additionally requires exact correlation to owned retained acceptance.",
+          "description": "Packet-specific scope; historical admission requires exact correlation to the owned original accepted attempt. Attempt and ordinal values require runtime integers, excluding booleans and floating-point values. Admission never changes parent delivery state.",
           "properties": {
             "ordinal": {
               "type": "integer",

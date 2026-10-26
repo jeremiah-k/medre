@@ -2038,3 +2038,15 @@ installation. Checksums establish integrity relative to the supplied manifest,
 not authenticity. Encrypted native stores and provider-specific companion files
 require a separately qualified inventory. This API does not claim crash-durable
 publication across filesystem or power failure.
+
+### Original-attempt radio packet observations
+
+`append_radio_packet_observation` is append-only and transactionally checks the
+retained accepted packet at its original attempt, including after an ordinary
+retry has advanced the parent generation. It does not weaken the existing
+current-attempt guard for generic delivery observations. A native ID,
+original-attempt ordinal, channel, event, plan and adapter must match the
+storage-owned checkpoint and parent. Observations never alter terminal outbox
+history or issue a delivery receipt. Duplicate observation IDs create no
+additional evidence. The native producer remains responsible for independent
+ACK source authority; historical admission is not ACK authentication.

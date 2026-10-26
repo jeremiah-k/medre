@@ -8,18 +8,29 @@ Authority surface:
     transition cannot admit stale callback evidence.
   - list_delivery_observations_for_event: **list/get** (read-only).
   - list_delivery_observations_for_outbox: **list/get** (read-only).
+  - append_radio_packet_observation: **append/idempotent** against retained
+    original acceptance, independent of the parent's effective generation.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import sqlite3
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, TypeVar
+
+import msgspec
 
 from medre.core.events import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DELIVERY_OBSERVATION_STATE_VALUES,
     DeliveryObservation,
 )
+from medre.core.storage.backend import StorageError
+from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation
+
+_T = TypeVar("_T")
 
 _INSERT_OBSERVATION = """
 INSERT INTO delivery_observations (
@@ -99,6 +110,10 @@ class _ObservationMixin:
             self, sql: str, params: tuple[Any, ...] = ()
         ) -> list[dict[str, Any]]: ...
 
+        async def _radio_transaction(
+            self, operation: Callable[[sqlite3.Connection], _T]
+        ) -> _T: ...
+
     async def append_delivery_observation(
         self, observation: DeliveryObservation
     ) -> bool:
@@ -115,6 +130,116 @@ class _ObservationMixin:
             _observation_insert_params(observation),
         )
         return rowcount == 1
+
+    async def append_radio_packet_observation(
+        self, observation: DeliveryObservation
+    ) -> bool:
+        """Admit a delayed packet observation against its *original* accepted fact.
+
+        Ordinary observations require the current outbox attempt. Radio packet
+        ACKs can arrive after a newer attempt inherited the original packet.
+        Validate the retained original checkpoint and parent delivery identity
+        inside one SQLite write transaction, without reopening an old attempt.
+        This is an append-only evidence interface, never lifecycle authority.
+        The caller still owns authentication of the native observation source.
+        """
+        packet = observation.metadata.get("radio_packet")
+        if not isinstance(packet, Mapping):
+            return False
+        ordinal = packet.get("ordinal")
+        if (
+            type(ordinal) is not int
+            or type(observation.attempt_number) is not int
+            or type(packet.get("origin_attempt_number")) is not int
+            or packet.get("origin_attempt_number") != observation.attempt_number
+            or packet.get("origin_outbox_id") != observation.outbox_id
+            or observation.adapter_message_id is None
+            or observation.state not in {"delivered", "failed", "rejected", "cancelled"}
+            or (
+                observation.state == "delivered"
+                and observation.confirmation_level
+                not in {"remote_service", "end_to_end"}
+            )
+        ):
+            return False
+        _observation_insert_params(observation)
+
+        def insert(db: sqlite3.Connection) -> bool:
+            # Hold the write lock across identity verification and insertion.
+            row = db.execute(
+                """SELECT progress.* FROM radio_attempt_progress AS progress
+                   WHERE outbox_id=? AND attempt_number=?""",
+                (observation.outbox_id, observation.attempt_number),
+            ).fetchone()
+            if row is None:
+                return False
+            checkpoint = _decode(row)
+            provenance = checkpoint.provenance
+            parent = db.execute(
+                "SELECT * FROM delivery_outbox WHERE outbox_id=?",
+                (observation.outbox_id,),
+            ).fetchone()
+            if parent is None or (
+                provenance.event_id != parent["event_id"]
+                or provenance.delivery_plan_id != parent["delivery_plan_id"]
+                or provenance.target_adapter != parent["target_adapter"]
+                or (provenance.target_channel or "") != (parent["target_channel"] or "")
+                or observation.event_id != provenance.event_id
+                or observation.delivery_plan_id != provenance.delivery_plan_id
+                or observation.target_adapter != provenance.target_adapter
+                or observation.target_channel != provenance.target_channel
+                or not 1 <= ordinal <= len(checkpoint.progress.parts)
+            ):
+                return False
+            part = checkpoint.progress.parts[ordinal - 1]
+            if part.state != "accepted":
+                return False
+            # A copied acceptance belongs to its source checkpoint. Never
+            # assign it a second origin merely because a retry inherited it.
+            try:
+                evidence = RadioLocalHandoff.from_part(part, provenance)
+            except (ValueError, TypeError, msgspec.DecodeError) as exc:
+                raise StorageError(
+                    "Retained radio attempt evidence is invalid"
+                ) from exc
+            origin = evidence.origin
+            if origin is None or (
+                origin.outbox_id != provenance.outbox_id
+                or origin.attempt_number != provenance.attempt_number
+                or evidence.native_message_id != observation.adapter_message_id
+                or evidence.native_channel_id != observation.native_channel_id
+            ):
+                return False
+            # Checkpoint decoding validates immutable plan + progress. The
+            # parent identity above fences a stale or foreign attempt.
+            db.execute(
+                """INSERT INTO delivery_observations (
+                    observation_id, event_id, delivery_plan_id, target_adapter,
+                    target_channel, native_channel_id, outbox_id, attempt_number,
+                    adapter_message_id, state, confirmation_level, error,
+                    metadata, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(observation_id) DO NOTHING""",
+                (
+                    observation.observation_id,
+                    provenance.event_id,
+                    provenance.delivery_plan_id,
+                    provenance.target_adapter,
+                    provenance.target_channel,
+                    observation.native_channel_id,
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                    observation.adapter_message_id,
+                    observation.state,
+                    observation.confirmation_level,
+                    observation.error,
+                    _encode_json(dict(observation.metadata)),
+                    observation.observed_at.isoformat(),
+                ),
+            )
+            return int(db.execute("SELECT changes()").fetchone()[0]) == 1
+
+        return await self._radio_transaction(insert)
 
     async def list_delivery_observations_for_event(
         self, event_id: str
