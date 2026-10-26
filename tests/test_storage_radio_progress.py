@@ -395,3 +395,36 @@ def test_radio_schema_has_no_duplicate_keys_and_retains_recovery_guidance():
     assert "Read-only inspection" in description
     assert "restart recovery" in description
     assert "exact plan reconstruction" in description
+
+
+@pytest.mark.parametrize("boundary", [True, False, 0, -1, 1.0, "2", None])
+async def test_radio_lookup_rejects_invalid_attempt_boundaries(storage, boundary):
+    """A caller must supply an exact positive generation rather than coerced input."""
+    with pytest.raises(ValueError, match="positive attempt boundary"):
+        await storage.get_latest_radio_attempt("missing", before_attempt=boundary)
+
+
+async def test_radio_lookup_is_scoped_before_attempt_and_read_only(storage):
+    """Checkpoint selection cannot borrow another outbox or mutate retained proof."""
+    item, provenance = await claim(storage)
+    checkpoint = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    assert checkpoint is not None
+    assert (
+        await storage.get_latest_radio_attempt(item.outbox_id, before_attempt=1) is None
+    )
+    assert (
+        await storage.get_latest_radio_attempt(item.outbox_id, before_attempt=2)
+        == checkpoint
+    )
+    assert (
+        await storage.get_latest_radio_attempt(item.outbox_id, before_attempt=7)
+        == checkpoint
+    )
+    assert (
+        await storage.get_latest_radio_attempt("another-outbox", before_attempt=7)
+        is None
+    )
+    assert (
+        await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
+        == checkpoint.progress.to_data()
+    )
