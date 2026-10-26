@@ -48,3 +48,91 @@ provider-produced consistent export before this generic library can capture it.
 Output locations are resolved and must stay outside the capture or restore source,
 including paths containing `..` or symlinked ancestors.
 This library does not claim durable publication across power or filesystem failure.
+
+## Explicit inventory and maintenance command
+
+A stopped installation can use the separate administrative CLI without starting
+MEDRE or any adapter. Prepare a JSON inventory under administrator control:
+its structure is described in the
+[inventory schema](../schemas/stopped-state-inventory.schema.json).
+
+```json
+{
+  "format": "medre-stopped-inventory",
+  "version": 1,
+  "providers": ["core", "simplexchat"],
+  "files": [
+    {
+      "provider": "core",
+      "path": "state/medre.sqlite",
+      "role": "core_sqlite",
+      "format": "sqlite"
+    },
+    {
+      "provider": "simplexchat",
+      "path": "adapters/simplexchat/handoffs.sqlite",
+      "role": "adapter_ledger",
+      "format": "sqlite"
+    },
+    {
+      "provider": "simplexchat",
+      "path": "adapters/simplexchat/inbox.sqlite",
+      "role": "adapter_ledger",
+      "format": "sqlite"
+    },
+    {
+      "provider": "simplexchat",
+      "path": "adapters/simplexchat/profile.medre-owner.sqlite",
+      "role": "adapter_ledger",
+      "format": "sqlite"
+    },
+    {
+      "provider": "simplexchat",
+      "path": "adapters/simplexchat/profile_chat.db",
+      "role": "native_identity",
+      "format": "sqlite"
+    }
+  ]
+}
+```
+
+The paths above are **illustrative**, not automatically discovered native SDK
+filenames. In particular, confirm the actual native SimpleX profile database
+names from the installed SDK and the configured `database_prefix`; include
+**every** profile database and identity-bearing file. Include the
+`profile.medre-owner.lock` Linux ownership guard as an opaque identity file
+when present; do not rely on its saved bytes to establish a live lock after
+restore. Map configured `state_dir`, `native_cache_dir` (`XDG_CACHE_HOME`),
+`database_prefix`, and any other identity-bearing XDG directories into the
+selected common root. If configured state lives outside that root, stop the
+native SDK and prepare a coherent provider-owned export before capture; do
+not point a manifest through symlinks or claim that a copied partial tree is
+complete. An inventory's declared provider set is closed and each listed
+provider must own selected state, but this cannot detect unlisted native
+state. The operator must compare the inventory to actual provider locations.
+
+```bash
+python -m medre.maintenance.stopped_cli capture \
+  --inventory inventory.json --root /srv/medre-state \
+  --snapshot /secure-backups/medre-snapshot-001 --stopped
+python -m medre.maintenance.stopped_cli verify \
+  --snapshot /secure-backups/medre-snapshot-001
+python -m medre.maintenance.stopped_cli restore \
+  --snapshot /secure-backups/medre-snapshot-001 \
+  --destination /srv/medre-restored --stopped
+```
+
+`--stopped` is deliberately required for capture and restore; it supplies an
+operator assertion, **not** an automatic check of subprocess or SDK state.
+The destination must not exist. Preserve the snapshot securely: it can contain
+unencrypted profile secrets. Successful and operational outcomes emit only
+status, never file names, key content, or private absolute paths. Invalid CLI
+syntax emits a generic argument error without echoing supplied path values.
+Before starting a restored installation, independently verify the provider
+profiles and ensure the original installation is not simultaneously active. Unknown radio work remains
+held and is not replay-authorized by restoring its database.
+
+Provider labels validate the capture selection; they are not stored as a
+provider-completeness certificate in the snapshot. Keep the inventory alongside
+the installation's configuration and provider instructions. `verify` checks the
+captured manifest and files; it cannot detect state omitted from the inventory.

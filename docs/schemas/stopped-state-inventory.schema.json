@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/stopped-state-inventory.schema.json",
+  "title": "Selected stopped installation inventory",
+  "description": "Operator-declared selection, not SDK discovery. Runtime validation additionally enforces unique paths, declared provider ownership, state for every provider, and exactly one core SQLite file owned by core. The loader limits input to 1 MiB and rejects duplicate JSON keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "medre-stopped-inventory"
+    },
+    "version": {
+      "const": 1
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "contains": {
+        "const": "core"
+      },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\/$)[^\\\\:\\u0000]+$"
+          },
+          "role": {
+            "enum": ["core_sqlite", "adapter_ledger", "native_identity"]
+          },
+          "format": {
+            "enum": ["sqlite", "opaque"],
+            "description": "Explicit capture protocol, independent of semantic role."
+          }
+        },
+        "required": ["provider", "path", "role", "format"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "role": {
+                  "const": "core_sqlite"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provider": {
+                  "const": "core"
+                },
+                "format": {
+                  "const": "sqlite"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": ["format", "version", "providers", "files"]
+}

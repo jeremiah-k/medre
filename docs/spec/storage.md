@@ -2004,6 +2004,23 @@ The following tables are documented in Sections 4.8 and 4.9 but are not part of 
 | `actor_permissions`    | Authorization service             | Until explicitly revoked          |
 | `native_archive`       | Archive-enabled adapters (opt-in) | Configurable (time/count pruning) |
 
+## Stopped-state inventory and maintenance
+
+The stopped-state maintenance command MUST load a bounded regular inventory
+file with duplicate JSON keys rejected. Its closed versioned contract is
+[stopped-state-inventory.schema.json](../schemas/stopped-state-inventory.schema.json).
+Runtime validation MUST also enforce unique file paths, exactly one core
+SQLite file owned by `core`, declared ownership for every file, and at least one
+selected file for every declared provider. The inventory is an operator input;
+it MUST NOT be presented as adapter discovery or proof of complete SDK state.
+
+Capture and restore MUST require the operator's explicit stopped assertion and
+MUST use the selected-state snapshot verification and absent-destination rules.
+Verification MUST NOT open an adapter, acquire send authority, or promote an
+outbox. Provider declarations describe capture selection only; snapshot
+verification establishes integrity of the captured file set, not completeness
+against runtime configuration or authenticity of the operator's inventory.
+
 ## Stopped selected-state snapshots
 
 The maintenance snapshot API MUST require an explicit stopped-runtime assertion
