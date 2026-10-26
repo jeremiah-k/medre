@@ -1280,6 +1280,11 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
         async def store_native_ref(self, ref) -> None:
             return None
 
+        async def get_latest_radio_attempt(self, outbox_id, *, before_attempt):
+            # This non-radio fixture has no retained packet checkpoint.
+            # Retry selection still queries the common storage contract.
+            return None
+
     class _StaticRenderingPipeline:
         async def render(self, event, target_adapter, target_channel=None, **_):
             return RenderingResult(
