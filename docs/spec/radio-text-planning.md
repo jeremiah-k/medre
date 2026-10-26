@@ -261,3 +261,38 @@ terminal/cancelled-row rules and MUST NOT reopen them to create continuation.
 Without a retry policy, or after its budget is exhausted, existing lifecycle
 finalization remains authoritative. A successful continued plan MUST aggregate
 the weakest inherited and fresh local handoff and omit a scalar native reply ID.
+
+## Read-only packet observation correlation
+
+Post-handoff `DeliveryObservation` records MAY carry a `radio_packet` metadata
+object containing an integer `ordinal`, `origin_outbox_id`, and
+`origin_attempt_number`. Core's `project_radio_packet_observations` is a pure
+read model over an owned `StoredRadioAttempt` and an explicit collection of
+observations. It MUST match the original accepting attempt, packet ordinal,
+native packet ID, native channel, source event, delivery plan, destination
+adapter, and target channel. An inherited packet MUST retain its original
+attempt for correlation rather than adopting the later retry generation. Its
+original outbox MUST match the checkpoint, its accepting generation MUST NOT
+exceed the checkpoint generation, and booleans MUST NOT qualify as attempt
+numbers.
+
+A generic message observation, absent native packet ID, locally queued event,
+or observation lacking original scope MUST NOT qualify as packet-specific
+positive evidence. Conflicting negative packet observations keep the projection
+held. Reuse of a `(native_channel_id, native_message_id)` pair across accepted
+parts MUST hold the projection as `ambiguous_native_packet_identity`. Reuse of
+an observation ID with different content MUST hold it as
+`conflicting_observation_identity`; exact duplicate facts are idempotent.
+A complete local plan without an observation for every numbered packet
+MUST NOT be called wholly observed. Only explicit `remote_service` or
+`end_to_end` observations qualify as positive packet reports, and the weakest
+positive level is reported separately from local handoff strength.
+
+The projection MUST NOT mutate receipts, outbox state or packet checkpoints;
+its output MUST NOT authorize native sends or claim recipient acceptance.
+Producers MUST authenticate transport events before persisting observations.
+The existing observation append boundary does not yet admit delayed callbacks
+for historical attempts after the parent has advanced: any such admission
+requires separately reviewed storage authority, replay, and deduplication
+contracts. This projection makes no claim that adapters already emit these
+packet observations on physical hardware.

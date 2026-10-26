@@ -81,7 +81,29 @@
     "metadata": {
       "type": "object",
       "default": {},
-      "description": "Secret-free JSON-safe transport metadata."
+      "description": "Secret-free JSON-safe transport metadata.",
+      "properties": {
+        "radio_packet": {
+          "type": "object",
+          "description": "Packet-specific scope; positive evidence additionally requires exact correlation to owned retained acceptance.",
+          "properties": {
+            "ordinal": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 128
+            },
+            "origin_outbox_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "origin_attempt_number": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": ["ordinal", "origin_outbox_id", "origin_attempt_number"]
+        }
+      }
     },
     "observed_at": {
       "type": "string",
