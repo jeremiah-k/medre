@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/live-health.schema.json",
+  "title": "Current runtime health observations",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "Current health from manual samples or native notifications. Startup history and delivery authority remain separate. Entry observation times retain per-provider freshness; poll_count counts manual sampling cycles only.",
+  "properties": {
+    "runtime_health": {
+      "enum": ["healthy", "degraded", "failed"]
+    },
+    "source": {
+      "enum": ["manual", "adapter_notification"]
+    },
+    "poll_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "poll_timestamp_monotonic": {
+      "type": "number",
+      "minimum": 0
+    },
+    "poll_timestamp_wall": {
+      "type": "string"
+    },
+    "adapters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string"
+          },
+          "health": {
+            "enum": [
+              "healthy",
+              "degraded",
+              "failed",
+              "unknown",
+              "starting",
+              "stopping"
+            ]
+          },
+          "adapter_state": {
+            "type": "string"
+          },
+          "fake_or_live": {
+            "enum": ["fake", "live", "unknown"]
+          },
+          "poll_timestamp_monotonic": {
+            "type": "number",
+            "minimum": 0
+          },
+          "poll_timestamp_wall": {
+            "type": "string"
+          },
+          "error": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "adapter_id",
+          "health",
+          "adapter_state",
+          "fake_or_live",
+          "poll_timestamp_monotonic",
+          "poll_timestamp_wall"
+        ]
+      }
+    },
+    "adapter_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "healthy": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "degraded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transitional": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["healthy", "degraded", "failed", "transitional", "total"]
+    }
+  },
+  "required": [
+    "runtime_health",
+    "source",
+    "poll_count",
+    "poll_timestamp_monotonic",
+    "poll_timestamp_wall",
+    "adapters",
+    "adapter_summary"
+  ]
+}

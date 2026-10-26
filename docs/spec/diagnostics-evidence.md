@@ -1641,3 +1641,19 @@ When a native ref is absent from persisted evidence, operators should:
 - Inspect `native_message_refs` storage directly if available, as native refs may have been persisted independently of the receipt chain.
 - Treat missing native refs as **correlation gaps**, not as evidence of delivery success or failure. Absence of a native ref means the delivery outcome cannot be correlated to the transport's own records; it does not mean the message was or was not delivered.
 - Use `outbox_id` correlation (§ 15.2) to link queued and sent receipts when native refs are unavailable. `delivery_plan_id` is a validation field only (see § 15.2).
+
+## Current health after native recovery
+
+The [live health schema](../schemas/live-health.schema.json) describes current
+health observations. `health.live_health` MAY be populated by completed native health notifications
+or an explicit manual refresh. Its `source` MUST distinguish `manual` from
+`adapter_notification`. The `poll_count` remains the number of completed manual
+poll cycles; native notifications MUST NOT increment it. Per-adapter observation
+timestamps MUST retain the freshness of each provider's actual observation.
+Refresh event details MUST describe the retained observations after freshness
+comparison; a superseded probe error MUST NOT label a recovered provider failed.
+
+Startup outcomes and `startup.startup_health` remain historical. Live recovery
+MUST clear degraded current health when the provider reports a confirmed usable
+connection. Native health reports MUST NOT create receipts, grant native calls
+or modify the authority of uncertain deliveries.

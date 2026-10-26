@@ -278,29 +278,27 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 )
             )
 
-        # Print startup summary
-        summary = startup_summary(startup_results)
+        # Print current readiness while preserving the historical boot record.
+        live_health = app.live_health
+        boot = app.boot_summary
+        current_health = (
+            live_health.runtime_health
+            if live_health is not None
+            else boot.runtime_health if boot is not None else "healthy"
+        )
+        summary = startup_summary(startup_results, ready=current_health == "healthy")
         _print(summary)
 
         route_elig = app.route_eligibility
         if route_elig is not None:
             _print(startup_route_summary(route_elig, app.startup_readiness))
 
-        from .bridge_commands import _command_example
-
-        health_command = ["medre", "diagnostics"]
-        if config_path:
-            health_command += ["--config", config_path]
-        health_command.append("--refresh-health")
-        _print("  For a separate live health probe, stop this bridge first, then run:")
-        _print("    " + _command_example(*health_command))
-
         # Print boot summary diagnostics if available.
         if app.boot_summary is not None:
             bs = app.boot_summary
-            if bs.runtime_health == "degraded":
+            if current_health in {"degraded", "failed"}:
                 _print(
-                    f"  \u26a0 Runtime is DEGRADED at startup: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
+                    f"  \u26a0 Runtime health is {current_health.upper()}: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
                     level=logging.WARNING,
                 )
                 if bs.failed_adapter_ids:

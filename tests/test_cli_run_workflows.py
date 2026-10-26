@@ -34,8 +34,11 @@ async def _trigger_shutdown_after_startup(
     returns as soon as the marker appears, so the larger default costs
     nothing on the happy path.
     """
-    marker = "For a separate live health probe, stop this bridge first"
-    ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=wait_timeout)
+    markers = ("Runtime ready (", "Runtime running (")
+    ok = await wait_until(
+        lambda: any(marker in stdout.getvalue() for marker in markers),
+        timeout=wait_timeout,
+    )
     assert ok, (
         f"runtime did not reach post-startup marker within {wait_timeout}s; "
         f"output was:\n{stdout.getvalue()}"

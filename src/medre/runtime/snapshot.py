@@ -98,16 +98,16 @@ startup:
     One-time boot summary, health classification, and build failures.
 health:
     Health assessment surfaces. ``live_health`` is ``null``
-    until :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is
-    called; after the first successful refresh it contains a dict with
-    per-adapter live health, aggregate classification, and poll metadata.
+    until a native health notification or explicit
+    :meth:`~medre.runtime.app.MedreApp.refresh_live_health` publishes observations;
+    it then contains per-adapter health, aggregate classification and provenance.
     ``startup_health`` remains frozen from startup and is not mutated.
 
-    **Live health shape** (populated when ``refresh_live_health()``
-    is called)::
+    **Live health shape** (populated by a notification or manual refresh)::
 
         {
           "runtime_health": str,                    # RuntimeHealth value
+          "source": str,                            # manual or adapter_notification
           "adapter_summary": {                      # counts by category
             "healthy": int, "degraded": int,
             "failed": int, "transitional": int, "total": int,
@@ -123,7 +123,7 @@ health:
               "poll_timestamp_wall": str,            # ISO-8601 UTC
             },
           },
-          "poll_count": int,                        # monotonic counter
+          "poll_count": int,                        # completed manual samples only
           "poll_timestamp_monotonic": float,
           "poll_timestamp_wall": str,                # ISO-8601 UTC
         }
@@ -132,8 +132,8 @@ health:
     ``"live"`` and ``health.live_refresh`` changes from ``false`` to
     ``true``.  This is an additive change per Contract 63 §4.2
     (``null`` → ``dict`` is non-breaking).  No ``schema_version``
-    bump is required.  Calling :meth:`~medre.runtime.app.MedreApp.refresh_live_health`
-    triggers this transition.
+    bump is required. Native notifications can trigger this transition without
+    starting a manual sampling cycle.
 
     The types backing this shape are defined in
     :class:`~medre.core.supervision.health.AdapterLiveHealth` and
@@ -197,9 +197,9 @@ Section-level provenance:
 
 * ``startup``: ``scope="startup"``, ``live_refresh=false``.  Computed once
   during ``MedreApp.start()`` and frozen.
-* ``health``: ``scope="startup"``, ``live_refresh=false`` before first
-  refresh; ``scope="live"``, ``live_refresh=true`` after
-  :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is called.
+* ``health``: ``scope="startup"``, ``live_refresh=false`` before a current
+  observation; ``scope="live"``, ``live_refresh=true`` after a manual sample
+  or native health notification.
   The ``startup_health`` value is a startup-derived snapshot frozen at
   startup; ``live_health`` transitions from ``null`` to a dict on first
   refresh.
@@ -542,21 +542,16 @@ def build_runtime_snapshot(
     This function performs **no I/O** and calls **no async methods**.
     It reads only synchronous attributes and properties.  Adapter health
     is reported as ``"unknown"`` unless the adapter exposes a
-    ``_last_health`` attribute; live health checks are the
-     responsibility of the caller via
-     :meth:`~medre.runtime.app.MedreApp.refresh_live_health`.
+    ``_last_health`` attribute. Current observations come from native reports
+    or a caller's explicit :meth:`~medre.runtime.app.MedreApp.refresh_live_health`.
 
-    **Health freshness:** The ``startup_health`` field (inside the
-    ``startup`` section) reflects the latest runtime-owned health
-    snapshot, which is currently initialized at startup and not
-    automatically refreshed.  Adapter-level health values come from
-    the adapter's ``_last_health`` attribute (static, set during build)
-    rather than from live ``health_check()`` calls.  The ``live_health``
-    field (inside ``health`` section) is ``null`` until
-    :meth:`~medre.runtime.app.MedreApp.refresh_live_health` is called;
-    after the first successful refresh it contains a dict with live
-    per-adapter health data.  The ``startup_health`` value is frozen
-    at startup and is **not** mutated by live health refresh.
+    **Health freshness:** Startup health is a historical record. Adapter
+    diagnostics retain their latest native state; current aggregate health is
+    published by a manual sample or completed native health notification.
+    Neither snapshot construction nor inspection initiates health probes.
+    Each live entry retains its own observation timestamp, and the live source
+    distinguishes manual sampling from native notification. Startup health is
+    preserved when current health changes.
     """
     if snapshot_scope not in _ALLOWED_SNAPSHOT_SCOPES:
         raise ValueError(
@@ -686,7 +681,7 @@ def build_runtime_snapshot(
     else:
         startup_health_snapshot = None
 
-    # -- Live health state (populated by refresh_live_health) -----------------
+    # -- Live health state (manual sample or native notification) ------------
     live_health_obj: Any = getattr(app, "_live_health_state", None)
     live_health_snapshot: dict[str, Any] | None
     if live_health_obj is not None and hasattr(live_health_obj, "to_dict"):

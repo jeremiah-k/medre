@@ -72,6 +72,8 @@ def format_duration_seconds(duration_s: float) -> str:
 
 def startup_summary(
     results: list[tuple[str, str, bool, float, str | None]],
+    *,
+    ready: bool = True,
 ) -> str:
     """Build a multi-line startup summary string.
 
@@ -80,6 +82,8 @@ def startup_summary(
     results:
         List of ``(adapter_id, transport, success, duration_seconds, error)``
         tuples -- one per adapter startup attempt.
+    ready:
+        Whether current health permits describing started owners as ready.
 
     Returns
     -------
@@ -103,15 +107,16 @@ def startup_summary(
             lines.append(f"  \u2717 {transport}.{adapter_id}: failed ({err_msg})")
             failed += 1
 
+    status = "ready" if ready else "running"
     if succeeded == 0:
         lines.append(
             f"Runtime startup failed (0/{failed} adapter(s) running, {failed} failed)"
         )
     elif failed == 0:
-        lines.append(f"Runtime ready ({succeeded} adapter(s) running)")
+        lines.append(f"Runtime {status} ({succeeded} adapter(s) running)")
     else:
         lines.append(
-            f"Runtime ready ({succeeded}/{succeeded + failed} adapter(s) running, {failed} failed)"
+            f"Runtime {status} ({succeeded}/{succeeded + failed} adapter(s) running, {failed} failed)"
         )
 
     return "\n".join(lines)
