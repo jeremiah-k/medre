@@ -10,13 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import msgspec
 
 from medre.core.events import DeliveryObservation
 from medre.core.storage.radio import StoredRadioAttempt
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+
+if TYPE_CHECKING:
+    from medre.core.storage.backend import StorageBackend
 
 RadioObservationStatus = Literal[
     "unobserved", "partial", "all_packets_observed", "held"
@@ -158,3 +161,19 @@ def project_radio_packet_observations(
         key=_ORDER.__getitem__,
     )
     return result("all_packets_observed", count, level=floor)
+
+
+async def inspect_stored_radio_packet_observations(
+    storage: StorageBackend, outbox_id: str, attempt_number: int
+) -> RadioObservationSummary | None:
+    """Project only facts loaded from owned storage; never grant send authority.
+
+    This is a read-only, eventually consistent view over immutable native
+    observations and mutable local packet progress. It must never be treated
+    as a transactional parent-delivery decision or recipient proof.
+    """
+    checkpoint = await storage.get_radio_attempt(outbox_id, attempt_number)
+    if checkpoint is None:
+        return None
+    observations = await storage.list_delivery_observations_for_outbox(outbox_id)
+    return project_radio_packet_observations(checkpoint, observations)

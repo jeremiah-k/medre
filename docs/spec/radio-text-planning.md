@@ -291,8 +291,32 @@ positive level is reported separately from local handoff strength.
 The projection MUST NOT mutate receipts, outbox state or packet checkpoints;
 its output MUST NOT authorize native sends or claim recipient acceptance.
 Producers MUST authenticate transport events before persisting observations.
-The existing observation append boundary does not yet admit delayed callbacks
-for historical attempts after the parent has advanced: any such admission
-requires separately reviewed storage authority, replay, and deduplication
-contracts. This projection makes no claim that adapters already emit these
-packet observations on physical hardware.
+Generic observation admission requires the parent's effective attempt. The
+packet-specific admission contract below permits delayed historical evidence
+without changing that guard. This projection makes no claim that adapters
+already emit these packet observations on physical hardware.
+
+### Delayed native packet observations
+
+The storage-owned `append_radio_packet_observation` interface admits native
+packet evidence against the **original accepted attempt**, including when a
+newer retry owns the parent outbox. It validates the retained original plan,
+accepted ordinal, native packet and channel IDs, immutable parent identity,
+and the explicit `metadata.radio_packet` original-attempt fields in one SQLite
+write transaction. Both the observation attempt and its metadata origin MUST
+be integers; booleans and floating-point values MUST NOT qualify through numeric
+equality. Reused observation IDs remain idempotent. Generic
+`append_delivery_observation` retains its current-attempt guard and MUST NOT be
+used to attach delayed radio observations to a newer claim. No observation
+writer can create an accepted packet, grant a send, mutate a receipt, reopen
+an outbox, or promote a multipart parent lifecycle. A delivered native packet
+observation requires `remote_service` or `end_to_end` evidence; a sender's local
+packet ID or broadcast handoff does not establish either. The adapter callback
+that supplies an observation remains responsible for authenticating and
+qualifying its actual native acknowledgement source. A packet-scope correlation
+match is not authentication of a radio recipient.
+
+`inspect_stored_radio_packet_observations` reads the typed retained checkpoint
+and append-only observation history through the storage backend and produces
+only the existing read-only packet projection. The two reads are not a parent
+lifecycle transaction; only the delivery lifecycle owner can finalize work.
