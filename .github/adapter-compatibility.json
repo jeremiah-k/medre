@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "0d342a6847ebe875da301a69df794a0485a5c182",
+    "ref": "7fe87354a4b5f7828578d6263fe7b17877f41365",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"

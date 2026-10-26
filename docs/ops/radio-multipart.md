@@ -87,11 +87,15 @@ owned attempt. Changed rendering or channel semantics keeps the message held.
 Retain uncertain evidence for investigation; inspection does not force resend
 or promote unknown packets.
 
-Deterministic tests cover the renderer, real session send owner, storage, core
-aggregation and failures without hardware. Installed-SDK contracts and a bounded
-physical MeshCore qualification are still required before describing this path
-as hardware-qualified. Merged Meshtastic #15 extends this path through its existing paced queue;
-its exact merged revision and configuration schema are adopted separately.
+Deterministic tests cover rendering, session send ownership, storage and core
+aggregation. The [native evidence index](../dev/native-evidence-index.json)
+records bounded physical Meshtastic and MeshCore process-crash qualification:
+an accepted prefix continued without duplicate packets, and an interrupted
+uncommitted handoff caused no additional native submissions. The run used
+normal lease expiry and independent receivers, with eight-second late-duplicate
+windows. Radio firmware resets, host power loss and longer outages remain outside
+that evidence. Native packet observations keep their protocol-specific meaning;
+these external receiver logs do not change delivery confirmation levels.
 
 The required radio storage table was introduced in core #342; old prerelease
 storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#104-pre-release-stale-database-reset).

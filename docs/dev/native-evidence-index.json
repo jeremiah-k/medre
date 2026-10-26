@@ -76,5 +76,81 @@
       "outside_reported_scope": "independent direct-contact receipts and profile/worker restart recipient qualification",
       "scope": "historical private evidence; do not infer later source revision qualification"
     }
+  ],
+  "qualification_runs": [
+    {
+      "id": "native-recovery-2026-10-26",
+      "artifact": {
+        "reference": "medre-native-recovery-2026-10-26.zip",
+        "sha256": "bcb174f723081644b35dc75caf1cd5b5b75a27954fa0b91c96a046ca1493f375",
+        "report": "REPORT.md",
+        "summary": "summary.json",
+        "source_manifest": "source-manifest.json",
+        "status": "private retained evidence; checksums verified"
+      },
+      "source_revisions": {
+        "medre": "cfe199b468dcbe4376896b651c456be268d22b8d",
+        "medre-adapter-meshtastic": "06f0b6030c5d6524467d1611f050244359413c88",
+        "medre-adapter-meshcore": "ca189035d7be4624fd53b9bc7897d79900303c1e",
+        "medre-adapter-simplexchat": "7fe87354a4b5f7828578d6263fe7b17877f41365"
+      },
+      "dependencies": {
+        "simplex-chat": "7.0.2",
+        "bleak": "3.0.2"
+      },
+      "scenarios_passed": 6,
+      "observations": {
+        "meshtastic": {
+          "substrate": "two physical radios; serial SDK owners",
+          "safe_continuation": {
+            "parts": 3,
+            "accepted_before_crash": 1,
+            "native_calls_after_restart": 2,
+            "independent_receipts": 3
+          },
+          "uncertain_handoff": {
+            "native_calls_after_restart": 0,
+            "independent_receipts": 1,
+            "parent_status": "dead_lettered"
+          }
+        },
+        "meshcore": {
+          "substrate": "two physical radios; BLE SDK owners",
+          "safe_continuation": {
+            "parts": 3,
+            "accepted_before_crash": 1,
+            "native_calls_after_restart": 2,
+            "independent_receipts": 3
+          },
+          "uncertain_handoff": {
+            "native_calls_after_restart": 0,
+            "independent_receipts": 1,
+            "parent_status": "dead_lettered"
+          }
+        },
+        "simplexchat": {
+          "substrate": "official native SDK and a fresh self-owned group",
+          "bridge_sigkill_retains_worker_fencing": true,
+          "worker_exit_releases_guard": true,
+          "original_native_item_retained": true,
+          "recipient_evidence": false
+        },
+        "stopped_restore": {
+          "providers": ["core", "simplexchat"],
+          "selected_files": 7,
+          "committed_core_wal_bytes": 247232,
+          "accepted_handoff_reused_without_resend": true,
+          "confirmation_ceiling": "local_queue"
+        }
+      },
+      "limits": [
+        "Linux process SIGKILL with real physical radio peers; no radio firmware power-cycle or host power-loss injection.",
+        "Eight-second late-duplicate observation windows; no long-outage or soak claim.",
+        "Restored installation contains core and SimpleX; other providers require their own complete inventories.",
+        "SimpleX native SDK worker retention established; arbitrary descendants that close the descriptor remain outside scope.",
+        "Independent RF witnesses are external evidence; no native ACK producer or parent confirmation-level promotion was enabled."
+      ],
+      "interpretation": "Run revisions identify historical observations, not compatibility pins. Independent receiver logs are external evidence, not persisted recipient ACKs or authority to promote delivery."
+    }
   ]
 }

@@ -136,3 +136,10 @@ Provider labels validate the capture selection; they are not stored as a
 provider-completeness certificate in the snapshot. Keep the inventory alongside
 the installation's configuration and provider instructions. `verify` checks the
 captured manifest and files; it cannot detect state omitted from the inventory.
+
+The [native evidence index](../dev/native-evidence-index.json) records a stopped
+core/SimpleX restore using seven selected files, including committed core WAL
+content, native profile databases and adapter ledgers. The relocated native
+profile reopened and reused an accepted handoff without another submission.
+That result covers the recorded installation and SDK revision; each other
+provider requires its actual identity and journal inventory.

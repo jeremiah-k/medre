@@ -40,3 +40,30 @@ def test_simplex_and_lxmf_claims_do_not_expand_beyond_historical_evidence():
     assert "physical RF" in providers["lxmf"]["outside_reported_scope"]
     assert all("outside_reported_scope" in provider for provider in providers.values())
     assert "private" in index["frozen_baseline"]["report_status"]
+
+
+def test_native_recovery_observations_retain_their_confirmation_limits():
+    """Physical witnesses and restored native state do not invent recipient ACKs."""
+    root = Path(__file__).resolve().parents[1]
+    index = json.loads((root / "docs/dev/native-evidence-index.json").read_text())
+    run = next(
+        item
+        for item in index["qualification_runs"]
+        if item["id"] == "native-recovery-2026-10-26"
+    )
+    for transport in ("meshtastic", "meshcore"):
+        observed = run["observations"][transport]
+        assert observed["safe_continuation"]["accepted_before_crash"] == 1
+        assert observed["safe_continuation"]["native_calls_after_restart"] == 2
+        assert observed["uncertain_handoff"]["native_calls_after_restart"] == 0
+        assert observed["uncertain_handoff"]["parent_status"] == "dead_lettered"
+    assert run["observations"]["simplexchat"]["recipient_evidence"] is False
+    assert run["observations"]["stopped_restore"]["providers"] == [
+        "core",
+        "simplexchat",
+    ]
+    assert (
+        run["observations"]["stopped_restore"]["confirmation_ceiling"] == "local_queue"
+    )
+    assert len(run["artifact"]["sha256"]) == 64
+    assert "not persisted recipient ACKs" in run["interpretation"]
