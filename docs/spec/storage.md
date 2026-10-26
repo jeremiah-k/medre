@@ -2003,3 +2003,38 @@ The following tables are documented in Sections 4.8 and 4.9 but are not part of 
 | `actor_identity_links` | Identity resolution service       | Until explicitly deleted          |
 | `actor_permissions`    | Authorization service             | Until explicitly revoked          |
 | `native_archive`       | Archive-enabled adapters (opt-in) | Configurable (time/count pruning) |
+
+## Stopped selected-state snapshots
+
+The maintenance snapshot API MUST require an explicit stopped-runtime assertion
+for capture and restore. This assertion MUST NOT be treated as proof that native
+workers have exited or that the selected provider inventory is complete.
+Exactly one selected core database is required; the caller selects every other
+ledger and identity needed by its installation.
+
+Each `SnapshotEntry` and manifest row MUST declare an explicit `format` of
+`sqlite` or `opaque`, independently of its semantic role. Core database entries
+MUST use `sqlite`. Entry construction and manifest parsing MUST share validation;
+malformed field types MUST raise `ValueError` before file access. Every selected
+SQLite file MUST use SQLite backup, including committed WAL content. Each SQLite
+backup MUST pass integrity and foreign-key checks. Opaque inputs MUST NOT be plaintext SQLite or have a nonempty
+`-wal` or `-journal` companion; unsupported encrypted state requires a qualified
+provider export. Opaque files are copied through regular-file descriptors;
+paths, symlinks and duplicate manifest fields MUST be rejected when invalid.
+The published manifest follows
+[stopped-state-snapshot.schema.json](../schemas/stopped-state-snapshot.schema.json).
+
+Restore MUST retain the digests obtained during verification and validate staged
+bytes against those immutable digests before publication. Comparing a copy only
+to a later read of its mutable source is insufficient. Capture and restore MUST
+reserve an absent destination exclusively and MUST NOT replace a directory
+created by another caller during staging. The resolved output location MUST stay
+outside its source for capture and restore; lexical path spelling is insufficient.
+An empty reservation can be visible before complete content is renamed into
+place; it is not a verified snapshot.
+
+This API MUST NOT reopen delivery work, authorize replay or switch a running
+installation. Checksums establish integrity relative to the supplied manifest,
+not authenticity. Encrypted native stores and provider-specific companion files
+require a separately qualified inventory. This API does not claim crash-durable
+publication across filesystem or power failure.

@@ -19,6 +19,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Start, stop, and monitor a bridge                              | [Running MEDRE](running-medre.md)                                                          |
 | Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
 | Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                              |
+| Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md)                                      |
 | Connect a specific network or device                           | [Transport setup](transport-setup/)                                                        |
 | Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                     |
 | Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                      |
