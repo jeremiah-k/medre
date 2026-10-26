@@ -359,6 +359,13 @@
           "minimum": 0,
           "description": "Maximum UTF-8 byte budget for final radio text after rendering."
         },
+        "max_text_parts": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Maximum guarded multipart packets for ordinary messages. One retains the existing single-packet behavior; larger values require the core-owned native handoff contract."
+        },
         "ble_pin": {
           "type": ["string", "null"],
           "default": null,
