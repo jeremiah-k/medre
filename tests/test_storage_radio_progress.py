@@ -226,7 +226,7 @@ async def test_corrupted_evidence_fails_closed(storage, column, value):
     await storage.bind_radio_attempt(provenance, "sender-1", plan())
     # Deliberate fault injection; column identifiers come only from this test table.
     storage._db.execute(
-        f"UPDATE radio_attempt_progress SET {column}=? WHERE outbox_id=?",
+        f"UPDATE radio_attempt_progress SET {column}=? WHERE outbox_id=?",  # nosec B608 - deliberate fault injection; column comes from this test's cases
         (value, item.outbox_id),
     )
     storage._db.commit()

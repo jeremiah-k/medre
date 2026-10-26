@@ -2,15 +2,17 @@
 
 from copy import deepcopy
 from pathlib import Path
-from xml.etree.ElementTree import fromstring
+from xml.etree.ElementTree import (  # nosec B405 - parses the repo-controlled fixture below
+    fromstring,
+)
 
 import pytest
 
+from scripts.adapter_campaign.baseline import validate_attributions
 from scripts.adapter_campaign.ip_peers import xmpp_bridge_context
 from scripts.adapter_campaign.plan import Plan
 from scripts.analyze_adapter_campaign import summarize
 from tests.helpers.campaign_evidence import baseline_report
-from scripts.adapter_campaign.baseline import validate_attributions
 
 
 def test_legacy_attribution_does_not_invent_a_missing_short_name_expectation():
@@ -50,7 +52,7 @@ def test_corrupted_context_expectations_cannot_downgrade_native_analysis(expecta
 
 def test_native_prosody_fixture_preserves_authored_claims_and_exact_scope():
     """Parse a retained independent receiver stanza, including escaped Unicode names."""
-    wire = fromstring(
+    wire = fromstring(  # nosec B314 - parses a repo-controlled fixture, not untrusted input
         (Path(__file__).parent / "fixtures/xmpp-relay-context.xml").read_bytes()
     )
     actual = xmpp_bridge_context(wire)
@@ -178,8 +180,9 @@ def test_authored_short_name_must_match_native_claim():
 
 def test_cli_requires_independent_plan_for_xmpp_report(tmp_path, capsys):
     """A report cannot authorize its own weaker XMPP qualification requirements."""
-    from scripts.analyze_adapter_campaign import main
     import json
+
+    from scripts.analyze_adapter_campaign import main
 
     (tmp_path / "results.json").write_text(json.dumps(baseline_report()))
     assert main([str(tmp_path)]) == 1
