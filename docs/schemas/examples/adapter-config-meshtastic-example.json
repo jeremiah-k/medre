@@ -17,6 +17,7 @@
   "radio_relay_prefix": "{sender_short}: ",
   "mmrelay_compatibility": false,
   "max_text_bytes": 227,
+  "max_text_parts": 1,
   "queue_send_max_attempts": 3,
   "queue_max_size": 1024,
   "queue_warning_threshold_pct": 75.0,
