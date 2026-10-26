@@ -12,7 +12,8 @@ from medre.core.rendering.radio_progress import RadioAttemptProgress
 class StoredRadioAttempt:
     """An immutable checkpoint and its compare-and-swap revision.
 
-    A revision counts committed local part transitions. It is not an outbox
+    A revision counts retained local part transitions, including inherited
+    accepted facts in an explicit continuation. It is not an outbox
     generation, a release version, or evidence of recipient delivery.
     """
 

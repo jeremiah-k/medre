@@ -37,6 +37,31 @@
         "remote_service",
         "end_to_end"
       ]
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outbox_id",
+        "attempt_number"
+      ],
+      "description": "Original accepting radio-attempt row; continuation preserves this origin rather than claiming a new native call. Absent on a local reference in its original attempt.",
+      "properties": {
+        "outbox_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "payload_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Core-owned SHA-256 of the eligible plain native channel payload excluding planned text. Absence forbids explicit continuation."
     }
   }
 }

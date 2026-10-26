@@ -1729,6 +1729,22 @@ class StorageBackend(Protocol):
         """Atomically bind the current owned attempt's immutable radio wire plan."""
         ...
 
+    async def resume_radio_attempt(
+        self,
+        provenance: DeliveryAttemptProvenance,
+        worker_id: str | None,
+        plan: RadioTextPlan,
+        predecessor: StoredRadioAttempt,
+    ) -> StoredRadioAttempt | None:
+        """Explicitly inherit a verified accepted prefix into a newer owned claim."""
+        ...
+
+    async def get_radio_attempt(
+        self, outbox_id: str, attempt_number: int
+    ) -> StoredRadioAttempt | None:
+        """Read typed attempt facts without recovery, mutation or submission authority."""
+        ...
+
     async def begin_radio_part(
         self,
         expected: StoredRadioAttempt,

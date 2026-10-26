@@ -73,3 +73,15 @@ in a thread cannot prove that it stopped; retain its uncertain evidence. Partial
 messages do not automatically resume after restart. Select only the intended
 reviewed sources, qualify them independently, and keep hardware evidence
 separate from local SDK handoffs. Defaults and package versions are unchanged.
+
+## Explicit continuation API boundary
+
+The internal continuation API can transfer a stored, accepted prefix to a newer
+owned claim and submit only its proven-unsent tail. It preserves each packet's
+original accepting attempt and the weakest local confirmation. This API is not
+connected to ordinary retries or an operator command; the default hold policy
+above still applies. Unknown or submitting work cannot be continued. Plain
+channel text with newly recorded payload fingerprints is eligible; replies,
+native extras and older evidence remain held. SDK and physical restart
+qualification, plus a separately reviewed operator/runtime entry point, remain
+necessary before enabling unattended tail recovery.
