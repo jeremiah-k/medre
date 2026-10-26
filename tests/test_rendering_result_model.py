@@ -163,3 +163,19 @@ class TestRenderingResultSerialization:
         assert isinstance(serialized, str)
         parsed = json.loads(serialized)
         assert parsed["event_id"] == event.event_id
+
+
+@pytest.mark.parametrize("value", ["plan", {}, True, 7])
+def test_rejects_invalid_radio_plan_before_adapter_handoff(value):
+    """An untyped renderer claim cannot become durable radio submission authority."""
+    with pytest.raises(TypeError, match="radio_plan"):
+        RenderingResult("event", "radio", "0", {"text": "body"}, radio_plan=value)
+
+
+@pytest.mark.parametrize("value", ["callback", {}, True, 7])
+def test_rejects_invalid_radio_grant_before_adapter_handoff(value):
+    """Only an actual callable may occupy the runtime-only native grant seam."""
+    with pytest.raises(TypeError, match="before_native_send"):
+        RenderingResult(
+            "event", "radio", "0", {"text": "body"}, before_native_send=value
+        )
