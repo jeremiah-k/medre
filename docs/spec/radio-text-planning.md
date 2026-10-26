@@ -140,6 +140,17 @@ The delivery lifecycle remains the sole owner of parent outbox completion.
 storage read-only and report the selected snapshot together with current parent
 identity/status. Inspection MUST leave submitting unchanged and MUST NOT start
 an adapter, recover progress, infer recipient delivery or grant submission.
+Inspection MAY include a `continuation_assessment` when explicitly requested.
+Its `review_candidate` status MUST NOT be treated as a native submission grant
+or as sufficient proof of original acceptance. Invalid or legacy local references,
+uncertain packets, wrong channel payload fingerprints, explicit native channel
+IDs that contradict the retained target channel, noncanonical channel scopes,
+absent accepted prefixes, and completed plans MUST report a held
+assessment. The storage owner MUST revalidate full historical identity,
+original accepting attempts, current outbox generation and worker lease inside
+the separately authorized continuation transaction. The runtime MUST verify
+native channel and render semantics before any further native call.
+
 The output follows `../schemas/radio-attempt-inspection.schema.json`; absent
 attempts exit 5 and invalid generations exit 2.
 

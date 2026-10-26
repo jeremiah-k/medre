@@ -248,6 +248,7 @@ async def _inspect_radio_attempt(
     attempt: int,
     *,
     storage_path: str,
+    assess_continuation: bool = False,
 ) -> None:
     """Print exact retained radio facts without recovery, SDKs or submission authority.
 
@@ -261,31 +262,43 @@ async def _inspect_radio_attempt(
 
     storage = await _open_readonly_storage(storage_path)
     try:
-        snapshot = await storage.get_radio_attempt_snapshot(outbox_id, attempt)
+        # Use the same retained checkpoint for presentation and assessment.
+        # Two separate reads could otherwise describe different native states
+        # while another process is committing a packet handoff.
+        checkpoint = None
+        if assess_continuation:
+            checkpoint = await storage.get_radio_attempt(outbox_id, attempt)
+            snapshot = checkpoint.progress.to_data() if checkpoint is not None else None
+        else:
+            snapshot = await storage.get_radio_attempt_snapshot(outbox_id, attempt)
         if snapshot is None:
             print("Error: radio attempt not found", file=sys.stderr)
             raise SystemExit(EXIT_NOT_FOUND)
         parent = await storage.get_outbox_item(outbox_id)
         if parent is None:
             raise StorageError("Retained radio attempt has no outbox parent")
-        print(
-            to_json(
-                {
-                    "schema_version": 1,
-                    "outbox": {
-                        "outbox_id": parent.outbox_id,
-                        "event_id": parent.event_id,
-                        "delivery_plan_id": parent.delivery_plan_id,
-                        "target_adapter": parent.target_adapter,
-                        "target_channel": parent.target_channel,
-                        "current_status": parent.status,
-                        "current_attempt_number": parent.active_attempt
-                        or parent.attempt_number,
-                    },
-                    "progress": snapshot,
-                }
-            )
-        )
+        report: dict[str, Any] = {
+            "schema_version": 1,
+            "outbox": {
+                "outbox_id": parent.outbox_id,
+                "event_id": parent.event_id,
+                "delivery_plan_id": parent.delivery_plan_id,
+                "target_adapter": parent.target_adapter,
+                "target_channel": parent.target_channel,
+                "current_status": parent.status,
+                "current_attempt_number": parent.active_attempt
+                or parent.attempt_number,
+            },
+            "progress": snapshot,
+        }
+        if assess_continuation:
+            from medre.core.recovery.radio_assessment import assess_radio_continuation
+
+            assert (
+                checkpoint is not None
+            )  # Same checkpoint produced the displayed snapshot.
+            report["continuation_assessment"] = assess_radio_continuation(checkpoint)
+        print(to_json(report))
     except StorageError as exc:
         print(f"Storage error: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_BUILD) from None

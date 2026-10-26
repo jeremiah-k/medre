@@ -7,21 +7,104 @@
   "additionalProperties": false,
   "required": ["schema_version", "outbox", "progress"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": { "const": 1 },
     "outbox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["outbox_id", "event_id", "delivery_plan_id", "target_adapter", "target_channel", "current_status", "current_attempt_number"],
+      "required": [
+        "outbox_id",
+        "event_id",
+        "delivery_plan_id",
+        "target_adapter",
+        "target_channel",
+        "current_status",
+        "current_attempt_number"
+      ],
       "properties": {
-        "outbox_id": {"type": "string", "minLength": 1},
-        "event_id": {"type": "string", "minLength": 1},
-        "delivery_plan_id": {"type": "string", "minLength": 1},
-        "target_adapter": {"type": "string", "minLength": 1},
-        "target_channel": {"type": ["string", "null"]},
-        "current_status": {"enum": ["pending", "in_progress", "queued", "sent", "retry_wait", "dead_lettered", "cancelled", "abandoned"]},
-        "current_attempt_number": {"type": "integer", "minimum": 1}
+        "outbox_id": { "type": "string", "minLength": 1 },
+        "event_id": { "type": "string", "minLength": 1 },
+        "delivery_plan_id": { "type": "string", "minLength": 1 },
+        "target_adapter": { "type": "string", "minLength": 1 },
+        "target_channel": { "type": ["string", "null"] },
+        "current_status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "queued",
+            "sent",
+            "retry_wait",
+            "dead_lettered",
+            "cancelled",
+            "abandoned"
+          ]
+        },
+        "current_attempt_number": { "type": "integer", "minimum": 1 }
       }
     },
-    "progress": {"$ref": "radio-attempt-progress.schema.json"}
+    "continuation_assessment": {
+      "description": "Optional read-only evidence assessment. A review candidate is not a claim, transmission grant, or recipient confirmation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "accepted_parts",
+        "unsent_parts",
+        "total_parts",
+        "reasons",
+        "requires",
+        "native_submission_authorized"
+      ],
+      "properties": {
+        "status": {
+          "enum": ["review_candidate", "held"]
+        },
+        "accepted_parts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "unsent_parts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "total_parts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "no_accepted_prefix",
+              "no_unsent_tail",
+              "uncertain_native_submission",
+              "invalid_accepted_handoff",
+              "missing_native_payload_proof",
+              "inconsistent_native_payload_proof",
+              "unsupported_native_channel_scope",
+              "native_channel_payload_mismatch",
+              "native_channel_scope_mismatch"
+            ]
+          }
+        },
+        "requires": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "native_submission_authorized": {
+          "const": false
+        }
+      }
+    },
+    "progress": { "$ref": "radio-attempt-progress.schema.json" }
   }
 }

@@ -1312,7 +1312,8 @@ medre inspect replay --storage-path PATH
 medre inspect radio-attempt OUTBOX_ID ATTEMPT --storage-path PATH
     Read-only radio attempt inspection. Reports immutable fragment wire text,
     exact retained local handoffs and current parent outbox state without
-    granting, retrying or recovering a native submission.
+    granting, retrying or recovering a native submission. Add
+    --assess-continuation for a non-authorizing evidence assessment.
 
     All inspect subcommands require --storage-path for direct SQLite access.
 
