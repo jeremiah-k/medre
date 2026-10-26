@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://medre.dev/schemas/radio-attempt-progress.schema.json",
   "title": "Attempt-bound radio local handoff progress",
-  "description": "Retained attempt-bound radio handoff progress. Configured runtime retries may inherit a proven accepted prefix into a newer owned attempt; submitting and unknown parts remain blocked. Local handoff acceptance is not recipient delivery.",
+  "description": "Retained attempt-bound radio handoff progress. Read-only inspection does not mutate submitting evidence. Explicit restart recovery must commit unknown evidence before returning; a snapshot alone cannot authorize native submission. Runtime enforces exact plan reconstruction and independently owned claim identity. Configured runtime retries may inherit only a proven accepted prefix into a newer owned attempt; submitting and unknown parts remain blocked. Local handoff acceptance is not recipient delivery.",
   "type": "object",
   "additionalProperties": false,
   "required": [
