@@ -1309,6 +1309,11 @@ medre inspect pressure --storage-path PATH
 medre inspect replay --storage-path PATH
     Read-only replay run inspection. Shows durable outbox admissions and receipt summaries, including named runs that have not produced a receipt yet.
 
+medre inspect radio-attempt OUTBOX_ID ATTEMPT --storage-path PATH
+    Read-only radio attempt inspection. Reports immutable fragment wire text,
+    exact retained local handoffs and current parent outbox state without
+    granting, retrying or recovering a native submission.
+
     All inspect subcommands require --storage-path for direct SQLite access.
 
 medre trace event --storage-path PATH [--json]

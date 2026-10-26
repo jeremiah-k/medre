@@ -25,7 +25,7 @@ uncertain and automatic resend stops. Previously accepted packets are retained.
 Inspect the exact outbox ID and attempt generation from the delivery evidence:
 
 ```bash
-medre inspect radio-attempt obox-EXAMPLE 1 --storage-path /path/to/medre.sqlite
+medre inspect radio-attempt outbox-EXAMPLE 1 --storage-path /path/to/medre.sqlite
 ```
 
 The JSON contains the exact planned wire text, per-packet state and scoped local

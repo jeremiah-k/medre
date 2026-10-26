@@ -13,3 +13,5 @@ shows retained progress read-only, including ambiguous submitting records.
 MeshCore's coordinated adapter PR adds explicit `max_text_parts` opt-in. Deferred
 Meshtastic multipart sending remains pending its queue ownership boundary.
 No package version, SQLite shape or schema marker changes are introduced here.
+
+The `inspect radio-attempt` command is included in the operator CLI inventory.
