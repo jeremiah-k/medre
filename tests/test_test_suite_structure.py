@@ -53,10 +53,6 @@ ALLOW_FIXED_SLEEP: tuple[tuple[str, float], ...] = (
     # observes a non-instant delivery and exercises the delivery success
     # path through the outbox.
     ("tests/test_pipeline_outbox.py", 0.1),
-    # Slow adapter for ≥1 renewal cycle to fire — required so the renewal
-    # loop has time to attempt multiple renewals before the slow delivery
-    # completes.
-    ("tests/test_pipeline_outbox.py", 0.15),
     # SlowStopOnStartFailure.stop() simulates a hung stop that ignores
     # CancelledError, exercising the bounded-poll stop helper.
     ("tests/helpers/startup_cleanup.py", 300.0),

@@ -1200,16 +1200,19 @@ class TestLeaseRenewalResilience:
         monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
 
         renew_call_count = 0
+        renewed_twice = asyncio.Event()
 
         async def _always_fail_renew(*args, **kwargs):
             nonlocal renew_call_count
             renew_call_count += 1
+            if renew_call_count >= 2:
+                renewed_twice.set()
             raise RuntimeError("persistent failure")
 
         outbox_temp_storage.renew_outbox_lease = _always_fail_renew  # type: ignore[assignment]
 
-        class SlowAdapter(FakePresentationAdapter):
-            """Adapter slow enough for ≥1 renewal cycle to fire."""
+        class RenewalGatedAdapter(FakePresentationAdapter):
+            """Hold delivery until renewal has continued past its first failure."""
 
             def __init__(self) -> None:
                 super().__init__(adapter_id="fake_presentation")
@@ -1218,13 +1221,13 @@ class TestLeaseRenewalResilience:
                 self, result: RenderingResult
             ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
-                await asyncio.sleep(0.15)
+                await asyncio.wait_for(renewed_twice.wait(), timeout=5)
                 return AdapterHandoffResult(
                     native_message_id=f"msg-{result.event_id}",
                     native_channel_id=result.target_channel,
                 )
 
-        slow_adapter = SlowAdapter()
+        slow_adapter = RenewalGatedAdapter()
 
         config = make_pipeline_config_for_pipeline(
             storage=outbox_temp_storage,
