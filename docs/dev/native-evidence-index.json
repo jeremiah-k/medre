@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "purpose": "Locate existing native evidence without promoting local handoff or updating source pins",
+  "source_authority": ".github/adapter-compatibility.json",
+  "frozen_baseline": {
+    "reference": "medre-native-baseline-2026-10-25/lab-003",
+    "source_fixtures": 28,
+    "directed_pairs": 42,
+    "native_receipts_reported": 168,
+    "report_status": "reported_in_project_documents; private individual receipts are not distributed with this source stack",
+    "source_documents": [
+      "docs/dev/attribution-status.md",
+      "docs/ops/live-validation/adapter-campaign.md",
+      "docs/changes/unreleased/325-native-simplex-group-campaign.md"
+    ],
+    "not_qualified": [
+      "multipart_restart_continuation",
+      "whole_message_recipient_ack",
+      "every_transport_on_physical_RF"
+    ]
+  },
+  "providers": [
+    {
+      "transport": "matrix",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "isolated Synapse room",
+      "reported_native_evidence": "independent native peer; readable text and Matrix bridge context",
+      "outside_reported_scope": "encrypted-room production deployment",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "meshtastic",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "paired native radios in historical campaigns",
+      "reported_native_evidence": "independent text presentation receipts",
+      "outside_reported_scope": "new multipart restart and complete-message acknowledgements",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "meshcore",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "paired native radios in historical campaigns",
+      "reported_native_evidence": "independent text presentation receipts",
+      "outside_reported_scope": "new multipart restart and complete-message acknowledgements",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "lxmf",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "native SDK over Docker TCP in the frozen seven-provider baseline",
+      "reported_native_evidence": "independent baseline native text observation",
+      "outside_reported_scope": "physical RF qualification of that baseline and structured context",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "xmpp",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "independent Prosody/Slixmpp peer",
+      "reported_native_evidence": "native text and targeted original-source context",
+      "outside_reported_scope": "unsupported native features and broad context coverage",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "chatmail",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "independent Delta Chat profile over GreenMail fixture",
+      "reported_native_evidence": "native text and separately targeted sender/origin presentation",
+      "outside_reported_scope": "official Chatmail deployment and complete shared context",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    },
+    {
+      "transport": "simplexchat",
+      "compatibility_ref_source": ".github/adapter-compatibility.json",
+      "historical_substrate": "two independent official SDK profiles in an accepted group",
+      "reported_native_evidence": "independent group peer observation in the frozen seven-provider baseline",
+      "outside_reported_scope": "independent direct-contact receipts and profile/worker restart recipient qualification",
+      "scope": "historical private evidence; do not infer later source revision qualification"
+    }
+  ]
+}

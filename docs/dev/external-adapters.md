@@ -157,6 +157,7 @@ Chatmail native contracts cover process crash/restart and exclusive profile
 ownership. Its opt-in two-profile group test also checks native reply references,
 RPC reconnect, offline recovery, SMTP acceptance and independent peer receipt.
 SimpleX native contracts check official group history, local queue persistence,
-restart deduplication and profile reuse after worker failure. Remote SimpleX peer
-delivery remains an explicit live qualification; local queue acceptance does not
-establish that receipt.
+restart deduplication and profile reuse after worker failure. The frozen seven-provider campaign reports separate SimpleX group peer
+observations; its private receipt details are not committed here. Direct-contact
+and restart recipient delivery require separate qualification. Local queue
+acceptance by itself does not establish a peer receipt.
