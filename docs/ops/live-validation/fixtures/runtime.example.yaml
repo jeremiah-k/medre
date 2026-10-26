@@ -70,5 +70,5 @@ adapters:
       adapter_kind: real
       database_prefix: /private/bench/simplex-medre/profile
       user_id: 1
-      chats: ["group:7"]
+      chats: [group:7]
       origin_label: SimpleX lab

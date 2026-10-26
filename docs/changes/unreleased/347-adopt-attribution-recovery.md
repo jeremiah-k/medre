@@ -1,3 +1,5 @@
+# 347: Adopt XMPP attribution and radio recovery catalog revisions
+
 Adopt merged XMPP native attribution and MeshCore/Meshtastic recovery revisions
 in the core compatibility catalog. XMPP's reference profile now advertises its
 implemented metadata carrier. The attribution matrix records the targeted Chatmail
