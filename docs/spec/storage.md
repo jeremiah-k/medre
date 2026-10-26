@@ -1279,7 +1279,8 @@ as outbox authority. `plan_json` MUST retain the initial, wholly unsent
 `provenance_json` MUST retain the full `DeliveryAttemptProvenance`;
 `parts_json` retains current ordered part records. Identity, provenance and wire
 plan MUST remain immutable after binding. Only part progress, revision and
-`updated_at` MAY change. The revision MUST equal committed part transitions:
+`updated_at` MAY change. The revision MUST equal retained part transitions (including inherited accepted
+facts in an explicit continuation):
 zero per unsent part, one per submitting part, two per accepted or unknown part.
 
 Every writer MUST require an `in_progress` outbox row with an unexpired lease
@@ -1300,6 +1301,18 @@ The following `StorageBackend` methods define the checkpoint boundary:
   sibling outbox rows for the same delivery identity, any prior native work
   MUST block rebinding; a wholly unsent predecessor MAY be rebound only with
   the same exact wire plan. A contradictory plan MUST raise `StorageError`.
+- `resume_radio_attempt(provenance, worker_id, plan, predecessor)` MUST remain
+  an explicit operation separate from normal binding. It MAY inherit only a
+  verified accepted prefix into a strictly newer independently reserved claim,
+  under the same transaction/claim guards. It MUST validate the latest exact
+  predecessor, every historical plan and original local handoff origin as
+  specified in [radio-text-planning.md](radio-text-planning.md#explicit-continuation-of-a-proven-unsent-tail).
+  A new row retains the unchanged all-unsent `plan_json` baseline and copies only
+  accepted facts into current `parts_json`, including original attempt origins.
+  It MUST NOT mutate predecessor rows or authorize an uncertain part.
+- `get_radio_attempt(outbox_id, attempt_number)` MUST return typed provenance,
+  progress and revision without mutation or submission permission. It supports
+  independently pinning an explicit predecessor, not acquiring its claim.
 - `begin_radio_part(expected, worker_id, ordinal)` MUST compare the entire stored
   checkpoint and revision, persist the next submitting part, and commit before
   returning a new checkpoint. Only a returned checkpoint permits the caller's
@@ -1325,8 +1338,9 @@ This is a required prerelease table, not an additive-DDL exception. A previously
 stamped database missing it MUST be rejected before schema DDL, without mutation,
 under §10.2. The schema marker remains `1`. Operators MUST retain their original
 database and follow the explicit backup/reset procedure in §10.4 when choosing
-this development schema. Native multipart sending remains disabled pending
-serialized adapter integration and exact-attempt feedback aggregation.
+this development schema. Serialized MeshCore and Meshtastic integration is qualified separately from
+physical radio campaigns. Explicit tail continuation changes no SQLite table
+shape, schema marker or package version.
 
 ## 5. Append-Only Guarantees
 

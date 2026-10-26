@@ -6,7 +6,8 @@ The shared planner accepts already rendered plain text, a repeated attribution
 prefix, an effective UTF-8 byte budget and a maximum part count. The effective
 budget MUST exclude transport and firmware overhead before planning. Short text
 MUST remain one unnumbered payload. Multipart text MUST repeat attribution and
-an `(i/n) ` marker on every part, counting all overhead against the same budget.
+an `(i/n)` marker followed by a single space on every part, counting all
+overhead against the same budget.
 
 The plan MUST preserve authored text exactly when concatenating part bodies,
 including whitespace and newlines. The planner SHOULD prefer word boundaries
@@ -172,3 +173,48 @@ remaining parts. This provider constraint does not change MeshCore channel
 handoffs, whose native protocol explicitly returns no packet ID. The whole-plan
 confirmation ceiling remains local transport; individual packet IDs and ACKs
 MUST NOT imply recipient acceptance of the full message.
+
+## Explicit continuation of a proven-unsent tail
+
+Default dispatch and automatic retry MUST retain the existing partial-progress
+hold. An internal caller MAY explicitly supply `resume_from` to the synchronous
+radio service only after independently reserving a newer current outbox claim.
+The caller MUST supply the exact typed predecessor read from owned storage;
+serialized progress alone MUST NOT authorize native work. No operator force-send
+command or automatic restart integration is introduced by this API.
+
+`resume_radio_attempt` MUST atomically compare that predecessor with the latest
+stored attempt for the full delivery identity, validate every retained historical
+plan, and require a strictly newer current claim. Each historical claim's event,
+delivery plan, target adapter and normalized channel MUST match the independently
+owned parent delivery identity. A contradiction MUST raise `StorageError` before
+binding a continuation. Any submitting or unknown part
+in that history MUST block continuation. All accepted historical parts MUST be
+consistent prefixes of the selected predecessor. Empty or fully accepted
+predecessors MUST NOT grant tail continuation. Changed wire plans, stale workers,
+expired leases, superseding siblings, duplicate bindings and forged predecessors
+MUST grant no native work.
+
+Only the committed accepted prefix MAY be inherited. Every inherited handoff MUST
+retain an `origin` containing its original accepting outbox ID and attempt number.
+Storage MUST resolve it to that actual original accepted part with matching native
+scope, ordinal, confirmation and payload fingerprint. Repeated transfers MUST
+preserve the original origin rather than building chains of relabeled native
+calls. Old checkpoints MUST remain unchanged. The new revision counts inherited
+accepted facts as two transitions each; it does not claim those native calls ran
+again under the newer attempt.
+
+The explicit service MUST materialize the persisted plan's exact unsent tail,
+retain the existing one-use grant and pacing boundary, and aggregate the weakest
+confirmation across inherited and new facts only after the complete plan is
+accepted. It MUST omit scalar whole-message native relation IDs. Any new uncertain
+native handoff MUST stop continuation and remain held.
+
+A text plan does not retain arbitrary native payload extras. Production local
+handoff references MAY record a core-owned `payload_fingerprint` only for plain
+`text` plus a nonnegative integer `channel_index` matching the destination channel.
+The fingerprint is SHA-256 of sorted, compact JSON for `{"channel_index": N}`.
+Explicit continuation MUST match that fingerprint for every inherited fact.
+Replies, native commands, changed channel semantics and legacy evidence lacking
+this fingerprint MUST remain held. Digests establish consistency, not authenticity;
+only independently read storage plus the current claim can grant submission.
