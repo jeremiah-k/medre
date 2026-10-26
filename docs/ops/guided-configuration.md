@@ -122,8 +122,8 @@ literal secrets without displaying them.
 
 ## Explain a route decision
 
-Use the source-matching explanation to understand *why a configured route
-matches or does not match* a given adapter/context/kind. The report is
+Use the source-matching explanation to understand _why a configured route
+matches or does not match_ a given adapter/context/kind. The report is
 computed entirely from configuration: MEDRE's production route compiler and
 router supply the candidate set, and where supplied, the production allowlist
 evaluator scores policy inputs. No adapter session or device is contacted.
@@ -144,7 +144,7 @@ message will be delivered.
 
 ## Safely change an existing guided bridge
 
-Use `--replace-route` with the ID of an existing *guided text* route. The old
+Use `--replace-route` with the ID of an existing _guided text_ route. The old
 input file remains untouched and the new output must not exist. Advanced
 custom routes—priority, retry, extra policy, native structured destinations,
 or nonstandard fields—are rejected instead of silently flattened. Review the

@@ -456,8 +456,8 @@ def test_malformed_receipts_fail_without_tracebacks(tool, settings):
 
 def test_empty_inventory_explains_environment_and_installation(monkeypatch, capsys):
     from medre.cli import config_commands
-    from medre.config.errors import ConfigNotFoundError
     from medre.config import loader
+    from medre.config.errors import ConfigNotFoundError
 
     monkeypatch.setattr(config_commands, "TRANSPORTS", ())
 

@@ -1,9 +1,9 @@
 """Presentation qualification rejects self-consistent but incorrect evidence."""
 
-from copy import deepcopy
-from html import escape
 import io
 import json
+from copy import deepcopy
+from html import escape
 from unittest.mock import AsyncMock
 
 import pytest

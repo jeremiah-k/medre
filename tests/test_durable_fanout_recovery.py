@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import AdapterHandoffResult, AdapterSendError
 from medre.core.engine.pipeline import PipelineRunner

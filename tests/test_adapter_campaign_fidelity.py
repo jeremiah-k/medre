@@ -1,18 +1,18 @@
 """Native fidelity uses independent peers, scoped IDs, and committed evidence."""
 
-from copy import deepcopy
 import io
 import json
+from copy import deepcopy
 from unittest.mock import AsyncMock
 
 import pytest
 
+from scripts.adapter_campaign import worker
 from scripts.adapter_campaign.fidelity_evidence import (
     message_body,
     native_hits,
     verify_case,
 )
-from scripts.adapter_campaign import worker
 from scripts.analyze_fidelity_campaign import analyze, main
 
 

@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter

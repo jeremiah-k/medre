@@ -51,26 +51,26 @@ Machine-readable capability declaration: [`xmpp-capabilities.json`](xmpp-capabil
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 
-| Capability          | Value                                                                                          |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| text                | `True`                                                                                         |
-| title               | `False`                                                                                        |
+| Capability          | Value                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| text                | `True`                                                                                     |
+| title               | `False`                                                                                    |
 | replies             | `"native"` (destination-scoped XEP-0461 replies; unknown targets retain readable fallback) |
-| threads             | `"fallback"`                                                                                   |
-| reactions           | `"unsupported"`                                                                                |
-| edits               | `"unsupported"`                                                                                |
-| deletes             | `"unsupported"`                                                                                |
-| attachments         | `False`                                                                                        |
-| metadata_fields     | `False`                                                                                        |
-| store_and_forward   | `False`                                                                                        |
-| direct_messages     | `True`                                                                                         |
-| channels            | `True`                                                                                         |
-| identity_encryption | `False`                                                                                        |
-| typing              | `True`                                                                                         |
-| presence            | `False`                                                                                        |
-| topic_rooms         | `True`                                                                                         |
-| mesh_routing        | `False`                                                                                        |
-| priority_delivery   | `False`                                                                                        |
+| threads             | `"fallback"`                                                                               |
+| reactions           | `"unsupported"`                                                                            |
+| edits               | `"unsupported"`                                                                            |
+| deletes             | `"unsupported"`                                                                            |
+| attachments         | `False`                                                                                    |
+| metadata_fields     | `False`                                                                                    |
+| store_and_forward   | `False`                                                                                    |
+| direct_messages     | `True`                                                                                     |
+| channels            | `True`                                                                                     |
+| identity_encryption | `False`                                                                                    |
+| typing              | `True`                                                                                     |
+| presence            | `False`                                                                                    |
+| topic_rooms         | `True`                                                                                     |
+| mesh_routing        | `False`                                                                                    |
+| priority_delivery   | `False`                                                                                    |
 
 ---
 

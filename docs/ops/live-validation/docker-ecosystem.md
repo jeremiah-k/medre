@@ -94,20 +94,20 @@ directory instead.
 
 Individual stages support investigation without repeating every check:
 
-| Stage        | Evidence                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contracts`  | Focused core and MMRelay regressions; all adapter-owned offline and installed-SDK tests. Hardware, external service, and soak tiers stay gated.              |
-| `oauth`      | Real browser login, native device signing, cryptographic verification of the published chain, routine device/master-key reuse, and cross-process refresh.    |
-| `provision`  | Independent native accounts and conversations, secure Chatmail group joining, local SimpleX group joining, LXMF identities, and read-only hardware outcomes. |
-| `campaign`   | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                             |
-| `resilience` | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                        |
-| `presentation` | Opt-in reply/restart campaign plus Matrix/XMPP semantic formatting, unsafe-link fallback, opaque code, and native unstyled controls. |
-| `typing` | Opt-in native Matrix/XMPP start/stop, bounded silence, permission withdrawal, shutdown clearing, default refusal, and unchanged durable row counts. |
-| `encrypted` | Opt-in native encrypted text/files in both directions, independent decryption and ciphertext witnesses, retained bytes, stable devices, and restart persistence. See [encrypted Matrix qualification](encrypted-matrix.md). |
-| `fidelity`   | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart. |
-| `mmrelay`    | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                       |
-| `recovery`   | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                  |
-| `logs`       | Timestamps on managed runtime records and evidence of unclosed sessions, connectors, or pending tasks; warning/error counts remain available for inspection. |
+| Stage          | Evidence                                                                                                                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contracts`    | Focused core and MMRelay regressions; all adapter-owned offline and installed-SDK tests. Hardware, external service, and soak tiers stay gated.                                                                             |
+| `oauth`        | Real browser login, native device signing, cryptographic verification of the published chain, routine device/master-key reuse, and cross-process refresh.                                                                   |
+| `provision`    | Independent native accounts and conversations, secure Chatmail group joining, local SimpleX group joining, LXMF identities, and read-only hardware outcomes.                                                                |
+| `campaign`     | Native fanout and presentation, durable core evidence, source correlation, late duplicates, and bounded cleanup.                                                                                                            |
+| `resilience`   | Actual runtime process crashes, independent native observations, destination outages, bounded retries, and offline evidence analysis.                                                                                       |
+| `presentation` | Opt-in reply/restart campaign plus Matrix/XMPP semantic formatting, unsafe-link fallback, opaque code, and native unstyled controls.                                                                                        |
+| `typing`       | Opt-in native Matrix/XMPP start/stop, bounded silence, permission withdrawal, shutdown clearing, default refusal, and unchanged durable row counts.                                                                         |
+| `encrypted`    | Opt-in native encrypted text/files in both directions, independent decryption and ciphertext witnesses, retained bytes, stable devices, and restart persistence. See [encrypted Matrix qualification](encrypted-matrix.md). |
+| `fidelity`     | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart.                                                                 |
+| `mmrelay`      | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                                                                                      |
+| `recovery`     | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                                                                                 |
+| `logs`         | Timestamps on managed runtime records and evidence of unclosed sessions, connectors, or pending tasks; warning/error counts remain available for inspection.                                                                |
 
 Use `--stage native` to run the native stages together after the contract tier
 has passed. Without configured Meshtastic hardware, the grouped run records

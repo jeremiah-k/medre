@@ -15,8 +15,8 @@ from medre.adapter_spec import NativeSetupField
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import parse_runtime_config
-from medre.config.routes import RouteDirectionality
 from medre.config.paths import resolve
+from medre.config.routes import RouteDirectionality
 from medre.runtime.bridge_setup import BridgeRequest, draft_bridge
 from medre.runtime.route_explain import explain_routes
 from tests.helpers.bridge_setup import CONFIG, install_provider

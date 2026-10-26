@@ -5,20 +5,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 from medre.config.identifiers import adapter_id_problem
 from medre.core.storage.sqlite.storage import SQLiteStorage
-
 from scripts.adapter_campaign.fidelity import CASES
-from scripts.adapter_campaign.presentation import (
-    CASES as PRESENTATION_CASES,
-    example as presentation_example,
-)
 from scripts.adapter_campaign.fidelity_evidence import verify_case
-from scripts.adapter_campaign.recovery import read_event
 from scripts.adapter_campaign.lab.log_review import analyze as analyze_log
+from scripts.adapter_campaign.presentation import CASES as PRESENTATION_CASES
+from scripts.adapter_campaign.presentation import example as presentation_example
+from scripts.adapter_campaign.recovery import read_event
 
 
 def records(path: Path) -> list[dict]:

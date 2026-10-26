@@ -12,17 +12,17 @@ protocol references below were checked on 2026-10-17.
 
 ## Decisions before a stable freeze
 
-| Concern | Decision | Evidence needed before freezing the feature |
-| --- | --- | --- |
-| Envelope | Keep opaque IDs, scoped native refs, relations, and optional metadata namespaces. Payload mappings are extensible, without a universal per-kind validator. | Constructor, storage round-trip, and complete nested-schema drift checks. |
-| Attachments | Publish the existing nine-field descriptor and its retained/unavailable invariant. Keep one primary attachment as the implemented contract. | Retention, unavailable state, invalid metadata, and adapter media fixtures. |
-| Rich content | Preserve a plain-text representation; add typed formatting only with real decoder and renderer fixtures. | Native output plus honest text fallback for each supported feature. |
-| Multiple attachments | Design an ordered attachment collection at the message-content layer when an adapter needs it. Do not silently replace the singular descriptor. | Album grouping, per-item retention, partial failure, ordering, and fallback tests. |
-| Read/display markers | Keep user reading activity separate from MEDRE delivery attempts and transport confirmations. | Actor, conversation, target-message scope, privacy policy, and duplicate/coalescing rules. |
-| Typing/chat state | Treat it as expiring conversation activity rather than durable message history. | Expiry, stop notification, capability negotiation, bounded rate, and no-replay tests. |
-| Encryption | Retain the identity-encryption boolean with its narrow meaning. Model message security and negotiated requirements separately when needed. | Per-conversation security state and failure behavior, without inferring secrecy from an adapter flag. |
-| Unknown kinds | Preserve ingress evidence but suppress unrecognized delivery kinds. `plugin.custom` is the explicit extension envelope. | Wildcard routing cannot bypass the capability decision; known kinds have explicit policies. |
-| Puppeting | Keep original authorship, display attribution, and the authenticated sending account separate. | Per-account native refs, retry identity stability, and mutation authorization. |
+| Concern              | Decision                                                                                                                                                   | Evidence needed before freezing the feature                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Envelope             | Keep opaque IDs, scoped native refs, relations, and optional metadata namespaces. Payload mappings are extensible, without a universal per-kind validator. | Constructor, storage round-trip, and complete nested-schema drift checks.                             |
+| Attachments          | Publish the existing nine-field descriptor and its retained/unavailable invariant. Keep one primary attachment as the implemented contract.                | Retention, unavailable state, invalid metadata, and adapter media fixtures.                           |
+| Rich content         | Preserve a plain-text representation; add typed formatting only with real decoder and renderer fixtures.                                                   | Native output plus honest text fallback for each supported feature.                                   |
+| Multiple attachments | Design an ordered attachment collection at the message-content layer when an adapter needs it. Do not silently replace the singular descriptor.            | Album grouping, per-item retention, partial failure, ordering, and fallback tests.                    |
+| Read/display markers | Keep user reading activity separate from MEDRE delivery attempts and transport confirmations.                                                              | Actor, conversation, target-message scope, privacy policy, and duplicate/coalescing rules.            |
+| Typing/chat state    | Treat it as expiring conversation activity rather than durable message history.                                                                            | Expiry, stop notification, capability negotiation, bounded rate, and no-replay tests.                 |
+| Encryption           | Retain the identity-encryption boolean with its narrow meaning. Model message security and negotiated requirements separately when needed.                 | Per-conversation security state and failure behavior, without inferring secrecy from an adapter flag. |
+| Unknown kinds        | Preserve ingress evidence but suppress unrecognized delivery kinds. `plugin.custom` is the explicit extension envelope.                                    | Wildcard routing cannot bypass the capability decision; known kinds have explicit policies.           |
+| Puppeting            | Keep original authorship, display attribution, and the authenticated sending account separate.                                                             | Per-account native refs, retry identity stability, and mutation authorization.                        |
 
 Caption, alt text, and spoiler markers need actual descriptor/message-content
 semantics and preservation through retention and rendering. Adding them only to
@@ -40,19 +40,19 @@ inside the adapter. Shared MEDRE concepts describe meaning, not XMPP stanza
 syntax. XEPs have individual maturity and namespace versions; citing a XEP is
 not evidence that every client implements it.
 
-| Existing standard | MEDRE seam and integration rule |
-| --- | --- |
-| [XEP-0030: Service Discovery](https://xmpp.org/extensions/xep-0030.html) | Negotiate features at the actual peer/room scope. Adapter-wide capability declarations are conservative limits, not proof that every destination supports a feature. |
-| [XEP-0045: Multi-User Chat](https://xmpp.org/extensions/xep-0045.html) | Treat rooms as destination contexts. Preserve occupant identity and session scope; do not equate a nickname with a stable authenticated person. |
-| [XEP-0359: Stable Stanza IDs](https://xmpp.org/extensions/xep-0359.html) | Map trusted native IDs through NativeRef/NativeMessageRef while retaining the assigning `by` scope. Validate the assigner's advertised support before trusting IDs for deduplication. |
-| [XEP-0461: Replies](https://xmpp.org/extensions/xep-0461.html) | Map to reply relations, preserving target context and native identity; let relation binding decide whether the destination target exists. |
-| [XEP-0308: Message Correction](https://xmpp.org/extensions/xep-0308.html) | Map to edits only with the protocol's same-sender and target rules. A new stanza ID is distinct from the corrected message's ID. |
-| [XEP-0424: Retraction](https://xmpp.org/extensions/xep-0424.html) | Preserve retraction semantics; never turn a display request into a promise of secure deletion. Apply destination ownership checks. |
-| [XEP-0444: Reactions](https://xmpp.org/extensions/xep-0444.html) | Translate the sender's replacement reaction set deliberately, including removals; a whole set is not a sequence of independent additions. |
-| [XEP-0393: Message Styling](https://xmpp.org/extensions/xep-0393.html) | Follow the text-styling rules rather than assuming every Markdown parser means the same thing. Retain readable text for targets without styling. |
-| [XEP-0184: Delivery Receipts](https://xmpp.org/extensions/xep-0184.html) and [XEP-0333: Displayed Markers](https://xmpp.org/extensions/xep-0333.html) | Keep receipt and displayed/read evidence distinct. Receipt scope and sender identity matter; neither is an internal retry instruction. |
-| [XEP-0085: Chat State](https://xmpp.org/extensions/xep-0085.html) | Map composing/paused and other negotiated states into ephemeral activity, not message bodies or generic online presence. |
-| [XEP-0384: OMEMO](https://xmpp.org/extensions/xep-0384.html) | Keep encryption negotiation and cryptographic identity in the adapter/session. Static transport capabilities cannot prove a particular message was encrypted. |
+| Existing standard                                                                                                                                     | MEDRE seam and integration rule                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [XEP-0030: Service Discovery](https://xmpp.org/extensions/xep-0030.html)                                                                              | Negotiate features at the actual peer/room scope. Adapter-wide capability declarations are conservative limits, not proof that every destination supports a feature.                  |
+| [XEP-0045: Multi-User Chat](https://xmpp.org/extensions/xep-0045.html)                                                                                | Treat rooms as destination contexts. Preserve occupant identity and session scope; do not equate a nickname with a stable authenticated person.                                       |
+| [XEP-0359: Stable Stanza IDs](https://xmpp.org/extensions/xep-0359.html)                                                                              | Map trusted native IDs through NativeRef/NativeMessageRef while retaining the assigning `by` scope. Validate the assigner's advertised support before trusting IDs for deduplication. |
+| [XEP-0461: Replies](https://xmpp.org/extensions/xep-0461.html)                                                                                        | Map to reply relations, preserving target context and native identity; let relation binding decide whether the destination target exists.                                             |
+| [XEP-0308: Message Correction](https://xmpp.org/extensions/xep-0308.html)                                                                             | Map to edits only with the protocol's same-sender and target rules. A new stanza ID is distinct from the corrected message's ID.                                                      |
+| [XEP-0424: Retraction](https://xmpp.org/extensions/xep-0424.html)                                                                                     | Preserve retraction semantics; never turn a display request into a promise of secure deletion. Apply destination ownership checks.                                                    |
+| [XEP-0444: Reactions](https://xmpp.org/extensions/xep-0444.html)                                                                                      | Translate the sender's replacement reaction set deliberately, including removals; a whole set is not a sequence of independent additions.                                             |
+| [XEP-0393: Message Styling](https://xmpp.org/extensions/xep-0393.html)                                                                                | Follow the text-styling rules rather than assuming every Markdown parser means the same thing. Retain readable text for targets without styling.                                      |
+| [XEP-0184: Delivery Receipts](https://xmpp.org/extensions/xep-0184.html) and [XEP-0333: Displayed Markers](https://xmpp.org/extensions/xep-0333.html) | Keep receipt and displayed/read evidence distinct. Receipt scope and sender identity matter; neither is an internal retry instruction.                                                |
+| [XEP-0085: Chat State](https://xmpp.org/extensions/xep-0085.html)                                                                                     | Map composing/paused and other negotiated states into ephemeral activity, not message bodies or generic online presence.                                                              |
+| [XEP-0384: OMEMO](https://xmpp.org/extensions/xep-0384.html)                                                                                          | Keep encryption negotiation and cryptographic identity in the adapter/session. Static transport capabilities cannot prove a particular message was encrypted.                         |
 
 XEP-0194 is **User Chatting**, not a server-side bot API. XEP-0330 is **Pubsub
 Subscription**, not read receipts. Use the standards above instead of those
@@ -150,18 +150,18 @@ satisfy. Puppeting is not a claim of end-to-end encryption across the bridge.
 
 ## Candidate integration seams
 
-| Candidate | Verified integration seam | First proof |
-| --- | --- | --- |
-| XMPP | Standard client/session protocol plus negotiated extensions; one adapter can serve many clients. | Text and room/direct contexts, stable-ID scope, replies/corrections, feature discovery, and honest fallback. |
-| SimpleX | [Official bot API](https://github.com/simplex-chat/simplex-chat/blob/stable/bots/README.md): headless CLI, JSON WebSockets, correlated commands and asynchronous events; TypeScript SDK is optional for a Python adapter. | Local sidecar connection, unsolicited-event handling, reconnect/idempotence, text, and retained media contracts. |
-| Delta Chat/chatmail | [Official JSON-RPC server](https://github.com/chatmail/core/blob/main/deltachat-rpc-server/README.md) offers a process boundary instead of embedding its Rust core. | Account/chat native identity, stdio process lifecycle, text, and attachment ownership. |
+| Candidate           | Verified integration seam                                                                                                                                                                                                 | First proof                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| XMPP                | Standard client/session protocol plus negotiated extensions; one adapter can serve many clients.                                                                                                                          | Text and room/direct contexts, stable-ID scope, replies/corrections, feature discovery, and honest fallback.     |
+| SimpleX             | [Official bot API](https://github.com/simplex-chat/simplex-chat/blob/stable/bots/README.md): headless CLI, JSON WebSockets, correlated commands and asynchronous events; TypeScript SDK is optional for a Python adapter. | Local sidecar connection, unsolicited-event handling, reconnect/idempotence, text, and retained media contracts. |
+| Delta Chat/chatmail | [Official JSON-RPC server](https://github.com/chatmail/core/blob/main/deltachat-rpc-server/README.md) offers a process boundary instead of embedding its Rust core.                                                       | Account/chat native identity, stdio process lifecycle, text, and attachment ownership.                           |
 
 Use XMPP as the first conformance reference and SimpleX as a concrete privacy-
 oriented integration candidate. The SimpleX CLI API is unauthenticated and
 localhost-bound by default; protect the local endpoint and keep it separate from
 public runtime control surfaces. Dispatch by correlation first: a WebSocket
-message with a ``corrId`` matching a pending command is a command response,
-even when its ``resp.type`` is unknown. Complete that pending command with an
+message with a `corrId` matching a pending command is a command response,
+even when its `resp.type` is unknown. Complete that pending command with an
 explicit unsupported-response error, release its pending state, and retain the
 redacted tag as diagnostic evidence; never leave the caller waiting indefinitely.
 Unknown **unsolicited events** (without a pending command correlation) may be

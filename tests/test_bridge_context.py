@@ -1,7 +1,7 @@
 """Shared relay context retains claims without granting native authority."""
 
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest

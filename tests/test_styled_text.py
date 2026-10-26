@@ -1,9 +1,9 @@
 """Optional presentation cannot alter plain text or acquire transport authority."""
 
+import json
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 import jsonschema
@@ -13,13 +13,13 @@ import pytest
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
 from medre.core.events.text import (
+    MAX_LINK_LENGTH,
+    MAX_STYLED_TEXT_LENGTH,
     MAX_TEXT_SPANS,
     MAX_TEXT_STYLE_DEPTH,
-    MAX_STYLED_TEXT_LENGTH,
-    MAX_LINK_LENGTH,
+    TEXT_STYLES,
     StyledText,
     TextSpan,
-    TEXT_STYLES,
 )
 
 

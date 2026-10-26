@@ -10,8 +10,8 @@ contract schemas mirror their projection helpers and normative specifications.
 | ------------------------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `canonical-event.schema.json`        | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
 | `canonical-event.schema.yaml`        | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
-| `styled-text.schema.json` | `StyledText` / `TextSpan` | Optional semantic presentation over canonical plain text |
-| `attachment.schema.json` | `AttachmentDescriptor` | Retained/unavailable descriptors and retention-pending input |
+| `styled-text.schema.json`            | `StyledText` / `TextSpan`                                       | Optional semantic presentation over canonical plain text                    |
+| `attachment.schema.json`             | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                |
 | `delivery-receipt.schema.json`       | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
 | `delivery-observation.schema.json`   | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
 | `delivery-result.schema.json`        | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
@@ -21,8 +21,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `evidence-bundle.schema.json`        | Dict shape                                                      | `medre evidence` bundle structure                                           |
 | `adapter-config.schema.json`         | Per-transport configs                                           | Adapter configuration shapes                                                |
 | `routing-config.schema.json`         | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
-| `package-sources.schema.json` | Deployment source catalog | Adapter distribution aliases and source overrides |
-
+| `package-sources.schema.json`        | Deployment source catalog                                       | Adapter distribution aliases and source overrides                           |
 
 ## Examples
 

@@ -42,11 +42,7 @@
     "part": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "ordinal",
-        "state",
-        "handoff_id"
-      ],
+      "required": ["ordinal", "state", "handoff_id"],
       "properties": {
         "ordinal": {
           "type": "integer",
@@ -54,18 +50,10 @@
           "maximum": 128
         },
         "state": {
-          "enum": [
-            "unsent",
-            "submitting",
-            "accepted",
-            "unknown"
-          ]
+          "enum": ["unsent", "submitting", "accepted", "unknown"]
         },
         "handoff_id": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "minLength": 1,
           "maxLength": 1024
         }

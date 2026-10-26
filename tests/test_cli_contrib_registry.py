@@ -9,6 +9,7 @@ import types
 from unittest import mock
 
 import pytest
+
 from medre.cli.contrib import (
     ALLOWED_NAMESPACES,
     DISALLOWED_TOPLEVEL,

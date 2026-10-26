@@ -16,7 +16,7 @@ from medre.core.events import DeliveryAttemptProvenance
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
-from medre.core.routing import Route, RouteSource, RouteTarget, Router
+from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 from tests.helpers.storage_outbox import (

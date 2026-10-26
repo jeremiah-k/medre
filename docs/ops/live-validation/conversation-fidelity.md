@@ -86,7 +86,6 @@ The opt-in pytest entry point is `tests/test_native_fidelity_campaign_live.py`.
 Set `MEDRE_FIDELITY_CAMPAIGN` and optionally `MEDRE_FIDELITY_OUTPUT`, then select
 that file with `-m live`. Ordinary CI runs the offline controls and oracles.
 
-
 ## Semantic presentation
 
 Use `--stage presentation` in the Docker lab to run the ten reply/restart cases

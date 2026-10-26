@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 import sys
 import traceback
+from pathlib import Path
 
 from medre.config._yaml import parse_yaml_config
 from medre.config.loader import parse_runtime_config

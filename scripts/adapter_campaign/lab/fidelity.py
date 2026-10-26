@@ -12,6 +12,7 @@ from .sources import write_json
 
 async def run(root: Path, *, presentation: bool = False) -> None:
     from scripts.analyze_fidelity_campaign import analyze
+
     from .resilience import fixture
 
     name = "presentation" if presentation else "fidelity"

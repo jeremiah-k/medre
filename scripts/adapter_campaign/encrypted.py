@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 import sys
 import traceback
+from pathlib import Path
 from uuid import uuid4
 
 from medre.core.storage.sqlite.storage import SQLiteStorage

@@ -7,9 +7,9 @@ import hashlib
 import io
 import json
 import logging
-from pathlib import Path
 import sys
 import traceback
+from pathlib import Path
 from urllib.parse import quote
 
 from .worker import emit

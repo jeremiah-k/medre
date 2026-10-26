@@ -8,15 +8,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.config.paths import resolve
+from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.runtime.errors import RuntimeStartupError
 from tests.helpers.async_utils import wait_until
 from tests.helpers.startup_cleanup import (
     _build_app,
     _config_with_one_fake_adapter,
     _config_with_two_fake_adapters,
 )
-from medre.config.paths import resolve
-from medre.config.routes import RouteConfig, RouteConfigSet
-from medre.runtime.errors import RuntimeStartupError
 
 
 async def test_slow_first_adapter_does_not_delay_independent_peer(

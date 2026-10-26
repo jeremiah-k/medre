@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig

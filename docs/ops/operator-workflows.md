@@ -97,6 +97,7 @@ an archive if you need it later; see [recovery](recovery-and-replay.md).
    backup paths, then removes the active database and its sidecars. It is a
    file-level backup, **not an online SQLite snapshot**; do not run it while
    another process is writing. Avoid hand-deleting SQLite files.
+
 4. **Start MEDRE against the new empty store** with
    `medre run --config bridge.yaml`. Confirm its new schema using
    `medre storage status --storage-path PATH`.

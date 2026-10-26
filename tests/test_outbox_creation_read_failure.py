@@ -6,6 +6,7 @@ import sqlite3
 from unittest.mock import AsyncMock
 
 import pytest
+
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import make_outbox_item

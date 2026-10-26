@@ -7,8 +7,8 @@ import jsonschema
 import pytest
 
 from medre.config.errors import ConfigValidationError
-from medre.config.model import RuntimeOptions
 from medre.config.loader import parse_runtime_config
+from medre.config.model import RuntimeOptions
 from medre.config.paths import resolve
 
 

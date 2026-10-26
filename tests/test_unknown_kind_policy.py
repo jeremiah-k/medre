@@ -4,12 +4,12 @@ import pytest
 
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.kinds import KNOWN_KINDS
+from medre.core.planning.capabilities import capability_unsupported
 from medre.core.planning.capability_decision import (
-    PASSTHROUGH_EVENT_KINDS,
     _EVENT_KIND_FIELDS,
+    PASSTHROUGH_EVENT_KINDS,
     resolver,
 )
-from medre.core.planning.capabilities import capability_unsupported
 from tests.helpers.pipeline import make_event
 
 

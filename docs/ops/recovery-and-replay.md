@@ -237,7 +237,6 @@ grep -F 'Runtime ready (' "$log_capture" | tail -1
 # Non-terminal outbox items were preserved as resumable work.
 ```
 
-
 ## Adapter Failure Recovery
 
 ### Symptoms

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
 import logging
 import time
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 
 from medre.core.contracts.typing import (
     TypingActivity,
+    TypingSender,
     TypingSignal,
     TypingSnapshot,
-    TypingSender,
     TypingTarget,
     TypingUpdate,
 )

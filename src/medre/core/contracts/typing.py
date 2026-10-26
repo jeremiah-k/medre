@@ -6,9 +6,9 @@ source adapter identity and authorize concrete destinations before admission.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import unicodedata
+from dataclasses import dataclass
 from typing import Protocol, TypeAlias, runtime_checkable
 
 MAX_TYPING_SECONDS = 30.0

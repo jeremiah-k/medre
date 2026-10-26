@@ -312,9 +312,7 @@
       "allOf": [
         {
           "if": {
-            "required": [
-              "forward_typing"
-            ],
+            "required": ["forward_typing"],
             "properties": {
               "forward_typing": {
                 "const": true
@@ -333,9 +331,7 @@
                   {
                     "anyOf": [
                       {
-                        "required": [
-                          "source_channel"
-                        ],
+                        "required": ["source_channel"],
                         "properties": {
                           "source_channel": {
                             "type": "string",
@@ -344,9 +340,7 @@
                         }
                       },
                       {
-                        "required": [
-                          "source_room"
-                        ],
+                        "required": ["source_room"],
                         "properties": {
                           "source_room": {
                             "type": "string",
@@ -359,9 +353,7 @@
                   {
                     "anyOf": [
                       {
-                        "required": [
-                          "dest_channel"
-                        ],
+                        "required": ["dest_channel"],
                         "properties": {
                           "dest_channel": {
                             "type": "string",
@@ -370,9 +362,7 @@
                         }
                       },
                       {
-                        "required": [
-                          "dest_room"
-                        ],
+                        "required": ["dest_room"],
                         "properties": {
                           "dest_room": {
                             "type": "string",
@@ -385,17 +375,13 @@
                 ]
               },
               {
-                "required": [
-                  "context_map"
-                ],
+                "required": ["context_map"],
                 "properties": {
                   "context_map": {
                     "type": "object",
                     "minProperties": 1,
                     "additionalProperties": {
-                      "required": [
-                        "dest_context"
-                      ],
+                      "required": ["dest_context"],
                       "properties": {
                         "dest_context": {
                           "type": "string",

@@ -6,17 +6,18 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import sys
 import traceback
+from pathlib import Path
 from uuid import uuid4
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 from .fidelity_evidence import verify_case
 from .plan import Plan, load_plan
+from .presentation import CASES as PRESENTATION_CASES
+from .presentation import example as presentation_example
 from .process import Peer
-from .presentation import CASES as PRESENTATION_CASES, example as presentation_example
 from .recovery import observe, read_event, wait_event
 from .run import write_report
 

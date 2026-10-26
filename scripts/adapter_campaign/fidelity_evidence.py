@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from .presentation import example as presentation_example
+from .presentation import verify as verify_presentation
 from .recovery_evidence import verify_terminal
 from .run import _VisibleText
-from .presentation import example as presentation_example, verify as verify_presentation
 
 
 def message_body(record: dict, transport: str) -> str:

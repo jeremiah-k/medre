@@ -8,13 +8,13 @@ that cancels third-party obligations. This page describes the exact dependency
 pins in the October 16, 2026 development snapshot, not a blanket clearance of
 all transitive dependencies or a substitute for legal advice.
 
-| Distribution | MEDRE-authored source | Main pinned runtime dependency | Upstream license |
-| --- | --- | --- | --- |
-| `medre` | MIT | `msgspec`, `pyyaml` | BSD-3-Clause, MIT respectively; check full dependency tree |
-| `medre-adapter-matrix` | MIT | `mindroom-nio` | ISC; optional E2EE dependencies are resolved by `[e2e]` |
-| `medre-adapter-meshcore` | MIT | `meshcore` | MIT |
-| `medre-adapter-meshtastic` | MIT | `mtjk` | GPL-3.0-only |
-| `medre-adapter-lxmf` | MIT | `lxmf`, `rns` | Reticulum License (non-OSI; additional use restrictions) |
+| Distribution               | MEDRE-authored source | Main pinned runtime dependency | Upstream license                                           |
+| -------------------------- | --------------------- | ------------------------------ | ---------------------------------------------------------- |
+| `medre`                    | MIT                   | `msgspec`, `pyyaml`            | BSD-3-Clause, MIT respectively; check full dependency tree |
+| `medre-adapter-matrix`     | MIT                   | `mindroom-nio`                 | ISC; optional E2EE dependencies are resolved by `[e2e]`    |
+| `medre-adapter-meshcore`   | MIT                   | `meshcore`                     | MIT                                                        |
+| `medre-adapter-meshtastic` | MIT                   | `mtjk`                         | GPL-3.0-only                                               |
+| `medre-adapter-lxmf`       | MIT                   | `lxmf`, `rns`                  | Reticulum License (non-OSI; additional use restrictions)   |
 
 Exact version pins are owned by each repository's `pyproject.toml` and lockfile, not this page.
 

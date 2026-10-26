@@ -12,16 +12,16 @@ your current core, adapter commits, SDKs, and endpoints.
 
 ## Prerequisites
 
-| Requirement          | Details                                                                                                               |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Matrix homeserver    | Synapse or Conduit reachable over the network                                                                         |
-| Matrix bot account   | Dedicated user with a valid access token                                                                              |
-| Meshtastic radio     | TLora or similar, connected via USB-serial                                                                            |
-| MeshCore device(s)   | One or two MeshCore nodes connected via USB-serial                                                                    |
-| Python               | 3.11 or later                                                                                                         |
+| Requirement          | Details                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| Matrix homeserver    | Synapse or Conduit reachable over the network                                                         |
+| Matrix bot account   | Dedicated user with a valid access token                                                              |
+| Meshtastic radio     | TLora or similar, connected via USB-serial                                                            |
+| MeshCore device(s)   | One or two MeshCore nodes connected via USB-serial                                                    |
+| Python               | 3.11 or later                                                                                         |
 | Package install      | Matrix, Meshtastic and MeshCore providers in the MEDRE environment; see [installation](../install.md) |
-| Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices                                               |
-| Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated                                                      |
+| Serial port access   | User in `dialout` group (Linux) or equivalent read/write on tty devices                               |
+| Working 2-way config | Existing `medre.yaml` with Matrix + Meshtastic already validated                                      |
 
 After syncing, activate `.venv` with `source .venv/bin/activate` before the CLI
 steps below. Do not run a new `uv sync` after installing the adapters into the core

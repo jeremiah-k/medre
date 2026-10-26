@@ -8,14 +8,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from medre.config.identifiers import adapter_id_problem
-from scripts.adapter_campaign.evidence import verify
 from scripts.adapter_campaign.baseline import (
     SUITE,
-    text as baseline_text,
-    turns,
-    verify_bridge_context,
-    validate_attributions,
 )
+from scripts.adapter_campaign.baseline import text as baseline_text
+from scripts.adapter_campaign.baseline import (
+    turns,
+    validate_attributions,
+    verify_bridge_context,
+)
+from scripts.adapter_campaign.evidence import verify
 from scripts.adapter_campaign.plan import TRANSPORTS, Plan, load_plan
 from scripts.adapter_campaign.run import native_expectation, native_receipt
 
