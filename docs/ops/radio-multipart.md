@@ -19,34 +19,6 @@ budget, including firmware sender-name overhead. Exceeding the part limit reject
 the whole plan before sending; it does not silently truncate it. Pacing is shared
 with other sends and fanout through the existing session owner.
 
-A local SDK acceptance does not prove that another radio received the packet.
-If a call times out or a process stops during submission, the attempt stays
-uncertain and automatic resend stops. Previously accepted packets are retained.
-Inspect the exact outbox ID and attempt generation from the delivery evidence:
-
-```bash
-medre inspect radio-attempt outbox-EXAMPLE 1 --storage-path /path/to/medre.sqlite
-```
-
-The JSON contains the exact planned wire text, per-packet state and scoped local
-handoff references, alongside current parent identity/status. Inspection does
-not start adapters, mutate progress, recover submissions or authorize another
-send. A submitting packet remains submitting in the report; after explicit
-owned recovery it becomes unknown. Neither state is proof of RF delivery.
-Automatic restart does not resume a partially accepted multipart message in this
-implementation. Retain this evidence and hold uncertain work for investigation. There is no
-operator command here to force resend or promote unknown packets.
-
-Deterministic tests cover the renderer, real session send owner, storage, core
-aggregation and failures without hardware. Installed-SDK contracts and a bounded
-physical MeshCore qualification are still required before describing this path
-as hardware-qualified. Merged Meshtastic #15 extends this path through its existing paced queue;
-its exact merged revision and configuration schema are adopted separately.
-
-The required radio storage table was introduced in core #342; old prerelease
-storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#104-pre-release-stale-database-reset).
-This handoff change introduces no additional database shape change.
-
 ## Meshtastic
 
 Merged Meshtastic #15 uses the same `max_text_parts` opt-in. With that
@@ -74,14 +46,53 @@ messages do not automatically resume after restart. Select only the intended
 reviewed sources, qualify them independently, and keep hardware evidence
 separate from local SDK handoffs. Defaults and package versions are unchanged.
 
-## Explicit continuation API boundary
+## Troubleshoot an interrupted multipart message
 
-The internal continuation API can transfer a stored, accepted prefix to a newer
-owned claim and submit only its proven-unsent tail. It preserves each packet's
-original accepting attempt and the weakest local confirmation. This API is not
-connected to ordinary retries or an operator command; the default hold policy
-above still applies. Unknown or submitting work cannot be continued. Plain
-channel text with newly recorded payload fingerprints is eligible; replies,
-native extras and older evidence remain held. SDK and physical restart
-qualification, plus a separately reviewed operator/runtime entry point, remain
-necessary before enabling unattended tail recovery.
+A local SDK acceptance does not prove that another radio received the packet.
+If a call times out or a process stops during submission, the attempt stays
+uncertain and automatic resend stops. Previously accepted packets are retained.
+Inspect the exact outbox ID and attempt generation from the delivery evidence:
+
+```bash
+medre inspect radio-attempt outbox-EXAMPLE 1 --storage-path /path/to/medre.sqlite
+```
+
+For a read-only assessment of whether the retained state is a candidate for
+separately authorized continuation, request:
+
+```bash
+medre inspect radio-attempt outbox-EXAMPLE 1 --storage-path /path/to/medre.sqlite --assess-continuation
+```
+
+`review_candidate` means there is an accepted prefix, an unsent tail, and
+parseable, consistent native payload fingerprints. An explicit native channel
+that disagrees with the retained target keeps the attempt held; an absent native
+channel does not manufacture a contradiction. `held` identifies a missing,
+contradictory or uncertain fact. Neither status grants a native call. A separate runtime
+operation must verify the original accepting attempts, exact latest history,
+matching channel rendering, and a new independently owned outbox claim before
+sending through the existing paced adapter. The CLI opens storage read-only,
+including when retained evidence is malformed; it does not claim work, recover
+submitting packets, or send anything.
+
+The JSON contains the exact planned wire text, per-packet state and scoped local
+handoff references, alongside current parent identity/status. Inspection does
+not start adapters, mutate progress, recover submissions or authorize another
+send. A submitting packet remains submitting in the report; after explicit
+owned recovery it becomes unknown. Neither state is proof of RF delivery.
+Automatic restart does not resume a partially accepted multipart message in this
+implementation. Retain this evidence and hold uncertain work for investigation. There is no
+operator command here to force resend or promote unknown packets.
+
+Deterministic tests cover the renderer, real session send owner, storage, core
+aggregation and failures without hardware. Installed-SDK contracts and a bounded
+physical MeshCore qualification are still required before describing this path
+as hardware-qualified. Merged Meshtastic #15 extends this path through its existing paced queue;
+its exact merged revision and configuration schema are adopted separately.
+
+The required radio storage table was introduced in core #342; old prerelease
+storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#104-pre-release-stale-database-reset).
+This handoff change introduces no additional database shape change.
+
+For the internal continuation contract, see
+[radio text planning](../spec/radio-text-planning.md#explicit-continuation-of-a-proven-unsent-tail).

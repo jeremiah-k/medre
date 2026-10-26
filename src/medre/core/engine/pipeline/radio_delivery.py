@@ -8,8 +8,6 @@ No native call is atomic with SQLite; uncertainty blocks automatic resubmission.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
@@ -22,7 +20,10 @@ from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.radio import StoredRadioAttempt
-from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.radio_handoff import (
+    RadioLocalHandoff,
+    plain_channel_payload_fingerprint,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -65,11 +66,7 @@ def _continuation_payload_fingerprint(result: RenderingResult) -> str | None:
     channel = result.payload["channel_index"]
     if type(channel) is not int or channel < 0 or str(channel) != result.target_channel:
         return None
-    return hashlib.sha256(
-        json.dumps(
-            {"channel_index": channel}, sort_keys=True, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
+    return plain_channel_payload_fingerprint(channel)
 
 
 @dataclass

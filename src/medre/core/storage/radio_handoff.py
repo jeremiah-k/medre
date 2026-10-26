@@ -7,6 +7,8 @@ Legacy local references without an origin belong to their containing attempt.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Annotated
 
 import msgspec
@@ -17,6 +19,22 @@ from medre.core.events.delivery import (
     DeliveryConfirmationLevel,
 )
 from medre.core.rendering.radio_progress import RadioPartProgress
+
+
+def plain_channel_payload_fingerprint(channel: int) -> str:
+    """Hash retained native channel semantics, without implying submission authority.
+
+    Radio plans retain complete wire text but not arbitrary transport commands
+    or reply targets. Only the exact nonnegative integer channel is stable
+    enough to reconstruct for an explicit plain-text continuation.
+    """
+    if type(channel) is not int or channel < 0:
+        raise ValueError("plain channel fingerprint requires a nonnegative integer")
+    return hashlib.sha256(
+        json.dumps(
+            {"channel_index": channel}, sort_keys=True, separators=(",", ":")
+        ).encode()
+    ).hexdigest()
 
 
 class RadioHandoffOrigin(msgspec.Struct, frozen=True, forbid_unknown_fields=True):

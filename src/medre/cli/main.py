@@ -494,6 +494,12 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         metavar="PATH",
         help="Path to SQLite database (read-only)",
     )
+    inspect_radio.add_argument(
+        "--assess-continuation",
+        action="store_true",
+        default=False,
+        help="Explain retained tail evidence without creating or claiming work",
+    )
 
     # inspect event <event_id>
     inspect_evt = inspect_sub.add_parser("event", help="Inspect a canonical event")
@@ -999,7 +1005,10 @@ def main(argv: list[str] | None = None) -> None:
         if args.inspect_command == "radio-attempt":
             asyncio.run(
                 _inspect_radio_attempt(
-                    args.outbox_id, args.attempt, storage_path=args.storage_path
+                    args.outbox_id,
+                    args.attempt,
+                    storage_path=args.storage_path,
+                    assess_continuation=args.assess_continuation,
                 )
             )
         elif args.inspect_command == "event":
