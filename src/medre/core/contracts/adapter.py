@@ -408,6 +408,8 @@ class AdapterContract(ABC):
 
     adapter_id: str
     platform: str
+    supports_radio_multipart: bool = False
+    """Opt in only for synchronous, guarded, serialized radio packet handoffs."""
     role: AdapterRole
 
     _start_time: datetime | None

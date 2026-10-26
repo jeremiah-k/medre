@@ -38,6 +38,7 @@ Public symbols
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from typing import (
     TYPE_CHECKING,
@@ -49,6 +50,7 @@ from typing import (
 )
 
 from medre.core.events import CanonicalEvent, DeliveryAttemptProvenance
+from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.routing.models import RouteDestination
 
 if TYPE_CHECKING:
@@ -243,6 +245,14 @@ class RenderingResult:
         correlation. **Not wire metadata, not public API.**
     attempt_number:
         Compatibility mirror of the authoritative attempt-provenance generation.
+    radio_plan:
+        Optional exact wire plan from an opted-in radio renderer. Core persists
+        the whole plan and invokes the synchronous adapter once per packet.
+    before_native_send:
+        Core-owned async grant callback for one planned packet. A participating
+        adapter calls it exactly once, inside its serialized send owner after
+        pacing and immediately before the SDK invocation. It is runtime state,
+        never wire metadata; core discards renderer-supplied callbacks.
     attempt_provenance:
         Immutable delivery-attempt envelope created by the pipeline once exact
         outbox generation and dispatch provenance are known. Deferred adapters
@@ -261,11 +271,21 @@ class RenderingResult:
     outbox_id: str | None = None
     attempt_number: int | None = None
     attempt_provenance: DeliveryAttemptProvenance | None = None
+    radio_plan: RadioTextPlan | None = None
+    before_native_send: Callable[[], Awaitable[None]] | None = None
 
     def __post_init__(self) -> None:
         if self.attempt_number is not None and self.attempt_number < 1:
             raise ValueError(f"attempt_number must be >= 1, got {self.attempt_number}")
 
+        if self.radio_plan is not None and not isinstance(
+            self.radio_plan, RadioTextPlan
+        ):
+            raise TypeError("radio_plan must be RadioTextPlan or None")
+        if self.before_native_send is not None and not callable(
+            self.before_native_send
+        ):
+            raise TypeError("before_native_send must be callable or None")
         provenance = self.attempt_provenance
         if provenance is None:
             if self.outbox_id is not None:

@@ -98,6 +98,7 @@ class _DeliverTargetFn(Protocol):
         cached_list_fn: _ListNativeRefsFn | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
+        expected_outbox_worker_id: str | None = None,
     ) -> DeliveryExecutionEvidence: ...
 
 
@@ -872,6 +873,7 @@ class DeliveryCoordinator:
                 cached_list_fn=ctx.cached_list_fn,
                 outbox_id=outbox_ctx.outbox_id,
                 reserved_attempt_number=outbox_ctx.attempt_number,
+                expected_outbox_worker_id=outbox_ctx.pipeline_worker or None,
             )
             evidence = await self._persisted_evidence(evidence)
             receipt = evidence.primary_receipt
