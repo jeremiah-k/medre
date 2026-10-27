@@ -29,8 +29,12 @@ enforced before native submission.
 
 Admission cursors and bounded history pagination persist per profile and
 conversation. Rejected admission does not advance a durable cursor. Profile and
-handoff ledgers require private storage and exclusive ownership. Worker failure
-releases ownership so an explicit restart can reuse the profile.
+handoff ledgers require private storage and exclusive ownership. A failed
+cleanup may retain fencing: the kernel releases the profile lock only after the
+last inherited handle closes, so a surviving worker keeps the profile fenced
+and an explicit restart cannot reuse it until that owner exits. Leader exit
+alone is not proof of a full native-owner exit; operators must confirm no
+surviving worker before reusing the profile.
 
 A successful send reports `local_queue` confirmation with the native item ID.
 It MUST NOT claim transport acceptance, an independent peer receipt, or read

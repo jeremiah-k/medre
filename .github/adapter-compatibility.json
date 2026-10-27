@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "24611f665f9baa371609824d7ca9642362a6c50c",
+    "ref": "db3b86c9fef960d6f0ba3b1f29fca7bf7dda2a01",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix",
@@ -11,7 +11,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "06f0b6030c5d6524467d1611f050244359413c88",
+    "ref": "fc7e885559ab50c5c07bf3773e34b703479d90f2",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -19,7 +19,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "ca189035d7be4624fd53b9bc7897d79900303c1e",
+    "ref": "f192239e1a8a3a7840cea1f651aa797baf3009e4",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
@@ -27,7 +27,7 @@
   {
     "transport": "lxmf",
     "repository": "jeremiah-k/medre-adapter-lxmf",
-    "ref": "388dbc23e2515dca60a97dfb49a1bfd26f3c2d76",
+    "ref": "caa1b4a16d79e53d3f60362c9969eab77cd2c91a",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-lxmf"
@@ -35,7 +35,7 @@
   {
     "transport": "xmpp",
     "repository": "jeremiah-k/medre-adapter-xmpp",
-    "ref": "1c41a6eebd6a5ae9af3c8276b14413ab6f5bcee3",
+    "ref": "603a66d878f9cda5947e08e19400c21968fc7e88",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "7ac80c41174647f1cce25dc723e90eb1de9f1564",
+    "ref": "06e0c893aeefb867c85cd8e3d9cc39b848f6bf39",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "7fe87354a4b5f7828578d6263fe7b17877f41365",
+    "ref": "70da8a5067b40d1930d1035e5989c96c37c6dad4",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"
