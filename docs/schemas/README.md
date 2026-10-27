@@ -23,6 +23,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `routing-config.schema.json`          | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
 | `package-sources.schema.json`         | Deployment source catalog                                       | Adapter distribution aliases and source overrides                           |
 | `stopped-state-inventory.schema.json` | Dict shape (`medre.maintenance.stopped_inventory`)              | Operator-declared stopped installation inventory for capture/verify/restore |
+| `stopped-state-snapshot.schema.json`  | Dict shape (`medre.maintenance.stopped_snapshot`)               | Captured stopped-state snapshot manifest checked during verify and restore  |
 | `live-health.schema.json`             | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                      |
 
 ## Examples
