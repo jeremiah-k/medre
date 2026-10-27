@@ -114,6 +114,7 @@ class AdapterSpec:
     sample_config: SymbolRef | None = None
     native_setup_fields: tuple[NativeSetupField, ...] = ()
     logger_levels: tuple[tuple[str, str], ...] = ()
+    stopped_state_declaration: SymbolRef | None = None
 
     @property
     def has_python_sdk(self) -> bool:
