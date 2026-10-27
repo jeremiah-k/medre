@@ -2021,6 +2021,22 @@ outbox. Provider declarations describe capture selection only; snapshot
 verification establishes integrity of the captured file set, not completeness
 against runtime configuration or authenticity of the operator's inventory.
 
+AdapterSpec.stopped_state_declaration is an optional lazy symbol reference to
+an SDK-free provider declaration. Core MUST resolve it only during maintenance
+planning or exclusion checking. Missing, unloadable, or non-conforming
+declarations MUST report unsupported coverage rather than infer native paths.
+Provider callback results MUST match the coverage or exclusion contract;
+unexpected callback errors MUST become typed maintenance failures without
+exposing provider exception messages through the CLI. Configuration preparation
+failures MUST use the same sanitized CLI refusal path.
+
+The CLI `check` command MUST release acquired exclusion primitives at exit.
+Retaining exclusion during capture requires the library context to remain held
+across the capture operation. Providers MUST close partially acquired exclusion
+resources before propagating an acquisition failure or cancellation; core owns
+cleanup only after the provider returns a valid exclusion object. No exclusion
+check proves another host with the same identity is inactive.
+
 ## Stopped selected-state snapshots
 
 The maintenance snapshot API MUST require an explicit stopped-runtime assertion
