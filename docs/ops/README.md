@@ -20,6 +20,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
 | Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                              |
 | Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md)                                      |
+| Derive a stopped-state inventory from provider declarations    | [Provider stopped-state declarations](stopped-state-provider-inventory.md)                 |
 | Connect a specific network or device                           | [Transport setup](transport-setup/)                                                        |
 | Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                     |
 | Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                      |

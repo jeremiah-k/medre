@@ -9,10 +9,10 @@ lazily and keeps its own core database declaration in core.
 
 The new maintenance `plan` subcommand loads the configuration (including
 environment overrides), asks each configured provider to resolve its own
-paths, and writes a version-1 inventory; the `check` subcommand acquires and
-holds each provider's own ownership primitive (flock guard or SQLite lease)
-for the capture duration and refuses when one is already owned. Retaining
-exclusion across a capture is done in one process through the library API, so
+paths, and writes a version-1 inventory; the `check` subcommand acquires each
+provider's ownership primitive, refuses if already owned, and releases it when
+the command exits. Retaining exclusion across a capture requires one process
+using the library API, so
 no local owner can start between the check and the capture.
 
 Selections stay closed and honest: required files must live inside the common

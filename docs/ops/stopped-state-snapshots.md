@@ -137,6 +137,17 @@ provider-completeness certificate in the snapshot. Keep the inventory alongside
 the installation's configuration and provider instructions. `verify` checks the
 captured manifest and files; it cannot detect state omitted from the inventory.
 
+Instead of hand-writing the file list, `medre.maintenance.stopped_declare` can
+derive it from per-provider declarations: each configured provider resolves its
+own identity, journal, and lock files, and anything that cannot honestly be
+captured by files (device firmware, encrypted profiles, credentials outside
+the root) is reported as export-only instead of silently omitted. See
+[provider stopped-state declarations](stopped-state-provider-inventory.md)
+for the derivation command, the supported per-provider scope, the point-in-time
+`check` command, and the library `retain_local_exclusion` helper. The library
+helper retains local exclusion across capture only while its context is held;
+separate CLI invocations do not retain locks between commands.
+
 The [native evidence index](../dev/native-evidence-index.json) records a stopped
 core/SimpleX restore using seven selected files, including committed core WAL
 content, native profile databases and adapter ledgers. The relocated native
