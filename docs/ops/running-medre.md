@@ -47,19 +47,19 @@ configured routes; the registration line counts expanded executable legs.
 
 ### Startup Checklist
 
-| Element          | Where to look                               | Healthy sign           | Problem sign                       |
-| ---------------- | ------------------------------------------- | ---------------------- | ---------------------------------- |
-| Adapter count    | Console first line                          | Matches config         | Fewer (build failures)             |
-| Build failures   | Console `Build failures (N)` block          | No block               | `✗` entries present                |
-| Routes           | Console `Routes:` line                      | Expected count enabled | Zero enabled or errors             |
-| Storage backend  | Console `Storage:` line                     | `sqlite`               | `memory` (no persistence)          |
-| Limits           | Console `Limits:` line                      | As configured          | Unexpected defaults                |
-| Per-adapter logs | `started transport.adapter_id` summary      | All started            | Failed adapter entries or warnings |
-| Runtime summary  | `Runtime ready` or `Runtime startup failed` | Expected running count | Failed or degraded startup         |
+| Element          | Where to look                                                              | Healthy sign           | Problem sign                       |
+| ---------------- | -------------------------------------------------------------------------- | ---------------------- | ---------------------------------- |
+| Adapter count    | Console first line                                                         | Matches config         | Fewer (build failures)             |
+| Build failures   | Console `Build failures (N)` block                                         | No block               | `✗` entries present                |
+| Routes           | Console `Routes:` line                                                     | Expected count enabled | Zero enabled or errors             |
+| Storage backend  | Console `Storage:` line                                                    | `sqlite`               | `memory` (no persistence)          |
+| Limits           | Console `Limits:` line                                                     | As configured          | Unexpected defaults                |
+| Per-adapter logs | `started transport.adapter_id` summary                                     | All started            | Failed adapter entries or warnings |
+| Runtime summary  | `Runtime ready`, or `Runtime running` while current health has not settled | Expected running count | Failed or degraded startup         |
 
 ### Degraded Startup
 
-If at least one adapter starts but others fail, the runtime enters `READY` with `DEGRADED` health and continues operating. Route enforcement after startup is scope- and reason-aware:
+If at least one adapter starts but others fail, the runtime enters `RUNNING` with degraded health and continues operating. Route enforcement after startup is scope- and reason-aware:
 
 - **All targets of a route failed to start (LIVE)** — the route is removed from the router; planning into never-started adapters would dead-letter per event.
 - **A route's source adapter failed to start (LIVE)** — the route stays registered. Routing stored canonical work keys off the event's recorded source adapter, not a live connection: already-admitted durable ingress still reaches surviving targets, and a source that never started cannot deliver fresh live ingress anyway. The route's `SKIPPED` readiness entry remains visible.
@@ -99,33 +99,43 @@ Degraded startup does not exit — the runtime continues with `DEGRADED` health.
 
 All commands print a human-readable error to stderr before exiting nonzero.
 
+## Current health after startup
+
+`Runtime running` confirms that the adapter owners started; `Runtime ready`
+also reflects healthy startup observations. A Matrix owner may be waiting for
+its first durable sync acknowledgment when slower radio startup finishes.
+Later native notifications update current health automatically. Look for
+`Adapter <id> health changed: degraded -> healthy` and
+`Runtime current health: healthy`; a fresh manual probe is not required just
+to acknowledge native recovery.
+
+The startup record remains a historical observation. Runtime snapshots expose
+later reports under live health without rewriting that record. A late callback
+from an owner being stopped cannot make that owner ready again. Health describes
+the adapter's native scope: a connected radio or running local worker does not
+establish recipient delivery or remote peer reachability.
+
 ## Shutdown Behavior
 
 MEDRE shuts down in reverse dependency order: adapters → pipeline runner → storage.
 
 ### Shutdown Sequence
 
-1. **Stop accepting new work** — `CapacityController.stop_accepting()`.
-2. **Drain in-flight work** — poll capacity counters until both reach zero, or `shutdown_drain_timeout_seconds` expires.
-3. **Signal shutdown** — `shutdown_event.set()`.
-4. **Stop adapters** — reverse start order, each with `shutdown_timeout_seconds`.
-5. **Stop pipeline runner** — remove middleware, release resources.
-6. **Close storage** — flush and release SQLite.
+1. **Quiesce replay and durable-ingress processing** within the shared drain deadline. Adapters remain available; newly admitted durable work can stay pending for the next run.
+2. **Close delivery admission and stop retry claims**, then drain in-flight deliveries within the remaining deadline. Retain honest evidence for work that does not settle.
+3. **Signal shutdown and stop native owners** in reverse adapter start order with bounded cleanup. A repeated signal does not interrupt an owner's cleanup.
+4. **Close inbound admission after adapters stop**, then settle callbacks already crossing the admission boundary while pipeline/storage dependencies remain available.
+5. **Stop the pipeline and close storage** after dependent owners settle. Incomplete cleanup is reported; a dirty startup marker or retained uncertain attempt is not converted into success.
 
 ### Expected Shutdown Output
 
 ```console
-Runtime shutting down
-INFO  medre.runtime: Shutting down 2 adapters (timeout=10s drain=5.0s)
-INFO  medre.adapters.meshtastic.radio: adapter_stopping transport=meshtastic adapter_id=radio
-INFO  medre.adapters.meshtastic.radio: adapter_stopped transport=meshtastic adapter_id=radio duration_ms=42
-INFO  medre.adapters.matrix.bridge: adapter_stopping transport=matrix adapter_id=bridge
-INFO  medre.adapters.matrix.bridge: adapter_stopped transport=matrix adapter_id=bridge duration_ms=28
-  stopped radio
-  stopped bridge
-  Drain completed (timeout=10s)
-  Shutdown requested 1 time(s); first request 1.2s before this line (at 2026-10-27 06:14:35Z)
-Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
+2026-10-27T06:14:34-0500 [INFO] medre: Runtime shutting down
+2026-10-27T06:14:34-0500 [INFO] medre.runtime.app: Adapter meshtastic.radio stopped
+2026-10-27T06:14:34-0500 [INFO] medre.runtime.app: Adapter matrix.bridge stopped
+2026-10-27T06:14:34-0500 [INFO] medre:   drain completed (timeout=10s)
+2026-10-27T06:14:35-0500 [INFO] medre:   Shutdown requested 1 time(s) observed so far; first request 1.2s before this line (at 2026-10-27T11:14:33.800000+00:00)
+2026-10-27T06:14:35-0500 [INFO] medre: Runtime stopped (2 adapter(s))
 ```
 
 ### Shutdown Checklist
@@ -134,7 +144,7 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | ------------------ | ------------------ | -------------------------------- |
 | Adapter stop order | Reverse of startup | Missing stop lines               |
 | Drain outcome      | `completed`        | `timed out` with abandoned count |
-| Error count        | `0 error(s)`       | Non-zero                         |
+| Shutdown outcome   | `drain completed` and all adapter stop lines | Logged shutdown errors or a timed-out drain |
 
 ### What Gets Drained vs Preserved
 
@@ -143,7 +153,7 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | In-flight adapter deliveries                                           | Drained up to `shutdown_drain_timeout_seconds`, then abandoned                      |
 | Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with error `shutdown_drain_timeout`     |
 | New deliveries rejected during shutdown                                | Evidence persisted as `suppressed` receipts with error `delivery_rejected_shutdown` |
-| Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                           |
+| Adapter receive loops                                                  | Stopped through bounded native-owner cleanup; uncertain outcomes remain explicit |
 | Replay events                                                          | Cancelled; completed receipts preserved                                             |
 | Route statistics, diagnostic counters                                  | Lost — in-memory only                                                               |
 | Pending `retry_wait` outbox items                                      | Preserved — remain resumable work, claimed on next startup when due                 |
@@ -151,7 +161,7 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | Other pending outbox items                                             | Preserved — remain in storage, reclaimable on next startup                          |
 | Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present.  |
 
-Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry work is claimed from the durable outbox by the RetryWorker (if retry is enabled). Pending, expired-lease, and stale queued outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path. Receipts remain immutable evidence rather than scheduling authority. This means work that was in flight when the runtime stopped is re-attempted. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
+Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry work is claimed from the durable outbox by the RetryWorker (if retry is enabled). Pending, expired-lease, and stale queued outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path. Receipts remain immutable evidence rather than scheduling authority. Eligible work can be retried under a fresh claim. Radio recovery continues only a proven-unsent suffix; accepted parts are not replayed, and unknown or submitting native handoffs remain held. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
 
 ### Signal Handling
 
