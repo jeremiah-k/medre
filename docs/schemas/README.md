@@ -6,25 +6,34 @@ contract schemas mirror their projection helpers and normative specifications.
 
 ## Schema Files
 
-| Schema                                | Source Type                                                     | Description                                                                 |
-| ------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `canonical-event.schema.json`         | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
-| `canonical-event.schema.yaml`         | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
-| `styled-text.schema.json`             | `StyledText` / `TextSpan`                                       | Optional semantic presentation over canonical plain text                    |
-| `attachment.schema.json`              | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                |
-| `delivery-receipt.schema.json`        | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
-| `delivery-observation.schema.json`    | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
-| `delivery-result.schema.json`         | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
-| `lifecycle-drill-report.schema.json`  | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence      |
-| `runtime-snapshot.schema.json`        | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
-| `diagnostics.schema.json`             | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
-| `evidence-bundle.schema.json`         | Dict shape                                                      | `medre evidence` bundle structure                                           |
-| `adapter-config.schema.json`          | Per-transport configs                                           | Adapter configuration shapes                                                |
-| `routing-config.schema.json`          | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
-| `package-sources.schema.json`         | Deployment source catalog                                       | Adapter distribution aliases and source overrides                           |
-| `stopped-state-inventory.schema.json` | Dict shape (`medre.maintenance.stopped_inventory`)              | Operator-declared stopped installation inventory for capture/verify/restore |
-| `stopped-state-snapshot.schema.json`  | Dict shape (`medre.maintenance.stopped_snapshot`)               | Captured stopped-state snapshot manifest checked during verify and restore  |
-| `live-health.schema.json`             | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                      |
+| Schema                                           | Source Type                                                     | Description                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `canonical-event.schema.json`                    | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                                                     |
+| `canonical-event.schema.yaml`                    | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document                        |
+| `styled-text.schema.json`                        | `StyledText` / `TextSpan`                                       | Optional semantic presentation over canonical plain text                                           |
+| `attachment.schema.json`                         | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                                       |
+| `delivery-receipt.schema.json`                   | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                                                 |
+| `delivery-observation.schema.json`               | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                                        |
+| `delivery-result.schema.json`                    | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                                       |
+| `radio-text-plan.schema.json`                    | `RadioTextPlan` (`src/medre/core/rendering/radio_text.py`)      | Immutable multipart radio text wire plan                                                           |
+| `radio-local-handoff.schema.json`                | `RadioLocalHandoff` (`src/medre/core/storage/radio_handoff.py`) | Synchronous radio local handoff reference scoped to one packet                                     |
+| `radio-attempt-progress.schema.json`             | `StoredRadioAttempt` (`src/medre/core/storage/radio.py`)        | Attempt-bound radio handoff progress retained per outbox attempt                                   |
+| `radio-attempt-inspection.schema.json`           | Dict shape (`medre.core.recovery.radio_assessment`)             | Read-only exact radio attempt inspection with continuation assessment                              |
+| `bridge-context.schema.json`                     | Dict shape (`medre.core.rendering.bridge_context`)              | Cross-platform relay context claims retained on canonical events                                   |
+| `lifecycle-drill-report.schema.json`             | Dict shape (`medre.runtime.drill.run_drill`)                    | Synthetic configuration/startup drill assignment and coverage evidence                             |
+| `drill-step.schema.json`                         | Dict shape (`medre.runtime.drill`)                              | Single ordered evidence step within a lifecycle drill report                                       |
+| `runtime-snapshot.schema.json`                   | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                                               |
+| `diagnostics.schema.json`                        | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                                       |
+| `evidence-bundle.schema.json`                    | Dict shape                                                      | `medre evidence` bundle structure                                                                  |
+| `adapter-config.schema.json`                     | Per-transport configs                                           | Adapter configuration shapes                                                                       |
+| `routing-config.schema.json`                     | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                                                |
+| `runtime-config.schema.json`                     | `RuntimeConfig` (`src/medre/config/model.py`)                   | Shared runtime configuration across runtime, logging, storage, retry, limits, adapters, and routes |
+| `dev-environment.schema.json`                    | `DevEnvironment` (`src/medre/dev_environment.py`)               | Checkout `.medre-dev.yaml` preferences for adapter selection and SDK extras                        |
+| `package-sources.schema.json`                    | Deployment source catalog                                       | Adapter distribution aliases and source overrides                                                  |
+| `native-bridge-context-expectations.schema.json` | Dict shape (native campaign report)                             | Optional bridge-context destination expectations in native campaign reports                        |
+| `stopped-state-inventory.schema.json`            | Dict shape (`medre.maintenance.stopped_inventory`)              | Operator-declared stopped installation inventory for capture/verify/restore                        |
+| `stopped-state-snapshot.schema.json`             | Dict shape (`medre.maintenance.stopped_snapshot`)               | Captured stopped-state snapshot manifest checked during verify and restore                         |
+| `live-health.schema.json`                        | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                                             |
 
 ## Examples
 
