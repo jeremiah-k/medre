@@ -8,7 +8,7 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 **Platform identifier:** `meshcore`
 
-**Maturity note:** MeshCore integration is at a **pre-release** stage. Delivery status reflects local acceptance only; there is no end-to-end ACK mechanism.
+**Maturity note:** MeshCore integration is at a **pre-release** stage. Delivery status reflects local acceptance only. Supported channel messages have no qualified recipient-ACK producer; this does not describe every acknowledgment feature of the native protocol.
 
 ---
 
@@ -356,7 +356,7 @@ are deterministically degraded to inline fallback text.
 
 ## Known Limitations
 
-- **Pre-release maturity.** No end-to-end delivery confirmation; `disposition` is `"transport_handoff"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
+- **Pre-release maturity.** No end-to-end delivery confirmation for supported channel sends; `disposition` is `"transport_handoff"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. MeshCore has no built-in threading/reply mechanism.
 - **Sender identity is a pubkey prefix.** The 6-byte hex prefix is stable per sender but not human-readable. The adapter resolves a human-readable label from the local SDK contact cache when the sender is a known contact (see §Sender Identity Projection); otherwise the label fields are empty and only the opaque prefix is exposed via `{sender_id}`.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.
