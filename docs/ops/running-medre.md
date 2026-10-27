@@ -124,6 +124,7 @@ INFO  medre.adapters.matrix.bridge: adapter_stopped transport=matrix adapter_id=
   stopped radio
   stopped bridge
   Drain completed (timeout=10s)
+  Shutdown requested 1 time(s); first request 1.2s before this line (at 2026-10-27 06:14:35Z)
 Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 ```
 
@@ -155,7 +156,7 @@ Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry
 ### Signal Handling
 
 - **First Ctrl-C / SIGTERM**: Initiates graceful shutdown. Process exits with code 0 if clean.
-- **Second Ctrl-C**: Hard kill — exits immediately without drain or adapter stop.
+- **Repeated Ctrl-C / SIGTERM**: Coalesced into the same graceful shutdown; never a hard kill and never an interruption of owned cleanup. The shutdown summary snapshots the requests observed by Python’s handler and the age of its first observation; pending signals can coalesce.
 - **SIGKILL**: No graceful shutdown. No logs. SQLite on disk is preserved (WAL mode). Deliveries without outbox rows are lost.
 
 Signal handlers are reset at the start of each `medre run` invocation.

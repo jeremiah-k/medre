@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,25 @@ from .smoke_commands import _setup_logging, _transport_for_adapter
 logger = logging.getLogger("medre")
 
 shutdown_requested: bool = False
+
+#: Signal-receipt evidence captured inside the raw handler. The handler must
+#: not log or touch streams, so it only records counters and clocks; the run
+#: loop reports them once it is back in coroutine context. This quantifies how
+#: long the process took to react to the first request when operators report a
+#: slow Ctrl+C response.
+shutdown_signal_count: int = 0
+first_shutdown_request_monotonic: float | None = None
+first_shutdown_request_wall: str | None = None
+
+
+def _reset_shutdown_evidence() -> None:
+    """Clear per-run signal evidence before installing handlers."""
+    global shutdown_requested, shutdown_signal_count
+    global first_shutdown_request_monotonic, first_shutdown_request_wall
+    shutdown_requested = False
+    shutdown_signal_count = 0
+    first_shutdown_request_monotonic = None
+    first_shutdown_request_wall = None
 
 
 def _print(line: str = "", *, level: int = logging.INFO) -> None:
@@ -52,9 +72,14 @@ class _RunSignals:
 
 
 def _request_shutdown(signum: int, _frame: object) -> None:
-    """Set the shutdown flag without re-entering logging or stream I/O."""
-    global shutdown_requested
+    """Record the request without re-entering logging or stream I/O."""
+    global shutdown_requested, shutdown_signal_count
+    global first_shutdown_request_monotonic, first_shutdown_request_wall
     shutdown_requested = True
+    shutdown_signal_count += 1
+    if first_shutdown_request_monotonic is None:
+        first_shutdown_request_monotonic = time.monotonic()
+        first_shutdown_request_wall = datetime.now(timezone.utc).isoformat()
 
 
 async def _start_interruptibly(app: Any) -> bool:
@@ -99,8 +124,7 @@ async def _start_interruptibly(app: Any) -> bool:
 
 async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
     """Load config, build the runtime, and run until interrupted."""
-    global shutdown_requested
-    shutdown_requested = False
+    _reset_shutdown_evidence()
 
     from medre.runtime.builder import RuntimeBuilder
 
@@ -381,6 +405,19 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 _print(
                     f"  drain timed out after {drain_timeout}s "
                     f"({abandoned_count} adapter(s) abandoned)"
+                )
+
+            # Signal-receipt evidence: how many shutdown requests arrived and
+            # how long the process took to move from the first one to here.
+            # Handlers record this without logging; this is its loop-context
+            # report. It quantifies a slow Ctrl+C response on the next field
+            # occurrence instead of leaving the first keypress time unknown.
+            if first_shutdown_request_monotonic is not None:
+                _print(
+                    f"  Shutdown requested {shutdown_signal_count} time(s) observed so far; "
+                    f"first request "
+                    f"{time.monotonic() - first_shutdown_request_monotonic:.1f}s "
+                    f"before this line (at {first_shutdown_request_wall})"
                 )
 
             summary = shutdown_summary(
