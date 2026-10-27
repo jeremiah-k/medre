@@ -835,6 +835,10 @@ establish readiness for either owner.
 Core MUST bind reports to the adapter and runtime lifetime, ignore retired or
 stopping owners, and marshal native-thread reports onto the runtime event loop.
 Reports update current health without rewriting the historical startup result.
+A report that repeats the already-retained observation refreshes only its own
+entry and publishes nothing; only genuine transitions emit a current-health
+change. Each provider's entry keeps its own observation time: a later report
+refreshes only its own entry and never rewrites a peer's retained observation.
 A native health failure MUST NOT be confused with a failed startup or release of
 native ownership. A healthy report cannot resurrect an owner that core stopped
 or failed to start. Reports received while startup is initializing MUST remain
