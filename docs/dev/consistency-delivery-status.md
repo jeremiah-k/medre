@@ -1,43 +1,35 @@
 # Consistency, recovery and delivery status
 
-This maps the October 25 consistency/recovery/delivery audit to implementation
-and qualification. Tests prove only their stated tier; the frozen 42-directed-pair,
-168-receipt baseline remains regression evidence rather than a new campaign target.
+This is an implementation and evidence summary, not a fixed development plan.
+The [native evidence index](native-evidence-index.json) records exact campaign
+sources, substrates, and limits. The frozen 42-directed-pair, 168-receipt baseline
+remains historical regression evidence rather than a target to repeat for each
+change. Compatibility pins select qualified revisions; newer adapter heads do
+not silently replace those selections.
 
-| Audit work package             | Implemented or landed                                                                                                                                                                                                                                                                                                                                                                                                                               | Remaining qualification or implementation                                                                                                                                                                                                                               |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source and evidence authority  | Core #342 adopts the exact merged six-provider canonical-text pins; Matrix retains its qualified pin. Core #341 repairs explicit reset recovery. Both passed their full CI matrices before merge. The native-evidence index records the reported substrates and private-receipt limits.                                                                                                                                                             | Attach independently inspectable receipts and source revisions to further native qualification. Historical scope limits do not describe every later campaign.                                                                                                           |
-| Canonical text and attribution | Core #340 and the six coordinated provider PRs share styled/legacy text selection and strict native boundaries. Their pinned compatibility jobs passed. Sender/origin display and structured claims remain distinct.                                                                                                                                                                                                                                | Broader independent native evidence must retain transport, substrate, source SHA and confirmation limits; existing field support does not imply universal native identity.                                                                                              |
-| Radio multipart attempts       | Core #342 retains exact wire plans and guarded progress. Merged core #343 and MeshCore #13 provide the opt-in synchronous handoff path, full-plan local aggregation and read-only inspection. MeshCore fake/SDK CI passed against merged core main; its exact merged revision is adopted here. Merged Meshtastic #15 keeps that same claim while packets wait on the paced queue; this adoption pins its exact merged SHA and configuration schema. | Installed-SDK and physical restart qualification for runtime tail continuation; independent recipient receipts and complete-message native ACK aggregation. Only configured retries can continue a proven-unsent suffix; unknown work remains blocked.                  |
-| Mixed-device recovery          | Existing adapter reconnect pacing, diagnostics and lifecycle ownership remain.                                                                                                                                                                                                                                                                                                                                                                      | Controlled radio interruption/restart with independent native observations, reconciliation and retained raw evidence. No new physical campaign was run here.                                                                                                            |
-| SimpleX text-transport parity  | Shared text selection, conservative accepted-handoff reuse and serialized native ownership cleanup are included in the compatibility snapshot. Failed or cancelled cleanup retains profile ownership; pending startup survives repeated cancellation. The local-queue ceiling remains explicit.                                                                                                                                                     | Separate direct-contact receipts, parent-process-death containment, installed-native worker/profile interruption qualification and a measured large-history envelope. The historical group evidence is indexed, without independently rechecking private receipts here. |
-| Operator evidence and rollback | Exact radio-attempt inspection now reports current parent authority and historical packet progress without mutation or native I/O. Existing storage backup/reset remains explicit.                                                                                                                                                                                                                                                                  | Consistent native-profile/signing/ledger restore procedures and correlated recovery evidence beyond radio local handoffs.                                                                                                                                               |
-| Plugin integration             | Core #299 remains isolated.                                                                                                                                                                                                                                                                                                                                                                                                                         | Reconcile current contracts, storage, replay and authority only after delivery/recovery gates.                                                                                                                                                                          |
-
-Merged Meshtastic #15 uses the same synchronous guarded contract for planned
-packets while its existing paced queue remains the native send owner. Core holds
-its current in-progress claim until those packet waiters finish; ordinary sends
-retain deferred feedback. It does not borrow a released queued claim or introduce
-another storage authority. Cancellation closes the waiter and fences the SDK
-worker; per-packet facts never become deferred parent completion. Native ACKs
-still need separate full-plan aggregation before recipient confirmation can be
-promoted. After restart, only a configured retry with complete retained proof can
-continue the unsent suffix; uncertain work remains held. Physical qualification
-uses bounded targeted cases rather than repeating the all-pairs campaign.
+| Capability | Implemented contract | Qualification boundary |
+| --- | --- | --- |
+| Canonical content and attribution | Shared text selection, scoped lineage, and provider-specific native context. | Display attribution and retained source claims do not grant native identity authority. |
+| Multipart radio handoff | Exact persisted plans, paced owned sends, one-use packet grants, and attempt-bound progress on Meshtastic and MeshCore. | Local packet acceptance does not prove recipient delivery. |
+| Radio continuation | Configured retries reserve a fresh claim and continue only a proven-unsent suffix, preserving each accepted packet's original attempt. | Recorded physical process-interruption cases passed on both transports; host power loss, firmware reset, long outages, and extended duplicate windows remain unqualified. |
+| Packet observations | Transactional admission against original accepted facts and a read-only whole-plan projection. Meshtastic normalizes routing callbacks conservatively. | The Meshtastic classifier does not emit delivered observations. MeshCore channel messages do not gain a fabricated packet-ACK capability. |
+| Native health | Seven provider implementations publish settled native transitions through adapter-bound lifetime-fenced reports. Startup history remains immutable. | Healthy describes each provider's local/native scope, not universal peer reachability or delivery. |
+| SimpleX ownership and recipients | Linux inherited profile exclusion survives the recorded bridge-process death while a native worker remains. Independent group text observations are recorded separately. | Worker fencing is not a recipient receipt; direct-contact and worker-restart recipient qualification remain separate. |
+| Stopped-state restoration | Verified selected-state capture, committed SQLite WAL backup, and restore into an absent destination. A seven-file core/SimpleX restore preserved native history and reused an accepted handoff without resending. | Checksums establish captured-byte integrity, not provider completeness, exclusive activation, or power-loss durability. Provider declarations require their own layout/export qualification. |
+| SQLite operating limits | A bounded synthetic append/reopen measurement utility and recorded local baseline. | This is not a mixed-workload capacity guarantee; fanout, backlogs, retention, and storage-pressure behavior need measurements. |
 
 ## Explicit tail recovery ownership
 
-The storage and synchronous service APIs support an explicit transfer of a
-committed accepted prefix into a newer independently reserved claim. Each packet
-retains its original accepting attempt. Continuation sends only the persisted
-unsent suffix and keeps the weakest inherited or fresh local confirmation.
+The storage and synchronous service APIs transfer a committed accepted prefix
+into a newer independently reserved claim. Each packet retains its original
+accepting attempt. Continuation sends only the persisted unsent suffix and keeps
+the weakest inherited or fresh local confirmation. The retry worker selects the
+latest earlier checkpoint under its fresh claim. Changed native semantics and
+unknown or submitting work remain held; retained fingerprints are required for
+plain-channel continuation.
 
-The configured retry worker selects the latest earlier checkpoint under a fresh
-reserved attempt and continues only a proven-unsent plain-channel suffix.
-Changed native semantics and uncertain work remain held. Installed-SDK restart
-cases and physical interruption evidence are the outstanding recovery gates.
-Unknown or submitting work has no resend transition. Plain channel payloads require their
-retained fingerprints; replies and references without that proof remain held.
-
-Physical and independent recipient qualification use bounded targeted cases.
-The frozen baseline remains regression evidence. Package versions remain 0.1.0.
+The recorded native recovery run covers process interruption with physical peers,
+including two unsent packets continued after one accepted packet and zero replay
+of uncertain submissions. Its eight-second peer-observation windows do not prove
+an absence of arbitrarily late duplicates. The evidence index, rather than a
+moving adapter checkout, is the authority for those exact observations.
