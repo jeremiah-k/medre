@@ -7,21 +7,28 @@ the relevant spec/ops/dev page.
 
 ## Documents
 
-| Document                                                       | Purpose                                                                      |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [environment.md](environment.md)                               | Checkout setup, uv/pip workflows, extras, dependency updates, builds         |
-| [testing.md](testing.md)                                       | Test suite structure, patterns, tiers, live-test harness                     |
-| [adapter-authoring.md](adapter-authoring.md)                   | How to write a new transport adapter                                         |
-| [adapter-sdk-parity.md](adapter-sdk-parity.md)                 | Installed-SDK contract tiers and open SDK parity gaps                        |
-| [resource-lifecycle.md](resource-lifecycle.md)                 | Runtime resource ownership, creation, teardown                               |
-| [reference-repos.md](reference-repos.md)                       | External reference implementations and copy boundaries                       |
-| [mmrelay-behavior-reference.md](mmrelay-behavior-reference.md) | Live mmrelay interop behavior reference                                      |
-| [documentation-style.md](documentation-style.md)               | Conventions for writing MEDRE documentation                                  |
-| [licensing.md](licensing.md)                                   | Own-source licensing, dependency obligations, publication checks             |
-| [change-process.md](change-process.md)                         | How to propose and track documentation changes                               |
-| [messenger-interoperability.md](messenger-interoperability.md) | XMPP reference contracts, rendering, activity, security, and freeze evidence |
-| [source-export-verification.md](source-export-verification.md) | Reproducible exported-stack bundles and offline pin verification             |
-| [sqlite-measurement.md](sqlite-measurement.md)                 | Disposable synthetic SQLite append/reopen baseline measurement               |
+| Document                                                         | Purpose                                                                      |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [environment.md](environment.md)                                 | Checkout setup, uv/pip workflows, extras, dependency updates, builds         |
+| [testing.md](testing.md)                                         | Test suite structure, patterns, tiers, live-test harness                     |
+| [static-typing.md](static-typing.md)                             | Strict-mypy gate scope, SDK import exemptions, and typing status             |
+| [adapter-authoring.md](adapter-authoring.md)                     | How to write a new transport adapter                                         |
+| [adapter-registration.md](adapter-registration.md)               | `AdapterSpec` fields and the `medre.adapters` entry-point contract           |
+| [adapter-sdk-parity.md](adapter-sdk-parity.md)                   | Installed-SDK contract tiers and open SDK parity gaps                        |
+| [external-adapters.md](external-adapters.md)                     | External adapter distributions, entry-point discovery, and CI ownership      |
+| [coordinated-changes.md](coordinated-changes.md)                 | Compatibility manifest rules for core and adapter merges                     |
+| [resource-lifecycle.md](resource-lifecycle.md)                   | Runtime resource ownership, creation, teardown                               |
+| [reference-repos.md](reference-repos.md)                         | External reference implementations and copy boundaries                       |
+| [mmrelay-behavior-reference.md](mmrelay-behavior-reference.md)   | Live mmrelay interop behavior reference                                      |
+| [documentation-style.md](documentation-style.md)                 | Conventions for writing MEDRE documentation                                  |
+| [licensing.md](licensing.md)                                     | Own-source licensing, dependency obligations, publication checks             |
+| [change-process.md](change-process.md)                           | How to propose and track documentation changes                               |
+| [messenger-interoperability.md](messenger-interoperability.md)   | XMPP reference contracts, rendering, activity, security, and freeze evidence |
+| [attribution-status.md](attribution-status.md)                   | Native sender attribution claims and their authority limits                  |
+| [consistency-delivery-status.md](consistency-delivery-status.md) | Consistency, recovery, and delivery audit mapped to tests and evidence       |
+| [source-export-verification.md](source-export-verification.md)   | Reproducible exported-stack bundles and offline pin verification             |
+| [sqlite-measurement.md](sqlite-measurement.md)                   | Disposable synthetic SQLite append/reopen baseline measurement               |
+| [native-evidence-index.json](native-evidence-index.json)         | Recorded native qualification runs with exact source revisions               |
 
 ## How to Add Documentation
 
