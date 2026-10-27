@@ -20,6 +20,8 @@ the relevant spec/ops/dev page.
 | [licensing.md](licensing.md)                                   | Own-source licensing, dependency obligations, publication checks             |
 | [change-process.md](change-process.md)                         | How to propose and track documentation changes                               |
 | [messenger-interoperability.md](messenger-interoperability.md) | XMPP reference contracts, rendering, activity, security, and freeze evidence |
+| [source-export-verification.md](source-export-verification.md) | Reproducible exported-stack bundles and offline pin verification             |
+| [sqlite-measurement.md](sqlite-measurement.md)                 | Disposable synthetic SQLite append/reopen baseline measurement               |
 
 ## How to Add Documentation
 
