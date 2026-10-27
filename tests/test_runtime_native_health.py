@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -400,5 +401,188 @@ async def test_failed_start_context_cannot_report_a_healthy_running_owner(
         assert app.adapter_states["alpha"] is AdapterState.FAILED
         assert app.live_health is None
         assert "alpha" not in app._observed_adapter_health
+    finally:
+        await app.stop()
+
+
+async def _two_provider_app(tmp_path, monkeypatch):
+    """Start a running two-provider runtime and retain both report sinks."""
+    from tests.helpers.startup_cleanup import _config_with_two_fake_adapters
+
+    app = _build_app(
+        _config_with_two_fake_adapters(),
+        resolve(environ={"MEDRE_HOME": str(tmp_path)}),
+    )
+    alpha, beta = app.adapters["alpha"], app.adapters["beta"]
+    infos = {
+        "alpha": await alpha.health_check(),
+        "beta": await beta.health_check(),
+    }
+    sinks: dict[str, Any] = {}
+
+    def capture(adapter_id: str, original: Any):
+        async def start_with_context(ctx):
+            """Retain this provider's runtime report sink."""
+            sinks[adapter_id] = ctx.report_health
+            await original(ctx)
+
+        return start_with_context
+
+    monkeypatch.setattr(alpha, "start", capture("alpha", alpha.start))
+    monkeypatch.setattr(beta, "start", capture("beta", beta.start))
+    await app.start()
+    return app, sinks, infos
+
+
+def _health_events(app):
+    from medre.runtime.events import RuntimeEventType
+
+    return [
+        event
+        for event in list(app.event_buffer)
+        if event.event_type is RuntimeEventType.HEALTH_REFRESHED
+    ]
+
+
+async def test_concurrent_provider_transitions_keep_their_own_observations(
+    tmp_path, monkeypatch
+):
+    """Simultaneous opposite transitions never clobber each other's evidence."""
+    app, sinks, infos = await _two_provider_app(tmp_path, monkeypatch)
+    try:
+        # Both providers change concurrently: one fails, one degrades.
+        sinks["alpha"](replace(infos["alpha"], health="failed"))
+        sinks["beta"](replace(infos["beta"], health="degraded"))
+        assert await wait_until(lambda: app.live_health is not None)
+        await asyncio.sleep(0)
+        snapshot = app.live_health
+        assert snapshot.adapters["alpha"].health == "failed"
+        assert snapshot.adapters["beta"].health == "degraded"
+        # No operational provider remains; partial states classify degraded.
+        assert snapshot.runtime_health == "degraded"
+        assert snapshot.poll_count == 0
+        changed = {
+            adapter_id
+            for event in _health_events(app)
+            for adapter_id in event.detail["changed_adapters"]
+        }
+        assert changed == {"alpha", "beta"}
+
+        # A second provider failing reclassifies the aggregate without
+        # discarding the first provider's retained failure observation.
+        sinks["beta"](replace(infos["beta"], health="failed"))
+        assert await wait_until(lambda: app.live_health.runtime_health == "failed")
+        beta_failure = app.live_health.adapters["beta"]
+
+        # A later recovery refreshes only its own entry: the peer provider
+        # keeps the observation timestamps of its own completed transition.
+        sinks["alpha"](replace(infos["alpha"], health="healthy"))
+        assert await wait_until(lambda: app.live_health.runtime_health == "degraded")
+        refreshed = app.live_health.adapters["beta"]
+        assert refreshed.health == "failed"
+        assert (
+            refreshed.poll_timestamp_monotonic == beta_failure.poll_timestamp_monotonic
+        )
+        assert refreshed.poll_timestamp_wall == beta_failure.poll_timestamp_wall
+        assert app.adapter_states["alpha"] is AdapterState.READY
+    finally:
+        await app.stop()
+
+
+async def test_rapid_flapping_retains_the_latest_report_without_probing(
+    tmp_path, monkeypatch
+):
+    """Back-to-back transitions publish in order and never start a probe cycle."""
+    app, adapter, state, sample = await recovering_app(tmp_path, monkeypatch)
+    probe_calls = {"count": 0}
+    inner = adapter.health_check
+
+    async def counting_sample():
+        """Count every completed probe so notifications can be compared against it."""
+        probe_calls["count"] += 1
+        return await inner()
+
+    monkeypatch.setattr(adapter, "health_check", counting_sample)
+    try:
+        base = await counting_sample()
+        probe_calls["count"] = 0
+        # The first report repeats the retained startup observation and must
+        # stay silent; only genuine transitions publish.
+        sequence = ["degraded", "healthy", "degraded", "failed", "healthy"]
+        report = state["context"].report_health
+        for health in sequence:
+            report(replace(base, health=health))
+        assert await wait_until(
+            lambda: app.live_health is not None
+            and app.live_health.adapters[adapter.adapter_id].health == "healthy"
+        )
+        await asyncio.sleep(0)
+        snapshot = app.live_health
+        assert snapshot.adapters[adapter.adapter_id].health == "healthy"
+        assert snapshot.runtime_health == "healthy"
+        assert snapshot.poll_count == 0
+        assert snapshot.source == "adapter_notification"
+        assert [event.detail["runtime_health"] for event in _health_events(app)] == [
+            "healthy",
+            "degraded",
+            "failed",
+            "healthy",
+        ]
+        assert app.adapter_states[adapter.adapter_id] is AdapterState.READY
+        # Reports carry observations; they never issue probes of their own.
+        assert probe_calls["count"] == 0
+    finally:
+        await app.stop()
+
+
+async def test_native_transition_keeps_every_surface_consistent(tmp_path, monkeypatch):
+    """Current state, diagnostic snapshot, live health, and boot history agree."""
+    from medre.runtime.snapshot import build_runtime_snapshot
+
+    app, adapter, state, sample = await recovering_app(tmp_path, monkeypatch)
+    accepted_sends = {"called": False}
+    claimed = {"called": False}
+
+    def record_acceptance():
+        """Record any shutdown of delivery acceptance during health traffic."""
+        accepted_sends["called"] = True
+
+    async def record_claim(*args, **kwargs):
+        """Record any claim cycle triggered by health traffic."""
+        claimed["called"] = True
+        raise AssertionError("health reports must not trigger claim cycles")
+
+    capacity = app._capacity_controller
+    monkeypatch.setattr(capacity, "stop_accepting", record_acceptance)
+    monkeypatch.setattr(app.storage, "claim_due_outbox_items", record_claim)
+    tasks_before = sorted(task.get_name() for task in asyncio.all_tasks())
+    try:
+        report = state["context"].report_health
+        info = await sample()
+        baseline = build_runtime_snapshot(app)
+        assert baseline["health"]["live_health"] is None
+        # The first notification repeats the boot observation (silent), the
+        # recovery transitions current health while everything else holds.
+        report(info)
+        await asyncio.sleep(0)
+        assert app.live_health is None
+        report(replace(info, health="healthy"))
+        assert await wait_until(lambda: app.live_health is not None)
+        await asyncio.sleep(0)
+        assert app.state is RuntimeState.RUNNING
+        assert app.live_health.runtime_health == "healthy"
+        assert app.live_health.poll_count == 0
+        snapshot = build_runtime_snapshot(app)
+        assert snapshot["lifecycle"]["runtime_state"] == "running"
+        assert snapshot["health"]["scope"] == "live"
+        assert snapshot["health"]["live_refresh"] is True
+        assert snapshot["health"]["live_health"]["runtime_health"] == "healthy"
+        assert snapshot["health"]["live_health"]["source"] == "adapter_notification"
+        # The frozen startup record is byte-identical across the transition.
+        assert snapshot["startup"] == baseline["startup"]
+        # Native traffic changed no delivery authority and spawned no task.
+        assert not accepted_sends["called"]
+        assert not claimed["called"]
+        assert sorted(task.get_name() for task in asyncio.all_tasks()) == tasks_before
     finally:
         await app.stop()
