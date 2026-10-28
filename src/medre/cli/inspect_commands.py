@@ -307,16 +307,18 @@ async def _inspect_radio_attempt(
         await storage.close()
 
 
+_CONTENT_REFUSAL = "Content inventory unavailable: storage is incomplete or unreadable; no files changed."
+
+
 async def _inspect_content(*, storage_path: str) -> None:
     """Print aggregate core content accounting through a validated read-only store."""
-    storage = await _open_readonly_storage(storage_path)
+    storage = await _open_readonly_storage(
+        storage_path, refusal=(_CONTENT_REFUSAL, EXIT_CONFIG)
+    )
     try:
         print(to_json(await storage.inspect_content_inventory()))
     except StorageError:
-        print(
-            "Content inventory unavailable: storage is incomplete or unreadable; no files changed.",
-            file=sys.stderr,
-        )
+        print(_CONTENT_REFUSAL, file=sys.stderr)
         raise SystemExit(EXIT_CONFIG) from None
     finally:
         await storage.close()
