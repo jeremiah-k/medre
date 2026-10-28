@@ -13,13 +13,47 @@ class CommandHelpFormatter(argparse.RawDescriptionHelpFormatter):
         return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
 
 
-def help_request(arguments: list[str]) -> list[str]:
-    """Accept help before a command path as well as the usual trailing flag."""
+def help_request(arguments: list[str]) -> tuple[list[str], bool]:
+    """Separate explicit help intent from arguments that command parsers consume.
+
+    Appending a help flag cannot express that intent safely: a leaf parser's
+    REMAINDER can consume the flag and dispatch a real command. Keep help as
+    navigation until the registered parser is selected, before parsing values.
+    """
     if not arguments:
-        return ["--help"]
-    if arguments[0] == "help" or (arguments[0] == "--help" and len(arguments) > 1):
-        return [*arguments[1:], "--help"]
-    return arguments
+        return [], True
+    if arguments[0] in {"help", "--help"}:
+        return arguments[1:], True
+    return arguments, False
+
+
+def show_command_help(parser: argparse.ArgumentParser, arguments: list[str]) -> None:
+    """Print help for the deepest registered path without invoking a handler.
+
+    Unknown commands inside groups remain syntax errors. At a leaf, remaining
+    arguments are values or delegated arguments; they cannot change which
+    MEDRE command's help is requested and are never executed or parsed.
+    """
+    current = parser
+    for word in arguments:
+        action = next(
+            (
+                item
+                for item in current._actions
+                if isinstance(item, argparse._SubParsersAction)
+            ),
+            None,
+        )
+        if action is None or word in {"-h", "--help"}:
+            break
+        if word not in action.choices:
+            current.error(
+                f"argument {action.dest}: invalid choice: {word!r} "
+                f"(choose from {', '.join(action.choices)})"
+            )
+        current = action.choices[word]
+    current.print_help()
+    current.exit()
 
 
 def group_help(parser: argparse.ArgumentParser, arguments: list[str]) -> list[str]:
@@ -66,6 +100,7 @@ def describe_defaults(parser: argparse.ArgumentParser) -> None:
                 describe_defaults(child)
         elif action.dest == "config" and action.help == "Path to config file":
             action.help = (
-                "Bridge YAML (default: saved selection or standard discovery; "
+                "Bridge YAML (default: MEDRE_CONFIG, $MEDRE_HOME/config.yaml, "
+                "saved selection, then standard discovery; "
                 "see 'medre config current')"
             )

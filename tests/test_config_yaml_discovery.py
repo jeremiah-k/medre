@@ -113,20 +113,20 @@ def test_medre_config_env_toml_rejected(
         find_config(None)
 
 
-def test_medre_config_env_nonexistent_falls_through(
+def test_medre_config_env_nonexistent_refuses_instead_of_falling_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MEDRE_CONFIG pointing at a missing file does not abort discovery;
-    the path is recorded in the checked list and the search continues."""
+    """A nonempty MEDRE_CONFIG pointing at a missing file refuses startup.
+
+    A bridge must not silently fall through to a different discovered
+    configuration when the operator pinned one explicitly.
+    """
     monkeypatch.setenv("MEDRE_CONFIG", str(tmp_path / "missing.yaml"))
-    # Ensure no other location can supply a config so discovery exhausts.
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_xdg"))
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ConfigNotFoundError) as exc_info:
+    with pytest.raises(ConfigFileError, match=r"selected by MEDRE_CONFIG"):
         find_config(None)
-    # The checked-list records the attempted MEDRE_CONFIG path.
-    assert "MEDRE_CONFIG=" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
