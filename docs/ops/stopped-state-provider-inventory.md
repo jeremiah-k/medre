@@ -12,7 +12,7 @@ described by files is labeled honestly instead of silently omitted.
 
 ## Deriving an inventory from the configured installation
 
-With MEDRE stopped, run:
+For configuration-only inventory previews, with MEDRE stopped run:
 
 ```bash
 python -m medre.maintenance.stopped_cli plan \
@@ -48,6 +48,28 @@ exclusion across a capture requires the library API in a single process: enter
 and the capture. A capture run without that retained exclusion is a capture
 whose stop assertion was only ever checked point-in-time.
 
+## One-operation, exclusion-retained complete capture
+
+For supported configurations, prefer the explicit command below over a
+`plan`/`check`/`capture` sequence:
+
+```bash
+python -m medre.maintenance.stopped_cli capture-config \
+  --config /etc/medre/config.yaml --root /srv/medre-state \
+  --snapshot /secure-backups/new-snapshot --stopped
+```
+
+`capture-config` prepares configuration once, retains provider ownership,
+performs bounded read-only native resolution (when supported), validates a
+closed selection and captures while exclusion remains retained. It rejects
+configured native exports and unsupported providers rather than labeling a
+partial selection complete. `--stopped` remains an operator assertion:
+local locks do not establish another host is stopped. This new path does not
+rely on a prior independent `check` command. The existing `capture --inventory` remains a manually selected-byte snapshot
+and is **not** a complete-installation certificate. On platforms without the necessary native
+flock primitive, the native provider capture refuses. Neither command starts
+SDKs or sends traffic.
+
 ## What each provider declares
 
 The provider descriptions below require an adapter distribution exposing its
@@ -60,17 +82,26 @@ scopes; a distribution without that symbol is unsupported by automatic planning:
   `database_key` needs a coherent provider export that preserves native state
   and adapter ledgers. Automatic planning is unsupported for that case; a
   core-only selection must not be treated as a complete SimpleX backup.
-- **chatmail** — native account directories come from the account registry;
-  the selected numeric account ID is not a directory name. The native core
-  uses the registry-assigned directory and `dc.db`. A declaration that guesses
-  `<account_id>/db.sqlite` is not qualified for capture. Resolve the exact
-  account store and attachment/export requirements before relying on a plan;
-  the pending-send journal must be preserved with that native state.
-- **lxmf** — worker identity and handoff-journal state are distinct from the
-  shared Reticulum state. RNS stores named binary identity/path records; a
-  guessed `storage/database` SQLite file is not a complete native inventory.
-  Qualify the actual Reticulum state or provide a coherent export before
-  describing a worker-file snapshot as a complete LXMF installation backup.
+- **chatmail** — configuration-only `plan` refuses. `capture-config`
+  resolves the native `accounts.toml` UUID mapping and `dc.db` *after*
+  acquiring both an existing MEDRE SQLite lease and the native
+  `accounts.lock` flock. Only one selected account, a matching UUID
+  directory, and an empty `dc.db-blobs` directory are supported. Missing,
+  malformed, ambiguous, multi-account, unknown-file, blob-bearing, symlinked,
+  or encrypted profiles refuse; a coherent native export is needed. The
+  pending-send journal is included and committed SQLite WAL is folded into
+  snapshot databases. Native locks are not copied. Restoring an empty blob
+  directory is a native initialization responsibility, not a copied file.
+- **lxmf** — real/native mode refuses generic complete-installation capture.
+  Worker identity (generated or configured) and its SQLite handoff journal
+  can be selected as operator-managed bytes, but The pinned RNS SDK writes binary
+  `known_destinations`, `destination_table`, `transport_identity`, and
+  other conditional state under its configuration storage; LXMF router
+  queues/cache live under its configured `storagepath`. Neither direct
+  delivery nor a worker flock establishes shared-Reticulum ownership.
+  Default Reticulum directory selection, shared instances, and propagated
+  state require native export and explicit external-owner shutdown. A guessed
+  `storage/database` SQLite entry is never selected.
 - **matrix** — the SDK-derived durable store database when the account and
   device are configured. Standard account IDs contain characters the
   inventory path grammar rejects, so generic capture is declared as requiring
@@ -100,7 +131,9 @@ a guessed filename.
    with `retain_local_exclusion` held for its duration.
 3. Run `plan`, review the summary against your actual installation, and keep
    the inventory with the installation's configuration.
-4. `capture` with `--root` mapped so every declared file is inside it, then
+4. For a supported complete capture use `capture-config`; otherwise `capture`
+   remains only an operator-approved selected-byte snapshot. Map `--root` so
+   every declared file is inside it, then
    `verify`, then `restore` into an absent destination only.
 5. Before activation, restore any export-only state (operator-supplied
    identities, credentials sidecars, provider exports) and re-verify that the

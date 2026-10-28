@@ -3,13 +3,12 @@
 This module is the trust boundary of the declaration seam. A provider
 declaration is provider knowledge shipped inside its adapter distribution and
 referenced from its :class:`medre.adapter_spec.AdapterSpec` through
-``stopped_state_declaration``. The authoritative module contract: a
-declaration imports no native transport SDK, resolves paths only from
-configured values (the same prepared configuration the runtime derives
-through the provider's own preparation hook), and never opens a profile,
-starts or stops a process, or touches the network. Core consumes one uniform
-interface and never imports a transport SDK; it only combines declarations
-and enforces closed, conflict-free selections.
+``stopped_state_declaration``. Configuration-only coverage imports no native
+transport SDK, resolves paths only from prepared configuration, and performs
+no filesystem discovery. An optional native-state resolver may read bounded
+metadata only during configured capture after local exclusion is retained.
+Neither surface starts or stops a process, opens an SDK profile, or touches
+the network. Core combines selections without importing native SDKs.
 
 An inventory produced here is an operator-declared selection, not a
 provider-completeness certificate. Providers whose state is not file-capturable
@@ -26,10 +25,10 @@ import sqlite3
 import stat
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal, Protocol, cast
+from typing import Any, Callable, Literal, Protocol, cast, runtime_checkable
 
 from medre.adapter_spec import AdapterSpec, SymbolRef
 from medre.config.model import RuntimeConfig
@@ -44,11 +43,13 @@ __all__ = [
     "DeclaredFile",
     "ExclusionRefused",
     "LocalExclusion",
+    "NativeStateResolver",
     "ProviderCoverage",
     "StoppedCapturePlan",
     "StoppedPlanError",
     "StoppedStateDeclaration",
     "build_stopped_capture_plan",
+    "capture_configured_stopped_state",
     "declaration_from_spec",
     "declared",
     "instance_coverages",
@@ -176,6 +177,20 @@ class StoppedStateDeclaration(Protocol):
     def coverage(self, config: object, *, adapter_id: str) -> ProviderCoverage: ...
 
     def local_exclusion(self, config: object, *, adapter_id: str) -> LocalExclusion: ...
+
+
+@runtime_checkable
+class NativeStateResolver(Protocol):
+    """Optional read-only metadata resolution during exclusion-retained capture.
+
+    Configuration-only planning never invokes this callback. The caller must
+    retain the provider's supported local exclusion before resolving and keep
+    it through snapshot publication. Missing native exports remain unsupported.
+    """
+
+    def resolve_coverage(
+        self, config: object, *, adapter_id: str
+    ) -> ProviderCoverage: ...
 
 
 StoppedDeclarationFactory = Callable[[], StoppedStateDeclaration]
@@ -527,6 +542,103 @@ def plan_from_coverages(
     )
 
 
+def capture_configured_stopped_state(
+    config: RuntimeConfig,
+    paths: MedrePaths,
+    *,
+    common_root: Path,
+    snapshot: Path,
+    runtime_stopped: bool,
+) -> StoppedCapturePlan:
+    """Capture one complete *supported* selection with exclusion held throughout.
+
+    Dynamic provider resolution, if implemented, is an explicit read-only
+    operation that runs after the provider's local owner primitive is retained.
+    The ordinary ``plan`` API remains configuration-only and never performs
+    that resolution. Providers requiring unimplemented exports are refused:
+    this operation is not a partial/select-by-hand inventory capture.
+    """
+    if not runtime_stopped:
+        raise StoppedPlanError("stopped runtime assertion is required")
+    from medre.maintenance.stopped_snapshot import create_stopped_snapshot
+
+    with ExitStack() as retained:
+        coverages = [
+            _CORE_DECLARATION.coverage(
+                _CorePaths(database_path=_core_database_path(config, paths)),
+                adapter_id="core",
+            )
+        ]
+        for transport, adapter_id, kind, spec, prepared in _prepare_instances(
+            config, paths
+        ):
+            if kind == "fake":
+                coverages.append(
+                    declared(
+                        provider=transport,
+                        adapter_id=adapter_id,
+                        files=(),
+                        state_class="stateless_local",
+                        notes=("fake mode uses no native state",),
+                    )
+                )
+                continue
+            declaration = declaration_from_spec(spec)
+            preview = _coverage_of(declaration, prepared, adapter_id)
+            resolver = (
+                declaration if isinstance(declaration, NativeStateResolver) else None
+            )
+            if preview.state_class == "unsupported" and resolver is None:
+                raise StoppedPlanError(
+                    "provider has no safe stopped-state capture selection"
+                )
+            if preview.state_class == "file_backed" or resolver is not None:
+                exclusion = _exclusion_of(declaration, prepared, adapter_id)
+                retained.callback(exclusion.close)
+                if exclusion.scope != "local_only":
+                    raise ExclusionRefused("provider has no supported local exclusion")
+            coverage = (
+                _coverage_of_resolved(resolver, prepared, adapter_id)
+                if resolver is not None
+                else preview
+            )
+            if coverage.provider != transport or coverage.adapter_id != adapter_id:
+                raise StoppedPlanError(
+                    "provider returned coverage for another instance"
+                )
+            if coverage.state_class == "file_backed" and not any(
+                item.presence == "required" for item in coverage.files
+            ):
+                raise StoppedPlanError(
+                    "file-backed coverage contains no required state"
+                )
+            if coverage.state_class in ("unsupported", "externally_managed") or any(
+                item.presence == "export_only" for item in coverage.files
+            ):
+                raise StoppedPlanError("provider requires an unsupported native export")
+            coverages.append(coverage)
+        plan = plan_from_coverages(common_root, coverages)
+        create_stopped_snapshot(
+            common_root, snapshot, plan.entries, runtime_stopped=True
+        )
+        return plan
+
+
+def _coverage_of_resolved(
+    resolver: NativeStateResolver, prepared: object, adapter_id: str
+) -> ProviderCoverage:
+    """Contain native metadata parsing and I/O errors without exposing paths."""
+    try:
+        coverage = resolver.resolve_coverage(prepared, adapter_id=adapter_id)
+    except (StoppedPlanError, ValueError):
+        raise
+    except Exception:
+        raise StoppedPlanError("provider stopped-state resolution failed") from None
+    if not isinstance(coverage, ProviderCoverage):
+        raise StoppedPlanError("provider returned invalid resolved coverage")
+    return coverage
+
+
 def _relative_under(root: Path, path: Path, provider: str) -> str:
     """Translate one configured absolute path into a root-relative selection."""
     root = root.absolute()
@@ -573,7 +685,9 @@ class LocalExclusion:
                 "platform provides no flock primitive; exclusion is "
                 "unsupported here"
             ) from None
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags = (
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
         try:
             descriptor = os.open(path, flags)
         except FileNotFoundError:

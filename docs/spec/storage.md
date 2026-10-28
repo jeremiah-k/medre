@@ -2023,7 +2023,7 @@ against runtime configuration or authenticity of the operator's inventory.
 
 AdapterSpec.stopped_state_declaration is an optional lazy symbol reference to
 an SDK-free provider declaration. Core MUST resolve it only during maintenance
-planning or exclusion checking. Missing, unloadable, or non-conforming
+planning, exclusion checking, or configured capture. Missing, unloadable, or non-conforming
 declarations MUST report unsupported coverage rather than infer native paths.
 Provider callback results MUST match the coverage or exclusion contract;
 unexpected callback errors MUST become typed maintenance failures without
@@ -2036,6 +2036,29 @@ across the capture operation. Providers MUST close partially acquired exclusion
 resources before propagating an acquisition failure or cancellation; core owns
 cleanup only after the provider returns a valid exclusion object. No exclusion
 check proves another host with the same identity is inactive.
+
+The `capture-config` command MUST require the stopped assertion, prepare each
+enabled instance once, and retain supported file-backed provider exclusion
+through native metadata resolution and snapshot publication. A provider MAY
+implement the optional `NativeStateResolver.resolve_coverage` callback to
+resolve bounded read-only native metadata while exclusion is held. Ordinary
+configuration-only `coverage` and `plan` MUST NOT invoke that callback or
+perform native filesystem discovery. Neither callback may start an SDK, open
+a native session, or acquire delivery authority.
+
+Configured capture MUST refuse unsupported or externally managed host state,
+required provider exports, resolved coverage for a different instance, and
+file-backed coverage without required files. Such refusal MUST NOT publish a
+partial snapshot. Fake, stateless-local, and device-attached declarations may
+select zero host files; this does not mean that server credentials or device
+firmware identity were backed up. Provider exclusions MUST unwind in reverse
+order on success, error, or cancellation. Core SQLite writer exclusion remains
+the snapshot API's per-database `BEGIN IMMEDIATE` guard, not an additional
+profile lease or proof that the original runtime cannot start.
+
+The earlier `capture --inventory` path MUST retain its explicit selected-file
+meaning. A successful independent `check`, a checksum, or a restored lock file
+MUST NOT be treated as continuous ownership or complete-installation evidence.
 
 ## Stopped selected-state snapshots
 

@@ -2,6 +2,8 @@
 
 Usage: python -m medre.maintenance.stopped_cli capture --inventory FILE
        --root COMMON_STATE_ROOT --snapshot NEW_DIR --stopped
+       python -m medre.maintenance.stopped_cli capture-config --config FILE
+       --root COMMON_STATE_ROOT --snapshot NEW_DIR --stopped
        python -m medre.maintenance.stopped_cli verify --snapshot DIR
        python -m medre.maintenance.stopped_cli restore --snapshot DIR
        --destination NEW_DIR --stopped
@@ -24,6 +26,7 @@ from medre.config.paths import MedrePaths
 from medre.maintenance.stopped_declare import (
     ExclusionRefused,
     build_stopped_capture_plan,
+    capture_configured_stopped_state,
     retain_local_exclusion,
 )
 from medre.maintenance.stopped_inventory import StoppedInventory
@@ -68,6 +71,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     capture.add_argument("--root", type=Path, required=True)
     capture.add_argument("--snapshot", type=Path, required=True)
     capture.add_argument("--stopped", action="store_true")
+    capture_config = commands.add_parser(
+        "capture-config", help="capture qualified providers with retained exclusion"
+    )
+    capture_config.add_argument("--config", type=Path, default=None)
+    capture_config.add_argument("--root", type=Path, required=True)
+    capture_config.add_argument("--snapshot", type=Path, required=True)
+    capture_config.add_argument("--stopped", action="store_true")
     verify = commands.add_parser("verify", help="verify a captured state snapshot")
     verify.add_argument("--snapshot", type=Path, required=True)
     restore = commands.add_parser("restore", help="restore to a new absent directory")
@@ -92,6 +102,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             entries = StoppedInventory.load(args.inventory).entries
             create_stopped_snapshot(
                 args.root, args.snapshot, entries, runtime_stopped=args.stopped
+            )
+        elif args.command == "capture-config":
+            runtime_config, paths = _load_configuration(args.config)
+            capture_configured_stopped_state(
+                runtime_config,
+                paths,
+                common_root=args.root,
+                snapshot=args.snapshot,
+                runtime_stopped=args.stopped,
             )
         elif args.command == "restore":
             restore_stopped_snapshot(
