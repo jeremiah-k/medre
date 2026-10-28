@@ -245,7 +245,7 @@ budget. A deferred row is not reclaimed again in the same worker poll cycle.
 
 During graceful shutdown the runtime stops replay first, then tells the durable
 ingress worker to stop claiming new rows. The active ingress row and the subsequent
-in-flight delivery/replay drain share one
+outbox-dispatch stop and in-flight delivery/replay drain share one
 `limits.shutdown_drain_timeout_seconds` deadline, so congestion cannot consume
 the configured drain budget twice. The worker may finish its currently claimed
 event while delivery capacity remains open; the runtime then stops accepting new
@@ -255,3 +255,11 @@ intentionally left to expire rather than being immediately released; this avoids
 restart racing side effects that may still be covered by the corresponding outbox
 lease. Late adapter callbacks may still cross durable admission while adapters are
 shutting down; those rows remain pending for the next runtime generation.
+
+If an outbox dispatch resists cancellation beyond the shared drain deadline,
+shutdown MUST return a failure while retaining pipeline, adapters and storage.
+Stopping the scheduler MUST NOT be reported as release of native ownership while
+one of its child dispatches is active. Once retained dispatches exit, another
+`stop()` may finish dependency teardown. Cancellation without accepted evidence
+MUST preserve the durable reservation for recovery; it MUST NOT manufacture an
+accepted handoff or reset the reservation to unsent.

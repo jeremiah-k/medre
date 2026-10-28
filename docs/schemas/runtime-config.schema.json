@@ -50,7 +50,7 @@
             "shutdown_drain_timeout_seconds": {
               "type": "number",
               "default": 10,
-              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown.",
+              "description": "Shared drain deadline for durable ingress, outbox dispatch shutdown and in-flight delivery/replay work. Retained native dispatch prevents dependency teardown.",
               "exclusiveMinimum": 0
             },
             "delivery_acquire_timeout_seconds": {

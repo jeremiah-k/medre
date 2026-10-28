@@ -267,27 +267,29 @@ computed in both scopes from the adapter startup classification:
    `limits.shutdown_drain_timeout_seconds` deadline (see
    [durable-ingress.md](durable-ingress.md)).
 3. Capacity controller `stop_accepting()` — no new delivery work is admitted.
-4. Retry worker stop. A cancellation-resistant retry worker may be abandoned;
-   abandonment is logged for visibility and is not itself a shutdown failure.
+4. Outbox dispatcher stop within the same drain deadline. A retained native
+   dispatch that resists cancellation ends shutdown in `FAILED`; pipeline,
+   adapters and storage MUST remain available until that dispatch exits.
 5. In-flight delivery/replay work drained within the deadline remainder.
    Deliveries not completed by the deadline are abandoned with persisted
    `shutdown_rejection` evidence (see [state-machines.md](state-machines.md)
    §2.5).
-6. Pipeline runner stop.
-7. Adapters stopped in reverse start order, each under a two-stage deadline:
+6. Adapters stopped in reverse start order, each under a two-stage deadline:
    a cooperative completion stage, then forced cancellation with bounded
    grace, then abandonment. Abandoned adapter-stop tasks are retained rather
    than discarded.
+7. Inbound admission closed and drained, then pipeline runner stopped.
 8. Storage closed.
 
 External cancellation arriving during shutdown is deferred, not dropped:
 pending cancellations are drained, core cleanup runs, and the cancellation is
-re-raised afterwards so pipeline and storage cleanup always execute.
+re-raised after cleanup. Unfinished ingress or retained outbox dispatch prevents
+dependency teardown rather than closing resources beneath a native owner.
 
 ### 7.3 Authority Boundaries
 
-- The retry worker owns polling, claiming, capacity admission, and retry
-  events only. Durable outbox/retry state transitions are owned by the
+- The outbox dispatcher (`RetryWorker`) owns initial/retry polling, claiming,
+  capacity admission, and retry events only. Durable outbox/retry state transitions are owned by the
   delivery lifecycle authority (see [delivery-lifecycle.md](delivery-lifecycle.md)).
   Durable double-process protection is the outbox claim (`worker_id` +
   `lease_until`), not process-local state. Named replay uses one additional
@@ -299,8 +301,8 @@ re-raised afterwards so pipeline and storage cleanup always execute.
   outbox, enrichment, target delivery, and finalization, and does not
   re-decide routing, rendering, retry policy, or lifecycle transitions.
 - Terminal runtime states: success ends `STOPPED`; a separate error,
-  cancellation, or unfinished ingress (e.g. durable ingress worker still
-  active after cancellation) ends `FAILED`. A successful stop that abandons
+  cancellation, unfinished ingress, or a retained native outbox dispatch ends
+  `FAILED`. A successful stop that abandons
   capacity drain after the deadline still ends `STOPPED` — the abandoned
   work is persisted as `shutdown_rejection` receipts with
   `error="shutdown_drain_timeout"` and the projection-clean marker is

@@ -247,6 +247,11 @@ class RetryWorker:
         self._cycle_completed: bool = False
         self.state = RetryWorkerState(enabled=self._retries_enabled)
 
+    @property
+    def has_retained_work(self) -> bool:
+        """Return whether an abandoned dispatch lifetime can perform side effects."""
+        return self._abandoned_task is not None and not self._abandoned_task.done()
+
     def set_available_target_adapters(self, adapter_ids: Iterable[str]) -> None:
         """Restrict transport retries to adapters that completed startup.
 
@@ -653,8 +658,13 @@ class RetryWorker:
                 },
             )
 
-    async def stop(self) -> None:
+    async def stop(self, *, timeout_seconds: float | None = None) -> None:
         """Signal shutdown and wait for the worker to finish.
+
+        ``timeout_seconds`` supplies a shared runtime budget for both stages.
+        Without it each stage uses the configured stop timeout. Native sends
+        that outlive cancellation remain retained by the worker task group;
+        ``has_retained_work`` prevents dependent resources being torn down.
 
         Stop is **bounded** in two stages, both implemented as a
         short-cadence poll of :meth:`asyncio.Task.done` rather than
@@ -700,6 +710,8 @@ class RetryWorker:
           "stop was cancelled" state distinguishable from
           "stop succeeded" and from "stop never called".
         """
+        if timeout_seconds is not None and timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be non-negative")
         async with self._stop_lock:
             if self._task is None:
                 return
@@ -707,12 +719,15 @@ class RetryWorker:
                 # A previous stop() already abandoned the worker; do not
                 # emit duplicate retry_stopped / retry_failed events.
                 return
+            budget = (
+                self._stop_timeout * 2 if timeout_seconds is None else timeout_seconds
+            )
             _logger.info(
                 "RetryWorker stop requested: two-stage bounded shutdown "
                 "(stage 1: cooperative poll, stage 2: forced cancel), "
                 "effective wall-time up to ~%.1fs "
-                "(stop_timeout_seconds=%.1f x 2 stages)",
-                self._stop_timeout * 2,
+                "(stop_timeout_seconds=%.1f; shared budget overrides both stages)",
+                budget,
                 self._stop_timeout,
             )
             self._shutdown_event.set()
@@ -721,12 +736,16 @@ class RetryWorker:
             # Stage 1: cooperative stop.  Poll ``task.done()`` on a
             # short cadence until either the task finishes (clean
             # stop) or the grace period expires.
-            deadline = loop.time() + self._stop_timeout
+            final_deadline = loop.time() + budget
+            deadline = loop.time() + min(self._stop_timeout, budget / 2)
             task = self._task
             try:
                 while not task.done():
                     if loop.time() >= deadline:
-                        await self._force_cancel_with_poll(task=task)
+                        await self._force_cancel_with_poll(
+                            task=task,
+                            timeout_seconds=max(0.0, final_deadline - loop.time()),
+                        )
                         return
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
@@ -773,7 +792,9 @@ class RetryWorker:
             else:
                 raise exc  # type: ignore[misc]
 
-    async def _force_cancel_with_poll(self, task: asyncio.Task[None]) -> None:
+    async def _force_cancel_with_poll(
+        self, task: asyncio.Task[None], *, timeout_seconds: float | None = None
+    ) -> None:
         """Cancel *task* and wait for it with a hard time bound that does
         **not** rely on ``asyncio.wait_for``'s cancel mechanism.
 
@@ -809,8 +830,17 @@ class RetryWorker:
         abandoned and re-raises.
         """
         task.cancel()
+        # Bounded event-loop turns let an idle/cooperative group settle even
+        # when ingress used the entire shared drain budget. No native call is
+        # awaited here and resistant ownership remains retained below.
+        for _ in range(5):
+            if task.done():
+                break
+            await asyncio.sleep(0)
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self._stop_timeout
+        deadline = loop.time() + (
+            self._stop_timeout if timeout_seconds is None else timeout_seconds
+        )
 
         # Poll on a 10 ms cadence.  If the task is cancellation-
         # responsive it will finish within a few cycles; if it is

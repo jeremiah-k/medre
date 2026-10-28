@@ -340,17 +340,18 @@ def _make_cancel_retry_worker(
     worker_state = RetryWorkerState()
     worker = MagicMock(spec=RetryWorker)
     worker.state = worker_state
+    worker.has_retained_work = False
 
     if slow:
 
-        async def _slow_cancel() -> None:
+        async def _slow_cancel(*, timeout_seconds: float | None = None) -> None:
             await asyncio.sleep(0.1)
             raise asyncio.CancelledError(message)
 
         worker.stop = _slow_cancel
     else:
 
-        async def _cancel_on_stop() -> None:
+        async def _cancel_on_stop(*, timeout_seconds: float | None = None) -> None:
             raise asyncio.CancelledError(message)
 
         worker.stop = _cancel_on_stop

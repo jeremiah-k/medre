@@ -133,7 +133,7 @@ class TestCleanupCoreResourcesCancelledError:
 
     @pytest.mark.asyncio
     async def test_cancelled_retry_worker_end_to_end_via_start(
-        self, tmp_paths: MedrePaths
+        self, tmp_paths: MedrePaths, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Full start() flow: one adapter that fails to start, plus a retry
         worker that raises CE on stop.  Pipeline and storage cleanup must
@@ -145,7 +145,12 @@ class TestCleanupCoreResourcesCancelledError:
         app.adapters["fake_matrix"] = FailingAdapter(adapter_id="fake_matrix")
 
         worker = _make_cancel_retry_worker("simulated cancel from retry worker stop")
-        app._retry_worker = worker
+        from medre.runtime.retry import RetryWorker
+
+        async def cancelled_worker_stop(_self, *, timeout_seconds=None):
+            await worker.stop(timeout_seconds=timeout_seconds)
+
+        monkeypatch.setattr(RetryWorker, "stop", cancelled_worker_stop)
 
         pipeline_called = _make_tracking_pipeline_stop(app)
         storage_called = _make_tracking_storage_close(app)
