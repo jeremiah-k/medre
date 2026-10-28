@@ -9,12 +9,14 @@ provision accounts or attach hardware, then connect the same installation to
 your real platforms. For a bridge you keep running, use a separate,
 commit-pinned [deployment project](#set-up-a-locked-deployment).
 
-> **Working pre-release; testers welcome, not production-ready.** Transport
-> behavior has been exercised, but config, event, and SQLite layouts may change
-> between revisions. Use disposable test state initially. Before upgrading,
-> stop MEDRE and back up configuration, credentials, and the **complete** SQLite
-> database including its WAL sidecars. Never delete a database containing
-> pending deliveries as an upgrade workaround. See
+> **Working pre-release; testers welcome, not production-ready.** Config,
+> event, and database layouts may change between revisions. Disposable test
+> databases are expected to be reset as you experiment. For a bridge that has
+> actually relayed traffic, first stop MEDRE and check for queued or uncertain
+> outbound sends: a reset loses both that work and the identifiers used to
+> recognize replies and avoid duplicate sends. Preserve configuration, native
+> credentials, and a complete SQLite backup (including WAL sidecars) if you need
+> to keep the old state. See
 > [pre-release storage handling](operator-workflows.md#pre-release-storage-reset).
 
 ## 1. Install MEDRE and two providers
