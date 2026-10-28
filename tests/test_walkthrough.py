@@ -209,6 +209,8 @@ class TestFinalSnapshot:
             # Retry section exists with disabled defaults
             assert "retry" in snap
             assert snap["retry"]["enabled"] is False
-            assert snap["retry"]["running"] is False
+            # Initial dispatch owns first delivery through the outbox, so the
+            # dispatch worker runs even when retry scheduling is disabled.
+            assert snap["retry"]["running"] is True
         finally:
             await app.stop()

@@ -395,8 +395,10 @@ async def test_sqlite_schema_rejects_invalid_outbox_state(
     await _admit(temp_storage, item)
 
     invalid_updates = (
+        # Zero is a valid staged state; only negative finalized attempts
+        # violate the attempt invariant.
         (
-            "UPDATE delivery_outbox SET attempt_number = 0 WHERE outbox_id = ?",
+            "UPDATE delivery_outbox SET attempt_number = -1 WHERE outbox_id = ?",
             (item.outbox_id,),
         ),
         (

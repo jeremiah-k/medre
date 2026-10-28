@@ -555,6 +555,15 @@ async def test_native_transition_keeps_every_surface_consistent(tmp_path, monkey
     capacity = app._capacity_controller
     monkeypatch.setattr(capacity, "stop_accepting", record_acceptance)
     monkeypatch.setattr(app.storage, "claim_due_outbox_items", record_claim)
+    # The initial-dispatch poller claims on its own sub-second cadence and is
+    # unrelated to health traffic; neutralize its dispatch cycle so the
+    # storage-level tripwire above only catches a health-driven claim.
+    if app._retry_worker is not None:
+
+        async def idle_dispatch_cycle(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(app._retry_worker, "_process_due", idle_dispatch_cycle)
     tasks_before = sorted(task.get_name() for task in asyncio.all_tasks())
     try:
         report = state["context"].report_health
