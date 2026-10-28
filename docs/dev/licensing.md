@@ -9,15 +9,15 @@ components; exact requirements belong to each adapter's `pyproject.toml` and
 its dependency disclosure. It is not an inventory of every transitive library
 or a blanket clearance for a combined installation.
 
-| Distribution                | MEDRE-authored source | Main pinned runtime dependency                 | Upstream license                                                                                                        |
-| --------------------------- | --------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `medre`                     | MIT                   | `msgspec`, `pyyaml`, `termaid`                            | BSD-3-Clause, MIT, MIT respectively; check full dependency tree                                                              |
-| `medre-adapter-matrix`      | MIT                   | `mindroom-nio`                                 | ISC; optional E2EE dependencies are resolved by `[e2e]`                                                                 |
-| `medre-adapter-meshcore`    | MIT                   | `meshcore`                                     | MIT                                                                                                                     |
-| `medre-adapter-meshtastic`  | MIT                   | `mtjk`                                         | GPL-3.0-only                                                                                                            |
-| `medre-adapter-lxmf`        | MIT                   | `lxmf`, `rns`                                  | Reticulum License (non-OSI; additional use restrictions)                                                                |
-| `medre-adapter-simplexchat` | MIT                   | `simplex-chat`                                 | AGPL-3.0-only (official SDK and native library)                                                                         |
-| `medre-adapter-xmpp`        | MIT                   | `slixmpp`                                      | MIT                                                                                                                     |
+| Distribution                | MEDRE-authored source | Main pinned runtime dependency                 | Upstream license                                                                                               |
+| --------------------------- | --------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `medre`                     | MIT                   | `msgspec`, `pyyaml`, `termaid`                 | BSD-3-Clause, MIT, MIT respectively; check full dependency tree                                                |
+| `medre-adapter-matrix`      | MIT                   | `mindroom-nio`                                 | ISC; optional E2EE dependencies are resolved by `[e2e]`                                                        |
+| `medre-adapter-meshcore`    | MIT                   | `meshcore`                                     | MIT                                                                                                            |
+| `medre-adapter-meshtastic`  | MIT                   | `mtjk`                                         | GPL-3.0-only                                                                                                   |
+| `medre-adapter-lxmf`        | MIT                   | `lxmf`, `rns`                                  | Reticulum License (non-OSI; additional use restrictions)                                                       |
+| `medre-adapter-simplexchat` | MIT                   | `simplex-chat`                                 | AGPL-3.0-only (official SDK and native library)                                                                |
+| `medre-adapter-xmpp`        | MIT                   | `slixmpp`                                      | MIT                                                                                                            |
 | `medre-adapter-chatmail`    | MIT                   | `deltachat-rpc-client`, `deltachat-rpc-server` | MPL-2.0; the server wheel bundles a license notice even though its package metadata omits a license expression |
 
 Exact version pins are owned by each repository's `pyproject.toml` and lockfile, not this page.

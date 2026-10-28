@@ -586,9 +586,6 @@ def _routes_diagram(
     """Preview configured topology; draw terminal graphs or local image exports."""
     from pathlib import Path
 
-    from .diagram_output import GraphvizError, render_graphviz
-    from .file_output import write_private_output
-
     from medre.runtime.route_diagram import (
         TerminalDiagramLimitError,
         build_route_diagram,
@@ -598,6 +595,9 @@ def _routes_diagram(
         render_mermaid,
         render_terminal_diagram,
     )
+
+    from .diagram_output import GraphvizError, render_graphviz
+    from .file_output import write_private_output
 
     try:
         config, _source, paths = load_config(config_path)

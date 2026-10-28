@@ -6,9 +6,9 @@ actual membership, or guarantees of forwarding. It never contacts adapters.
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass
-import json
 from typing import TYPE_CHECKING
 from unicodedata import category
 

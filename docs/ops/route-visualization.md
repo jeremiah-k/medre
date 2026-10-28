@@ -28,10 +28,10 @@ layout flows top-to-bottom to make connected groups more readable at ordinary
 terminal widths. Use `--ascii` for terminals without box-drawing glyphs, and
 `--view adapters` for a smaller overview that hides individual channels.
 `--format text` instead lists each adapter's incoming and outgoing legs with
-source/destination contexts. These views come from the *same* offline route
+source/destination contexts. These views come from the _same_ offline route
 plan and make no claims about live connectivity. The **contexts** Mermaid view groups route-connected
 endpoint pairs and makes context remaps (`3 → 2`, etc.) visible. Grouping uses
-*topological connected components*, not room names or message histories;
+_topological connected components_, not room names or message histories;
 wildcard source filters are shown as `*` nodes rather than expanded into
 hypothetical conversations. Connected components describe configured edges,
 not equivalence between conversations or native addressing schemes. The
@@ -46,12 +46,17 @@ Mermaid rendering. To render the exact Mermaid source, use a locally installed
 `mmdc` with the
 [Mermaid flowchart syntax](https://mermaid.js.org/syntax/flowchart.html).
 Binary images require `--output`; the CLI will not send binary data to the
-terminal. All `--output` files are new and mode `0600` on POSIX (Windows uses directory ACLs); existing files are not
-overwritten. Incomplete previews cannot be exported as images. Graphviz is optional; Termaid is required by MEDRE for its default graph. The
-terminal renderer supports both Unicode and ASCII text. It is a static view,
-not an interactive TUI. Terminal layout is limited to 200 nodes and 500 context connections; oversized
-previews fail with a text/Mermaid fallback hint. In large graphs, try `--view adapters`,
-`--format text`, or the SVG export to avoid terminal width limits.
+terminal. All `--output` files are new and private (`0600` on POSIX; Windows
+uses the directory ACLs). Existing files are never overwritten. Exports are
+written to a private staging file and published at the requested pathname only
+after the contents have been synced. Failed exports do not publish partial
+final files; the filesystem must support local hard links for atomic publication.
+Incomplete previews cannot be exported as images. Graphviz is optional; Termaid
+is required by MEDRE for its default graph. The terminal renderer supports
+Unicode and ASCII text. It is a static view, not an interactive TUI. Terminal
+layout is limited to 200 nodes and 500 context connections; oversized previews
+fail with a text/Mermaid fallback hint. For large graphs, try `--view adapters`,
+`--format text`, or SVG export to avoid terminal width limits.
 
 Room and long-address identifiers are abbreviated for readability by default.
 **Abbreviation is not redaction:** short names remain visible, and distinct

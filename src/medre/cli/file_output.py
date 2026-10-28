@@ -1,46 +1,50 @@
-"""Private, exclusive publication of explicitly requested CLI output files."""
+"""Private, atomic publication of explicitly requested CLI output files."""
 
 from __future__ import annotations
 
 import os
+import tempfile
 from contextlib import suppress
 from pathlib import Path
 
 
-def write_private_output(path: Path, payload: bytes) -> None:
-    """Write one private file without replacing a path or deleting another writer.
+def _sync_directory(path: Path) -> None:
+    """Best-effort persistence of a published name where directory sync exists."""
+    if os.name == "nt":
+        return
+    with suppress(OSError):
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
-    Exclusive creation rejects existing files, symlinks and concurrent creators.
-    Descriptor ownership stays explicit until fdopen succeeds. Interrupted or
-    failed writes close the descriptor and remove only the inode created here;
-    a concurrent replacement is retained. Windows uses inherited directory ACLs.
+
+def write_private_output(path: Path, payload: bytes) -> None:
+    """Publish a complete private file without replacing an existing path.
+
+    Write and sync a mode-0600 staging file in the target directory, then
+    create the destination name with an exclusive hard link. A failure before
+    publication cannot expose a partial final output, and a concurrent writer
+    retains its existing file. The staging name is always cleaned up on normal
+    failures, including cancellation; Windows inherits its parent ACLs.
     """
-    opened_descriptor = os.open(
-        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600
-    )
-    descriptor: int | None = opened_descriptor
-    identity: os.stat_result | None = None
+    descriptor, staging = tempfile.mkstemp(prefix=".medre-export-", dir=path.parent)
+    owned_descriptor: int | None = descriptor
     try:
-        identity = os.fstat(opened_descriptor)
-        stream = os.fdopen(opened_descriptor, "wb")
-        descriptor = None
+        stream = os.fdopen(descriptor, "wb")
+        owned_descriptor = None
         with stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-    except BaseException:
-        if descriptor is not None:
-            if identity is None:
-                with suppress(OSError):
-                    identity = os.stat(descriptor)
+        # The target appears only after its complete contents are synced.
+        # os.link fails with FileExistsError for existing files and symlinks.
+        os.link(staging, path)
+        _sync_directory(path.parent)
+    finally:
+        if owned_descriptor is not None:
             with suppress(OSError):
-                os.close(descriptor)
-        if identity is not None:
-            with suppress(OSError):
-                current = path.stat(follow_symlinks=False)
-                if (current.st_dev, current.st_ino) == (
-                    identity.st_dev,
-                    identity.st_ino,
-                ):
-                    path.unlink()
-        raise
+                os.close(owned_descriptor)
+        with suppress(OSError):
+            os.unlink(staging)

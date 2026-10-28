@@ -137,10 +137,16 @@ def test_structured_destination_abbreviates_identifier_after_kind(
     assert brief["destination"] == abbreviated
     assert exact["destination"] == destination
     assert brief["id"] == exact["id"]
-    for renderer in (render_mermaid, render_adapter_summary):
-        assert destination not in renderer(diagram)
-        assert abbreviated in renderer(diagram)
-        assert destination in renderer(diagram, full_context=True)
+    text = render_adapter_summary(diagram)
+    assert destination not in text
+    assert abbreviated in text
+    assert destination in render_adapter_summary(diagram, full_context=True)
+    # Mermaid escapes # as an entity. Test the escaped source, not its
+    # unescaped label, so display safety cannot be mistaken for data loss.
+    mermaid_label = abbreviated.replace("#", "#35;")
+    full_mermaid_label = destination.replace("#", "#35;")
+    assert mermaid_label in render_mermaid(diagram)
+    assert full_mermaid_label in render_mermaid(diagram, full_context=True)
 
 
 def test_adapter_overview_separates_shared_and_directional_route_groups() -> None:
