@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -22,6 +23,7 @@ SnapshotRole = Literal["core_sqlite", "adapter_ledger", "native_identity"]
 SnapshotFormat = Literal["sqlite", "opaque"]
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _MAX_FILE_BYTES = 1024 * 1024 * 1024
+_NATIVE_COLONS = os.name != "nt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,12 +141,19 @@ def _publish(stage: Path, destination: Path) -> None:
 
 
 def _relative(value: str) -> Path:
-    """Parse one canonical installation-relative path without alternate spellings."""
+    """Parse a host-representable relative path without drive or stream aliases.
+
+    POSIX SDK filenames may contain a colon (for example Matrix account IDs).
+    Such snapshots are host-specific: Windows rejects them before any file is
+    opened, since a colon can select an alternate data stream there. Drive
+    spellings, backslashes and traversal are rejected on every host.
+    """
     if (
         not isinstance(value, str)
         or not value
         or "\\" in value
-        or ":" in value
+        or (":" in value and not _NATIVE_COLONS)
+        or re.search(r"(?:^|/)[A-Za-z]:", value) is not None
         or "\x00" in value
     ):
         raise ValueError("snapshot requires a safe relative POSIX path")
@@ -315,7 +324,9 @@ def _verified_files(snapshot: Path) -> tuple[_VerifiedEntry, ...]:
         or not isinstance(data["files"], list)
     ):
         raise ValueError("unsupported stopped snapshot manifest")
-    files: list[_VerifiedEntry] = []
+    # Validate the complete selection before opening any selected file. A
+    # later host-incompatible path cannot permit earlier entries to be read.
+    declared: list[tuple[SnapshotEntry, dict[str, object]]] = []
     expected = {"manifest.json"}
     for row in data["files"]:
         if not isinstance(row, dict) or set(row) != {
@@ -328,7 +339,16 @@ def _verified_files(snapshot: Path) -> tuple[_VerifiedEntry, ...]:
             raise ValueError("invalid snapshot manifest entry")
         entry = SnapshotEntry(row["path"], row["role"], row["format"])
         relative = _relative(entry.path)
-        target = _regular(snapshot, Path("files") / relative)
+        name = (Path("files") / relative).as_posix()
+        if name in expected:
+            raise ValueError("duplicate snapshot manifest entry")
+        expected.add(name)
+        declared.append((entry, row))
+    if sum(entry.role == "core_sqlite" for entry, _ in declared) != 1:
+        raise ValueError("snapshot must contain exactly one core database")
+    files: list[_VerifiedEntry] = []
+    for entry, row in declared:
+        target = _regular(snapshot, Path("files") / _relative(entry.path))
         size, sha = _digest(target)
         if (
             type(row["bytes"]) is not int
@@ -336,17 +356,11 @@ def _verified_files(snapshot: Path) -> tuple[_VerifiedEntry, ...]:
             or row["sha256"] != sha
         ):
             raise ValueError("snapshot file checksum mismatch")
-        name = (Path("files") / relative).as_posix()
-        if name in expected:
-            raise ValueError("duplicate snapshot manifest entry")
-        expected.add(name)
         if entry.format == "sqlite":
             _check_sqlite(target)
         else:
             _check_opaque(target)
         files.append(_VerifiedEntry(entry, size, sha))
-    if sum(record.entry.role == "core_sqlite" for record in files) != 1:
-        raise ValueError("snapshot must contain exactly one core database")
     actual = {
         p.relative_to(snapshot).as_posix()
         for p in snapshot.rglob("*")

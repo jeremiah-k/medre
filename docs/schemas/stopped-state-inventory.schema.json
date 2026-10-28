@@ -38,7 +38,8 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\/$)[^\\\\:\\u0000]+$"
+            "pattern": "^(?!/)(?!.*(?:^|/)[A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\/$)[^\\\\\\u0000]+$",
+            "description": "Canonical installation-relative path. Colon-bearing POSIX names require a POSIX restore host; Windows rejects them before file access. Drive spellings and traversal are always forbidden."
           },
           "role": {
             "enum": ["core_sqlite", "adapter_ledger", "native_identity"]
