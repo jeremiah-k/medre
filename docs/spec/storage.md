@@ -710,7 +710,7 @@ and MUST NOT be inferred from `status` alone.
 
 `parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt.
 
-`source` identifies the dispatch mechanism: `"live"` for normal pipeline delivery, `"replay"` for the initial replay dispatch, and `"retry"` for RetryWorker attempts. `replay_run_id` independently records replay origin when present. `source` defaults to `"live"`.
+`source` identifies the dispatch mechanism: `"live"` for normal pipeline delivery, `"replay"` for the initial replay dispatch, and `"retry"` for subsequent retry dispatches. `replay_run_id` independently records replay origin when present. `source` defaults to `"live"`.
 
 `replay_run_id` is `NULL` for live delivery lineage. A named replay stores its `run_id` on the initial `source='replay'` attempt and preserves that origin on later `source='retry'` attempts from the same durable outbox generation. `source` describes the dispatch mechanism; `replay_run_id` describes replay origin provenance.
 
@@ -988,7 +988,7 @@ CREATE TABLE delivery_outbox (
     replay_run_id   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
-    CHECK (attempt_number >= 1),
+    CHECK (attempt_number >= 0),
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
     CHECK (status IN (
@@ -1000,8 +1000,18 @@ CREATE TABLE delivery_outbox (
 );
 ```
 
-`attempt_number` is the last finalized attempt for the row. `active_attempt`
-is the durably reserved in-flight attempt: the retry worker sets it to
+`attempt_number` is the last finalized attempt for the row. Zero denotes an
+initial obligation that has not dispatched; receipt and radio packet attempt
+numbers remain positive. Initial staging retains the complete route and plan in
+`metadata.dispatch_context`, including source origin, destination, strategy,
+fallback chain, retry policy, deadline and routing metadata. Dispatch validates that this snapshot
+matches the row's event, plan, route and native destination scope independently
+of the snapshot's own target-identity string. Empty and null channels compare as
+the same stored scope without changing the retained plan. Malformed or rebound
+snapshots MUST be held without native submission.
+
+`active_attempt` is the durably reserved in-flight attempt: the outbox dispatcher
+sets it to
 `attempt_number + 1` immediately before invoking the transport (a guarded
 update tied to the claiming worker), and every callback validator compares
 against `COALESCE(active_attempt, attempt_number)`. Finalization advances
@@ -1017,13 +1027,14 @@ miss.
 `dispatch_source` records the dispatch mechanism for the row's current/effective
 attempt. Initial admission stores `live` or `replay` independently of
 `replay_run_id`, so unnamed replay remains attributable before a receipt exists.
-RetryWorker reservation atomically changes it to `retry` with `active_attempt`;
+Reservation from attempt zero retains `live`; later RetryWorker reservations
+atomically change it to `retry` with `active_attempt`;
 that value survives queue handoff after the reservation is consumed. Callback
 lineage therefore does not depend on whether the immutable queued receipt is
 already visible.
 
 The schema enforces the same base invariants independently of lifecycle code:
-`attempt_number` is always positive; a live `active_attempt` is exactly the next
+`attempt_number` is non-negative; a live `active_attempt` is exactly the next
 dispatch generation and is legal only while the row is `in_progress`; and the
 `status` column is closed over the documented outbox vocabulary. These checks are
 part of the pre-release schema shape, so an invalid row cannot be manufactured by

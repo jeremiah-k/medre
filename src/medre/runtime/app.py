@@ -1429,11 +1429,7 @@ class MedreApp:
                     shown,
                     suffix,
                 )
-        if (
-            scope is StartupScope.LIVE
-            and self.config.retry.enabled
-            and self.storage is not None
-        ):
+        if scope is StartupScope.LIVE and self.storage is not None:
             from medre.runtime.retry import RetryWorker as _RW
 
             self._retry_worker = _RW(
@@ -1441,6 +1437,7 @@ class MedreApp:
                 pipeline=self.pipeline_runner,
                 capacity_controller=self._capacity_controller,
                 retry_config=self.config.retry,
+                initial_dispatch=True,
                 event_buffer=self._event_buffer,
                 lifecycle=self.pipeline_runner.delivery_lifecycle,
                 stop_timeout_seconds=float(

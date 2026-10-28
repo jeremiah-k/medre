@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import cast
 
-from medre.core.engine.pipeline import PipelineConfig
+from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
@@ -64,3 +64,20 @@ def make_pipeline_config_for_pipeline(
         adapters=adapters or {},
         event_bus=event_bus or EventBus(),
     )
+
+
+async def dispatch_initial_batch(
+    storage: SQLiteStorage, runner: PipelineRunner
+) -> None:
+    """Settle staged initial work through the runtime's outbox dispatcher.
+
+    Tests without a running MedreApp use a single poll instead of introducing
+    timing-dependent background workers. Retry-wait work from native attempts
+    is deliberately excluded, matching a runtime with automatic retries off.
+    """
+    from medre.runtime.retry import RetryWorker
+
+    dispatcher = RetryWorker(
+        storage, runner, None, initial_dispatch=True, enabled=False
+    )
+    await dispatcher._process_due(datetime.now(timezone.utc))

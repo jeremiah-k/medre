@@ -517,6 +517,10 @@ class _OutboxMixin:
         worker_id: str,
         lease_seconds: int = 30,
         limit: int = 20,
+        *,
+        excluded_adapters: tuple[str, ...] = (),
+        initial_only: bool = False,
+        one_per_adapter: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
@@ -528,6 +532,13 @@ class _OutboxMixin:
         - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
           queued items past the grace threshold
           (:data:`STALE_QUEUED_GRACE_SECONDS`).
+
+        ``one_per_adapter`` selects the oldest eligible row for each adapter
+        before applying the global limit, and excludes adapters with an
+        unexpired owner. ``excluded_adapters`` fences process-local active lanes.
+        ``initial_only`` restricts claims to never-dispatched attempt-zero work,
+        including startup/capacity deferrals, without admitting retries. These
+        filters are rechecked by the conditional UPDATE.
 
         Additional guards:
 
@@ -574,10 +585,57 @@ class _OutboxMixin:
                AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
                    COALESCE(delivery_outbox.active_attempt, delivery_outbox.attempt_number)
         )"""
-        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) AND {_no_newer_generation} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - interpolated fragments are static SQL or ? placeholders
+        filters = ""
+        filter_params: tuple[object, ...] = ()
+        if excluded_adapters:
+            filters += f" AND target_adapter NOT IN ({','.join('?' for _ in excluded_adapters)})"
+            filter_params += excluded_adapters
+        if one_per_adapter:
+            filters += """ AND NOT EXISTS (
+                SELECT 1 FROM delivery_outbox AS active
+                WHERE active.outbox_id <> delivery_outbox.outbox_id
+                  AND active.target_adapter = delivery_outbox.target_adapter
+                  AND active.status = 'in_progress' AND active.lease_until > ?
+            )"""
+            filter_params += (now,)
+        if initial_only:
+            # The common lease predicate fences in-progress rows. An expired
+            # claim without a reservation has never authorized a native send.
+            filters += (
+                " AND attempt_number = 0 AND active_attempt IS NULL"
+                " AND status IN ('pending', 'retry_wait', 'in_progress')"
+            )
+        # Rank eligible work before applying LIMIT: a backlog for one adapter
+        # cannot hide another adapter's earliest due obligation.
+        _claim_sql = f"""WITH eligible AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY target_adapter
+                ORDER BY COALESCE(next_attempt_at, created_at) ASC,
+                         created_at ASC, rowid ASC
+            ) AS adapter_rank
+            FROM delivery_outbox
+            WHERE (status IN ({claimable_ph})
+                   OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
+                   OR (status = 'queued' AND updated_at <= ?))
+              AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+              AND (lease_until IS NULL OR lease_until <= ?)
+              AND {_no_newer_generation} {filters}
+        ) SELECT * FROM eligible
+          WHERE (? = 0 OR adapter_rank = 1)
+          ORDER BY COALESCE(next_attempt_at, created_at) ASC,
+                   created_at ASC, outbox_id ASC LIMIT ?"""  # nosec B608 - static SQL and parameter placeholders only
         rows = await self._read_all(
             _claim_sql,
-            (*claimable_params, now, stale_cutoff, now, now, limit),
+            (
+                *claimable_params,
+                now,
+                stale_cutoff,
+                now,
+                now,
+                *filter_params,
+                int(one_per_adapter),
+                limit,
+            ),
         )
         if not rows:
             return []
@@ -598,7 +656,7 @@ class _OutboxMixin:
                        OR (status = 'queued' AND updated_at <= ?))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                   AND (lease_until IS NULL OR lease_until <= ?)
-                  AND {_no_newer_generation}""",  # nosec: interpolated fragments are static SQL or ? placeholders
+                  AND {_no_newer_generation} {filters}""",  # nosec: interpolated fragments are static SQL or ? placeholders
             (
                 now,
                 lease_until,
@@ -610,6 +668,7 @@ class _OutboxMixin:
                 stale_cutoff,
                 now,
                 now,
+                *filter_params,
             ),
         )
 
@@ -631,7 +690,8 @@ class _OutboxMixin:
 
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
-        and ``dispatch_source = 'retry'`` only when the row is ``in_progress``,
+        and records ``live`` for the first reservation from zero, otherwise
+        ``retry``, only when the row is ``in_progress``,
         owned by *worker_id*, carries
         no reservation yet, still stores ``attempt_number == from_attempt``,
         and no sibling row for the same event-scoped delivery identity already
@@ -646,7 +706,7 @@ class _OutboxMixin:
         rowcount = await self._write_rowcount(
             """UPDATE delivery_outbox
                SET active_attempt = attempt_number + 1,
-                   dispatch_source = 'retry',
+                   dispatch_source = CASE WHEN attempt_number = 0 THEN 'live' ELSE 'retry' END,
                    last_attempt_at = ?,
                    updated_at = ?
                WHERE outbox_id = ?

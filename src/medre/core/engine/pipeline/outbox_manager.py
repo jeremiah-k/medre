@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import msgspec
+
 from medre.core.contracts.delivery import DeferredHandoffFailed
 from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
@@ -30,6 +32,7 @@ from medre.core.engine.pipeline.receipt_factory import (
     build_delivery_receipt,
     capability_receipt_fields,
 )
+from medre.core.engine.pipeline.retry_plan import OutboxDispatchContext
 from medre.core.events import (
     normalize_delivery_provenance,
 )
@@ -92,11 +95,16 @@ class OutboxManager:
         *,
         source: str = "live",
         replay_run_id: str | None = None,
+        pending: bool = False,
     ) -> OutboxContext:
         """Create a durable outbox item tracking a delivery attempt.
 
         Returns an :class:`OutboxContext` with the outbox ID, creation
         flag, worker identity, and optional skip reason.
+
+        ``pending=True`` stores an exact route/plan snapshot without a native
+        attempt or claim. Its ``staged`` result denotes a durable obligation,
+        never a transport-queue acceptance or a receipt.
 
         *skip_reason* is ``None`` when the pipeline owns the row (status
         ``"in_progress"`` with matching worker_id).  Otherwise it is set to
@@ -163,7 +171,19 @@ class OutboxManager:
             # allocates it atomically with insertion; the placeholder value is
             # ignored in replay mode. Live delivery retains normal idempotent
             # attempt-1 creation without claiming existing recovery work.
-            attempt_number = 1
+            attempt_number = 0 if pending else 1
+            if pending:
+                if source != "live":
+                    raise ValueError("only live ingress can stage initial delivery")
+                if event.metadata.routing is None:
+                    raise ValueError(
+                        "initial staging requires the accepted routing decision"
+                    )
+                _dest_meta["dispatch_context"] = msgspec.to_builtins(
+                    OutboxDispatchContext(
+                        route=route, plan=route_plan, routing=event.metadata.routing
+                    )
+                )
 
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
@@ -176,10 +196,10 @@ class OutboxManager:
                     target.destination.destination_hash if target.destination else None
                 ),
                 attempt_number=attempt_number,
-                status="in_progress",
-                locked_at=_now.isoformat(),
-                lease_until=_lease_until,
-                worker_id=pipeline_worker,
+                status="pending" if pending else "in_progress",
+                locked_at=None if pending else _now.isoformat(),
+                lease_until=None if pending else _lease_until,
+                worker_id=None if pending else pipeline_worker,
                 dispatch_source=source,
                 replay_run_id=(
                     replay_run_id if source == "replay" and replay_run_id else None
@@ -223,6 +243,10 @@ class OutboxManager:
                     created.outbox_id,
                     created.status,
                 )
+            elif pending:
+                # Durable staging adopts any existing obligation. It creates
+                # no native owner and leaves all dispatch to the claim worker.
+                skip_reason = "staged"
             elif created.status in {"pending", "retry_wait", "queued"}:
                 skip_reason = f"active:{created.status}"
                 self._log.info(

@@ -178,8 +178,50 @@ same event merely because one processing attempt exceeds the initial lease. A cl
 processing failure returns the work to `pending` until the bounded retry budget is
 exhausted, after which the row becomes terminal `failed`; cancellation or process
 death leaves the lease in place so another worker generation can reclaim it after
-expiry. Completing ingress work means routing/planning reached the existing durable
-outbox boundary; it does not mean every external target acknowledged delivery.
+expiry. Completing ingress work means routing/planning reached the durable outbox
+boundary; it does not await any native target handoff. Each initial obligation
+retains its exact route and delivery plan, including origin labeling, destination,
+capability, fallback, retry policy, deadline and routing attribution. Partial
+staging MUST defer ingress
+completion; repeating that staging MUST adopt existing obligations without
+rewinding attempts or native evidence.
+
+The runtime outbox dispatcher claims initial work even when automatic retries are
+disabled. A staged row has finalized attempt zero and no native submission. A
+successful guarded reservation creates positive attempt one immediately before
+handoff. Only reservations and actual attempt evidence can authorize native
+submission; a pending row is not a transport acceptance or delivery receipt.
+Expired or missing leases on attempt-zero claims without an active reservation
+MUST be reclaimable with automatic retries disabled. A positive reservation MUST
+remain held in that mode.
+
+Initial relation and conversation preparation MUST execute inside the renewed
+outbox claim lifetime. Retained routing metadata, including matched routes,
+fanout group and the bounded route trace, MUST reach both initial and retry
+rendering without modifying the stored canonical event.
+
+Initial obligations are polled at most 0.5 seconds apart when a dispatch slot is
+available. Completed handoffs wake the dispatcher immediately so idle polling
+does not limit sustained message throughput. The configured retry interval remains
+authoritative for retry scans;
+frequent initial polling MUST NOT accelerate automatic retries. Due work is
+ordered by its scheduled attempt time, or creation time for pending work, within
+adapter lanes and across the global claim limit. Fresh ingress MUST NOT receive
+unconditional priority over due retries.
+
+Startup-unavailable and capacity-refused work MUST retain its attempt number and
+wait at least one retry interval before being reconsidered. The dispatcher also
+pauses that adapter lane until the committed deferral time; completing a refusal
+MUST NOT immediately walk that adapter's pending siblings. This process-local
+cooldown grants no delivery authority and MUST NOT stop healthy adapter lanes.
+
+The dispatcher MUST NOT wait for one event's entire fanout before considering
+another event. It runs at most one handoff per adapter, bounded additionally by
+`max_inflight_deliveries`; unclaimed backlog remains in SQLite. A leased adapter
+lane is excluded before the claim limit is applied, so a stalled target cannot
+hide runnable work for another target. Adapter-owned send queues and radio pacing
+remain authoritative. A global delivery limit of one necessarily permits only one
+active native handoff; isolation does not manufacture additional capacity.
 
 Runtime diagnostics expose whether the durable-ingress worker is running plus its
 per-generation processed, failure, lost-lease, terminal-failure, deferral, and

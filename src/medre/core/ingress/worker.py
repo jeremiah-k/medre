@@ -42,7 +42,7 @@ class _IngressStorage(Protocol):
 
 
 class _IngressPipeline(Protocol):
-    async def process_admitted_event(self, event_id: str) -> object: ...
+    async def enqueue_admitted_event(self, event_id: str) -> object: ...
 
 
 class _IngressLeaseLostError(RuntimeError):
@@ -231,7 +231,7 @@ class DurableIngressWorker:
 
     async def _process_with_lease(self, item: IngressWorkItem) -> None:
         processing = asyncio.create_task(
-            self._pipeline.process_admitted_event(item.event_id)
+            self._pipeline.enqueue_admitted_event(item.event_id)
         )
         renewal = asyncio.create_task(self._renew_lease(item.event_id))
         try:

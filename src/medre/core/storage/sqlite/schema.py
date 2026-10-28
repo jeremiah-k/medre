@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     replay_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
-    CHECK (attempt_number >= 1),
+    CHECK (attempt_number >= 0),
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
     CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),
@@ -755,8 +755,8 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "delivery_outbox": (
         (
-            "CHECK (attempt_number >= 1)",
-            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+            "CHECK (attempt_number >= 0)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*0\s*\)",
         ),
         (
             "CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1)",

@@ -15,6 +15,7 @@ import pytest
 
 from medre.config.paths import MedrePaths, resolve
 from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
@@ -565,6 +566,7 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
     @staticmethod
     def _build_app(paths: MedrePaths) -> MedreApp:
         from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
@@ -717,7 +719,6 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Suppressed delivery is terminal but must not increment retry success."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -757,7 +758,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -806,7 +807,6 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Known startup-unavailable targets are deferred, not dispatched."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -834,7 +834,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -861,6 +861,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     assert defer_call.kwargs == {
         "failure_kind": "adapter_transient",
         "attempt_number": 2,
+        "min_delay": timedelta(seconds=10),
         "error_summary": (
             "adapter_unavailable_startup: target adapter did not complete "
             "runtime startup"
@@ -883,7 +884,6 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reclaimed rows repair persisted evidence without duplicate delivery."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -917,7 +917,7 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -966,7 +966,6 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
     expected_dead_lettered: int,
 ) -> None:
     """Claim reconciliation updates counters/events without redispatch."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -1000,7 +999,7 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1033,7 +1032,6 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Empty exception messages still produce a useful retry failure error."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -1071,7 +1069,7 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1099,7 +1097,6 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Lifecycle write errors report their own error, not the delivery error."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -1133,7 +1130,7 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1167,7 +1164,6 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Post-send outbox write failure is visible and not counted successful."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -1209,7 +1205,7 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),

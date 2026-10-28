@@ -21,7 +21,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
 from weakref import WeakValueDictionary
 
@@ -29,7 +29,11 @@ from medre.core.contracts.adapter import AdapterContract
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
-from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
+from medre.core.engine.pipeline.outbox_manager import (
+    OUTBOX_CREATION_FAILED_REASON,
+    OutboxContext,
+    OutboxManager,
+)
 from medre.core.engine.pipeline.receipt_factory import plan_capability_receipt_fields
 from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
@@ -51,7 +55,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
@@ -60,6 +64,7 @@ if TYPE_CHECKING:
 _ItemT = TypeVar("_ItemT")
 _ResultT = TypeVar("_ResultT")
 
+_PrepareEventFn = Callable[[CanonicalEvent], Awaitable[CanonicalEvent]]
 _GetEventFn = Callable[[str], Awaitable[CanonicalEvent | None]]
 _ListNativeRefsFn = Callable[[str], Awaitable[list[NativeMessageRef]]]
 
@@ -306,6 +311,104 @@ class DeliveryCoordinator:
             _deliver_item,
             worker_limit=worker_limit,
         )
+
+    async def deliver_initial_outbox(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        item: DeliveryOutboxItem,
+        reserved_attempt_number: int,
+        prepare_event: _PrepareEventFn,
+    ) -> DeliveryOutcome:
+        """Execute an initial handoff under the dispatcher's capacity and claim.
+
+        The caller acquires capacity and reserves attempt one before entering.
+        This reuses ordinary delivery accounting, in-flight identity, lease
+        renewal and lifecycle finalization without creating or reclaiming work.
+        Runner-owned event preparation executes inside that lease lifetime.
+        """
+        ctx = _DeliveryContext(
+            event=event,
+            route=route,
+            plan=plan,
+            source="live",
+            replay_run_id=None,
+            cached_get_fn=None,
+            cached_list_fn=None,
+            started_at=time.monotonic(),
+        )
+        key = self._inflight_key(ctx)
+        outbox = OutboxContext(
+            outbox_id=item.outbox_id,
+            created=True,
+            pipeline_worker=item.worker_id or "",
+            skip_reason=None,
+            attempt_number=reserved_attempt_number,
+        )
+        try:
+            return await self._execute_owned_delivery(
+                ctx,
+                replay_authority=None,
+                outbox_ctx=outbox,
+                inflight_key=key,
+                prepare_event=prepare_event,
+            )
+        finally:
+            self._inflight_deliveries.pop(key, None)
+
+    async def enqueue_many(
+        self,
+        event: CanonicalEvent,
+        route_targets: list[tuple[Route, DeliveryPlan]],
+    ) -> list[DeliveryOutcome]:
+        """Persist initial obligations without waiting for native handoffs.
+
+        Preflight suppression remains authoritative. Each accepted plan is stored
+        intact with attempt zero, which denotes work never dispatched. Partial
+        persistence is safe: deterministic delivery identities adopt existing
+        obligations when ingress planning is retried.
+        """
+        outcomes = []
+        for route, plan in route_targets:
+            ctx = _DeliveryContext(
+                event=event,
+                route=route,
+                plan=plan,
+                source="live",
+                replay_run_id=None,
+                cached_get_fn=None,
+                cached_list_fn=None,
+                started_at=time.monotonic(),
+            )
+            if not ctx.identity.complete:
+                outcomes.append(await self._incomplete_identity_outcome(ctx))
+                continue
+            preflight = await self._preflight_outcome(ctx, None)
+            if preflight is not None:
+                outcomes.append(preflight)
+                continue
+            outbox = await self._outbox_manager.create_for_delivery(
+                event,
+                route,
+                plan,
+                plan.target,
+                ctx.adapter_id,
+                pending=True,
+            )
+            if outbox.skip_reason == OUTBOX_CREATION_FAILED_REASON:
+                outcomes.append(
+                    self._build_outcome(
+                        ctx,
+                        status="skipped",
+                        failure_kind=DeliveryFailureKind.OUTBOX_NOT_OWNED,
+                        failure_kind_detail=outbox.skip_reason,
+                    )
+                )
+            else:
+                outcomes.append(self._build_outcome(ctx, status="queued"))
+        return outcomes
 
     async def _deliver_one(
         self,
@@ -803,6 +906,7 @@ class DeliveryCoordinator:
         replay_authority: DeliveryReceipt | None,
         outbox_ctx: OutboxContext,
         inflight_key: str | None,
+        prepare_event: _PrepareEventFn | None = None,
     ) -> DeliveryOutcome:
         """Deliver while retaining the outbox claim, then finalize its outcome.
 
@@ -825,6 +929,8 @@ class DeliveryCoordinator:
                 outbox_id=outbox_ctx.outbox_id,
             )
         try:
+            if prepare_event is not None:
+                ctx = replace(ctx, event=await prepare_event(ctx.event))
             result = await self._invoke_target(ctx, replay_authority, outbox_ctx)
             return result.outcome
         finally:

@@ -488,9 +488,9 @@ class DeliveryOutboxItem:
         identifier rather than a full address — the full address is reconstructed
         from the route + plan context when needed.
     attempt_number:
-        1-indexed attempt counter.  While ``active_attempt`` is set this is
-        the last *finalized* attempt; the in-flight attempt is
-        ``active_attempt``.
+        Last finalized attempt, or zero for staged work never dispatched.
+        While ``active_attempt`` is set the in-flight attempt is
+        ``active_attempt``; receipt and native-packet attempts remain positive.
     active_attempt:
         The durably reserved in-flight attempt for this row, or ``None``.
         Retry dispatch reserves ``attempt_number + 1`` before invoking the
@@ -1562,6 +1562,10 @@ class StorageBackend(Protocol):
         worker_id: str,
         lease_seconds: int = 30,
         limit: int = 20,
+        *,
+        excluded_adapters: tuple[str, ...] = (),
+        initial_only: bool = False,
+        one_per_adapter: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Atomically claim due outbox items for processing.
 
@@ -1721,7 +1725,8 @@ class StorageBackend(Protocol):
 
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1`` and
-        ``dispatch_source = 'retry'`` only when the row is ``in_progress``,
+        records ``live`` for a first reservation from zero, otherwise ``retry``,
+        only when the row is ``in_progress``,
         owned by *worker_id*, has no
         existing reservation, still stores ``attempt_number ==
         from_attempt``, and no sibling row for the same event-scoped delivery

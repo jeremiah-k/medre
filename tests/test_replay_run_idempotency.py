@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,6 +17,7 @@ import pytest
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import DeliveryReceipt
 from medre.core.evidence.retry_outbox import build_retry_outbox_summary
@@ -484,7 +484,7 @@ async def test_retry_preserves_originating_replay_run_provenance(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),

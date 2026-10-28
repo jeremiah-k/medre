@@ -596,7 +596,18 @@ The fallback chain is part of the `DeliveryPlan`. It is constructed at planning 
 
 ### 7.1 Opt-In
 
-Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried: the `failed` attempt receipt is followed by linked `dead_lettered` lifecycle evidence at the same attempt number.
+Retry is **opt-in** and disabled by default. Initial dispatch from the durable
+outbox remains active independently of retry configuration. With automatic retries
+disabled, the dispatcher claims only never-dispatched obligations; interrupted
+reservations and completed failures are held for explicit recovery rather than
+being submitted again. Without a `RetryPolicy`, a failed dispatch produces linked
+`dead_lettered` lifecycle evidence at the same attempt number.
+
+Initial obligations retain a complete route/plan snapshot. Dispatch and later
+retry reconstruction MUST preserve that accepted decision instead of consulting
+mutable route defaults. Adapter lanes permit healthy destinations to process a
+later message while another destination remains stalled; both native ownership
+and task creation stay bounded by the configured delivery capacity.
 
 ### 7.2 Auto-Retried Failures
 

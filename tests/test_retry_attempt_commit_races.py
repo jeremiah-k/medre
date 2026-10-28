@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
@@ -11,6 +10,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptFinalization,
 )
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -229,7 +229,7 @@ async def test_retry_worker_reports_callback_won_queued_race_as_committed_succes
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),

@@ -87,7 +87,7 @@ class _Pipeline:
         self.fail = fail
         self.processed: list[str] = []
 
-    async def process_admitted_event(self, event_id: str) -> None:
+    async def enqueue_admitted_event(self, event_id: str) -> None:
         self.processed.append(event_id)
         if self.fail:
             raise RuntimeError("planner unavailable")
@@ -120,7 +120,7 @@ async def test_worker_deferral_does_not_consume_terminal_budget_or_hot_loop() ->
     storage = _Storage([_work("evt-deferred", attempts=5), _work("evt-next")])
 
     class _DeferredPipeline:
-        async def process_admitted_event(self, event_id: str) -> None:
+        async def enqueue_admitted_event(self, event_id: str) -> None:
             raise DurableIngressDeferredError(event_id, ("capacity_rejection",))
 
     worker = DurableIngressWorker(
@@ -150,7 +150,7 @@ async def test_worker_polls_after_deferral_even_when_cycle_completed_work(
     storage = _Storage([_work("evt-complete"), _work("evt-deferred")])
 
     class _PartiallyDeferredPipeline:
-        async def process_admitted_event(self, event_id: str) -> None:
+        async def enqueue_admitted_event(self, event_id: str) -> None:
             if event_id == "evt-deferred":
                 raise DurableIngressDeferredError(event_id, ("capacity_rejection",))
 
@@ -196,7 +196,7 @@ async def test_worker_renews_lease_while_processing() -> None:
     release = asyncio.Event()
 
     class _SlowPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             entered.set()
             await release.wait()
 
@@ -217,7 +217,7 @@ async def test_worker_claims_each_item_only_when_ready_to_process() -> None:
     processed: list[str] = []
 
     class _SequentialPipeline:
-        async def process_admitted_event(self, event_id: str) -> None:
+        async def enqueue_admitted_event(self, event_id: str) -> None:
             processed.append(event_id)
             if event_id == "evt-1":
                 first_started.set()
@@ -315,7 +315,7 @@ async def test_worker_detects_lease_loss_during_processing() -> None:
     entered = asyncio.Event()
 
     class _BlockedPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             entered.set()
             await asyncio.Event().wait()
 
@@ -357,7 +357,7 @@ async def test_worker_run_once_propagates_cancellation() -> None:
     entered = asyncio.Event()
 
     class _BlockedPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             entered.set()
             await asyncio.Event().wait()
 
@@ -377,7 +377,7 @@ async def test_worker_treats_ended_lease_renewal_as_ownership_loss(
     storage = _Storage([_work()])
 
     class _BlockedPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             await asyncio.Event().wait()
 
     worker = DurableIngressWorker(storage=storage, pipeline=_BlockedPipeline())
@@ -400,7 +400,7 @@ async def test_worker_graceful_stop_finishes_current_item_without_claiming_next(
     release = asyncio.Event()
 
     class _SlowPipeline:
-        async def process_admitted_event(self, event_id: str) -> None:
+        async def enqueue_admitted_event(self, event_id: str) -> None:
             if event_id == "evt-1":
                 entered.set()
                 await release.wait()
@@ -430,7 +430,7 @@ async def test_worker_forces_active_item_after_shutdown_grace_expires() -> None:
     never = asyncio.Event()
 
     class _BlockedPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             entered.set()
             await never.wait()
 
@@ -458,7 +458,7 @@ async def test_worker_stop_is_bounded_when_processing_suppresses_cancellation() 
     release = asyncio.Event()
 
     class _CancellationResistantPipeline:
-        async def process_admitted_event(self, _event_id: str) -> None:
+        async def enqueue_admitted_event(self, _event_id: str) -> None:
             entered.set()
             try:
                 await asyncio.Event().wait()

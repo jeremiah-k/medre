@@ -195,8 +195,8 @@ vocabulary for individual transitions is owned by
 4. Durable-ingress worker construction — LIVE scope only — with processing
    deferred until adapter startup completes so cursor-owned adapters can
    admit work while delivery targets are still coming up.
-5. Retry worker construction — only when retry is enabled and storage is
-   present (LIVE scope only).
+5. Outbox dispatcher construction whenever storage is present (LIVE scope only).
+   Initial dispatch MUST remain active independently of automatic retry policy.
 6. Adapters, scheduled concurrently in sorted `adapter_id` order. Each start
    MUST receive a cooperative deadline from runtime.adapter_start_timeout_seconds
    (60 seconds by default). Expiry MUST cancel setup and retire partial resources

@@ -18,7 +18,11 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+from tests.helpers.pipeline import (
+    dispatch_initial_batch,
+    make_event,
+    make_pipeline_config_for_pipeline,
+)
 
 
 class _FailOnceAdapter(FakePresentationAdapter):
@@ -85,6 +89,7 @@ async def test_recovered_ingress_preserves_independent_target_retry(
             assert await ingress.run_once() == 0
             assert ingress.deferrals == 1
             assert await storage.count_ingress_work_by_status() == {"pending": 1}
+        await dispatch_initial_batch(storage, runner)
         pending = await storage.list_outbox_items_for_event(event.event_id)
         assert len(pending) == 1
         before = pending[0]
@@ -129,6 +134,7 @@ async def test_recovered_ingress_preserves_independent_target_retry(
             storage=reopened, pipeline=resumed, batch_size=1
         )
         assert await recovered.run_once() == 1
+        await dispatch_initial_batch(reopened, resumed)
         assert await reopened.count_ingress_work_by_status() == {"completed": 1}
         assert (
             resumed_first.delivered_payloads == []
