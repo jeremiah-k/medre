@@ -36,15 +36,19 @@ class _CountMixin:
         probe. Physical bytes, provider stores and existing backups are outside
         the measured core SQLite scope.
         """
-        present = {
-            str(row["name"])
-            for row in await self._read_all(
-                "SELECT name FROM sqlite_schema WHERE type = 'table'"
-            )
-        }
-        if any(surface.table not in present for surface in CONTENT_SURFACES):
-            raise StorageError("Content inventory requires initialized content storage")
+        for surface in CONTENT_SURFACES:
+            columns = {
+                str(row["name"])
+                for row in await self._read_all(
+                    "SELECT name FROM pragma_table_info(?)", (surface.table,)
+                )
+            }
+            if not columns or not set(surface.columns) <= columns:
+                raise StorageError(
+                    "Content inventory requires initialized content storage"
+                )
         rows = await self._read_all(inventory_sql())
+        by_surface = {str(row["surface"]): row for row in rows}
         return {
             "format": "medre-content-inventory",
             "version": 1,
@@ -55,10 +59,10 @@ class _CountMixin:
                     "table": surface.table,
                     "columns": list(surface.columns),
                     "consumers": list(surface.consumers),
-                    "rows": int(row["rows"]),
-                    "logical_bytes": int(row["logical_bytes"]),
+                    "rows": int(by_surface[surface.table]["rows"]),
+                    "logical_bytes": int(by_surface[surface.table]["logical_bytes"]),
                 }
-                for surface, row in zip(CONTENT_SURFACES, rows, strict=True)
+                for surface in CONTENT_SURFACES
             ],
             "unmeasured": [
                 "correlation_identifiers",
