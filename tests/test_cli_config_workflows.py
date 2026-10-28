@@ -315,9 +315,10 @@ class TestNoTracebackGuarantee:
         assert code != 0
         assert "Traceback" not in stderr
 
-    def test_routes_without_subcommand_no_traceback(self) -> None:
-        _, stderr, code = _run_cli_raw("routes")
-        assert code != 0
+    def test_routes_without_subcommand_shows_help(self) -> None:
+        stdout, stderr, code = _run_cli_raw("routes")
+        assert code == 0
+        assert "diagram" in stdout and "validate" in stdout
         assert "Traceback" not in stderr
 
     def test_run_missing_config_no_traceback(self, tmp_path: Path) -> None:

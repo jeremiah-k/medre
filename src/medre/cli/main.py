@@ -83,6 +83,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     parser = argparse.ArgumentParser(
         prog="medre",
         description="Modular Event-driven Routing Engine",
+        epilog="Try 'medre help routes diagram' or 'medre config use PATH' to get started.",
         allow_abbrev=False,
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -837,12 +838,17 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Output ZIP path (default: medre-support-bundle.zip in cwd)",
     )
 
+    from .help_navigation import describe_defaults
+
+    describe_defaults(parser)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate command handler."""
-    arguments = list(argv) if argv is not None else sys.argv[1:]
+    from .help_navigation import group_help, help_request
+
+    arguments = help_request(list(argv) if argv is not None else sys.argv[1:])
     package_actions = {"sources", "install", "remove", "upgrade", "update", "reset"}
     adapter_action = None
     if arguments and arguments[0] == "adapters":
@@ -859,7 +865,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     # Updating or removing a broken provider must not import that provider.
     parser = _build_parser(include_adapter_cli=not managing_packages)
-    args = parser.parse_args(arguments)
+    args = parser.parse_args(group_help(parser, arguments))
 
     if (
         args.command == "inspect"
