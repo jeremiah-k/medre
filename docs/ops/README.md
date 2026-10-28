@@ -16,6 +16,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Create native connections, change bridges, and explain routing | [Guided configuration](guided-configuration.md)                                            |
 | Get optional AI help with setup                                | [AI-assisted setup](ai-assisted-setup.md)                                                  |
 | Configure routes, contexts, or policies                        | [Configuration](configuration.md)                                                          |
+| Preview connections, channel mappings, or Mermaid route graphs  | [Route visualization](route-visualization.md)                                               |
 | Start, stop, and monitor a bridge                              | [Running MEDRE](running-medre.md)                                                          |
 | Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
 | Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                              |

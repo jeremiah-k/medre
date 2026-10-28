@@ -572,3 +572,37 @@ def _routes_explain(
         print("  No configured source filters matched.")
     print(f"  Scope: {result.scope}")
     print(f"  Important: {result.caveat}")
+
+
+def _routes_diagram(
+    config_path: str | None, *, output_format: str, view: str, full_context: bool
+) -> None:
+    """Preview the full configured endpoint topology, without adapter I/O."""
+    from medre.runtime.route_diagram import (
+        build_route_diagram,
+        diagram_as_dict,
+        render_adapter_summary,
+        render_mermaid,
+    )
+
+    try:
+        config, _source, paths = load_config(config_path)
+        config = apply_env_overrides(config, paths)
+        diagram = build_route_diagram(config)
+    except Exception as exc:
+        print(f"Route diagram error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+    if output_format == "mermaid":
+        print(render_mermaid(diagram, view=view, full_context=full_context), end="")
+    elif output_format == "json":
+        print(to_json(diagram_as_dict(diagram, full_context=full_context)))
+    else:
+        print(render_adapter_summary(diagram, full_context=full_context), end="")
+    if diagram.errors:
+        print(
+            f"Route diagram is incomplete: {len(diagram.errors)} configuration issue(s). "
+            "Use 'medre routes plan' for details.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)

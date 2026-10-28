@@ -91,6 +91,8 @@ printed by the wizard. You can also review the plan directly:
 ```bash
 medre config check --config bridge.yaml
 medre routes plan --config bridge.yaml
+medre routes diagram --config bridge.yaml
+medre routes diagram --config bridge.yaml --format mermaid > bridge.mmd
 ```
 
 A successful preview proves configuration and route-plan consistency; it does
