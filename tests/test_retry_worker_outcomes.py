@@ -554,13 +554,11 @@ class TestUncancelDrainAllAndRestore:
 
 
 class TestAppStopRetryWorkerAbandonmentVisibility:
-    """``MedreApp.stop()`` must log a warning when the retry worker
-    is abandoned during shutdown.  This gives operators a signal
-    that subprocess-driven retries may still be in-flight after
-    ``stop()`` returns.
+    """Shutdown must retain native dependencies until dispatch ownership ends.
 
-    Exercises the real ``MedreApp.stop()`` branch with a stub retry
-    worker to verify the warning is emitted.
+    Use the real ``MedreApp.stop()`` path with a stub outbox dispatcher to
+    check that abandoned native work fails closed rather than being logged
+    and followed by unsafe teardown.
     """
 
     @staticmethod
@@ -594,14 +592,10 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         return RuntimeBuilder(config=config, paths=paths).build()
 
     @pytest.mark.asyncio
-    async def test_stop_logs_warning_when_retry_worker_abandoned(
+    async def test_stop_refuses_teardown_when_native_dispatch_remains_active(
         self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
     ):
-        """When ``RetryWorker.stop()`` returns with
-        ``state.abandoned=True``, the retry-worker block in
-        ``MedreApp.stop()`` must log a warning naming the
-        abandonment.
-        """
+        """An abandoned native send is a shutdown failure, not a warning."""
         from medre.runtime.app import RuntimeState
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
@@ -616,21 +610,24 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
 
-        async def _abandon_on_stop() -> None:
+        async def _abandon_on_stop(*, timeout_seconds: float | None = None) -> None:
             pass
 
         worker.stop = _abandon_on_stop
+        worker.has_retained_work = True
         app._retry_worker = worker
 
-        with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):
-            await app.stop()
+        from medre.runtime.errors import RuntimeShutdownError
 
-        abandonment_warnings = [
-            r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
-        ]
-        assert len(abandonment_warnings) == 1
-        assert "state.running=False, state.abandoned=True" in (
-            abandonment_warnings[0].getMessage()
+        with caplog.at_level(logging.ERROR, logger="medre.runtime.app"):
+            with pytest.raises(
+                RuntimeShutdownError, match="Outbox dispatch remains active"
+            ):
+                await app.stop()
+        assert app._state is RuntimeState.FAILED
+        assert any(
+            "Outbox dispatch remains active" in record.getMessage()
+            for record in caplog.records
         )
 
     @pytest.mark.asyncio
@@ -652,10 +649,11 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
 
-        async def _clean_stop() -> None:
+        async def _clean_stop(*, timeout_seconds: float | None = None) -> None:
             pass
 
         worker.stop = _clean_stop
+        worker.has_retained_work = False
         app._retry_worker = worker
 
         with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):

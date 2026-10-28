@@ -225,6 +225,28 @@ class TestReleaseClaim:
         # The pipeline must set a new next_attempt_at when re-scheduling.
         assert released.next_attempt_at is None
 
+    async def test_unreserved_only_release_cannot_clear_active_reservation(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
+        item = _make_outbox_item(delivery_plan_id="plan-release-fence")
+        created = await outbox_temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00", worker_id="claim-owner", limit=10
+        )
+        assert (
+            await outbox_temp_storage.reserve_outbox_attempt(
+                created.outbox_id, "claim-owner", 1
+            )
+            == 2
+        )
+        await outbox_temp_storage.release_outbox_claim(
+            created.outbox_id, "claim-owner", require_unreserved=True
+        )
+        fenced = await outbox_temp_storage.get_outbox_item(created.outbox_id)
+        assert fenced.status == "in_progress"
+        assert fenced.worker_id == "claim-owner"
+        assert fenced.attempt_number == 1 and fenced.active_attempt == 2
+
     async def test_release_wrong_worker_noop(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:

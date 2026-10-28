@@ -215,6 +215,17 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
 
+    async def release_outbox_claim(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        *,
+        release_status: str = "pending",
+        require_unreserved: bool = False,
+    ) -> None:
+        """Release an owned claim under optional atomic reservation fencing."""
+        ...
+
     async def reserve_outbox_attempt(
         self,
         outbox_id: str,
@@ -1742,6 +1753,26 @@ class DeliveryLifecycleService:
             unpersisted_error_summary=error_summary,
             attempt_number=resolved_attempt,
             now=now,
+        )
+
+    async def release_unstarted_retry_claim(
+        self, storage: DeliveryLifecycleStorage, item: DeliveryOutboxItem
+    ) -> None:
+        """Return unscheduled work to the outbox without fabricating an attempt.
+
+        An existing active reservation is potentially a native handoff, even
+        when a new dispatcher reclaimed its lease but never sent anything.
+        Such claims are not releasable here and must follow reconciliation.
+        """
+        if item.active_attempt is not None:
+            return
+        if not item.worker_id:
+            raise ValueError("unstarted claim release requires a worker owner")
+        await storage.release_outbox_claim(
+            item.outbox_id,
+            item.worker_id,
+            release_status="pending" if item.attempt_number == 0 else "retry_wait",
+            require_unreserved=True,
         )
 
     async def defer_retry_outbox(

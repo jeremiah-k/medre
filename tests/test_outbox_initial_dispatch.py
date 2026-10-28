@@ -255,6 +255,102 @@ async def test_pending_shape_is_refused_without_rewriting_existing_state(
     check.close()
 
 
+async def test_shutdown_during_claim_returns_unreserved_initial_work(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, _, adapters = _pipeline(temp_storage)
+    rows = await _stage(temp_storage, runner)
+    dispatcher = RetryWorker(
+        temp_storage, runner, None, initial_dispatch=True, enabled=False
+    )
+    original_claim = temp_storage.claim_due_outbox_items
+
+    async def stop_during_claim(*args, **kwargs):
+        claimed = await original_claim(*args, **kwargs)
+        dispatcher._shutdown_event.set()
+        return claimed
+
+    monkeypatch.setattr(temp_storage, "claim_due_outbox_items", stop_during_claim)
+    async with asyncio.TaskGroup() as group:
+        await dispatcher._process_due(datetime.now(timezone.utc), group=group)
+    after = await temp_storage.list_outbox_items_for_event("event")
+    assert {row.outbox_id for row in after} == {row.outbox_id for row in rows}
+    assert all(
+        row.status == "pending"
+        and row.worker_id is None
+        and row.lease_until is None
+        and row.active_attempt is None
+        and row.attempt_number == 0
+        for row in after
+    )
+    assert all(not adapter.delivered_payloads for adapter in adapters.values())
+
+
+async def test_shutdown_after_reclaim_keeps_prior_reserved_attempt_fenced(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, _, adapters = _pipeline(temp_storage)
+    await _stage(temp_storage, runner)
+    now = datetime.now(timezone.utc)
+    claimed = await temp_storage.claim_due_outbox_items(
+        now.isoformat(), "original-owner", limit=1, lease_seconds=30
+    )
+    assert len(claimed) == 1
+    held_id = claimed[0].outbox_id
+    assert await temp_storage.reserve_outbox_attempt(held_id, "original-owner", 0) == 1
+    dispatcher = RetryWorker(
+        temp_storage, runner, None, initial_dispatch=True, enabled=True
+    )
+    original_claim = temp_storage.claim_due_outbox_items
+
+    async def stop_during_claim(*args, **kwargs):
+        items = await original_claim(*args, **kwargs)
+        dispatcher._shutdown_event.set()
+        return items
+
+    monkeypatch.setattr(temp_storage, "claim_due_outbox_items", stop_during_claim)
+    async with asyncio.TaskGroup() as group:
+        await dispatcher._process_due(now + timedelta(seconds=31), group=group)
+    after = await temp_storage.list_outbox_items_for_event("event")
+    fenced = next(row for row in after if row.outbox_id == held_id)
+    assert fenced.status == "in_progress"
+    assert fenced.active_attempt == 1 and fenced.attempt_number == 0
+    assert fenced.worker_id not in (None, "original-owner")
+    others = [row for row in after if row.outbox_id != held_id]
+    assert others and all(
+        row.status == "pending" and row.worker_id is None for row in others
+    )
+    assert all(not adapter.delivered_payloads for adapter in adapters.values())
+
+
+async def test_one_shot_shutdown_releases_remaining_claimed_targets(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, _, adapters = _pipeline(temp_storage)
+    await _stage(temp_storage, runner)
+    dispatcher = RetryWorker(
+        temp_storage, runner, None, initial_dispatch=True, enabled=False
+    )
+    original_delivery = dispatcher._retry_outbox_item
+    completed = 0
+
+    async def stop_after_first(item):
+        nonlocal completed
+        await original_delivery(item)
+        completed += 1
+        dispatcher._shutdown_event.set()
+
+    monkeypatch.setattr(dispatcher, "_retry_outbox_item", stop_after_first)
+    await dispatcher._process_due(datetime.now(timezone.utc))
+    assert completed == 1
+    after = await temp_storage.list_outbox_items_for_event("event")
+    assert sorted(row.status for row in after) == ["pending", "sent"]
+    pending = next(row for row in after if row.status == "pending")
+    assert pending.worker_id is None and pending.lease_until is None
+    assert pending.active_attempt is None and pending.attempt_number == 0
+    assert sum(len(adapter.delivered_payloads) for adapter in adapters.values()) == 1
+
+
 async def test_empty_channel_keeps_normalized_identity_during_dispatch(
     temp_storage: SQLiteStorage,
 ) -> None:

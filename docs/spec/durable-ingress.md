@@ -256,6 +256,15 @@ restart racing side effects that may still be covered by the corresponding outbo
 lease. Late adapter callbacks may still cross durable admission while adapters are
 shutting down; those rows remain pending for the next runtime generation.
 
+If shutdown is requested after the outbox has claimed a batch but before a
+particular row begins dispatch, the dispatcher SHOULD immediately release that
+row only when it has no active attempt reservation. Such a row remains durable
+and is claimable on restart without waiting for an unused lease to expire. A
+row carrying an earlier reserved attempt MUST retain its fence, even if the new
+scheduler generation did not issue another send: a native handoff may already
+have occurred. Failed claim cleanup may leave the lease until expiration but
+MUST NOT infer that delivery was unsent.
+
 If an outbox dispatch resists cancellation beyond the shared drain deadline,
 shutdown MUST return a failure while retaining pipeline, adapters and storage.
 Stopping the scheduler MUST NOT be reported as release of native ownership while

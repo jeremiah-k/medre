@@ -545,11 +545,21 @@ class RetryWorker:
             exc,
             exc_info=exc,
         )
+        # TaskGroup wraps child failures in ExceptionGroup. Report the
+        # actionable underlying cause in runtime events rather than only
+        # "unhandled errors in a TaskGroup"; the log above retains the full
+        # exception-group traceback for multiple simultaneous failures.
+        cause = exc
+        while isinstance(cause, BaseExceptionGroup) and cause.exceptions:
+            cause = cause.exceptions[0]
+        summary = f"{type(exc).__name__}: {exc}"
+        if cause is not exc:
+            summary += f"; first cause: {type(cause).__name__}: {cause}"
         self._emit(
             "retry_failed",
             {
                 **counts,
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": summary,
                 "error_type": type(exc).__name__,
             },
         )
@@ -964,8 +974,9 @@ class RetryWorker:
                 self._dispatch_wake.set()
 
         if group is not None:
-            for item in items:
+            for index, item in enumerate(items):
                 if self._shutdown_event.is_set():
+                    await self._release_unstarted_claims(items[index:])
                     break
                 task = group.create_task(
                     dispatch(item), name=f"medre-outbox-{item.target_adapter}"
@@ -974,8 +985,9 @@ class RetryWorker:
         else:
             # A one-shot batch settles sequentially; background dispatch uses
             # the lifetime task group and adapter-aware claim exclusions.
-            for item in items:
+            for index, item in enumerate(items):
                 if self._shutdown_event.is_set():
+                    await self._release_unstarted_claims(items[index:])
                     break
                 await dispatch(item)
         try:
@@ -983,6 +995,30 @@ class RetryWorker:
             self._cycle_completed = True
         except Exception:
             _logger.debug("Outbox dispatch: failed to refresh counts")
+
+    async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
+        """Return only never-reserved claims skipped during shutdown.
+
+        A prior ``active_attempt`` may represent an uncertain native handoff,
+        even if this dispatcher never touched it. Leave those leases intact
+        for normal evidence reconciliation after expiry; releasing one would
+        erase the reservation fence. New claims without a reservation can be
+        returned to the durable queue immediately and safely.
+        """
+        for item in items:
+            if item.active_attempt is not None:
+                continue
+            try:
+                await self._lifecycle.release_unstarted_retry_claim(
+                    self._lifecycle_storage, item
+                )
+            except Exception:
+                # Failed release is safe: the lease eventually expires. Never
+                # obscure the original shutdown with a cleanup exception.
+                _logger.exception(
+                    "Outbox dispatch: could not release unstarted claim %s",
+                    item.outbox_id,
+                )
 
     async def _retry_outbox_item(self, item: DeliveryOutboxItem) -> None:
         """Retry delivery for a single due outbox item.

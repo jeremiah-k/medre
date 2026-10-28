@@ -438,8 +438,16 @@ class TestRetryWorkerStopOrphan:
         # ``retry_stopped``.  The fix re-raises the crash from
         # ``stop()`` so the caller sees the real failure.
         stop_start = asyncio.get_event_loop().time()
-        with pytest.raises(_FatalCrash, match="simulated unrecoverable error"):
+        # The dispatcher now owns its children through TaskGroup, which
+        # reports an escaped BaseException as an ExceptionGroup. Preserve
+        # that structured failure instead of unwrapping the native crash.
+        with pytest.raises(BaseExceptionGroup) as raised:
             await worker.stop()
+        assert any(
+            isinstance(error, _FatalCrash)
+            and str(error) == "simulated unrecoverable error"
+            for error in raised.value.exceptions
+        )
         stop_elapsed = asyncio.get_event_loop().time() - stop_start
 
         assert stop_elapsed < 0.1, (
