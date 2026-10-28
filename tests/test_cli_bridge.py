@@ -601,10 +601,12 @@ def test_descriptor_setup_failure_closes_and_removes_partial_output(
     def fail(*args, **kwargs):
         raise OSError("descriptor setup failed")
 
-    monkeypatch.setattr("medre.cli.bridge_commands.os.open", track_open)
-    monkeypatch.setattr(f"medre.cli.bridge_commands.os.{operation}", fail)
     with pytest.raises(OSError, match="descriptor setup failed"):
-        _write_new_config(output, "private config")
+        # Restore process-wide os functions before pytest inspects the error.
+        with monkeypatch.context() as patch:
+            patch.setattr("medre.cli.bridge_commands.os.open", track_open)
+            patch.setattr(f"medre.cli.bridge_commands.os.{operation}", fail)
+            _write_new_config(output, "private config")
     try:
         with pytest.raises(OSError):
             original_fstat(opened[0])
