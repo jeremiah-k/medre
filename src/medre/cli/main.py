@@ -505,6 +505,16 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
     inspect_sub = inspect_p.add_subparsers(dest="inspect_command", required=True)
 
+    inspect_content = inspect_sub.add_parser(
+        "content", help="Count retained core content without displaying messages"
+    )
+    inspect_content.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
+
     inspect_radio = inspect_sub.add_parser(
         "radio-attempt",
         help="Inspect exact radio packet progress without granting sends",
@@ -1025,6 +1035,7 @@ def main(argv: list[str] | None = None) -> None:
             )
     elif args.command == "inspect":
         from .inspect_commands import (
+            _inspect_content,
             _inspect_event,
             _inspect_native_ref,
             _inspect_pressure,
@@ -1033,7 +1044,9 @@ def main(argv: list[str] | None = None) -> None:
             _inspect_replay,
         )
 
-        if args.inspect_command == "radio-attempt":
+        if args.inspect_command == "content":
+            asyncio.run(_inspect_content(storage_path=args.storage_path))
+        elif args.inspect_command == "radio-attempt":
             asyncio.run(
                 _inspect_radio_attempt(
                     args.outbox_id,

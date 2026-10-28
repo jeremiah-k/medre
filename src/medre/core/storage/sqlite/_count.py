@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
+from medre.core.storage.backend import StorageError
+
 
 class _CountMixin:
     """Count methods for SQLiteStorage.
@@ -17,9 +20,54 @@ class _CountMixin:
 
     if TYPE_CHECKING:
 
+        async def _read_all(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> list[dict[str, Any]]: ...
+
         async def _read_one(
             self, sql: str, params: tuple[Any, ...] = ()
         ) -> dict[str, Any] | None: ...
+
+    async def inspect_content_inventory(self) -> dict[str, Any]:
+        """Count content surfaces without returning messages or granting deletion.
+
+        A single compound SELECT keeps all aggregates in one read snapshot.
+        This explicit inspection scans retained values; it is not a startup
+        probe. Physical bytes, provider stores and existing backups are outside
+        the measured core SQLite scope.
+        """
+        present = {
+            str(row["name"])
+            for row in await self._read_all(
+                "SELECT name FROM sqlite_schema WHERE type = 'table'"
+            )
+        }
+        if any(surface.table not in present for surface in CONTENT_SURFACES):
+            raise StorageError("Content inventory requires initialized content storage")
+        rows = await self._read_all(inventory_sql())
+        return {
+            "format": "medre-content-inventory",
+            "version": 1,
+            "scope": "core_sqlite",
+            "retention_authorized": False,
+            "surfaces": [
+                {
+                    "table": surface.table,
+                    "columns": list(surface.columns),
+                    "consumers": list(surface.consumers),
+                    "rows": int(row["rows"]),
+                    "logical_bytes": int(row["logical_bytes"]),
+                }
+                for surface, row in zip(CONTENT_SURFACES, rows, strict=True)
+            ],
+            "unmeasured": [
+                "correlation_identifiers",
+                "sqlite_free_pages_and_wal",
+                "provider_profiles_and_histories",
+                "snapshots_and_exports",
+                "logs",
+            ],
+        }
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events.
