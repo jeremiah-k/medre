@@ -27,6 +27,7 @@ the relevant spec/ops/dev page.
 | [attribution-status.md](attribution-status.md)                   | Native sender attribution claims and their authority limits                  |
 | [consistency-delivery-status.md](consistency-delivery-status.md) | Consistency, recovery, and delivery audit mapped to tests and evidence       |
 | [source-export-verification.md](source-export-verification.md)   | Reproducible exported-stack bundles and offline pin verification             |
+| [four-target-recovery.md](four-target-recovery.md)               | Durable fanout close/reopen regression and its native qualification boundary |
 | [sqlite-measurement.md](sqlite-measurement.md)                   | Disposable synthetic SQLite append/reopen baseline measurement               |
 | [native-evidence-index.json](native-evidence-index.json)         | Recorded native qualification runs with exact source revisions               |
 
