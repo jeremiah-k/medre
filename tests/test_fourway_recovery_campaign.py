@@ -128,6 +128,11 @@ async def test_fourway_fanout_broken_link_does_not_replay_healthy_targets(
         await retry._process_due(due_at)
         assert retry.state.succeeded == 1
         assert len(restored["FXLF"].delivered_payloads) == 1
+        # Repeated recovery polling must not send even the formerly failed
+        # target again after its outbox obligation has become terminal.
+        await retry._process_due(due_at + timedelta(seconds=5))
+        assert retry.state.succeeded == 1
+        assert len(restored["FXLF"].delivered_payloads) == 1
         assert all(
             not restored[name].delivered_payloads
             for name in ("FXLT", "meshcore", "matrix")
