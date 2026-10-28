@@ -39,6 +39,7 @@ from medre.core.events.canonical import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.events.text import select_message_body
 from medre.core.planning.relation_binding import (
     MUTATION_RELATION_TYPES,
     RelationBindingAuthority,
@@ -388,11 +389,9 @@ class RelationEnricher:
                         target_payload = getattr(target_event, "payload", None)
                         extracted_text: str | None = None
                         if isinstance(target_payload, dict):
-                            raw = target_payload.get("body", target_payload.get("text"))
-                            if raw is not None:
-                                extracted_text = (
-                                    str(raw) if not isinstance(raw, str) else raw
-                                )
+                            extracted_text = select_message_body(
+                                target_payload, strict=False
+                            )
                         if extracted_text:
                             new_fallback = (
                                 current_rel.fallback_text

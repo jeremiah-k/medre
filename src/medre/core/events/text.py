@@ -84,13 +84,13 @@ def select_message_body(payload: Mapping[str, object], *, strict: bool = True) -
     """Select one canonical text body for every transport renderer.
 
     Styled messages bind offsets to ``body`` and must not use a stale ``text``
-    alias. Unstyled legacy messages retain ``text`` precedence. Strict native
+    alias. Unstyled messages select ``text`` first. Strict native
     text adapters reject non-string bodies instead of inventing wire content.
-    The permissive rendering helper retains historical string coercion.
+    Generic rendering can request string coercion explicitly.
     """
     body = payload.get("body")
-    # A malformed explicit body cannot borrow validity from a compatibility
-    # alias. It may otherwise acquire spans belonging to different text.
+    # A malformed explicit body cannot borrow validity from another text
+    # field. It may otherwise acquire spans belonging to different text.
     if strict and "body" in payload and not isinstance(body, str):
         raise ValueError("Message body must be text")
     selected: object
@@ -189,7 +189,7 @@ class StyledText:
     def from_payload(cls, payload: Mapping[str, object]) -> StyledText:
         """Read optional v1 formatting, retaining plain text on invalid metadata.
 
-        Unstyled payloads retain legacy text-first authority; styled payloads
+        Unstyled payloads use text-first selection; styled payloads
         bind offsets to the body. Missing values resolve to an empty string.
         Unknown versions/fields, malformed ranges, and excessive nesting discard
         the formatting as a whole. Never mutate the supplied payload.
@@ -197,7 +197,7 @@ class StyledText:
         body = select_message_body(payload)
         value = payload.get("formatting")
         # Span offsets are meaningful only for an explicitly authored body.
-        # Do not reinterpret spans against a compatibility-only text alias.
+        # Spans apply to body, not a potentially different text field.
         if "body" not in payload:
             return cls(body)
         if (
