@@ -88,20 +88,21 @@ scopes; a distribution without that symbol is unsupported by automatic planning:
   `accounts.lock` flock. Only one selected account, a matching UUID
   directory, and an empty `dc.db-blobs` directory are supported. Missing,
   malformed, ambiguous, multi-account, unknown-file, blob-bearing, symlinked,
-  or encrypted profiles refuse; a coherent native export is needed. The
+  hard-linked, or encrypted profiles refuse; a coherent native export is needed. The
   pending-send journal is included and committed SQLite WAL is folded into
   snapshot databases. Native locks are not copied. Restoring an empty blob
   directory is a native initialization responsibility, not a copied file.
-- **lxmf** — real/native mode refuses generic complete-installation capture.
-  Worker identity (generated or configured) and its SQLite handoff journal
-  can be selected as operator-managed bytes, but The pinned RNS SDK writes binary
-  `known_destinations`, `destination_table`, `transport_identity`, and
-  other conditional state under its configuration storage; LXMF router
-  queues/cache live under its configured `storagepath`. Neither direct
-  delivery nor a worker flock establishes shared-Reticulum ownership.
-  Default Reticulum directory selection, shared instances, and propagated
-  state require native export and explicit external-owner shutdown. A guessed
-  `storage/database` SQLite entry is never selected.
+- **lxmf** — configuration-only `plan` refuses real native coverage.
+  `capture-config` retains endpoint queue and identity leases while selecting
+  the private identity, SQLite handoff journal with committed WAL, supported
+  native router state, and private ratchets. Symlinks, hard links, special
+  files, unknown or temporary files, oversized inventories, and local
+  propagation-node message stores refuse. Lock inodes are validated but not
+  copied. The snapshot covers MEDRE's application profile; an existing shared
+  Reticulum service and other chat applications can remain running with their
+  own profiles. Reticulum configuration and network-service state require
+  their own backup procedure and must be available when the endpoint is
+  restored. Accepted and uncertain handoffs retain their submission fences.
 - **matrix** — the SDK-derived durable store database when the account and
   device are configured. Standard account IDs contain characters the
   inventory path grammar rejects, so generic capture is declared as requiring
@@ -124,22 +125,21 @@ a guessed filename.
 
 ## Practical scenario
 
-1. Stop MEDRE and every native worker. `--stopped` remains an operator
-   assertion; it is not proof that any process has exited.
-2. Run `check` to assess the implemented provider exclusion primitives. To
-   close the check-to-capture race, drive the capture through the library
-   with `retain_local_exclusion` held for its duration.
-3. Run `plan`, review the summary against your actual installation, and keep
-   the inventory with the installation's configuration.
-4. For a supported complete capture use `capture-config`; otherwise `capture`
-   remains only an operator-approved selected-byte snapshot. Map `--root` so
-   every declared file is inside it, then
-   `verify`, then `restore` into an absent destination only.
-5. Before activation, restore any export-only state (operator-supplied
-   identities, credentials sidecars, provider exports) and re-verify that the
-   original installation cannot start elsewhere. Restoring bytes never
-   re-establishes a live lock; the next owner re-fences through the same
-   paths.
+1. Stop MEDRE and its native workers. `--stopped` remains an operator
+   assertion; local exclusion cannot prove another host has stopped. An
+   independently owned shared Reticulum service can remain running.
+2. For supported complete capture, use `capture-config` so provider exclusion
+   remains held through native resolution and snapshot publication. Map
+   `--root` so every selected file lives inside it. The independent `check`
+   command only assesses local exclusion at that point in time.
+3. For unsupported configurations, review the `plan` refusal and arrange the
+   required provider export. An explicit `capture --inventory` selection
+   preserves only the selected bytes and does not certify completeness.
+4. Verify the snapshot, then restore into an absent destination only.
+5. Before activation, supply any separately managed configuration, credentials,
+   provider exports, or network-service setup. Establish that the original
+   endpoint cannot start elsewhere. Restoring bytes never re-establishes a
+   live lock; the next owner re-fences through the same paths.
 
 Capture and restore remain maintenance operations without sends. Unknown or
 uncertain native handoffs stay held after a restore; recovery must still use
