@@ -832,6 +832,17 @@ class PipelineRunner:
                         self._runtime_accounting.record_loop_prevented()
                 return result
 
+    async def prepare_initial_outbox_event(
+        self, event: CanonicalEvent
+    ) -> CanonicalEvent:
+        """Resolve initial delivery context before reserving a native attempt.
+
+        Preparation runs under the dispatcher's renewed, unreserved claim.
+        A failed projection must not consume an attempt or imply handoff.
+        """
+        event = await self._resolve_relations(event)
+        return await self._conversation_projection.project_event(event)
+
     async def deliver_initial_outbox(
         self,
         event: CanonicalEvent,
@@ -841,19 +852,13 @@ class PipelineRunner:
         item: DeliveryOutboxItem,
         reserved_attempt_number: int,
     ) -> DeliveryOutcome:
-        """Deliver a claimed initial obligation through the existing coordinator."""
-
-        async def prepare_event(candidate: CanonicalEvent) -> CanonicalEvent:
-            candidate = await self._resolve_relations(candidate)
-            return await self._conversation_projection.project_event(candidate)
-
+        """Deliver a prepared and reserved obligation through the coordinator."""
         return await self._delivery_coordinator.deliver_initial_outbox(
             event,
             route,
             plan,
             item=item,
             reserved_attempt_number=reserved_attempt_number,
-            prepare_event=prepare_event,
         )
 
     async def enqueue_admitted_event(self, event_id: str) -> list[DeliveryOutcome]:

@@ -21,7 +21,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping, MutableMapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
 from weakref import WeakValueDictionary
 
@@ -64,7 +64,6 @@ if TYPE_CHECKING:
 _ItemT = TypeVar("_ItemT")
 _ResultT = TypeVar("_ResultT")
 
-_PrepareEventFn = Callable[[CanonicalEvent], Awaitable[CanonicalEvent]]
 _GetEventFn = Callable[[str], Awaitable[CanonicalEvent | None]]
 _ListNativeRefsFn = Callable[[str], Awaitable[list[NativeMessageRef]]]
 
@@ -320,14 +319,12 @@ class DeliveryCoordinator:
         *,
         item: DeliveryOutboxItem,
         reserved_attempt_number: int,
-        prepare_event: _PrepareEventFn,
     ) -> DeliveryOutcome:
-        """Execute an initial handoff under the dispatcher's capacity and claim.
+        """Execute a prepared initial handoff under dispatcher capacity and claim.
 
-        The caller acquires capacity and reserves attempt one before entering.
-        This reuses ordinary delivery accounting, in-flight identity, lease
-        renewal and lifecycle finalization without creating or reclaiming work.
-        Runner-owned event preparation executes inside that lease lifetime.
+        The caller prepares the delivery copy under an unreserved lease, then
+        reserves attempt one. This method owns only the native handoff and its
+        durable receipt/finalization, not pre-handoff projection failures.
         """
         ctx = _DeliveryContext(
             event=event,
@@ -353,7 +350,6 @@ class DeliveryCoordinator:
                 replay_authority=None,
                 outbox_ctx=outbox,
                 inflight_key=key,
-                prepare_event=prepare_event,
             )
         finally:
             self._inflight_deliveries.pop(key, None)
@@ -906,7 +902,6 @@ class DeliveryCoordinator:
         replay_authority: DeliveryReceipt | None,
         outbox_ctx: OutboxContext,
         inflight_key: str | None,
-        prepare_event: _PrepareEventFn | None = None,
     ) -> DeliveryOutcome:
         """Deliver while retaining the outbox claim, then finalize its outcome.
 
@@ -929,8 +924,6 @@ class DeliveryCoordinator:
                 outbox_id=outbox_ctx.outbox_id,
             )
         try:
-            if prepare_event is not None:
-                ctx = replace(ctx, event=await prepare_event(ctx.event))
             result = await self._invoke_target(ctx, replay_authority, outbox_ctx)
             return result.outcome
         finally:

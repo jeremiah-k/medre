@@ -225,61 +225,6 @@ class TestReleaseClaim:
         # The pipeline must set a new next_attempt_at when re-scheduling.
         assert released.next_attempt_at is None
 
-    async def test_unreserved_only_release_cannot_clear_active_reservation(
-        self, outbox_temp_storage: SQLiteStorage
-    ) -> None:
-        item = _make_outbox_item(delivery_plan_id="plan-release-fence")
-        created = await outbox_temp_storage.create_outbox_item(item)
-        await outbox_temp_storage.claim_due_outbox_items(
-            now="2026-01-01T00:00:00", worker_id="claim-owner", limit=10
-        )
-        assert (
-            await outbox_temp_storage.reserve_outbox_attempt(
-                created.outbox_id, "claim-owner", 1
-            )
-            == 2
-        )
-        await outbox_temp_storage.release_outbox_claim(created.outbox_id, "claim-owner")
-        fenced = await outbox_temp_storage.get_outbox_item(created.outbox_id)
-        assert fenced.status == "in_progress"
-        assert fenced.worker_id == "claim-owner"
-        assert fenced.attempt_number == 1 and fenced.active_attempt == 2
-
-    async def test_lifecycle_release_refuses_reservation_added_after_claim_snapshot(
-        self, outbox_temp_storage: SQLiteStorage
-    ) -> None:
-        """A stale unreserved snapshot must not erase a later native reservation."""
-        from medre.core.engine.pipeline.delivery_lifecycle import (
-            DeliveryLifecycleService,
-        )
-
-        item = _make_outbox_item(delivery_plan_id="plan-release-late-reservation")
-        created = await outbox_temp_storage.create_outbox_item(item)
-        claimed = await outbox_temp_storage.claim_due_outbox_items(
-            now="2026-01-01T00:00:00",
-            worker_id="claim-owner",
-            limit=1,
-        )
-        assert len(claimed) == 1
-        stale_snapshot = claimed[0]
-        assert stale_snapshot.active_attempt is None
-        assert (
-            await outbox_temp_storage.reserve_outbox_attempt(
-                created.outbox_id, "claim-owner", 1
-            )
-            == 2
-        )
-
-        await DeliveryLifecycleService().release_unstarted_retry_claim(
-            outbox_temp_storage, stale_snapshot
-        )
-        fenced = await outbox_temp_storage.get_outbox_item(created.outbox_id)
-        assert fenced is not None
-        assert fenced.status == "in_progress"
-        assert fenced.worker_id == "claim-owner"
-        assert fenced.attempt_number == 1
-        assert fenced.active_attempt == 2
-
     async def test_release_wrong_worker_noop(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
@@ -452,3 +397,60 @@ async def test_release_claim_never_clears_live_reservation(
     )
     assert row.worker_id == "worker-reserved"
     assert row.lease_until is not None
+
+
+async def test_unreserved_only_release_cannot_clear_active_reservation(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
+    item = _make_outbox_item(delivery_plan_id="plan-release-fence")
+    created = await outbox_temp_storage.create_outbox_item(item)
+    await outbox_temp_storage.claim_due_outbox_items(
+        now="2026-01-01T00:00:00", worker_id="claim-owner", limit=10
+    )
+    assert (
+        await outbox_temp_storage.reserve_outbox_attempt(
+            created.outbox_id, "claim-owner", 1
+        )
+        == 2
+    )
+    await outbox_temp_storage.release_outbox_claim(created.outbox_id, "claim-owner")
+    fenced = await outbox_temp_storage.get_outbox_item(created.outbox_id)
+    assert fenced.status == "in_progress"
+    assert fenced.worker_id == "claim-owner"
+    assert fenced.attempt_number == 1 and fenced.active_attempt == 2
+
+
+async def test_lifecycle_release_refuses_reservation_added_after_claim_snapshot(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
+    """A stale unreserved snapshot must not erase a later native reservation."""
+    from medre.core.engine.pipeline.delivery_lifecycle import (
+        DeliveryLifecycleService,
+    )
+
+    item = _make_outbox_item(delivery_plan_id="plan-release-late-reservation")
+    created = await outbox_temp_storage.create_outbox_item(item)
+    claimed = await outbox_temp_storage.claim_due_outbox_items(
+        now="2026-01-01T00:00:00",
+        worker_id="claim-owner",
+        limit=1,
+    )
+    assert len(claimed) == 1
+    stale_snapshot = claimed[0]
+    assert stale_snapshot.active_attempt is None
+    assert (
+        await outbox_temp_storage.reserve_outbox_attempt(
+            created.outbox_id, "claim-owner", 1
+        )
+        == 2
+    )
+
+    await DeliveryLifecycleService().release_unstarted_retry_claim(
+        outbox_temp_storage, stale_snapshot
+    )
+    fenced = await outbox_temp_storage.get_outbox_item(created.outbox_id)
+    assert fenced is not None
+    assert fenced.status == "in_progress"
+    assert fenced.worker_id == "claim-owner"
+    assert fenced.attempt_number == 1
+    assert fenced.active_attempt == 2

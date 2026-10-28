@@ -196,15 +196,23 @@ MUST be reclaimable with automatic retries disabled. A positive reservation MUST
 remain held in that mode.
 
 Initial relation and conversation preparation MUST execute inside the renewed
-outbox claim lifetime. Retained routing metadata, including matched routes,
-fanout group and the bounded route trace, MUST reach both initial and retry
-rendering without modifying the stored canonical event.
+outbox claim lifetime, **before** reserving attempt one. A preparation failure
+MUST NOT consume a native attempt or create delivery evidence. The lifecycle
+MUST return the unreserved claim to pending work when its ownership still
+matches; a failed release leaves it claimable after lease expiry. Preparation
+failures SHOULD defer the adapter lane briefly to avoid a fast failure loop.
+Retained routing metadata, including matched routes, fanout group and the
+bounded route trace, MUST reach both initial and retry rendering without
+modifying the stored canonical event.
 
 Initial obligations are polled at most 0.5 seconds apart when a dispatch slot is
 available. Completed handoffs wake the dispatcher immediately so idle polling
 does not limit sustained message throughput. The configured retry interval remains
 authoritative for retry scans;
-frequent initial polling MUST NOT accelerate automatic retries. Due work is
+frequent initial polling MUST NOT accelerate automatic retries. Status totals
+include immutable historical rows and MUST NOT be rescanned on every fast idle
+poll; they are last-known snapshots, refreshed on claim/completion or at the
+configured retry interval. Due work is
 ordered by its scheduled attempt time, or creation time for pending work, within
 adapter lanes and across the global claim limit. Fresh ingress MUST NOT receive
 unconditional priority over due retries.

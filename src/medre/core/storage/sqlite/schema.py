@@ -388,6 +388,9 @@ CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
     ON delivery_receipts(parent_receipt_id, source);
 CREATE INDEX IF NOT EXISTS idx_outbox_due
     ON delivery_outbox(status, next_attempt_at);
+-- One-per-adapter claims probe active owners by adapter before lease expiry.
+CREATE INDEX IF NOT EXISTS idx_outbox_active_adapter
+    ON delivery_outbox(target_adapter, status, lease_until);
 CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event

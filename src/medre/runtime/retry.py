@@ -245,6 +245,9 @@ class RetryWorker:
         self._stop_lock = asyncio.Lock()
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
+        self._last_outbox_count_refresh: datetime | None = None
+        self._outbox_counts_dirty = False
+        self._outbox_count_generation = 0
         self.state = RetryWorkerState(enabled=self._retries_enabled)
 
     @property
@@ -646,6 +649,9 @@ class RetryWorker:
                 return
             await self._capture_startup_outbox_evidence()
             self._next_retry_scan = None
+            self._last_outbox_count_refresh = None
+            self._outbox_counts_dirty = False
+            self._outbox_count_generation = 0
             self._shutdown_event.clear()
             self._dispatch_wake.clear()
             self.state.running = True
@@ -969,8 +975,11 @@ class RetryWorker:
             except Exception:
                 _logger.exception("Outbox dispatch failed for %s", item.outbox_id)
             finally:
-                # Completion frees a lane immediately. Idle polling must not
-                # impose an artificial per-adapter message-rate ceiling.
+                # Completion frees a lane immediately. Refresh status totals
+                # at this boundary even if the idle scan interval has not
+                # elapsed, without counting on every empty fast poll.
+                self._outbox_count_generation += 1
+                self._outbox_counts_dirty = True
                 self._dispatch_wake.set()
 
         if group is not None:
@@ -990,11 +999,28 @@ class RetryWorker:
                     await self._release_unstarted_claims(items[index:])
                     break
                 await dispatch(item)
-        try:
-            self._outbox_counts = await self._storage.count_outbox_by_status()
-            self._cycle_completed = True
-        except Exception:
-            _logger.debug("Outbox dispatch: failed to refresh counts")
+        # Status totals include immutable terminal history. Do not scan that
+        # history on every fast idle poll; refresh after a claim or at most
+        # once per configured retry interval. The snapshot is last-known,
+        # not a live count of externally written rows.
+        if (
+            items
+            or self._outbox_counts_dirty
+            or not self._cycle_completed
+            or self._last_outbox_count_refresh is None
+            or now
+            >= self._last_outbox_count_refresh + timedelta(seconds=self._interval)
+        ):
+            try:
+                generation = self._outbox_count_generation
+                self._outbox_counts = await self._storage.count_outbox_by_status()
+                self._last_outbox_count_refresh = now
+                # A completion racing the query may have changed counts after
+                # the read snapshot. Keep that wake pending for a fresh count.
+                self._outbox_counts_dirty = generation != self._outbox_count_generation
+                self._cycle_completed = True
+            except Exception:
+                _logger.debug("Outbox dispatch: failed to refresh counts")
 
     async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
         """Return only never-reserved claims skipped during shutdown.
@@ -1287,6 +1313,55 @@ class RetryWorker:
         renewal_task: asyncio.Task[None] | None = None
 
         try:
+            if item.attempt_number == 0:
+                # Initial relation/conversation projection can fail in storage
+                # before any native submission. Prepare while the claim is
+                # renewed but still unreserved; only the handoff that follows
+                # is allowed to consume attempt one.
+                try:
+                    renewed = await self._lifecycle.renew_retry_lease(
+                        self._lifecycle_storage,
+                        item,
+                        lease_seconds=max(30, int(self._interval * 1.5)),
+                    )
+                    if not renewed:
+                        self.state.processed += 1
+                        return
+                    renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
+                    event = await self._pipeline.prepare_initial_outbox_event(event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self.state.processed += 1
+                    self.state.failed += 1
+                    _logger.exception(
+                        "RetryWorker: initial event preparation failed for outbox %s; "
+                        "no native attempt reserved",
+                        item.outbox_id,
+                    )
+                    try:
+                        await self._lifecycle.release_unstarted_retry_claim(
+                            self._lifecycle_storage, item
+                        )
+                    except Exception:
+                        # Leave the unreserved claim to expire if release fails.
+                        _logger.exception(
+                            "RetryWorker: could not release unprepared outbox %s",
+                            item.outbox_id,
+                        )
+                    self._adapter_deferred_until[item.target_adapter] = datetime.now(
+                        timezone.utc
+                    ) + timedelta(seconds=self._interval)
+                    return
+                finally:
+                    if renewal_task is not None:
+                        renewal_task.cancel()
+                        try:
+                            await renewal_task
+                        except asyncio.CancelledError:
+                            pass
+                        renewal_task = None
+
             # Dispatch-begin boundary: durably reserve the next attempt
             # identity before invoking the transport.  From this commit
             # onward, callbacks carrying the reserved number are live for

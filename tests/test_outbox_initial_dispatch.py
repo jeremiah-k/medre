@@ -8,38 +8,14 @@ from datetime import datetime, timedelta, timezone
 import msgspec
 import pytest
 
-from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.retry_plan import reconstruct_retry_delivery_plan
 from medre.core.ingress import DurableIngressWorker
 from medre.core.planning.delivery_plan import RetryPolicy
-from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.routing import RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
-
-
-def _pipeline(store: SQLiteStorage):
-    adapters = {
-        name: FakePresentationAdapter(adapter_id=name) for name in ("radio", "matrix")
-    }
-    route = Route(
-        id="mapping",
-        source=RouteSource("source", ("message.created",), None, "Original mesh"),
-        targets=[RouteTarget(name, "out") for name in adapters],
-    )
-    config = make_pipeline_config_for_pipeline(store, Router([route]), adapters)
-    config.route_retry_policies[route.id] = RetryPolicy(max_attempts=4, jitter=False)
-    return PipelineRunner(config), route, adapters
-
-
-async def _stage(store: SQLiteStorage, runner: PipelineRunner, event_id: str = "event"):
-    await runner.admit_ingress(
-        make_event(event_id=event_id, source_adapter="source"), "live"
-    )
-    ingress = DurableIngressWorker(storage=store, pipeline=runner, batch_size=1)
-    assert await ingress.run_once() == 1
-    return await store.list_outbox_items_for_event(event_id)
+from tests.helpers.initial_outbox import _pipeline, _stage
+from tests.helpers.pipeline import make_event
 
 
 async def test_staged_work_keeps_exact_plan_and_first_live_attempt(
@@ -495,10 +471,9 @@ async def test_staged_routing_metadata_reaches_rendering_after_reload_and_retry(
     assert rows[0].status == "sent" and rows[0].attempt_number == 2
 
 
-async def test_initial_event_preparation_keeps_the_reserved_claim_alive(
+async def test_initial_event_preparation_keeps_unreserved_claim_alive(
     temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import medre.core.engine.pipeline.outbox_manager as outbox_manager
     from tests.helpers.async_utils import wait_until
 
     runner, route, adapters = _pipeline(temp_storage)
@@ -521,18 +496,62 @@ async def test_initial_event_preparation_keeps_the_reserved_claim_alive(
 
     monkeypatch.setattr(runner, "_resolve_relations", paused_projection)
     monkeypatch.setattr(temp_storage, "renew_outbox_lease", observed_renewal)
-    monkeypatch.setattr(outbox_manager, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.01)
     dispatcher = RetryWorker(
-        temp_storage, runner, None, initial_dispatch=True, enabled=False
+        temp_storage,
+        runner,
+        None,
+        initial_dispatch=True,
+        enabled=False,
+        interval_seconds=0.1,
     )
     task = asyncio.create_task(dispatcher._process_due(datetime.now(timezone.utc)))
     try:
         await asyncio.wait_for(entered.wait(), 1)
         assert await wait_until(renewed.is_set, timeout=0.5)
+        waiting = (await temp_storage.list_outbox_items_for_event("event"))[0]
+        assert waiting.status == "in_progress"
+        assert waiting.active_attempt is None and waiting.attempt_number == 0
         assert not adapters["radio"].delivered_payloads
     finally:
         release.set()
         await task
+    delivered = (await temp_storage.list_outbox_items_for_event("event"))[0]
+    assert delivered.status == "sent" and delivered.attempt_number == 1
+
+
+async def test_initial_preparation_failure_releases_unreserved_claim(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner, route, adapters = _pipeline(temp_storage)
+    route.targets = [RouteTarget("radio", "out")]
+    await _stage(temp_storage, runner)
+    original = runner._resolve_relations
+
+    async def failed_projection(_event):
+        raise RuntimeError("projection database unavailable")
+
+    monkeypatch.setattr(runner, "_resolve_relations", failed_projection)
+    dispatcher = RetryWorker(
+        temp_storage,
+        runner,
+        None,
+        initial_dispatch=True,
+        enabled=False,
+        interval_seconds=2.0,
+    )
+    now = datetime.now(timezone.utc)
+    await dispatcher._process_due(now)
+    waiting = (await temp_storage.list_outbox_items_for_event("event"))[0]
+    assert waiting.status == "pending" and waiting.worker_id is None
+    assert waiting.active_attempt is None and waiting.attempt_number == 0
+    assert not adapters["radio"].delivered_payloads
+    assert not await temp_storage.list_receipts_for_outbox(waiting.outbox_id)
+
+    monkeypatch.setattr(runner, "_resolve_relations", original)
+    await dispatcher._process_due(datetime.now(timezone.utc) + timedelta(seconds=3))
+    sent = await temp_storage.get_outbox_item(waiting.outbox_id)
+    assert sent.status == "sent" and sent.attempt_number == 1
+    assert len(adapters["radio"].delivered_payloads) == 1
 
 
 async def test_unavailable_adapter_cooldown_does_not_walk_its_pending_backlog(
