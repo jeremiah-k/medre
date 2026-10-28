@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from html import escape
+import json
 from typing import TYPE_CHECKING
 from unicodedata import category
 
@@ -45,6 +45,10 @@ class RouteDiagram:
     connections: tuple[Connection, ...]
     disabled_routes: tuple[str, ...]
     errors: tuple[str, ...]
+
+
+class TerminalDiagramLimitError(ValueError):
+    """A configured topology exceeds the bounded terminal layout budget."""
 
 
 _EndpointKey = tuple[str, bool, str, bool, str]
@@ -196,12 +200,15 @@ def _terminal_text(value: str) -> str:
 
 def _mermaid_text(value: str) -> str:
     """Escape user-configured values so they are text, never Mermaid syntax."""
-    cleaned = _terminal_text(value)
-    return (
-        escape(cleaned, quote=True)
-        .replace("&quot;", "#quot;")
-        .replace("&#x27;", "#39;")
-    )
+    entities = {
+        "&": "#38;",
+        "#": "#35;",
+        '"': "#quot;",
+        "'": "#39;",
+        "<": "#60;",
+        ">": "#62;",
+    }
+    return "".join(entities.get(char, char) for char in _terminal_text(value))
 
 
 def _components(connections: tuple[Connection, ...]) -> list[tuple[Endpoint, ...]]:
@@ -312,6 +319,158 @@ def render_mermaid(
                 consumed.add((target, source))
             lines.append(f"    {node_ids[source]} {arrow} {node_ids[target]}")
     return "\n".join(lines) + "\n"
+
+
+def render_terminal_diagram(
+    diagram: RouteDiagram,
+    *,
+    view: str = "contexts",
+    full_context: bool = False,
+    ascii_only: bool = False,
+) -> str:
+    """Render the configured graph locally with Termaid (no SDK or remote service).
+
+    The terminal gets a top-to-bottom layout to avoid an excessively wide
+    left-to-right chain of independent components. Mermaid exports retain
+    their original LR layout and syntax. Termaid 0.10 expects a space between
+    a subgraph ID and its label; only our generated subgraph declarations are
+    rewritten, not user-provided identifiers or arbitrary Mermaid source.
+    """
+    import re
+    import shutil
+
+    from termaid import render
+
+    if (
+        view == "contexts"
+        and (len(_endpoint_ids(diagram)) > 200 or len(diagram.connections) > 500)
+    ) or (view == "adapters" and len(diagram.adapters) > 200):
+        raise TerminalDiagramLimitError(
+            "Topology exceeds terminal rendering limits; use --view adapters or --format text"
+        )
+    source = render_mermaid(diagram, view=view, full_context=full_context)
+    if len(source.encode("utf-8")) > 512 * 1024:
+        raise TerminalDiagramLimitError(
+            "Topology labels exceed terminal rendering limits; use --format text"
+        )
+    if ascii_only:
+        source = source.replace(" · ", " / ").replace("…", "...")
+        source = source.encode("ascii", "backslashreplace").decode("ascii")
+    source = source.replace("flowchart LR\n", "flowchart TB\n", 1)
+    source = re.sub(
+        r'(?m)^(\s*subgraph g\d+)\["(Connected route group \d+)"\]$',
+        r"\1 [\2]",
+        source,
+    )
+    columns = shutil.get_terminal_size(fallback=(100, 24)).columns
+    result = render(
+        source,
+        use_ascii=ascii_only,
+        padding_x=1,
+        padding_y=0,
+        gap=4,
+        max_label_width=max(12, min(28, columns // 4)),
+    )
+    if ascii_only:
+        result = result.encode("ascii", "backslashreplace").decode("ascii")
+    return (
+        "Configured routes (offline; not current connectivity)\n"
+        + result.rstrip("\n")
+        + "\n"
+    )
+
+
+def render_graphviz_dot(
+    diagram: RouteDiagram, *, view: str = "contexts", full_context: bool = False
+) -> str:
+    """Produce a local, offline Graphviz rendering source of the same topology.
+
+    Graphviz is optional and never reads the source YAML.  All configured
+    labels are ordinary quoted strings, not DOT syntax or HTML markup.
+    """
+    if view not in {"contexts", "adapters"}:
+        raise ValueError(f"unrecognized diagram view: {view}")
+
+    def quoted(label: str) -> str:
+        return json.dumps(_terminal_text(label), ensure_ascii=False)
+
+    lines = [
+        "digraph MEDRE {",
+        "    graph [rankdir=LR, labelloc=t,",
+        ' label="Configured routes (offline; not live health)"];',
+        '    node [shape=box, style="rounded,filled", fillcolor="#eef4fc"];',
+    ]
+    if diagram.errors:
+        note = f"Incomplete preview: {len(diagram.errors)} issue(s)"
+        lines.append(f"    issues [label={quoted(note)}, color=red];")
+    if not diagram.connections:
+        lines.append('    empty [label="No enabled route connections"];')
+    if view == "adapters":
+        adapter_ids = {aid: f"a{i}" for i, (aid, _, _) in enumerate(diagram.adapters)}
+        for aid, transport, enabled in diagram.adapters:
+            label = f"{transport}:{aid}" + (" (disabled)" if not enabled else "")
+            lines.append(f"    {adapter_ids[aid]} [label={quoted(label)}];")
+        groups: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for c in diagram.connections:
+            groups[(c.source.adapter, c.target.adapter)].add(c.route_id)
+        done: set[tuple[str, str]] = set()
+        for source_aid, target_aid in sorted(groups):
+            if (
+                (source_aid, target_aid) in done
+                or source_aid not in adapter_ids
+                or target_aid not in adapter_ids
+            ):
+                continue
+            done.add((source_aid, target_aid))
+            backward = (target_aid, source_aid)
+            back_routes = (
+                groups.get(backward, set()) if source_aid != target_aid else set()
+            )
+            done.add(backward)
+            shared = groups[(source_aid, target_aid)] & back_routes
+            for start, end, both, routes in (
+                (source_aid, target_aid, True, shared),
+                (
+                    source_aid,
+                    target_aid,
+                    False,
+                    groups[(source_aid, target_aid)] - shared,
+                ),
+                (target_aid, source_aid, False, back_routes - shared),
+            ):
+                if routes:
+                    label = f"{len(routes)} route" + ("s" if len(routes) != 1 else "")
+                    direction = ", dir=both" if both else ""
+                    lines.append(
+                        f"    {adapter_ids[start]} -> {adapter_ids[end]} "
+                        f"[label={quoted(label)}{direction}];"
+                    )
+    else:
+        endpoint_ids = _endpoint_ids(diagram)
+        labels = _endpoint_labels(diagram, full=full_context)
+        for i, component in enumerate(_components(diagram.connections), start=1):
+            lines.append(f"    subgraph cluster_{i} {{")
+            lines.append(f'        label="Connected route group {i}";')
+            for e in component:
+                lines.append(f"        {endpoint_ids[e]} [label={quoted(labels[e])}];")
+            lines.append("    }")
+        pairs = {(c.source, c.target) for c in diagram.connections}
+        done_pairs: set[tuple[Endpoint, Endpoint]] = set()
+        for source_node, target_node in sorted(
+            pairs, key=lambda pair: (_endpoint_key(pair[0]), _endpoint_key(pair[1]))
+        ):
+            if (source_node, target_node) in done_pairs:
+                continue
+            done_pairs.add((source_node, target_node))
+            both = source_node != target_node and (target_node, source_node) in pairs
+            if both:
+                done_pairs.add((target_node, source_node))
+            lines.append(
+                f"    {endpoint_ids[source_node]} -> {endpoint_ids[target_node]}"
+                + (" [dir=both]" if both else "")
+                + ";"
+            )
+    return "\n".join([*lines, "}", ""])
 
 
 def diagram_as_dict(

@@ -93,9 +93,14 @@ printed by the wizard. You can also review the plan directly:
 ```bash
 medre config check --config bridge.yaml
 medre routes plan --config bridge.yaml
-medre routes diagram --config bridge.yaml
-medre routes diagram --config bridge.yaml --format mermaid > bridge.mmd
+medre routes diagram bridge.yaml            # offline terminal graph
 ```
+
+Optionally, run `medre config use bridge.yaml` to remember this YAML's path so
+later commands can omit it. This saves only a selection pointer, not the YAML.
+For Mermaid or local Graphviz image exports, see
+[route visualization](route-visualization.md). Export files are never overwritten;
+choose an unused output name when repeating an export.
 
 A successful preview proves configuration and route-plan consistency; it does
 not start adapters or test live delivery. See

@@ -373,20 +373,48 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
 
     routes_diagram_p = routes_sub.add_parser(
-        "diagram", help="Preview configured route graph or per-adapter route summary"
+        "diagram",
+        help="Preview configured route graph or per-adapter route summary",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  medre routes diagram bridge.yaml          # draw in terminal\n"
+            "  medre routes diagram --format text        # per-adapter detail\n"
+            "  medre routes diagram --ascii              # plain ASCII graph\n"
+            "  medre routes diagram --format mermaid --output bridge.mmd\n"
+            "  medre routes diagram --format svg --output bridge.svg\n"
+            "  medre routes diagram --view adapters --format png --output adapters.png\n"
+            "  medre config use bridge.yaml  # remember default (no config copied)\n"
+            "Graph images require optional local Graphviz ('dot'). No adapters start."
+        ),
+    )
+    routes_diagram_p.add_argument(
+        "config_path", nargs="?", help="Bridge YAML (shorthand for --config)"
     )
     routes_diagram_p.add_argument("--config", default=None, help="Path to config file")
     routes_diagram_p.add_argument(
         "--format",
-        choices=("text", "mermaid", "json"),
-        default="text",
-        help="Terminal summary, Mermaid source, or structured graph",
+        choices=("terminal", "text", "mermaid", "json", "dot", "svg", "png", "pdf"),
+        default="terminal",
+        help="Terminal graph (default), per-adapter text, graph source, or image",
+    )
+    routes_diagram_p.add_argument(
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Save output to a NEW private file; required for svg/png/pdf",
     )
     routes_diagram_p.add_argument(
         "--view",
         choices=("contexts", "adapters"),
         default="contexts",
-        help="Group by endpoint contexts or by adapter instance (Mermaid only)",
+        help="Group by endpoint contexts (default) or adapters (terminal/Mermaid/DOT/images)",
+    )
+    routes_diagram_p.add_argument(
+        "--ascii",
+        action="store_true",
+        default=False,
+        help="Use ASCII instead of Unicode box-drawing (terminal format only)",
     )
     routes_diagram_p.add_argument(
         "--full-context",
@@ -995,11 +1023,17 @@ def main(argv: list[str] | None = None) -> None:
         elif args.routes_command == "plan":
             _routes_plan(args.config, as_json=args.json)
         elif args.routes_command == "diagram":
+            if args.config and args.config_path:
+                parser.error(
+                    "routes diagram: choose either positional CONFIG or --config"
+                )
             _routes_diagram(
-                args.config,
+                args.config or args.config_path,
                 output_format=args.format,
                 view=args.view,
                 full_context=args.full_context,
+                output_path=args.output,
+                ascii_only=args.ascii,
             )
         elif args.routes_command == "explain":
             _routes_explain(

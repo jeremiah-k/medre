@@ -575,14 +575,28 @@ def _routes_explain(
 
 
 def _routes_diagram(
-    config_path: str | None, *, output_format: str, view: str, full_context: bool
+    config_path: str | None,
+    *,
+    output_format: str,
+    view: str,
+    full_context: bool,
+    output_path: str | None = None,
+    ascii_only: bool = False,
 ) -> None:
-    """Preview the full configured endpoint topology, without adapter I/O."""
+    """Preview configured topology; draw terminal graphs or local image exports."""
+    from pathlib import Path
+
+    from .diagram_output import GraphvizError, render_graphviz
+    from .file_output import write_private_output
+
     from medre.runtime.route_diagram import (
+        TerminalDiagramLimitError,
         build_route_diagram,
         diagram_as_dict,
         render_adapter_summary,
+        render_graphviz_dot,
         render_mermaid,
+        render_terminal_diagram,
     )
 
     try:
@@ -593,12 +607,82 @@ def _routes_diagram(
         print(f"Route diagram error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
 
-    if output_format == "mermaid":
-        print(render_mermaid(diagram, view=view, full_context=full_context), end="")
+    images = {"svg", "png", "pdf"}
+    if output_format in images and not output_path:
+        print(
+            f"Route diagram error: --format {output_format} requires --output PATH "
+            "(images are not written to terminal stdout)",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+    if ascii_only and output_format != "terminal":
+        print(
+            "Route diagram error: --ascii requires --format terminal", file=sys.stderr
+        )
+        sys.exit(EXIT_CONFIG)
+    if diagram.errors and output_format in images:
+        print(
+            f"Route diagram is incomplete ({len(diagram.errors)} issue(s)); "
+            "refusing to render a misleading image. Run 'medre routes plan'.",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+
+    if output_format == "terminal":
+        if output_path is None and not ascii_only:
+            try:
+                "┌→…".encode(getattr(sys.stdout, "encoding", None) or "utf-8")
+            except UnicodeEncodeError:
+                ascii_only = True
+        try:
+            result = render_terminal_diagram(
+                diagram, view=view, full_context=full_context, ascii_only=ascii_only
+            ).encode()
+        except TerminalDiagramLimitError as exc:
+            print(f"Route diagram error: {exc}", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
+        except (ImportError, ValueError, RuntimeError) as exc:
+            print(
+                f"Route diagram terminal renderer unavailable: {type(exc).__name__}. "
+                "Use --format text or --format mermaid.",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_CONFIG)
+    elif output_format == "mermaid":
+        result = render_mermaid(diagram, view=view, full_context=full_context).encode()
     elif output_format == "json":
-        print(to_json(diagram_as_dict(diagram, full_context=full_context)))
+        payload = to_json(diagram_as_dict(diagram, full_context=full_context))
+        result = (payload + "\n").encode()
+    elif output_format == "text":
+        result = render_adapter_summary(diagram, full_context=full_context).encode()
     else:
-        print(render_adapter_summary(diagram, full_context=full_context), end="")
+        dot_source = render_graphviz_dot(
+            diagram, view=view, full_context=full_context
+        ).encode()
+        if output_format == "dot":
+            result = dot_source
+        else:
+            try:
+                result = render_graphviz(dot_source.decode("utf-8"), output_format)
+            except GraphvizError as exc:
+                print(f"Route diagram error: {exc}", file=sys.stderr)
+                sys.exit(EXIT_CONFIG)
+
+    if output_path is not None:
+        # Local topology may be sensitive. Never silently replace existing
+        # output and always create files private, irrespective of user's umask.
+        path = Path(output_path).expanduser()
+        try:
+            write_private_output(path, result)
+        except OSError as exc:
+            print(f"Route diagram output error: {exc}", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
+        print(f"Saved {output_format} route diagram to {path}", file=sys.stderr)
+    elif output_format in images:
+        raise AssertionError("image output requires a destination")
+    else:
+        sys.stdout.write(result.decode())
+
     if diagram.errors:
         print(
             f"Route diagram is incomplete: {len(diagram.errors)} configuration issue(s). "

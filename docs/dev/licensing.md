@@ -11,7 +11,7 @@ or a blanket clearance for a combined installation.
 
 | Distribution                | MEDRE-authored source | Main pinned runtime dependency                 | Upstream license                                                                                                        |
 | --------------------------- | --------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `medre`                     | MIT                   | `msgspec`, `pyyaml`                            | BSD-3-Clause, MIT respectively; check full dependency tree                                                              |
+| `medre`                     | MIT                   | `msgspec`, `pyyaml`, `termaid`                            | BSD-3-Clause, MIT, MIT respectively; check full dependency tree                                                              |
 | `medre-adapter-matrix`      | MIT                   | `mindroom-nio`                                 | ISC; optional E2EE dependencies are resolved by `[e2e]`                                                                 |
 | `medre-adapter-meshcore`    | MIT                   | `meshcore`                                     | MIT                                                                                                                     |
 | `medre-adapter-meshtastic`  | MIT                   | `mtjk`                                         | GPL-3.0-only                                                                                                            |
