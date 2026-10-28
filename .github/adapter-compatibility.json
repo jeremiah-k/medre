@@ -27,7 +27,7 @@
   {
     "transport": "lxmf",
     "repository": "jeremiah-k/medre-adapter-lxmf",
-    "ref": "8ebaf19de7c1a0be325099c00a755f2603bee3e6",
+    "ref": "bb0063c5240269ebbb7996846c1d5d9d6f4a12a1",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-lxmf"
