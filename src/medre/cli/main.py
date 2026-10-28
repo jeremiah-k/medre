@@ -107,6 +107,12 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
     check_p = config_sub.add_parser("check", help="Validate config file")
     check_p.add_argument("--config", default=None, help="Path to config file")
+    select_p = config_sub.add_parser(
+        "use", help="Remember the default bridge config for future commands"
+    )
+    select_p.add_argument("path", help="Existing bridge YAML to select")
+    config_sub.add_parser("current", help="Show the effective default bridge config")
+    config_sub.add_parser("unset", help="Forget the selected default bridge config")
     config_sub.add_parser("sample", help="Print sample config")
     bridge_p = config_sub.add_parser(
         "bridge", help="Guide bridge configuration and preview routes offline"
@@ -940,6 +946,10 @@ def main(argv: list[str] | None = None) -> None:
             from .native_commands import _config_native
 
             _config_native(args)
+        elif args.config_command in {"use", "current", "unset"}:
+            from .config_commands import _config_selection
+
+            _config_selection(args.config_command, getattr(args, "path", None))
     elif args.command == "paths":
         from .config_commands import _paths
 
