@@ -365,6 +365,29 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Emit the plan as a normalized JSON report",
     )
 
+    routes_diagram_p = routes_sub.add_parser(
+        "diagram", help="Preview configured route graph or per-adapter route summary"
+    )
+    routes_diagram_p.add_argument("--config", default=None, help="Path to config file")
+    routes_diagram_p.add_argument(
+        "--format",
+        choices=("text", "mermaid", "json"),
+        default="text",
+        help="Terminal summary, Mermaid source, or structured graph",
+    )
+    routes_diagram_p.add_argument(
+        "--view",
+        choices=("contexts", "adapters"),
+        default="contexts",
+        help="Group by endpoint contexts or by adapter instance (Mermaid only)",
+    )
+    routes_diagram_p.add_argument(
+        "--full-context",
+        action="store_true",
+        default=False,
+        help="Include complete room/address values; may disclose private topology",
+    )
+
     routes_explain_p = routes_sub.add_parser(
         "explain", help="Explain offline source matching without delivery guarantees"
     )
@@ -929,6 +952,7 @@ def main(argv: list[str] | None = None) -> None:
             _diagnostics(args.config, output_format=args.format)
     elif args.command == "routes":
         from .route_commands import (
+            _routes_diagram,
             _routes_explain,
             _routes_list,
             _routes_plan,
@@ -944,6 +968,13 @@ def main(argv: list[str] | None = None) -> None:
             _routes_list(args.config)
         elif args.routes_command == "plan":
             _routes_plan(args.config, as_json=args.json)
+        elif args.routes_command == "diagram":
+            _routes_diagram(
+                args.config,
+                output_format=args.format,
+                view=args.view,
+                full_context=args.full_context,
+            )
         elif args.routes_command == "explain":
             _routes_explain(
                 args.config,

@@ -1281,6 +1281,12 @@ medre routes plan [--config PATH]
     Show the expanded route plan (offline, no network I/O). See
     "Route Topology Preview with `medre routes plan`" above.
 
+medre routes diagram [--config PATH] [--format text|mermaid|json] [--view contexts|adapters] [--full-context]
+    Render the configured route graph (offline, no network I/O) as a
+    per-adapter terminal summary, Mermaid source, or JSON. Room and address
+    identifiers are abbreviated unless --full-context is given. See
+    [route visualization](route-visualization.md).
+
 medre smoke [--config PATH] [--json]             # Normal offline fake smoke
 medre smoke --drill NAME [--config PATH] --json   # Failure drill
 medre smoke --run-session [--scenario NAME] --json  # Full lifecycle

@@ -506,7 +506,7 @@ class TestNestedCommandCoverage:
         "top_level,expected",
         [
             ("config", {"check", "sample", "bridge", "native"}),
-            ("routes", {"validate", "topology", "list", "plan", "explain"}),
+            ("routes", {"validate", "topology", "list", "plan", "explain", "diagram"}),
             (
                 "inspect",
                 {
