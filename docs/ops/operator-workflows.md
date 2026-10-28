@@ -70,41 +70,122 @@ then the database is stale and needs a reset.
 
 ### Step-by-step reset procedure
 
-**Only reset disposable test storage.** Stop MEDRE and any other SQLite readers
-or writers first. Confirm no service, replay job, or inspection process is
-still using the database. A reset loses every queued delivery, event, receipt,
-and native reference in the active store. Investigate pending work and retain
-an archive if you need it later; see [recovery](recovery-and-replay.md).
+**Reset freely only when you intend to discard the entire test bridge state.**
+A new prerelease installation does not need to preserve an empty or disposable
+SQLite database. Once you have sent real traffic, however, MEDRE may have
+queued outbound deliveries awaiting a retry or native handoff confirmation.
+Clearing the database drops those pending operations and the native IDs used to
+correlate replies and avoid unsafe duplicate sends. It also discards historical
+inspection data; this is an operator choice, not a requirement to archive
+messages forever. Stop MEDRE and all other SQLite readers/writers before any
+reset, inspect outstanding work if it matters, and keep a private archive only
+when you actually need one. See
+[inspect a stale store before reset](#inspect-a-stale-store-before-reset).
+The failed-delivery recovery view does not enumerate queued work and may refuse
+an incompatible schema.
 
 1. **Resolve the database path.** `medre paths` shows the state directory;
    `medre storage status --storage-path PATH` inspects the schema. Use the
    actual SQLite file from your config, not an assumed default path.
-2. **Make an independent archive or backup.** In SQLite WAL mode, committed
-   data may still live in `PATH-wal`. Copying only `PATH` is **not** a complete
-   backup. With the application stopped, preserve the database together with
-   its `-wal` and `-shm` sidecars in a private directory, or use the command
-   below with `--backup`. Keep the resulting backup and its matching sidecars
-   together when inspecting it. Verify the backup before discarding the old
-   state.
-3. **Reset the disposable database deliberately.** With all users stopped,
-   use the built-in guarded reset and its backup option:
+2. **Keep and verify a backup if the state matters.** Skip archiving only when
+   you intend to discard the entire disposable store. Otherwise, with all
+   database users stopped, choose a **fresh private directory** and make a
+   SQLite-aware backup before resetting:
 
    ```bash
-   medre storage reset --storage-path /path/to/medre.sqlite --backup --yes
+   mkdir -m 700 /private/medre-reset-backup
+   sqlite3 -readonly /path/to/medre.sqlite \
+     ".backup '/private/medre-reset-backup/medre.sqlite'"
+   sqlite3 -readonly /private/medre-reset-backup/medre.sqlite 'PRAGMA integrity_check;'
    ```
 
-   This copies the SQLite database and any existing sidecars into timestamped
-   backup paths, then removes the active database and its sidecars. It is a
-   file-level backup, **not an online SQLite snapshot**; do not run it while
+   Stop if any command fails or the integrity result is not exactly `ok`.
+   SQLite's backup includes committed WAL content in the resulting database;
+   do not copy the source WAL onto that snapshot. Copying only the main file is
+   **not** a complete raw-file backup: committed data may remain in its WAL.
+   A raw copy needs the matching main file and any `-wal`/`-shm` sidecars together.
+   This preserves core state only; native identities, credentials and provider
+   stores have separate [capture requirements](stopped-state-provider-inventory.md).
+3. **Reset the disposable database deliberately.** With all users stopped,
+   and either a verified backup from step 2 or an explicit decision to discard
+   the state, reset without making another archive:
+
+   ```bash
+   medre storage reset --storage-path /path/to/medre.sqlite --yes
+   ```
+
+   If you want an additional timestamped copy beside the active database, use
+   `--backup --yes` instead. That copy is outside the private backup directory
+   and retains message content: protect and remove it separately when no
+   longer needed. It includes existing sidecars but is a file-level backup,
+   **not an online SQLite snapshot**. The reset command does not verify it or
+   pause before deletion, so it does not replace step 2. Do not run it while
    another process is writing. Avoid hand-deleting SQLite files.
 
 4. **Start MEDRE against the new empty store** with
    `medre run --config bridge.yaml`. Confirm its new schema using
    `medre storage status --storage-path PATH`.
 
+### Inspect a stale store before reset
+
+With MEDRE and its workers stopped, inspect a verified private copy of the
+complete database and any WAL sidecars. The normal `inspect` and `recover`
+commands validate the schema and can refuse an older store. SQLite's read-only
+shell does not invoke MEDRE's schema initialization:
+
+```bash
+sqlite3 -readonly /private/medre-copy.sqlite <<'SQL'
+PRAGMA table_info(delivery_outbox);
+SELECT status, COUNT(*) AS items
+FROM delivery_outbox
+GROUP BY status
+ORDER BY status;
+SELECT outbox_id, event_id, target_adapter, status
+FROM delivery_outbox
+WHERE status IN ('pending', 'in_progress', 'queued', 'retry_wait')
+ORDER BY outbox_id
+LIMIT 100;
+SELECT outbox_id, event_id, target_adapter, status
+FROM delivery_outbox
+WHERE status IN ('dead_lettered', 'abandoned')
+ORDER BY outbox_id
+LIMIT 100;
+SELECT status, COUNT(*) AS items
+FROM durable_ingress_work
+GROUP BY status
+ORDER BY status;
+SELECT event_id, status, attempts
+FROM durable_ingress_work
+WHERE status IN ('pending', 'processing', 'failed')
+ORDER BY event_id
+LIMIT 100;
+SELECT event_id, adapter, native_channel_id, native_message_id
+FROM native_message_refs
+ORDER BY event_id, adapter, native_message_id
+LIMIT 100;
+SQL
+```
+
+The counts cover every outbox and durable ingress row; sample limits do not
+hide the presence of queued work. Pending/queued outbox and terminal problem
+rows are sampled separately. Durable ingress can contain an admitted event
+awaiting routing before any outbox row exists, so inspect both queues.
+These outputs expose private identifiers, not message bodies. They do not
+authorize retry or prove a reset safe. An empty sample does not certify that
+native handoff state is safe
+to discard. If the older schema lacks these tables or columns, use its matching
+MEDRE revision against the copy instead of changing the schema by hand.
+
 ### What happens to the old data
 
 Nothing from the old database is carried forward. The reset is total. Events, receipts, native refs, and outbox state from the old database are gone. The new database starts empty.
+
+Stored message content can also support reply quotes when the destination
+cannot represent a reply natively. Native IDs alone cannot reconstruct that
+text. Relation fallback text and metadata may contain copies of an excerpt;
+privacy is not determined by the canonical event body alone. Native SDK stores
+and separate backups are outside a core database reset. See
+[message content at the relay boundary](../spec/security-privacy.md#35-message-content-at-the-relay-boundary).
 
 If you need old evidence, keep the complete backup set. Inspect a verified
 copy without running MEDRE against it; if a WAL sidecar was backed up, leave

@@ -32,7 +32,9 @@ MEDRE is a working pre-release, not a stable storage-format promise. Keep a
 copy of your configuration and commit-pinned dependency lockfile. Stop MEDRE
 and back up its private state before changing revisions. A schema change may
 require **starting with a new disposable test database** rather than reusing
-old SQLite state; do not erase a database with pending messages or evidence.
+old SQLite state. Resetting a disposable test database is expected. For a
+bridge that has sent real traffic, inspect outstanding handoffs first: resetting
+discards queued deliveries and native reply/duplicate-correlation identifiers.
 See [configuration](configuration.md) for state paths and
 [recovery](recovery-and-replay.md) for investigating existing deliveries.
 

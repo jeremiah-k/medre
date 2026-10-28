@@ -155,6 +155,31 @@ control:
 MEDRE does not add to this exposure. It records what the transport already
 makes visible.
 
+### 3.5 Message Content at the Relay Boundary
+
+MEDRE terminates each supported transport's protection at its adapter boundary
+so the relay can render and forward plaintext content. Encryption in a source
+network does not make core SQLite message payloads encrypted at rest. The
+SQLite backend retains canonical event bodies and can retain attachment bytes
+supplied through durable ingress. The normal attachment relay supplies those
+bytes only when `attachments.enabled` is `true`; disabling it does not remove
+bytes already stored. Relations can also carry fallback quotes or
+`original_text` metadata. Native adapter
+stores, logs, exports and backups have their own persistence boundaries.
+
+Reply correlation and reply quoting have different data needs. Native message
+references identify a reply target without its body. The relation enricher can
+also read a retained target event to supply fallback quote text where a
+transport cannot represent the relation natively. If that content is absent,
+renderers can degrade to a target identifier or other available fallback; a
+metadata-only representation cannot reconstruct the original quote.
+
+Core does not provide a content-free retention mode or encrypted SQLite
+backend. Removing only canonical payload bodies would not remove retained
+quotes, attachments or provider-owned copies. Protect the complete state and
+any backup as private content. These facts describe the storage contract, not
+a requirement to archive disposable test installations.
+
 ## 4. Adapter Isolation
 
 ### 4.1 No Cross-Adapter Access
