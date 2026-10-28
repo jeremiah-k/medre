@@ -897,13 +897,6 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser(include_adapter_cli=not managing_packages)
     if help_only:
         show_command_help(parser, arguments)
-    # Rejected before parsing so the guidance does not depend on usage text.
-    if arguments[:1] == ["replay"] and "--storage-path" in arguments:
-        parser.error(
-            "replay does not accept --storage-path: replay requires --config and "
-            "reads storage from the configured path; narrow a replay with "
-            "--target-adapters or --route-ids instead"
-        )
     args = parser.parse_args(group_help(parser, arguments))
 
     if (

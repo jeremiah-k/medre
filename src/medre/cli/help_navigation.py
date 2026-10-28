@@ -95,7 +95,9 @@ def describe_defaults(parser: argparse.ArgumentParser) -> None:
         parser.formatter_class = CommandHelpFormatter
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
-            action.metavar = "COMMAND"
+            # Keep the enumerated {run,config,...} metavar: usage and error
+            # text listing the real command names is operator-facing surface
+            # that tests and tooling read.
             for child in action.choices.values():
                 describe_defaults(child)
         elif action.dest == "config" and action.help == "Path to config file":

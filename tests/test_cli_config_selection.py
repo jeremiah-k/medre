@@ -55,7 +55,7 @@ def test_stale_or_symlink_default_never_falls_back(
     monkeypatch.delenv("MEDRE_HOME", raising=False)
     pointer = selected_config_path()
     pointer.parent.mkdir(parents=True, exist_ok=True)
-    pointer.write_text(str(tmp_path / "missing.yaml") + "\n")
+    pointer.write_text(str(tmp_path / "missing.yaml") + "\n", newline="\n")
     with pytest.raises(ConfigFileError, match="Selected config is missing"):
         find_config()
     pointer.unlink()

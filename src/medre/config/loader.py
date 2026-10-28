@@ -246,7 +246,9 @@ def remember_config(path: str | Path) -> Path:
     try:
         fd, name = tempfile.mkstemp(prefix=".selected-", dir=pointer.parent)
         owned_fd = fd
-        file = os.fdopen(fd, "w", encoding="utf-8")
+        # newline="\n" keeps the pointer free of Windows CR translation; the
+        # reader fails closed on any carriage return in the pointer value.
+        file = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
         owned_fd = None
         with file:
             # mkstemp creates a private file (0600 on POSIX); on Windows,
