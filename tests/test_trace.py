@@ -763,9 +763,9 @@ def _run_cli_both(*args: str) -> tuple[str, str]:
 class TestTraceEventParser:
     """Tests for 'medre trace' argument parsing."""
 
-    def test_trace_requires_subcommand(self) -> None:
-        with pytest.raises(SystemExit):
-            _run_cli("trace")
+    def test_trace_bare_group_shows_help(self) -> None:
+        output = _run_cli("trace")
+        assert "usage: medre trace" in output
 
     def test_trace_unknown_subcommand(self) -> None:
         with pytest.raises(SystemExit):

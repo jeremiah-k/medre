@@ -55,6 +55,44 @@ def _paths() -> None:
     print(f"Global DB:    {paths.database_path}")
 
 
+def _config_selection(action: str, path: str | None) -> None:
+    """Manage a selected config pointer without changing any bridge YAML."""
+    from medre.config.errors import ConfigError
+    from medre.config.loader import (
+        clear_selected_config,
+        find_config,
+        remember_config,
+    )
+
+    try:
+        if action == "use":
+            if path is None:
+                raise ValueError("config use requires a path")
+            selected = remember_config(path)
+            print(f"Default MEDRE config selected: {selected}")
+            try:
+                effective, source = find_config()
+            except ConfigError as exc:
+                print(
+                    f"Saved selection is valid; effective discovery is blocked: {exc}",
+                    file=sys.stderr,
+                )
+            else:
+                if effective != selected:
+                    print(
+                        f"Effective config: {effective} (source={source.value}; overrides saved selection)"
+                    )
+        elif action == "unset":
+            clear_selected_config()
+            print("Default config selection cleared; bridge YAML was not deleted")
+        elif action == "current":
+            selected, source = find_config()
+            print(f"Config: {selected} (source={source.value})")
+    except Exception as exc:
+        print(f"Config selection error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
+
+
 def _config_check(config_path: str | None) -> None:
     """Load and validate the config, printing a rich summary.
 

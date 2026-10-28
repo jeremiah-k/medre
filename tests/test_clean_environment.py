@@ -691,7 +691,8 @@ class TestReproducibilityEvidence:
         """Base install should have exactly the known required dependencies.
 
         PyYAML was added for strict YAML loading; msgspec is the core
-        serialisation library.  The package-name set is the invariant
+        serialisation library; termaid renders the default terminal route
+        graph.  The package-name set is the invariant
         (it prevents accidental dependency creep); versions are exact
         pins maintained by Renovate (``rangeStrategy: pin``) and are
         intentionally not asserted here, so pin bumps need no test edit.
@@ -701,7 +702,8 @@ class TestReproducibilityEvidence:
         assert names == {
             "msgspec",
             "pyyaml",
-        }, f"Base dependencies changed: expected {{msgspec, pyyaml}}, got {names}"
+            "termaid",
+        }, f"Base dependencies changed: expected {{msgspec, pyyaml, termaid}}, got {names}"
         unpinned = [d for d in deps if "==" not in d]
         assert not unpinned, (
             f"Base dependencies must be exact pins (Renovate-maintained): "

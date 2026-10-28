@@ -15,50 +15,7 @@ from medre.runtime.route_diagram import (
     render_mermaid,
 )
 from tests.helpers.cli import _run_cli_raw
-
-_CONFIG = """\
-runtime:
-  name: topology-preview
-storage:
-  backend: memory
-adapters:
-  matrix:
-    matrix:
-      adapter_kind: fake
-      homeserver: https://example.invalid
-      user_id: '@test:example.invalid'
-      access_token: this-token-must-not-appear
-      encryption_mode: plaintext
-  meshtastic:
-    FXLF:
-      adapter_kind: fake
-      connection_type: fake
-    FXLT:
-      adapter_kind: fake
-      connection_type: fake
-  meshcore:
-    meshcore:
-      adapter_kind: fake
-      connection_type: fake
-routes:
-  all_radios:
-    source_adapters: [matrix]
-    dest_adapters: [FXLF, FXLT, meshcore]
-    directionality: bidirectional
-    source_room: '!long-private-room:example.invalid'
-    dest_channel: '0'
-  different_channels:
-    source_adapters: [FXLF]
-    dest_adapters: [FXLT]
-    directionality: bidirectional
-    context_map:
-      '3': {dest_context: '2'}
-      '4': {dest_context: '1'}
-  paused:
-    enabled: false
-    source_adapters: [FXLT]
-    dest_adapters: [matrix]
-"""
+from tests.helpers.route_diagram import FOURWAY_CONFIG as _CONFIG
 
 
 def test_diagram_uses_all_fanout_targets_and_reverse_expansion(tmp_path: Path) -> None:
@@ -130,7 +87,7 @@ def test_mermaid_escapes_configured_labels() -> None:
     )
     mermaid = render_mermaid(diagram, full_context=True)
     assert "\nclick A href" not in mermaid
-    assert "#quot;" in mermaid and "&lt;danger&gt;" in mermaid
+    assert "#quot;" in mermaid and "#60;danger#62;" in mermaid
     assert "click A href" in mermaid  # treated as inert label text
     assert "safe · 0" in mermaid
 

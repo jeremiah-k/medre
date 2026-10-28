@@ -2,7 +2,8 @@
 
 MEDRE uses YAML configuration files as the primary configuration source. Environment variables provide overrides for every config field and are useful for secrets and container deployments. Path defaults follow the XDG Base Directory Specification, with a single-directory `MEDRE_HOME` mode for Docker and Kubernetes.
 
-The configuration system is only used by the MEDRE runtime (`medre run`). Library consumers construct adapter configs directly in Python — no config file needed.
+The runtime and configuration-aware CLI commands share the same loader. Library
+consumers can construct adapter configs directly in Python without a YAML file.
 
 MEDRE accepts a boring subset of YAML: explicit mappings and sequences only.
 No anchors, aliases, merge keys, or custom tags are supported. Values that
@@ -15,10 +16,12 @@ path placeholders like `"{state}/medre.sqlite"`.
 The runtime locates its config file by searching in this order:
 
 1. `--config` CLI flag — explicit path. Exits with error if file does not exist.
-2. `MEDRE_CONFIG` environment variable — full path to a YAML file.
+2. `MEDRE_CONFIG` environment variable — full path to a YAML file; an invalid
+   path fails instead of falling through to another bridge.
 3. `$MEDRE_HOME/config.yaml` — if `MEDRE_HOME` is set.
-4. XDG config path — `~/.config/medre/config.yaml` (or `$XDG_CONFIG_HOME/medre/config.yaml`).
-5. `./medre.yaml` — fallback in the current working directory.
+4. Saved selection from `medre config use PATH`.
+5. XDG config path — `~/.config/medre/config.yaml` (or `$XDG_CONFIG_HOME/medre/config.yaml`).
+6. `./medre.yaml` — fallback in the current working directory.
 
 The loader accepts `.yaml` and `.yml` extensions and rejects `.toml` with a
 clear error. The first file found wins. If no file is found, the runtime exits with `ConfigNotFoundError`.
@@ -1201,6 +1204,15 @@ medre run [--config PATH]
 medre config check [--config PATH]
     Load and validate config. Exits with code 2 on errors.
 
+medre config use PATH
+    Validate and remember an existing default bridge YAML path (not its contents).
+
+medre config current
+    Show the resolved effective config and its discovery source.
+
+medre config unset
+    Remove only the remembered selection; leave the bridge YAML untouched.
+
 medre config sample
     Print a complete sample YAML config to stdout.
 
@@ -1281,9 +1293,9 @@ medre routes plan [--config PATH]
     Show the expanded route plan (offline, no network I/O). See
     "Route Topology Preview with `medre routes plan`" above.
 
-medre routes diagram [--config PATH] [--format text|mermaid|json] [--view contexts|adapters] [--full-context]
-    Render the configured route graph (offline, no network I/O) as a
-    per-adapter terminal summary, Mermaid source, or JSON. Room and address
+medre routes diagram [CONFIG.yaml] [--config PATH] [--format terminal|text|mermaid|json|dot|svg|png|pdf] [--view contexts|adapters] [--output PATH] [--ascii] [--full-context]
+    Draw the configured graph in the terminal by default (offline, no network I/O).
+    Export graph source, JSON, per-adapter text or optional local Graphviz images. Room and address
     identifiers are abbreviated unless --full-context is given. See
     [route visualization](route-visualization.md).
 

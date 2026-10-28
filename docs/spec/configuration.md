@@ -551,14 +551,31 @@ The loader searches for configuration files in this priority order:
 1. `--config` CLI flag (explicit path, must exist)
 2. `MEDRE_CONFIG` environment variable
 3. `$MEDRE_HOME/config.yaml` (when `MEDRE_HOME` is set)
-4. `$XDG_CONFIG_HOME/medre/config.yaml` (defaults to `~/.config/medre/config.yaml`)
-5. `./medre.yaml` (local project fallback)
+4. Explicitly saved selection from `medre config use PATH`
+5. `$XDG_CONFIG_HOME/medre/config.yaml` (defaults to `~/.config/medre/config.yaml`)
+6. `./medre.yaml` (local project fallback)
 
 The loader accepts `.yaml` and `.yml` extensions and rejects `.toml` with a
 clear error. Only the boring YAML subset is supported: explicit mappings and
 lists, no anchors/aliases/merge keys, no custom tags.
 
 The loader returns a `(RuntimeConfig, ConfigSource, MedrePaths)` triple.
+
+`medre config use PATH` MUST validate the selected YAML and effective environment
+overrides before replacing the private selection pointer. The pointer MUST
+contain only the absolute file path, not a copy of credentials or configuration.
+The YAML MUST remain untouched. `config current` MUST show the effective path
+and source; if an environment selection overrides the saved choice, `config use`
+MUST explain that precedence. If discovery is blocked by an invalid higher-priority
+environment selection after saving, `config use` MUST report the saved selection
+and the discovery error separately. `config unset` MUST remove only the pointer.
+
+Explicit `--config` and nonempty `MEDRE_CONFIG` selections MUST fail if their
+file is missing, rather than choose another bridge. A broken, nonregular,
+symlinked, oversized or malformed saved pointer MUST be refused without falling
+through to another config. A failed selection MUST preserve the preceding
+pointer. The saved selection applies only inside the resolved MEDRE configuration
+namespace; it does not change XDG state, native-profile or storage ownership.
 
 ## 5. Environment Overrides
 

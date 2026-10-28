@@ -15,6 +15,8 @@ from __future__ import annotations
 import math
 import os
 import re
+import stat
+import tempfile
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
@@ -56,6 +58,7 @@ class ConfigSource(Enum):
     MEDRE_HOME = "MEDRE_HOME"  # $MEDRE_HOME/config.yaml
     XDG = "xdg"  # XDG default config path
     LOCAL = "local"  # ./medre.yaml
+    SELECTED = "selected"  # Explicitly remembered by medre config use
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +220,92 @@ def _raise_if_unsupported_toml(directory: Path) -> None:
             raise ConfigFileError(f"{toml_path}: {_TOML_NOT_SUPPORTED_MSG}")
 
 
+def selected_config_path() -> Path:
+    """Path to a private *pointer* to an explicitly chosen config, not its contents."""
+    return resolve().config_file.parent / ".selected-config"
+
+
+def clear_selected_config() -> None:
+    """Remove only MEDRE's selection pointer; leave the actual YAML intact."""
+    selected_config_path().unlink(missing_ok=True)
+
+
+def remember_config(path: str | Path) -> Path:
+    """Validate a YAML config and atomically remember its absolute location."""
+    chosen, _ = find_config(path)
+    config, _source, paths = load_config(chosen)
+    from medre.config.env import apply_env_overrides
+
+    apply_env_overrides(config, paths)
+    if "\n" in str(chosen) or "\r" in str(chosen) or len(str(chosen).encode()) > 4094:
+        raise ConfigFileError("Selected config path is too long or contains a newline")
+    pointer = selected_config_path()
+    pointer.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    name: str | None = None
+    owned_fd: int | None = None
+    try:
+        fd, name = tempfile.mkstemp(prefix=".selected-", dir=pointer.parent)
+        owned_fd = fd
+        # newline="\n" keeps the pointer free of Windows CR translation; the
+        # reader fails closed on any carriage return in the pointer value.
+        file = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        owned_fd = None
+        with file:
+            # mkstemp creates a private file (0600 on POSIX); on Windows,
+            # filesystem ACLs govern access to this path-only pointer.
+            file.write(str(chosen) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(name, pointer)
+    finally:
+        if owned_fd is not None:
+            os.close(owned_fd)
+        if name is not None and os.path.exists(name):
+            os.unlink(name)
+    return chosen
+
+
+def _read_selected_config() -> Path | None:
+    """Fail closed on broken/unsafe pointers; never guess an alternate bridge."""
+    pointer = selected_config_path()
+    try:
+        st = pointer.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ConfigFileError(
+            f"Cannot read selected-config pointer: {pointer}"
+        ) from exc
+    if not stat.S_ISREG(st.st_mode) or st.st_size > 4096:
+        raise ConfigFileError(f"Invalid selected-config pointer: {pointer}")
+    try:
+        flags = (
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
+        fd = os.open(pointer, flags)
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ConfigFileError(f"Invalid selected-config pointer: {pointer}")
+            raw = stream.read(4097)
+        if len(raw) > 4096:
+            raise ConfigFileError(f"Invalid selected-config pointer: {pointer}")
+        value = raw.decode("utf-8").removesuffix("\n")
+    except (OSError, UnicodeError) as exc:
+        raise ConfigFileError(
+            f"Cannot read selected-config pointer: {pointer}"
+        ) from exc
+    if not value or "\n" in value or "\r" in value or not Path(value).is_absolute():
+        raise ConfigFileError(f"Invalid selected-config pointer: {pointer}")
+    chosen = Path(value).resolve()
+    if not chosen.is_file():
+        raise ConfigFileError(
+            f"Selected config is missing: {chosen}. "
+            "Run 'medre config use PATH' or 'medre config unset'."
+        )
+    _validate_config_suffix(chosen)
+    return chosen
+
+
 # ---------------------------------------------------------------------------
 # Config file discovery
 # ---------------------------------------------------------------------------
@@ -234,9 +323,9 @@ def find_config(
     2. ``MEDRE_CONFIG`` environment variable.
     3. ``$MEDRE_HOME/config.yaml`` (or ``.yml``) — when ``MEDRE_HOME`` is
        set.
-    4. XDG config path (``~/.config/medre/config.yaml`` by default, or
-       ``.yml``).
-    5. ``./medre.yaml`` (or ``./medre.yml``) — current working directory.
+    4. Explicitly remembered default (``medre config use PATH``).
+    5. XDG config path (``~/.config/medre/config.yaml`` by default).
+    6. ``./medre.yaml`` (or ``./medre.yml``) — current working directory.
 
     ``.yaml`` is preferred over ``.yml`` in every auto-discovery step.
     A ``.toml`` file found via an explicit path, ``MEDRE_CONFIG``, or any
@@ -278,7 +367,7 @@ def find_config(
         if p.is_file():
             _validate_config_suffix(p)
             return (p, ConfigSource.MEDRE_CONFIG)
-        checked.append(f"MEDRE_CONFIG={p}")
+        raise ConfigFileError(f"Config file not found: {p} (selected by MEDRE_CONFIG)")
 
     # 3. MEDRE_HOME/config.yaml (or .yml)
     medre_home = os.environ.get("MEDRE_HOME", "").strip()
@@ -290,7 +379,12 @@ def find_config(
         _raise_if_unsupported_toml(home)
         checked.append(f"MEDRE_HOME config={home / 'config.yaml'}")
 
-    # 4. XDG default
+    # 4. User-selected default, deliberately below explicit/env/HOME config.
+    selected = _read_selected_config()
+    if selected is not None:
+        return (selected, ConfigSource.SELECTED)
+
+    # 5. XDG default
     paths = resolve()
     if paths.config_dir is not None:
         found = _discover_yaml(paths.config_dir, "config")
@@ -299,7 +393,7 @@ def find_config(
         _raise_if_unsupported_toml(paths.config_dir)
     checked.append(f"XDG config={paths.config_file}")
 
-    # 5. Local ./medre.yaml (or .yml)
+    # 6. Local ./medre.yaml (or .yml)
     found = _discover_yaml(Path.cwd(), "medre")
     if found is not None:
         return (found, ConfigSource.LOCAL)
@@ -310,6 +404,7 @@ def find_config(
     raise ConfigNotFoundError(
         "No MEDRE configuration file found. Searched:\n"
         + "\n".join(f"  - {desc}" for desc in checked)
+        + "\nSelect an existing bridge with: medre config use PATH"
         + "\nGenerate a sample with: medre config sample"
     )
 

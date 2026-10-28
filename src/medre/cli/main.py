@@ -83,6 +83,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     parser = argparse.ArgumentParser(
         prog="medre",
         description="Modular Event-driven Routing Engine",
+        epilog="Try 'medre help routes diagram' or 'medre config use PATH' to get started.",
         allow_abbrev=False,
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -107,6 +108,12 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
     check_p = config_sub.add_parser("check", help="Validate config file")
     check_p.add_argument("--config", default=None, help="Path to config file")
+    select_p = config_sub.add_parser(
+        "use", help="Remember the default bridge config for future commands"
+    )
+    select_p.add_argument("path", help="Existing bridge YAML to select")
+    config_sub.add_parser("current", help="Show the effective default bridge config")
+    config_sub.add_parser("unset", help="Forget the selected default bridge config")
     config_sub.add_parser("sample", help="Print sample config")
     bridge_p = config_sub.add_parser(
         "bridge", help="Guide bridge configuration and preview routes offline"
@@ -366,20 +373,48 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
 
     routes_diagram_p = routes_sub.add_parser(
-        "diagram", help="Preview configured route graph or per-adapter route summary"
+        "diagram",
+        help="Preview configured route graph or per-adapter route summary",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  medre routes diagram bridge.yaml          # draw in terminal\n"
+            "  medre routes diagram --format text        # per-adapter detail\n"
+            "  medre routes diagram --ascii              # plain ASCII graph\n"
+            "  medre routes diagram --format mermaid --output bridge.mmd\n"
+            "  medre routes diagram --format svg --output bridge.svg\n"
+            "  medre routes diagram --view adapters --format png --output adapters.png\n"
+            "  medre config use bridge.yaml  # remember default (no config copied)\n"
+            "Graph images require optional local Graphviz ('dot'). No adapters start."
+        ),
+    )
+    routes_diagram_p.add_argument(
+        "config_path", nargs="?", help="Bridge YAML (shorthand for --config)"
     )
     routes_diagram_p.add_argument("--config", default=None, help="Path to config file")
     routes_diagram_p.add_argument(
         "--format",
-        choices=("text", "mermaid", "json"),
-        default="text",
-        help="Terminal summary, Mermaid source, or structured graph",
+        choices=("terminal", "text", "mermaid", "json", "dot", "svg", "png", "pdf"),
+        default="terminal",
+        help="Terminal graph (default), per-adapter text, graph source, or image",
+    )
+    routes_diagram_p.add_argument(
+        "--output",
+        metavar="PATH",
+        default=None,
+        help="Save output to a NEW private file; required for svg/png/pdf",
     )
     routes_diagram_p.add_argument(
         "--view",
         choices=("contexts", "adapters"),
         default="contexts",
-        help="Group by endpoint contexts or by adapter instance (Mermaid only)",
+        help="Group by endpoint contexts (default) or adapters (terminal/Mermaid/DOT/images)",
+    )
+    routes_diagram_p.add_argument(
+        "--ascii",
+        action="store_true",
+        default=False,
+        help="Use ASCII instead of Unicode box-drawing (terminal format only)",
     )
     routes_diagram_p.add_argument(
         "--full-context",
@@ -831,12 +866,19 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Output ZIP path (default: medre-support-bundle.zip in cwd)",
     )
 
+    from .help_navigation import describe_defaults
+
+    describe_defaults(parser)
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the appropriate command handler."""
-    arguments = list(argv) if argv is not None else sys.argv[1:]
+    from .help_navigation import group_help, help_request, show_command_help
+
+    arguments, help_only = help_request(
+        list(argv) if argv is not None else sys.argv[1:]
+    )
     package_actions = {"sources", "install", "remove", "upgrade", "update", "reset"}
     adapter_action = None
     if arguments and arguments[0] == "adapters":
@@ -853,7 +895,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     # Updating or removing a broken provider must not import that provider.
     parser = _build_parser(include_adapter_cli=not managing_packages)
-    args = parser.parse_args(arguments)
+    if help_only:
+        show_command_help(parser, arguments)
+    args = parser.parse_args(group_help(parser, arguments))
 
     if (
         args.command == "inspect"
@@ -940,6 +984,10 @@ def main(argv: list[str] | None = None) -> None:
             from .native_commands import _config_native
 
             _config_native(args)
+        elif args.config_command in {"use", "current", "unset"}:
+            from .config_commands import _config_selection
+
+            _config_selection(args.config_command, getattr(args, "path", None))
     elif args.command == "paths":
         from .config_commands import _paths
 
@@ -979,11 +1027,17 @@ def main(argv: list[str] | None = None) -> None:
         elif args.routes_command == "plan":
             _routes_plan(args.config, as_json=args.json)
         elif args.routes_command == "diagram":
+            if args.config and args.config_path:
+                parser.error(
+                    "routes diagram: choose either positional CONFIG or --config"
+                )
             _routes_diagram(
-                args.config,
+                args.config or args.config_path,
                 output_format=args.format,
                 view=args.view,
                 full_context=args.full_context,
+                output_path=args.output,
+                ascii_only=args.ascii,
             )
         elif args.routes_command == "explain":
             _routes_explain(
