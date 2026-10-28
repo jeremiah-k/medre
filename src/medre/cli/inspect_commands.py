@@ -17,6 +17,7 @@ import medre.runtime.timeline as _timeline
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.trace import timeline_to_json
+from medre.core.storage.backend import StorageError
 
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
 from .json import to_json
@@ -302,5 +303,20 @@ async def _inspect_radio_attempt(
     except StorageError as exc:
         print(f"Storage error: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_BUILD) from None
+    finally:
+        await storage.close()
+
+
+async def _inspect_content(*, storage_path: str) -> None:
+    """Print aggregate core content accounting through a validated read-only store."""
+    storage = await _open_readonly_storage(storage_path)
+    try:
+        print(to_json(await storage.inspect_content_inventory()))
+    except StorageError:
+        print(
+            "Content inventory unavailable: storage is incomplete or unreadable; no files changed.",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG) from None
     finally:
         await storage.close()

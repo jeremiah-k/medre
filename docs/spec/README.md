@@ -27,6 +27,7 @@ in a document under this tree.
 | [adapter-runtime.md](adapter-runtime.md)                   | Adapter protocol, lifecycle, capabilities, codec                |
 | [routing-delivery.md](routing-delivery.md)                 | Route matching, fanout, delivery plans, receipts                |
 | [storage.md](storage.md)                                   | SQLite schema, append-only guarantees, replay semantics         |
+| [content-retention.md](content-retention.md) | Content surfaces, consumers, and read-only logical-byte accounting |
 | [state-machines.md](state-machines.md)                     | Receipt and outbox transition graphs                            |
 | [delivery-lifecycle.md](delivery-lifecycle.md)             | Delivery lifecycle authority hierarchy and vocabulary tables    |
 | [durable-ingress.md](durable-ingress.md)                   | Durable admission boundary, checkpoint ownership, drain handoff |

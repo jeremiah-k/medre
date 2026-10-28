@@ -516,6 +516,7 @@ class TestNestedCommandCoverage:
                     "pressure",
                     "replay",
                     "radio-attempt",
+                    "content",
                 },
             ),
             ("trace", {"event", "replay"}),

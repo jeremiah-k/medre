@@ -1,0 +1,85 @@
+"""Read-only content accounting without selecting message values.
+
+These aggregates describe logical persisted bytes, not physical disk usage or
+an erasure certificate. References, free pages, WAL, snapshots and provider
+histories have independent lifetimes. No row count grants retention authority.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class ContentSurface:
+    """One closed, schema-owned group of potentially content-bearing columns."""
+
+    table: str
+    columns: tuple[str, ...]
+    consumers: tuple[str, ...]
+
+
+CONTENT_SURFACES = (
+    ContentSurface(
+        "canonical_events",
+        ("payload", "metadata"),
+        ("delivery", "reply_quotes", "history", "replay"),
+    ),
+    ContentSurface(
+        "event_relations",
+        ("key", "fallback_text", "metadata"),
+        ("reply_quotes", "reaction_fallbacks"),
+    ),
+    ContentSurface("native_message_refs", ("metadata",), ("native_correlation",)),
+    ContentSurface(
+        "delivery_receipts",
+        ("error", "capability_reason", "rendering_evidence"),
+        ("delivery_evidence",),
+    ),
+    ContentSurface(
+        "delivery_observations", ("error", "metadata"), ("delivery_evidence",)
+    ),
+    ContentSurface(
+        "delivery_outbox",
+        (
+            "target_channel",
+            "target_address",
+            "failure_kind_detail",
+            "error_summary",
+            "metadata",
+        ),
+        ("delivery", "recovery"),
+    ),
+    ContentSurface(
+        "radio_attempt_progress",
+        ("plan_json", "provenance_json", "parts_json"),
+        ("exact_packet_recovery", "packet_evidence"),
+    ),
+    ContentSurface(
+        "durable_ingress_work", ("provenance", "last_error"), ("ingress_recovery",)
+    ),
+    ContentSurface("attachment_blobs", ("data",), ("attachment_delivery",)),
+    ContentSurface("adapter_checkpoints", ("cursor", "metadata"), ("native_recovery",)),
+    ContentSurface("plugin_state", ("value",), ("reserved_plugin_state",)),
+)
+
+
+def inventory_sql() -> str:
+    """Aggregate every surface in one SQLite read snapshot.
+
+    Identifiers come exclusively from the closed schema constants above.
+    SQLite counts UTF-8 bytes with BLOB casts; JSON punctuation and empty
+    envelopes count, shared attachment blobs count once, and no payload is
+    returned to Python. All rows participate, including terminal deliveries.
+    """
+    queries = []
+    for surface in CONTENT_SURFACES:
+        sizes = " + ".join(
+            f'COALESCE(length(CAST("{column}" AS BLOB)), 0)'
+            for column in surface.columns
+        )
+        queries.append(
+            f"SELECT '{surface.table}' AS surface, COUNT(*) AS rows, "
+            f'COALESCE(SUM({sizes}), 0) AS logical_bytes FROM "{surface.table}"'
+        )
+    return " UNION ALL ".join(queries)

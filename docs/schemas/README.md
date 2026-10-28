@@ -9,6 +9,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | Schema                                           | Source Type                                                     | Description                                                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `canonical-event.schema.json`                    | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                                                     |
+| `content-inventory.schema.json` | `SQLiteStorage.inspect_content_inventory` | Read-only logical bytes and consumers without message values |
 | `canonical-event.schema.yaml`                    | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document                        |
 | `styled-text.schema.json`                        | `StyledText` / `TextSpan`                                       | Optional semantic presentation over canonical plain text                                           |
 | `attachment.schema.json`                         | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                                       |

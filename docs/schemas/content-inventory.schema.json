@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/content-inventory.schema.json",
+  "title": "Core content inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "scope",
+    "retention_authorized",
+    "surfaces",
+    "unmeasured"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-content-inventory"
+    },
+    "version": {
+      "const": 1
+    },
+    "scope": {
+      "const": "core_sqlite"
+    },
+    "retention_authorized": {
+      "const": false
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "table",
+          "columns",
+          "consumers",
+          "rows",
+          "logical_bytes"
+        ],
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "logical_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "unmeasured": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}
