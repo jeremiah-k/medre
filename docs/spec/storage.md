@@ -2106,3 +2106,15 @@ storage-owned checkpoint and parent. Observations never alter terminal outbox
 history or issue a delivery receipt. Duplicate observation IDs create no
 additional evidence. The native producer remains responsible for independent
 ACK source authority; historical admission is not ACK authentication.
+
+
+### Native snapshot filenames
+
+Selected installation-relative paths MAY contain POSIX-native colon characters
+such as a Matrix account ID. Capture, verification and restoration MUST reject
+such paths on Windows before opening selected files because Windows can treat
+a colon as an alternate data stream. These snapshots require a POSIX restore
+host; no SDK filename translation is performed. Drive spellings in any path
+component, backslashes, traversal, empty components and absolute paths MUST
+remain rejected on every host. The manifest schemas describe the shared lexical
+shape; host representability is an additional runtime check.
