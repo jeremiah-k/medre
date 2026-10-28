@@ -445,7 +445,7 @@ class StorageBackend(Protocol):
     async def release_outbox_claim(
         self, outbox_id: str, worker_id: str, *, release_status: str = "pending"
     ) -> None:
-        """Release a claim only while worker_id still owns the row."""
+        """Release only an owned in_progress row with no active reservation."""
         ...
 
     async def count_outbox_by_status(self) -> dict[str, int]:
@@ -1555,7 +1555,11 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 - `mark_outbox_retry_wait` / `mark_outbox_dead_lettered`: Guarded failure transitions; return whether the transition committed.
 - `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status.
 - `renew_outbox_lease`: Extends the lease while the worker owns the `in_progress` row.
-- `release_outbox_claim`: Releases an owned claim to `pending` or `retry_wait`.
+- `release_outbox_claim`: Releases an owned, unreserved claim to `pending` or
+  `retry_wait`. The SQLite update MUST refuse a row with `active_attempt` even
+  if it was reserved after the caller read the row; reserved attempts require
+  lifecycle reconciliation and MUST NOT be returned to claimable work by claim
+  release.
 - `count_outbox_by_status`: Returns counts grouped by status.
 
 ### 8.17 query_unresolved_deliveries(cursor, since_event_time, limit)

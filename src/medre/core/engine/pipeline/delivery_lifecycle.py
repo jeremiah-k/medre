@@ -221,9 +221,8 @@ class DeliveryLifecycleStorage(Protocol):
         worker_id: str,
         *,
         release_status: str = "pending",
-        require_unreserved: bool = False,
     ) -> None:
-        """Release an owned claim under optional atomic reservation fencing."""
+        """Release only an owned, unreserved claim under atomic fencing."""
         ...
 
     async def reserve_outbox_attempt(
@@ -1772,7 +1771,6 @@ class DeliveryLifecycleService:
             item.outbox_id,
             item.worker_id,
             release_status="pending" if item.attempt_number == 0 else "retry_wait",
-            require_unreserved=True,
         )
 
     async def defer_retry_outbox(

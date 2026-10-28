@@ -1825,17 +1825,17 @@ class StorageBackend(Protocol):
         worker_id: str,
         *,
         release_status: str = "pending",
-        require_unreserved: bool = False,
     ) -> None:
-        """Release a claim on an outbox item, restoring its prior status.
+        """Release an unreserved claim on an outbox item.
 
         Authority: **update** (release claim, restore to claimable status).
 
         Clears ``locked_at``, ``lease_until``, and ``worker_id`` and sets
         ``status`` to *release_status* (default ``"pending"``).
         Only succeeds when the current ``worker_id`` matches **and** the
-        row status is ``in_progress``. Set ``require_unreserved`` to prevent
-        clearing an attempt reserved after the caller observed the row.
+        row status is ``in_progress`` and ``active_attempt`` is NULL.
+        Reserved attempts must be reconciled through lifecycle authority,
+        never released as unsent work.
         """
         ...
 

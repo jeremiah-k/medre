@@ -252,14 +252,12 @@ class _FakeStorage:
         worker_id: str,
         *,
         release_status: str = "pending",
-        require_unreserved: bool = False,
     ) -> None:
         release_guarded_outbox_claim(
             self._outbox,
             outbox_id,
             worker_id,
             release_status=release_status,
-            require_unreserved=require_unreserved,
         )
 
     async def renew_outbox_lease(

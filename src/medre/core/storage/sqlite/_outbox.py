@@ -1067,22 +1067,28 @@ class _OutboxMixin:
         worker_id: str,
         *,
         release_status: str = "pending",  # default must match CLAIMABLE_OUTBOX_STATUSES
-        require_unreserved: bool = False,
     ) -> None:
-        """Release a claim on an outbox item, restoring the caller-specified status.
+        """Release an unreserved claim, restoring the caller-specified status.
 
         Authority: **update** (release claim, restore to claimable status).
         Clears locked_at, lease_until, worker_id and sets status to
         *release_status*.  Only succeeds when the current worker_id matches
         **and** the row is ``in_progress``.  Rows in any other status are
         left unchanged — only an actively-claimed item can be released.
-        ``require_unreserved`` adds an atomic guard against clearing a
-        reservation created after the caller inspected its claim snapshot.
+        An active attempt reservation can represent an uncertain native send.
+        The atomic SQL guard refuses its release even if the reservation was
+        added after the caller inspected the claim. Only lifecycle finalization
+        may consume a reserved attempt.
         """
         if release_status not in CLAIMABLE_OUTBOX_STATUSES:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
-        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, attempt_number = COALESCE(active_attempt, attempt_number), active_attempt = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress' AND (? = 0 OR active_attempt IS NULL)"  # nosec B608 - status is hardcoded literal
+        _release_sql = (
+            "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, "
+            "worker_id = NULL, status = ?, updated_at = ? "
+            "WHERE outbox_id = ? AND worker_id = ? "
+            "AND status = 'in_progress' AND active_attempt IS NULL"
+        )
         await self._write(
             _release_sql,
             (
@@ -1090,7 +1096,6 @@ class _OutboxMixin:
                 _now_iso(),
                 outbox_id,
                 worker_id,
-                int(require_unreserved),
             ),
         )
 

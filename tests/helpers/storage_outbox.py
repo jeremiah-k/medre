@@ -405,23 +405,13 @@ def release_guarded_outbox_claim(
     worker_id: str,
     *,
     release_status: str = "pending",
-    require_unreserved: bool = False,
 ) -> None:
-    """Mirror SQLite's claim release with optional reservation fencing.
-
-    Only an actively claimed row owned by *worker_id* is releasable.  With
-    ``require_unreserved`` the release refuses a row whose attempt was
-    reserved after the caller inspected its claim snapshot, matching the
-    atomic SQLite guard inside the release UPDATE.
-    """
+    """Mirror SQLite's unconditional release fence for unreserved claims."""
     item = items.get(outbox_id)
     if item is None or item.status != "in_progress" or item.worker_id != worker_id:
         return
-    if require_unreserved and item.active_attempt is not None:
-        return
     if item.active_attempt is not None:
-        object.__setattr__(item, "attempt_number", item.active_attempt)
-    object.__setattr__(item, "active_attempt", None)
+        return
     object.__setattr__(item, "worker_id", None)
     object.__setattr__(item, "locked_at", None)
     object.__setattr__(item, "lease_until", None)
