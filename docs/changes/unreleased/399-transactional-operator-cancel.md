@@ -5,7 +5,7 @@
 - Reject changed plans, sibling generations, active attempts and replayed
   decision IDs with different parameters. Preserve all native send evidence.
 - This is a storage-only prerelease stage: no CLI action, no uncertain-send
-  reconciliation, no automatic migration of existing SQLite state.
+  reconciliation, fresh-state validation without upgrade paths for earlier SQLite layouts.
 
 Fence against competing reserved generations and retained claim ownership.
 Validate audit idempotency/status constraints when reopening state and preserve

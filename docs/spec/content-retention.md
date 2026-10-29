@@ -77,7 +77,7 @@ measure, including uncounted core projections and physical SQLite remnants.
 Incoming relation counts describe referring rows, not copies of every original
 message byte; zero counts MUST NOT be interpreted as erasure. Its schema is
 `content-dependency-preview.schema.json`. This is measurement only, not typed
-content availability, migration or deletion.
+persisted content availability or deletion.
 
 The [content availability policy preview](content-availability-authority.md)
 defines versioned decisions and hold trust boundaries independently of these
