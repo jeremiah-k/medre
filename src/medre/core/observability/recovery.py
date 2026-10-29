@@ -58,8 +58,13 @@ def delivery_guidance(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Share current-action commands between event runbooks and evidence.
 
-    Terminal actions offer no resend; the fallback is read-only inspection.
-    Ordering and deduplication are stable for both projections.
+    Return action dictionaries in the resolver's order and a command list
+    deduplicated in first-seen order, excluding completed and cancelled actions
+    from command aggregation. If no commands remain, return a read-only event
+    inspection command.
+
+    The caller supplies authority scoped to the event; ``event_id`` is used only
+    for the fallback command. ``storage_path`` is embedded in inspection commands.
     """
     actions = [
         recovery_action(snapshot, storage_path=storage_path).to_dict()
@@ -85,6 +90,13 @@ def recovery_action(
 
     A current outbox generation without a receipt is represented explicitly.
     Stale receipts cannot authorize replay or turn uncertain work into failure.
+    Without an outbox, the authoritative receipt supplies the delivery state.
+    Return an action containing that state, its disposition and reason, and
+    inspection commands or an adapter/route-scoped dry-run preview. Replay
+    filters cannot isolate individual channels. Retry scheduling reflects stored
+    deadline presence, without checking whether the deadline has passed.
+
+    ``storage_path`` is embedded in inspection commands, not opened here.
     Commands remain suggestions; this function performs no native or storage I/O.
     """
     identity = snapshot.identity

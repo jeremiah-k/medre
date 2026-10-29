@@ -96,12 +96,18 @@ async def _build_event_recovery_runbook(
     """Build a recovery runbook dict for a single event.
 
     Returns ``None`` when the event does not exist in storage.
-    This is the pure-logic core shared by ``medre recover --event`` and
-    ``medre inspect event --recovery`` — no CLI I/O, no sys.exit.
+    Shared by ``medre recover --event`` and ``medre inspect event --recovery``.
+    Reads storage without mutating it or performing CLI I/O. Storage read errors
+    propagate to the caller; ``storage_path`` is used in generated commands.
 
     ``failed_targets`` lists **current** unresolved failures only; earlier
     failures of the same lineage that a later receipt superseded are kept
     in ``historical_failures`` so immutable history stays drillable.
+
+    ``delivery_actions`` also includes current work without a receipt.
+    Recommendations follow current ownership and contain inspection commands or
+    adapter/route-scoped dry-run previews, with inspection as the fallback when
+    no actionable commands remain. Replay filters cannot isolate channels.
     """
     tl_result = await _timeline.assemble_event_timeline(storage, event_id)
     if tl_result is None:

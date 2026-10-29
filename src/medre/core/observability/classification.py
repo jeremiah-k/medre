@@ -97,10 +97,10 @@ def recommended_commands(
     available as a specialised / lower-level tool but is not the default
     recommendation.
 
-    When *storage_path* is provided, every ``inspect`` and ``recover``
-    command includes ``--storage-path {storage_path}`` so the emitted
-    commands are valid (argparse enforces ``required=True`` on
-    ``--storage-path`` for all read-only subcommands).
+    A nonempty *storage_path* adds ``--storage-path`` to every generated
+    ``inspect`` command. When omitted or empty, operators must supply the path
+    required by those commands. Unrecognized categories return only an event
+    timeline inspection command.
 
     **Replay commands** (``medre replay``) do not include ``--config``
     in the generated string.  Operators may need to append
@@ -109,13 +109,16 @@ def recommended_commands(
     paths are required when the config lives outside the standard
     search locations.
 
-    Optional destination and route filters narrow replay previews to the failed
-    adapter/route; they cannot isolate individual channels. Set ``include_send``
-    false for read-only decision aids that must not recommend a native send.
+    Nonempty destination and route filters narrow all generated replay commands
+    to the adapter/route; they cannot isolate individual channels. For retryable
+    failures, ``include_send=True`` adds a ``best_effort`` command after the
+    ``dry_run`` preview. Set it false to return only inspection and preview
+    commands. This function generates strings without executing any commands.
     Opaque IDs and paths are shell-quoted without changing their argument values.
     """
 
     def option(name: str, value: str) -> list[str]:
+        """Return option arguments that preserve values beginning with a dash."""
         return [f"{name}={value}"] if value.startswith("-") else [name, value]
 
     sp = option("--storage-path", storage_path) if storage_path else []
@@ -126,6 +129,7 @@ def recommended_commands(
         scope += option("--route-ids", route_id)
 
     def inspect(option: str) -> str:
+        """Return an event inspection command for the requested view flag."""
         # Opaque positional IDs beginning with '-' need argparse's sentinel,
         # in addition to shell quoting. Put options before that sentinel.
         args = ["medre", "inspect", "event"]
@@ -136,6 +140,7 @@ def recommended_commands(
         return shlex.join(args)
 
     def replay(mode: str) -> str:
+        """Return an event replay command with any adapter and route filters."""
         event = option("--event", event_id)
         return shlex.join(["medre", "replay", "--mode", mode, *event, *scope])
 
