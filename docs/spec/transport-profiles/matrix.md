@@ -23,6 +23,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `metadata_embedding_mode`                  | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                                                    |
 | `store_path`                               | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                                           |
 | `sync_timeout_ms`                          | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                                               |
+| `initial_sync_timeout_seconds`             | `float`                                                | `45.0`        | Startup wait for acknowledged sync after room joins; `0` disables waiting                               |
 | `sync_stale_timeout_seconds`               | `float`                                                | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog                              |
 | `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                                              |
 | `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                                                 |
@@ -667,3 +668,22 @@ source membership, and outgoing updates use the relay account with finite
 timeouts. Activity is unencrypted metadata even in encrypted rooms and MUST NOT
 enter canonical history, durable delivery or replay. Native clearing is best
 effort; typing does not imply full presence or original-user puppeting.
+
+## Startup sync readiness
+
+The adapter MUST keep ordinary first-sync latency inside startup for up to
+`initial_sync_timeout_seconds` after authentication and configured room joins.
+A sync acknowledged during joins MUST satisfy the same condition. Login alone
+MUST NOT establish healthy readiness. Expiry MUST retain the running sync owner
+and its actual degraded health; native failure or reconnect MUST end the wait
+immediately. Acknowledged progress after startup MUST update current health
+without rewriting frozen startup evidence.
+
+The runtime's `adapter_start_timeout_seconds` remains the outer deadline for
+login, joins and this wait together. Cancellation MUST close partial session
+resources. Durable admission MUST remain active during the wait; readiness
+MUST NOT bypass admission or acknowledge unaccepted work.
+
+Stopping or replacing a pending startup MUST wake and retire its initial-sync
+wait. A retired attempt MUST NOT publish readiness, mark itself started, or
+clear or close the replacement's session.

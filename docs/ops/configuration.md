@@ -288,19 +288,20 @@ adapters:
       encryption_mode: plaintext
 ```
 
-| Field                     | Type           | Default       | Description                                                                               |
-| ------------------------- | -------------- | ------------- | ----------------------------------------------------------------------------------------- |
-| `enabled`                 | bool           | `true`        | Whether this adapter instance is active.                                                  |
-| `adapter_kind`            | string         | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                    |
-| `adapter_id`              | string         | instance name | Unique identifier. Defaults to the mapping key.                                           |
-| `homeserver`              | string         | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                           |
-| `user_id`                 | string         | _(required)_  | Fully-qualified Matrix user ID.                                                           |
-| `access_token`            | string         | `""`          | Access token. Treat as a secret.                                                          |
-| `room_allowlist`          | list of string | `None`        | Room IDs to accept. `None` means all rooms.                                               |
-| `metadata_embedding_mode` | string         | `"safe"`      | How metadata is embedded in messages.                                                     |
-| `sync_timeout_ms`         | int            | `30000`       | Long-polling sync timeout in milliseconds.                                                |
-| `encryption_mode`         | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                         |
-| `require_encrypted_rooms` | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`. |
+| Field                          | Type           | Default       | Description                                                                                                                                                 |
+| ------------------------------ | -------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | bool           | `true`        | Whether this adapter instance is active.                                                                                                                    |
+| `adapter_kind`                 | string         | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                                                                                      |
+| `adapter_id`                   | string         | instance name | Unique identifier. Defaults to the mapping key.                                                                                                             |
+| `homeserver`                   | string         | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                                                                                             |
+| `user_id`                      | string         | _(required)_  | Fully-qualified Matrix user ID.                                                                                                                             |
+| `access_token`                 | string         | `""`          | Access token. Treat as a secret.                                                                                                                            |
+| `room_allowlist`               | list of string | `None`        | Room IDs to accept. `None` means all rooms.                                                                                                                 |
+| `metadata_embedding_mode`      | string         | `"safe"`      | How metadata is embedded in messages.                                                                                                                       |
+| `sync_timeout_ms`              | int            | `30000`       | Long-polling sync timeout in milliseconds.                                                                                                                  |
+| `initial_sync_timeout_seconds` | number         | `45.0`        | Wait after room joins for the first acknowledged sync. `0` disables waiting; the complete start remains bounded by `runtime.adapter_start_timeout_seconds`. |
+| `encryption_mode`              | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                                                                                           |
+| `require_encrypted_rooms`      | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`.                                                                   |
 
 `device_id` and `store_path` are not operator-facing — the runtime derives them automatically.
 
@@ -938,6 +939,12 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `room_allowlist`  | `MEDRE_ADAPTER__MAIN__ROOM_ALLOWLIST=!room:example.com,!other:...` |
 | `encryption_mode` | `MEDRE_ADAPTER__MAIN__ENCRYPTION_MODE=plaintext`                   |
 | `sync_timeout_ms` | `MEDRE_ADAPTER__MAIN__SYNC_TIMEOUT_MS=30000`                       |
+
+Matrix also accepts `MEDRE_ADAPTER__MAIN__INITIAL_SYNC_TIMEOUT_SECONDS=45`.
+Keep `runtime.adapter_start_timeout_seconds` large enough for authentication,
+room joins, and that wait together. Expiry of the initial-sync wait retains
+native recovery and degraded health; expiry of the runtime deadline cancels
+the adapter's entire startup attempt.
 
 **Meshtastic** (`MeshtasticConfig`):
 

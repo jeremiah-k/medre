@@ -102,9 +102,15 @@ All commands print a human-readable error to stderr before exiting nonzero.
 ## Current health after startup
 
 `Runtime running` confirms that the adapter owners started; `Runtime ready`
-also reflects healthy startup observations. A Matrix owner may be waiting for
-its first durable sync acknowledgment when slower radio startup finishes.
-Later native notifications update current health automatically. Look for
+also reflects healthy startup observations. Matrix keeps its first sync inside
+startup for up to `initial_sync_timeout_seconds` after room joins (45 seconds
+by default), logging the wait as startup progress. An acknowledgement within
+that budget permits healthy startup without an initial degradation warning.
+A native sync failure or reconnect is reported immediately. On wait expiry,
+Matrix starts with its actual degraded health and keeps native recovery active.
+Set the wait to `0` for immediate classification. The runtime's per-adapter
+startup deadline covers login, joins, and the wait together; allow a larger
+runtime budget when needed. Later native notifications update current health automatically. Look for
 `Adapter <id> health changed: degraded -> healthy` and
 `Runtime current health: healthy`; a fresh manual probe is not required just
 to acknowledge native recovery.
@@ -140,10 +146,10 @@ MEDRE shuts down in reverse dependency order: adapters → pipeline runner → s
 
 ### Shutdown Checklist
 
-| Element            | Clean sign         | Problem sign                     |
-| ------------------ | ------------------ | -------------------------------- |
-| Adapter stop order | Reverse of startup | Missing stop lines               |
-| Drain outcome      | `completed`        | `timed out` with abandoned count |
+| Element            | Clean sign                                   | Problem sign                                |
+| ------------------ | -------------------------------------------- | ------------------------------------------- |
+| Adapter stop order | Reverse of startup                           | Missing stop lines                          |
+| Drain outcome      | `completed`                                  | `timed out` with abandoned count            |
 | Shutdown outcome   | `drain completed` and all adapter stop lines | Logged shutdown errors or a timed-out drain |
 
 ### What Gets Drained vs Preserved
@@ -153,7 +159,7 @@ MEDRE shuts down in reverse dependency order: adapters → pipeline runner → s
 | In-flight adapter deliveries                                           | Drained up to `shutdown_drain_timeout_seconds`, then abandoned                      |
 | Abandoned in-flight deliveries                                         | Evidence persisted as `suppressed` receipts with error `shutdown_drain_timeout`     |
 | New deliveries rejected during shutdown                                | Evidence persisted as `suppressed` receipts with error `delivery_rejected_shutdown` |
-| Adapter receive loops                                                  | Stopped through bounded native-owner cleanup; uncertain outcomes remain explicit |
+| Adapter receive loops                                                  | Stopped through bounded native-owner cleanup; uncertain outcomes remain explicit    |
 | Replay events                                                          | Cancelled; completed receipts preserved                                             |
 | Route statistics, diagnostic counters                                  | Lost — in-memory only                                                               |
 | Pending `retry_wait` outbox items                                      | Preserved — remain resumable work, claimed on next startup when due                 |
