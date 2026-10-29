@@ -78,3 +78,7 @@ Incoming relation counts describe referring rows, not copies of every original
 message byte; zero counts MUST NOT be interpreted as erasure. Its schema is
 `content-dependency-preview.schema.json`. This is measurement only, not typed
 content availability, migration or deletion.
+
+The [content availability policy preview](content-availability-authority.md)
+defines versioned decisions and hold trust boundaries independently of these
+counts. Neither preview changes runtime reads or authorizes content deletion.

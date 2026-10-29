@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/content-availability-decision.schema.json",
+  "title": "Content availability policy preview decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "result", "reason", "held_until"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "result": {
+      "enum": ["retained", "unavailable", "denied"]
+    },
+    "reason": {
+      "enum": [
+        "bounded_hold",
+        "bytes_absent",
+        "hard_ceiling_elapsed",
+        "consumer_not_authorized",
+        "no_live_hold"
+      ]
+    },
+    "held_until": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "retained"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "held_until": {
+            "type": "string"
+          },
+          "reason": {
+            "const": "bounded_hold"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "held_until": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "enum": ["bytes_absent", "hard_ceiling_elapsed"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "result": {
+            "const": "denied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "enum": ["consumer_not_authorized", "no_live_hold"]
+          }
+        }
+      }
+    }
+  ]
+}
