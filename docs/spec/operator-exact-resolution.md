@@ -1,6 +1,6 @@
 # Transactional exact-destination operator decisions
 
-## Supported authority (storage-only stage)
+## Supported storage and local operator authority
 
 `SQLiteStorage.cancel_unstarted_delivery(CancelUnstartedDecision(...))` is a
 write-capable, narrowly scoped primitive. It changes **one** current
@@ -13,9 +13,10 @@ no reservation, claim ownership, or competing generation and cannot touch
 sibling legs. Competing generations MUST compare the reserved `active_attempt`
 when present, rather than only the finalized attempt counter.
 
-This stage does **not** expose a public operator command. The caller must have
-independently authenticated and authorized the operator; an `actor_id` label is
-not authentication. It is not a replay engine and does not prove an earlier
+The [local operator command](../ops/exact-cancellation.md), `medre resolve`,
+provides a confirmed caller boundary through private POSIX state ownership.
+Other callers MUST independently authorize the operator; an `actor_id` label
+is not authentication. It is not a replay engine and does not prove an earlier
 native send was not accepted. The cancellation stops an _upcoming, currently
 unreserved_ attempt; any previous receipt and native uncertainty remain in the
 immutable evidence log. The primitive refuses current `in_progress`, `queued`,
@@ -25,8 +26,8 @@ application. It never clears `active_attempt`, calls a provider or sends bytes.
 ## Snapshot and transaction boundary
 
 The read-only exact preview's observation fingerprint does **not** authorize a
-write. A potential future CLI must acquire an exact request from the operator
-and provide the outbox ID plus its current persisted `attempt_number`, `status`
+write. The local CLI MUST acquire an exact request from the operator
+and provide the outbox ID plus its persisted `attempt_number`, `status`
 and `updated_at`. The expected generation is the persisted finalized attempt
 counter, including zero for never-dispatched work; it MUST NOT be copied from
 a display that normalizes staged work to an effective attempt of one.
@@ -36,10 +37,13 @@ delivery identity and the absence of a competing generation under SQLite's
 must produce no audit row and no state change. Restarted identical requests
 return idempotent success without repeating the mutation.
 
-A future write-capable operator CLI must additionally enforce caller identity,
-explicit confirmation, storage lease/maintenance authorization, and safe display
-of the current snapshot. It must not treat the read-only preview as a mutation
-grant, and it must distinguish cancellation from native _uncertain handoff_
+The local CLI MUST require explicit confirmation and an owner-only regular
+state file in a private directory. It MUST reject symlink components, parent
+traversal, hard links, and ancestors outside owner/root control. Writable
+ancestor directories MUST have sticky-bit protection. Both preview and apply
+MUST open the same absolute path that passed these checks. Storage failures
+MUST report the storage-error exit code. Preview output is not a mutation
+grant, and cancellation is distinct from native _uncertain handoff_
 reconciliation. Automatic retry policy and exact replay execution are unchanged.
 
 ## Prerelease storage compatibility

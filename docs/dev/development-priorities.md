@@ -22,9 +22,11 @@ list of upstream protocol possibilities.
 
 Current recovery guidance is implemented. Exact-destination inspection and
 per-event content dependency counts establish read-only boundaries; neither
-executes recovery nor authorizes expiry. An exact-cancellation storage authority and a versioned content policy preview
-provide the next building blocks. Their operator workflow, persisted content
-identity and runtime enforcement remain the next core implementation work.
+executes recovery nor authorizes expiry. The exact-cancellation authority is
+available through the confirmed local-owner `medre resolve` command, with
+read-only audit inspection through `medre inspect decisions`. A versioned
+content policy preview provides the decision model; persisted content identity,
+grants and runtime enforcement remain the next core implementation work.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after

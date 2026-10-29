@@ -837,6 +837,33 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Select the delivery identity with no channel",
     )
 
+    # resolve (narrow local-only operator write, not native replay)
+    resolve_p = sub.add_parser(
+        "resolve",
+        help="Preview/apply one exact unstarted cancellation under local OS ownership",
+    )
+    resolve_p.add_argument("--storage-path", required=True, metavar="PATH")
+    resolve_p.add_argument("--event", required=True)
+    resolve_p.add_argument("--plan-id", required=True)
+    resolve_p.add_argument("--target-adapter", required=True)
+    resolve_channel = resolve_p.add_mutually_exclusive_group(required=True)
+    resolve_channel.add_argument("--target-channel", default=None)
+    resolve_channel.add_argument("--no-channel", action="store_true")
+    resolve_p.add_argument(
+        "--apply", action="store_true", help="Apply a previously observed exact request"
+    )
+    resolve_p.add_argument("--outbox-id", default=None)
+    resolve_p.add_argument("--expected-generation", type=int, default=None)
+    resolve_p.add_argument(
+        "--expected-status", choices=("pending", "retry_wait"), default=None
+    )
+    resolve_p.add_argument("--expected-updated-at", default=None)
+    resolve_p.add_argument("--decision-id", default=None)
+    resolve_p.add_argument("--actor-label", default=None)
+    resolve_p.add_argument(
+        "--yes", action="store_true", help="Confirm the exact cancellation"
+    )
+
     # storage (with sub-subcommands)
     storage_p = sub.add_parser("storage", help="Storage management commands")
     storage_sub = storage_p.add_subparsers(dest="storage_command", required=True)
@@ -1257,6 +1284,10 @@ def main(argv: list[str] | None = None) -> None:
                 exact_no_channel=args.exact_no_channel,
             )
         )
+    elif args.command == "resolve":
+        from .resolve_commands import _resolve_unstarted
+
+        asyncio.run(_resolve_unstarted(args))
     elif args.command == "storage":
         from medre.config.paths import resolve as resolve_paths
 
