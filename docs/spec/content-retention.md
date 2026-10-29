@@ -58,3 +58,23 @@ retained and unmeasured. The report MUST list these boundaries and MUST set
 erasure certificate. Disabling ingress attachment acquisition does not purge
 previously stored bytes. Database encryption and secure physical erasure are
 separate contracts from content lifetime.
+
+## Advisory per-event dependency preview (no expiry)
+
+`medre inspect content --event EVENT --storage-path PATH` MUST report only
+aggregated, event-scoped core dependency counts: ingress and outbox statuses,
+outgoing and incoming relation rows, receipts, observations, attachment
+associations and radio packet plans in one SQLite read snapshot. It
+MUST NOT select payload bodies, excerpts, native packet bytes or credentials.
+The returned `delivery_hold_candidate` is a **possible** hold inferred from
+current statuses, not a lease or a safe-to-delete decision. Ingress states
+other than `completed` and outbox states other than `sent` or `cancelled`
+MUST conservatively remain candidates, including failed and unknown states.
+Concurrent owners may change status after the observation. A false value MUST
+NOT authorize expiry. An unknown event or incomplete storage MUST fail closed. The report
+MUST declare the external provider, peer, backup and log copies it cannot
+measure, including uncounted core projections and physical SQLite remnants.
+Incoming relation counts describe referring rows, not copies of every original
+message byte; zero counts MUST NOT be interpreted as erasure. Its schema is
+`content-dependency-preview.schema.json`. This is measurement only, not typed
+content availability, migration or deletion.

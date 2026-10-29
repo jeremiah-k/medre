@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
 from medre.core.storage.backend import StorageError
+from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
 
 
 class _CountMixin:
@@ -71,6 +71,88 @@ class _CountMixin:
                 "snapshots_and_exports",
                 "logs",
             ],
+        }
+
+    async def inspect_event_content_dependencies(self, event_id: str) -> dict[str, Any]:
+        """Preview current core content consumers without reading retained bytes.
+
+        This is an advisory snapshot, not a retention lease or permission to
+        delete. Provider-owned queues, external copies and unknown consumers
+        remain explicitly outside this observation.
+        """
+        if not event_id or len(event_id) > 512:
+            raise ValueError("Content dependency preview requires a bounded event ID")
+        # One statement observes the event and all counts in the same SQLite
+        # snapshot, including incoming relations that may retain reply excerpts.
+        rows = await self._read_all(
+            "WITH selected(event_id) AS (VALUES (?)) "
+            "SELECT 'event' AS kind, '' AS status, COUNT(*) AS count "
+            "FROM canonical_events WHERE event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'outbox', status, COUNT(*) FROM delivery_outbox "
+            "WHERE event_id=(SELECT event_id FROM selected) GROUP BY status "
+            "UNION ALL SELECT 'ingress', status, COUNT(*) FROM durable_ingress_work "
+            "WHERE event_id=(SELECT event_id FROM selected) GROUP BY status "
+            "UNION ALL SELECT 'relations', '', COUNT(*) FROM event_relations "
+            "WHERE event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'incoming_relations', '', COUNT(*) FROM event_relations "
+            "WHERE target_event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'receipts', '', COUNT(*) FROM delivery_receipts "
+            "WHERE event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'observations', '', COUNT(*) FROM delivery_observations "
+            "WHERE event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'attachments', '', COUNT(*) "
+            "FROM event_attachment_associations "
+            "WHERE event_id=(SELECT event_id FROM selected) "
+            "UNION ALL SELECT 'radio_plans', '', COUNT(*) FROM radio_attempt_progress r "
+            "JOIN delivery_outbox o ON o.outbox_id=r.outbox_id "
+            "WHERE o.event_id=(SELECT event_id FROM selected) "
+            "ORDER BY kind, status",
+            (event_id,),
+        )
+        copies = {str(row["kind"]): int(row["count"]) for row in rows}
+        if not copies.get("event"):
+            raise StorageError("Content dependency event does not exist")
+        outbox = [row for row in rows if row["kind"] == "outbox"]
+        ingress = [row for row in rows if row["kind"] == "ingress"]
+        return {
+            "format": "medre-content-dependency-preview",
+            "version": 1,
+            "scope": "core_sqlite_event",
+            "event_id": event_id,
+            "retention_authorized": False,
+            "deletion_authorized": False,
+            "delivery_hold_candidate": any(
+                row["status"] not in {"sent", "cancelled"} for row in outbox
+            )
+            or any(row["status"] != "completed" for row in ingress),
+            "outbox": [
+                {"status": row["status"], "count": int(row["count"])} for row in outbox
+            ],
+            "ingress": [
+                {"status": row["status"], "count": int(row["count"])} for row in ingress
+            ],
+            "content_copies": {
+                key: copies[key]
+                for key in (
+                    "relations",
+                    "incoming_relations",
+                    "receipts",
+                    "observations",
+                    "attachments",
+                    "radio_plans",
+                )
+            },
+            "unmeasured": [
+                "provider_native_queues_and_histories",
+                "snapshots_and_backups",
+                "remote_peers",
+                "logs",
+                "optional_plugin_consumers",
+                "canonical_payload_and_metadata",
+                "native_reference_and_conversation_projections",
+                "sqlite_free_pages_and_wal",
+            ],
+            "note": "Advisory counts only; no content read or retention decision made.",
         }
 
     async def count_events(self) -> int:

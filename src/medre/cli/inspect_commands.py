@@ -14,10 +14,10 @@ from typing import Any
 import msgspec
 
 import medre.runtime.timeline as _timeline
+from medre.core.storage.backend import StorageError
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.trace import timeline_to_json
-from medre.core.storage.backend import StorageError
 
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
 from .json import to_json
@@ -310,14 +310,18 @@ async def _inspect_radio_attempt(
 _CONTENT_REFUSAL = "Content inventory unavailable: storage is incomplete or unreadable; no files changed."
 
 
-async def _inspect_content(*, storage_path: str) -> None:
+async def _inspect_content(*, storage_path: str, event_id: str | None = None) -> None:
     """Print aggregate core content accounting through a validated read-only store."""
     storage = await _open_readonly_storage(
         storage_path, refusal=(_CONTENT_REFUSAL, EXIT_CONFIG)
     )
     try:
-        print(to_json(await storage.inspect_content_inventory()))
-    except StorageError:
+        if event_id is None:
+            report = await storage.inspect_content_inventory()
+        else:
+            report = await storage.inspect_event_content_dependencies(event_id)
+        print(to_json(report))
+    except (StorageError, ValueError):
         print(_CONTENT_REFUSAL, file=sys.stderr)
         raise SystemExit(EXIT_CONFIG) from None
     finally:
