@@ -799,6 +799,31 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         "--json", action="store_true", default=False, help="Output JSON runbook"
     )
 
+    recover_p.add_argument(
+        "--exact-plan-id",
+        default=None,
+        metavar="PLAN",
+        help="Read-only exact delivery-plan selection (requires --event)",
+    )
+    recover_p.add_argument(
+        "--exact-adapter",
+        default=None,
+        metavar="ADAPTER",
+        help="Read-only exact target adapter (requires --exact-plan-id)",
+    )
+    channel_group = recover_p.add_mutually_exclusive_group()
+    channel_group.add_argument(
+        "--exact-channel",
+        default=None,
+        metavar="CHANNEL",
+        help="Select one exact nonempty channel",
+    )
+    channel_group.add_argument(
+        "--exact-no-channel",
+        action="store_true",
+        help="Select the delivery identity with no channel",
+    )
+
     # storage (with sub-subcommands)
     storage_p = sub.add_parser("storage", help="Storage management commands")
     storage_sub = storage_p.add_subparsers(dest="storage_command", required=True)
@@ -1207,6 +1232,10 @@ def main(argv: list[str] | None = None) -> None:
                 cursor=args.cursor,
                 json_output=args.json,
                 storage_path=args.storage_path,
+                exact_plan_id=args.exact_plan_id,
+                exact_adapter=args.exact_adapter,
+                exact_channel=args.exact_channel,
+                exact_no_channel=args.exact_no_channel,
             )
         )
     elif args.command == "storage":

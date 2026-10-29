@@ -20,12 +20,18 @@ list of upstream protocol possibilities.
 | 7     | Principal-aware Matrix application services     | Distinguish bot display attribution from authorized virtual-user or account sends.                               | Persist the selected principal before native dispatch, scope references/crypto to it, prove restart and mutation authorization with real peers.                                     |
 | 8     | Bounded operational readiness and qualification | Understand encrypted-room behavior, context fidelity, sustained fanout, backlogs, shutdown and storage pressure. | Feature-specific independent peers, mixed-workload measurements, bounded queues and secret-free diagnostics; retain the existing all-pairs baseline.                                |
 
-The first package has an implementation branch. Chatmail native replies have a
-passing dedicated two-profile GreenMail qualification, with native quote and
-sender/origin presentation after reconnect and restart. SimpleX's SDK quote
-contract is qualified; its worker and ledger do not implement native replies.
-Keep that distinction in operator docs and machine-readable profiles. Privacy
-policy design and optional plugin retention share the
+Current recovery guidance is implemented. Exact-destination inspection and
+per-event content dependency counts establish read-only boundaries; neither
+executes recovery nor authorizes expiry. Transactional recovery decisions and
+versioned content availability remain the next core implementation work.
+
+Chatmail native replies have passing dedicated two-profile GreenMail
+qualification, including native quote and sender/origin presentation after
+reconnect and restart. SimpleX now has a scoped quote candidate with durable
+ownership and native-parent validation; its advertised reply capability remains
+`fallback` until independent recipient-side qualification. Keep that distinction
+in operator docs and machine-readable profiles. Privacy policy design and
+optional plugin retention share the
 [content lifecycle proposal](content-lifecycle.md); presentation alternatives
 and application-service scope are described in the
 [presentation guide](../ops/message-presentation.md).

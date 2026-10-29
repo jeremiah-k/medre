@@ -1021,3 +1021,25 @@ Generated previews filter adapters and routes. They cannot isolate one channel
 inside a route that fans out to several channels. Review every preview target;
 do not turn a preview into `best_effort` until its scope matches the intended
 recovery. These commands do not execute changes or settle uncertain handoffs.
+
+## Inspect one exact delivery leg before intervention
+
+For an event with two destinations on the same adapter, use the read-only
+exact preview instead of mistaking an adapter-scoped replay for a single-room
+operation:
+
+```bash
+medre recover --event EVENT --storage-path private.sqlite \
+  --exact-plan-id PLAN --exact-adapter matrix --exact-channel '!room-a:example.org' --json
+```
+
+Use `--exact-no-channel` in place of `--exact-channel` when the stored
+delivery identity has no channel. The returned `observed_fingerprint` identifies
+the current snapshot and `excluded_sibling_count` makes the limited scope
+visible. **This is not a send command.** Existing `medre replay --mode
+best_effort` still uses broad adapter/route selection and can affect other
+rooms. Do not use it to execute the exact preview. Uncertain, active or
+scheduled attempts remain under their original lifecycle owner.
+An absent or ambiguous exact target exits with `5` (not found), while malformed
+selector flags exit with `2` (configuration). Storage/data errors are not
+reclassified as missing destinations.

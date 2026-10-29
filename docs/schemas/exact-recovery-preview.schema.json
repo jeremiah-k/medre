@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/exact-recovery-preview.schema.json",
+  "title": "MEDRE read-only exact delivery preview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "event_id",
+    "exact_preview",
+    "delivery_actions",
+    "recommended_commands",
+    "warnings"
+  ],
+  "properties": {
+    "scope": {
+      "const": "exact_delivery_preview"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exact_preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "observed_fingerprint",
+        "excluded_sibling_count",
+        "execution_authorized",
+        "scope"
+      ],
+      "properties": {
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "outbox_id",
+            "outbox_status",
+            "receipt_id",
+            "receipt_status",
+            "attempt_number"
+          ],
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delivery_plan_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target_adapter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target_channel": {
+              "type": ["string", "null"]
+            },
+            "outbox_id": {
+              "type": ["string", "null"]
+            },
+            "outbox_status": {
+              "type": ["string", "null"]
+            },
+            "receipt_id": {
+              "type": ["string", "null"]
+            },
+            "receipt_status": {
+              "type": ["string", "null"]
+            },
+            "attempt_number": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            }
+          }
+        },
+        "observed_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "excluded_sibling_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "execution_authorized": {
+          "const": false
+        },
+        "scope": {
+          "const": "read_only_current_generation"
+        }
+      }
+    },
+    "delivery_actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "allOf": [
+          {
+            "$ref": "recovery-action.schema.json"
+          },
+          {
+            "properties": {
+              "commands": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        ]
+      }
+    },
+    "recommended_commands": {
+      "type": "array",
+      "maxItems": 0
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
