@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shlex
-from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Callable
 
@@ -152,10 +151,7 @@ async def _collect_storage_data_from_backend(
                 outbox_items: list[Any] = list(tl_result.get("outbox_items") or [])
 
                 # Compact incident summary using shared classification.
-                from medre.core.observability.classification import (
-                    failure_category,
-                    recommended_commands,
-                )
+                from medre.core.observability.classification import failure_category
                 from medre.runtime.reporting import (
                     delivery_receipt_to_report_dict as _receipt_to_report,
                 )
@@ -211,22 +207,13 @@ async def _collect_storage_data_from_backend(
                     classification = "unknown"
 
                 from medre.core.delivery_authority import DeliveryAuthorityResolver
-                from medre.core.observability.recovery import recovery_action
+                from medre.core.observability.recovery import delivery_guidance
 
-                actions = [
-                    asdict(recovery_action(snapshot, storage_path=db_path))
-                    for snapshot in DeliveryAuthorityResolver(
-                        receipts, outbox_items
-                    ).ordered_snapshots()
-                ]
-                cmds = list(
-                    dict.fromkeys(
-                        command
-                        for action in actions
-                        if action["disposition"] not in {"completed", "cancelled"}
-                        for command in action["commands"]
-                    )
-                ) or recommended_commands("unknown", event_id, storage_path=db_path)
+                actions, cmds = delivery_guidance(
+                    DeliveryAuthorityResolver(receipts, outbox_items),
+                    event_id,
+                    storage_path=db_path,
+                )
 
                 # Specialised lower-level command for evidence bundle.
                 evidence_cmd = shlex.join(

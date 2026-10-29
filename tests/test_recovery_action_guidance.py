@@ -2,8 +2,8 @@
 
 import json
 import shlex
-from dataclasses import asdict
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -12,7 +12,11 @@ from medre.cli.recover_commands import _build_event_recovery_runbook
 from medre.core.delivery_authority import DeliveryAuthorityResolver, delivery_identity
 from medre.core.events import DeliveryReceipt
 from medre.core.observability.classification import recommended_commands
-from medre.core.observability.recovery import recovery_action
+from medre.core.observability.recovery import (
+    RecoveryDisposition,
+    delivery_guidance,
+    recovery_action,
+)
 from medre.core.storage.backend import DeliveryOutboxItem
 
 
@@ -48,7 +52,7 @@ def action(row, receipts=()):
         ("queued", None, "awaiting_feedback"),
         ("retry_wait", "2026-10-29T12:00:00Z", "retry_scheduled"),
         ("retry_wait", None, "needs_operator_action"),
-        ("completed", None, "completed"),
+        ("sent", None, "completed"),
         ("cancelled", None, "cancelled"),
         ("abandoned", None, "inspect_native"),
         ("future-state", None, "needs_operator_action"),
@@ -73,8 +77,8 @@ def test_guidance_preserves_unsettled_ownership_without_receipt(
             Path(__file__).parents[1] / "docs/schemas/recovery-action.schema.json"
         ).read_text()
     )
-    # JSON round-trip reflects tuple-to-array conversion on the CLI wire.
-    Draft202012Validator(schema).validate(json.loads(json.dumps(asdict(result))))
+    # The in-memory representation must already satisfy JSON Schema.
+    Draft202012Validator(schema).validate(result.to_dict())
 
 
 def test_current_failed_destination_gets_scoped_preview_only():
@@ -355,3 +359,129 @@ async def test_pending_guidance_omits_unrelated_replay_configuration_note(
     assert "Current delivery guidance:" in output
     assert "destination route=route: pending" in output
     assert "medre replay has no" not in output
+
+
+def test_recovery_schema_and_embedded_definition_never_drift():
+    """Keep the standalone schema, evidence bundle, and typed API in agreement."""
+    schema_dir = Path(__file__).parents[1] / "docs/schemas"
+    standalone = json.loads((schema_dir / "recovery-action.schema.json").read_text())
+    bundle = json.loads((schema_dir / "evidence-bundle.schema.json").read_text())
+    definition = {
+        key: value for key, value in standalone.items() if key not in {"$schema", "$id"}
+    }
+    assert bundle["$defs"]["recoveryAction"] == definition
+    assert standalone["properties"]["disposition"]["enum"] == list(
+        get_args(RecoveryDisposition)
+    )
+
+
+def test_completed_outbox_uses_persisted_sent_status_and_json_commands():
+    result = action(outbox("sent"))
+    assert result.disposition == "completed"
+    assert result.to_dict()["commands"] == list(result.commands)
+    assert isinstance(result.to_dict()["commands"], list)
+    assert not any("replay" in shlex.split(command) for command in result.commands)
+
+
+async def test_empty_and_completed_events_share_readonly_recovery_fallback(
+    temp_storage, sample_event
+):
+    """Both projections provide the same read-only advice, never a resend."""
+    from datetime import datetime, timezone
+
+    from medre.runtime.evidence._storage_sections import (
+        _collect_storage_data_from_backend,
+    )
+
+    await temp_storage.append(sample_event)
+
+    async def compare(expected_actions):
+        runbook = await _build_event_recovery_runbook(
+            temp_storage, sample_event.event_id, storage_path="fixture.sqlite"
+        )
+        section = await _collect_storage_data_from_backend(
+            temp_storage, "fixture.sqlite", sample_event.event_id, None
+        )
+        assert section["status"] == "passed", section.get("error")
+        summary = section["data"]["incident_summary"]
+        assert summary["delivery_actions"] == runbook["delivery_actions"]
+        assert summary["recommended_commands"] == runbook["recommended_commands"]
+        assert len(runbook["delivery_actions"]) == expected_actions
+        assert runbook["recommended_commands"]
+        assert all(
+            "replay" not in shlex.split(command)
+            for command in runbook["recommended_commands"]
+        )
+
+    await compare(0)
+    row = DeliveryOutboxItem(
+        outbox_id="done",
+        event_id=sample_event.event_id,
+        delivery_plan_id="done-plan",
+        route_id="route",
+        target_adapter="destination",
+    )
+    await temp_storage.create_outbox_item(row)
+    claimed = await temp_storage.claim_due_outbox_items(
+        now=datetime.now(timezone.utc).isoformat(),
+        worker_id="completed-test",
+        lease_seconds=30,
+        limit=1,
+    )
+    assert [item.outbox_id for item in claimed] == ["done"]
+    assert await temp_storage.mark_outbox_sent("done")
+    await compare(1)
+    guidance, commands = delivery_guidance(
+        DeliveryAuthorityResolver([], [await temp_storage.get_outbox_item("done")]),
+        sample_event.event_id,
+        storage_path="fixture.sqlite",
+    )
+    assert guidance[0]["disposition"] == "completed"
+    assert commands
+
+
+async def test_retry_wait_does_not_emit_best_effort_warning(temp_storage, sample_event):
+    """Scheduled retry owns the delivery even when its receipt is retryable."""
+    from datetime import datetime, timezone
+
+    await temp_storage.append(sample_event)
+    row = DeliveryOutboxItem(
+        outbox_id="scheduled",
+        event_id=sample_event.event_id,
+        delivery_plan_id="plan",
+        route_id="route",
+        target_adapter="destination",
+    )
+    await temp_storage.create_outbox_item(row)
+    claimed = await temp_storage.claim_due_outbox_items(
+        now=datetime.now(timezone.utc).isoformat(),
+        worker_id="retry-test",
+        lease_seconds=30,
+        limit=1,
+    )
+    assert len(claimed) == 1
+    receipt = DeliveryReceipt(
+        receipt_id="failed-attempt",
+        receipt_kind="attempt",
+        event_id=sample_event.event_id,
+        delivery_plan_id="plan",
+        outbox_id="scheduled",
+        target_adapter="destination",
+        status="failed",
+        failure_kind="adapter_transient",
+    )
+    await temp_storage.append_receipt(receipt)
+    assert await temp_storage.mark_outbox_retry_wait(
+        "scheduled",
+        next_attempt_at="2099-01-01T00:00:00Z",
+        receipt_id="failed-attempt",
+    )
+    runbook = await _build_event_recovery_runbook(
+        temp_storage, sample_event.event_id, storage_path="fixture.sqlite"
+    )
+    assert runbook["delivery_actions"][0]["disposition"] == "retry_scheduled"
+    assert not any("BEST_EFFORT" in warning for warning in runbook["warnings"])
+    assert all(
+        "replay" not in shlex.split(command)
+        for command in runbook["recommended_commands"]
+    )
