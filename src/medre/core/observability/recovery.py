@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-from medre.core.delivery_authority import ResolvedDeliverySnapshot, effective_generation
+from medre.core.delivery_authority import (
+    DeliveryAuthorityResolver,
+    ResolvedDeliverySnapshot,
+    effective_generation,
+)
 from medre.core.observability.classification import (
     failure_category,
     recommended_commands,
@@ -41,6 +45,37 @@ class RecoveryAction:
     disposition: RecoveryDisposition
     reason: str
     commands: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the schema-facing action with JSON arrays, not tuples."""
+        result = asdict(self)
+        result["commands"] = list(self.commands)
+        return result
+
+
+def delivery_guidance(
+    authority: DeliveryAuthorityResolver[Any], event_id: str, *, storage_path: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Share current-action commands between event runbooks and evidence.
+
+    Terminal actions offer no resend; the fallback is read-only inspection.
+    Ordering and deduplication are stable for both projections.
+    """
+    actions = [
+        recovery_action(snapshot, storage_path=storage_path).to_dict()
+        for snapshot in authority.ordered_snapshots()
+    ]
+    commands = list(
+        dict.fromkeys(
+            command
+            for action in actions
+            if action["disposition"] not in {"completed", "cancelled"}
+            for command in action["commands"]
+        )
+    )
+    if not commands:
+        commands = recommended_commands("unknown", event_id, storage_path=storage_path)
+    return actions, commands
 
 
 def recovery_action(
@@ -92,7 +127,7 @@ def recovery_action(
             reason = (
                 "Retry wait has no scheduling deadline; inspect lifecycle consistency."
             )
-    elif status == "completed" or (status is None and receipt_status == "sent"):
+    elif status == "sent" or (status is None and receipt_status == "sent"):
         disposition, reason = (
             "completed",
             "Local completion is recorded; this does not establish recipient delivery.",

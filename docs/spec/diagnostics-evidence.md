@@ -1690,6 +1690,13 @@ Abandoned work MUST require native inspection rather than recommend a resend.
 A committed handoff MUST NOT be described as recipient delivery. Missing retry
 deadlines and unknown mutable states MUST require operator investigation.
 
+The persisted `sent` outbox state MUST produce a completed action even when no
+receipt is available; `completed` is the **guidance disposition**, not a stored
+outbox status. The standalone recovery-action schema and the embedded evidence
+schema MUST describe the same action shape, including JSON arrays for commands.
+The runbook and evidence summary MUST share command aggregation and provide
+read-only inspection when no actionable targets remain or no targets exist.
+
 Guidance commands MUST be read-only inspection or dry-run replay previews.
 Previews MUST select the failed adapter and its route when known. These filters
 do not isolate channels; the report MUST state that limitation for channel

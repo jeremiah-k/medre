@@ -37,7 +37,7 @@ from medre.core.delivery_authority import (
 from medre.core.observability.classification import (
     failure_category as _failure_category,
 )
-from medre.core.observability.recovery import recovery_action
+from medre.core.observability.recovery import delivery_guidance
 from medre.core.observability.sanitization import sanitize_error
 from medre.core.storage.backend import (
     DEFAULT_RECOVERY_PAGE_LIMIT,
@@ -118,10 +118,9 @@ async def _build_event_recovery_runbook(
     # two storage states if delivery progresses during runbook construction.
     outbox_items: list[Any] = list(tl_result.get("outbox_items") or [])
     authority = DeliveryAuthorityResolver(receipts, outbox_items)
-    delivery_actions = [
-        asdict(recovery_action(snapshot, storage_path=storage_path))
-        for snapshot in authority.ordered_snapshots()
-    ]
+    delivery_actions, unique_commands = delivery_guidance(
+        authority, event_id, storage_path=storage_path
+    )
 
     # Identify currently-failed lineages and classify by failure_kind.
     classification: dict[str, list[dict[str, Any]]] = {
@@ -313,21 +312,6 @@ async def _build_event_recovery_runbook(
 
     # Use destination-scoped previews from current ownership, including work
     # admitted before its first receipt. Completed targets offer no replay.
-    present_categories = {cat for cat, items in classification.items() if items}
-    all_commands = [
-        command
-        for action in delivery_actions
-        if action["disposition"] not in {"completed", "cancelled"}
-        for command in action["commands"]
-    ]
-
-    # Deduplicate while preserving order.
-    seen_cmds: set[str] = set()
-    unique_commands: list[str] = []
-    for cmd in all_commands:
-        if cmd not in seen_cmds:
-            seen_cmds.add(cmd)
-            unique_commands.append(cmd)
 
     runbook: dict[str, Any] = {
         "scope": "event",
@@ -363,9 +347,11 @@ async def _build_event_recovery_runbook(
     if replay_context:
         runbook["replay_context"] = replay_context
 
+    has_preview = any(
+        action["disposition"] == "preview_replay" for action in delivery_actions
+    )
     if any(
-        action["disposition"] == "preview_replay"
-        and action["target_channel"] is not None
+        action["disposition"] == "preview_replay" and action["target_channel"]
         for action in delivery_actions
     ):
         runbook["warnings"].append(
@@ -374,7 +360,7 @@ async def _build_event_recovery_runbook(
         )
 
     # Side-effecting replay remains an explicit operator choice after preview.
-    if "retryable" in present_categories:
+    if has_preview:
         runbook["warnings"].append(
             "BEST_EFFORT replay after previewing retryable failures — "
             "this may produce duplicate sends. Review the scoped dry_run "
@@ -382,9 +368,7 @@ async def _build_event_recovery_runbook(
         )
 
     # Recorded outbound evidence is independent of provider names or transport.
-    if "retryable" not in present_categories and any(
-        nref.direction == "outbound" for nref in native_refs
-    ):
+    if not has_preview and any(nref.direction == "outbound" for nref in native_refs):
         runbook["warnings"].append(
             "Prior outbound native references exist — recovery may produce "
             "duplicate sends. Preview with 'medre replay --mode dry_run' first."
