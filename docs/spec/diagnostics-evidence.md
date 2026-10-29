@@ -1733,3 +1733,7 @@ Invalid exact-selector arguments MUST retain configuration exit status `2`.
 An absent exact destination MUST return not-found exit status `5`. Only typed
 exact-preview refusals may be classified this way; unrelated storage or data
 errors MUST retain their original failure authority.
+
+A separate [storage cancellation authority](operator-exact-resolution.md) binds
+operator decisions to unreserved obligations. Its write contract does not turn
+the diagnostic fingerprint into authorization and does not expose a CLI action.
