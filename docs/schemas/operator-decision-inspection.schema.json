@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/operator-decision-inspection.schema.json",
+  "title": "Read-only event-scoped operator cancellation decisions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "event_id",
+    "actor_labels_authenticated",
+    "decisions"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "actor_labels_authenticated": { "const": false },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision_id",
+          "action",
+          "outbox_id",
+          "delivery_plan_id",
+          "target_adapter",
+          "target_channel",
+          "observed_generation",
+          "observed_status",
+          "observed_updated_at",
+          "recorded_at",
+          "actor_label"
+        ],
+        "properties": {
+          "decision_id": { "type": "string", "minLength": 1 },
+          "action": { "const": "cancel_unstarted" },
+          "outbox_id": { "type": "string", "minLength": 1 },
+          "delivery_plan_id": { "type": "string", "minLength": 1 },
+          "target_adapter": { "type": "string", "minLength": 1 },
+          "target_channel": { "type": ["string", "null"] },
+          "observed_generation": { "type": "integer", "minimum": 0 },
+          "observed_status": { "enum": ["pending", "retry_wait"] },
+          "observed_updated_at": { "type": "string", "minLength": 1 },
+          "recorded_at": { "type": "string" },
+          "actor_label": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

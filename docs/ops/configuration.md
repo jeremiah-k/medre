@@ -1407,6 +1407,11 @@ medre inspect radio-attempt OUTBOX_ID ATTEMPT --storage-path PATH
 
     All inspect subcommands require --storage-path for direct SQLite access.
 
+medre inspect decisions --storage-path PATH --event EVENT_ID
+    Read-only cancellation audit for one event: immutable decision records
+    with the exact destination, observed attempt generation and status, and
+    an unverified actor label. An unknown event exits not-found.
+
 medre trace event --storage-path PATH [--json]
     Specialized chronological event timeline assembly. Prefer
     inspect event --timeline for per-event timelines.

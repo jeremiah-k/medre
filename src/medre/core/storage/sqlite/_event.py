@@ -91,6 +91,17 @@ class _EventMixin:
             ops.append(self._relation_op(event.event_id, rel))
         await self._write_batch(ops)
 
+    async def event_exists(self, event_id: str) -> bool:
+        """Check canonical identity without decoding payload or relation content.
+
+        This read-only metadata operation makes no claim about content
+        availability or the validity of the event's serialized body.
+        """
+        row = await self._read_one(
+            "SELECT 1 AS present FROM canonical_events WHERE event_id=?", (event_id,)
+        )
+        return row is not None
+
     async def get(self, event_id: str) -> CanonicalEvent | None:
         """Retrieve a single event by ID, including its relations.
 

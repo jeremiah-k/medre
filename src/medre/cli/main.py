@@ -556,6 +556,13 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Path to SQLite database (read-only)",
     )
 
+    inspect_decisions = inspect_sub.add_parser(
+        "decisions",
+        help="Read immutable operator cancellation evidence for one event",
+    )
+    inspect_decisions.add_argument("--event", required=True, metavar="EVENT_ID")
+    inspect_decisions.add_argument("--storage-path", required=True, metavar="PATH")
+
     inspect_radio = inspect_sub.add_parser(
         "radio-attempt",
         help="Inspect exact radio packet progress without granting sends",
@@ -1129,7 +1136,11 @@ def main(argv: list[str] | None = None) -> None:
             _inspect_replay,
         )
 
-        if args.inspect_command == "content":
+        if args.inspect_command == "decisions":
+            from .decision_inspect import _inspect_decisions
+
+            asyncio.run(_inspect_decisions(args.event, storage_path=args.storage_path))
+        elif args.inspect_command == "content":
             asyncio.run(
                 _inspect_content(storage_path=args.storage_path, event_id=args.event)
             )
