@@ -35,8 +35,9 @@ from medre.core.events.canonical import CanonicalEvent
 class PluginCapability(str, Enum):
     """Capabilities a plugin may declare at load time.
 
-    The runtime grants only what a plugin declares.  Attempting to use a
-    service that requires an undeclared capability raises a runtime error.
+    These declarations describe requested services. This package provides no
+    loader or runtime grant enforcement; declarations alone authorize no
+    service access or retention of event content.
     """
 
     READ_EVENTS = "read_events"
