@@ -107,8 +107,10 @@ medre config bridge --config connections.yaml --output bridge.yaml
 For MeshCore, replace `--transport meshtastic` with `--transport meshcore`.
 The radio form lets you choose TCP, serial, or BLE, then asks only for the
 fields relevant to that connection. LXMF and other providers without a
-native form continue to use their [transport guide](transport-setup/lxmf.md)
-and a prepared input configuration.
+native form use the [transport setup guides](transport-setup/README.md)
+and a prepared input configuration. Chatmail and SimpleX profile provisioning
+is available through `medre adapter chatmail` and `medre adapter simplexchat`;
+these commands intentionally contact the native service, unlike `config native`.
 
 **Secrets and privacy:** Matrix's access token is entered through a hidden
 terminal prompt, never a CLI argument, and is saved in the resulting YAML.

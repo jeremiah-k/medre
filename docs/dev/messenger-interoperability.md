@@ -6,9 +6,12 @@ validation, rendering, fallback, authorization, and lifecycle rules. Keep the
 envelope small; introduce shared payload contracts when adapter fixtures prove
 that more than one implementation can use the same semantics.
 
-This is a development decision record, not a claim that XMPP, SimpleX, typing,
-rich formatting, multiple attachments, or puppeting are implemented. The
-protocol references below were checked on 2026-10-17.
+This document records design decisions and extension criteria. Implemented
+behavior is defined by the [transport profiles](../spec/transport-profiles/README.md),
+[text selection](../spec/text-selection.md), and
+[transient typing](../spec/transient-typing.md) contracts. XMPP, Chatmail, and
+SimpleX Chat are supported adapters. Multiple attachments and puppeting remain
+extension work. The protocol references below were checked on 2026-10-17.
 
 ## Decisions before a stable freeze
 
@@ -157,7 +160,9 @@ satisfy. Puppeting is not a claim of end-to-end encryption across the bridge.
 | Delta Chat/chatmail | [Official JSON-RPC server](https://github.com/chatmail/core/blob/main/deltachat-rpc-server/README.md) offers a process boundary instead of embedding its Rust core.                                                       | Account/chat native identity, stdio process lifecycle, text, and attachment ownership.                           |
 
 Use XMPP as the first conformance reference and SimpleX as a concrete privacy-
-oriented integration candidate. The SimpleX CLI API is unauthenticated and
+oriented integration. The implemented SimpleX adapter uses the official Python
+SDK and an owned native worker; the CLI API discussion below describes an
+alternative integration boundary. The SimpleX CLI API is unauthenticated and
 localhost-bound by default; protect the local endpoint and keep it separate from
 public runtime control surfaces. Dispatch by correlation first: a WebSocket
 message with a `corrId` matching a pending command is a command response,

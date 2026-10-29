@@ -551,7 +551,7 @@ The following six guarantees are contractual during the pre-release period:
 
 1. **No secret leakage through any diagnostic path.** Frozen dataclasses and explicit sanitization enforce this. Turning up log verbosity MUST NOT leak secrets.
 
-2. **No SDK object leakage.** Verified across all four adapters. No protobuf objects, no `LXMessage` instances, no nio client references, no `Event` objects leak through any diagnostic or evidence path.
+2. **No SDK object leakage.** Required across all installed providers. No protobuf objects, no `LXMessage` instances, no nio client references, no `Event` objects leak through any diagnostic or evidence path.
 
 3. **Deterministic serialization when consumed through `RuntimeSnapshot.to_dict()`.** Recursive key sorting and adapter_id ordering guarantee stable JSON output for identical state and clock inputs.
 

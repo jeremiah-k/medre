@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "9f08e80d976a08cb169263920a882882c7f55422",
+    "ref": "e02b785397a5827f23cb41d102bacea2f6cf56dc",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "3e416d708fe454b2ff509e9e5c0f4a0784b10a35",
+    "ref": "eeac2b5562c9a0a0fe337d71ae21ff9d455fe382",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"

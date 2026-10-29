@@ -116,20 +116,19 @@ def test_adapter_config_schema_matches_source() -> None:
     This would have caught F-001 (missing Meshtastic packet-routing
     fields) at the moment they were added to the dataclass.
     """
-    from medre.config.adapters.lxmf import LxmfConfig
-    from medre.config.adapters.matrix import MatrixConfig
-    from medre.config.adapters.meshcore import MeshCoreConfig
-    from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.adapter_registry import get_adapter_spec
 
     schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
     arms = {arm["title"]: arm for arm in schema["oneOf"]}
-
-    checks = [
-        ("MatrixConfig", MatrixConfig),
-        ("MeshtasticConfig", MeshtasticConfig),
-        ("MeshCoreConfig", MeshCoreConfig),
-        ("LxmfConfig", LxmfConfig),
-    ]
+    providers = _load_json(_ROOT / ".github" / "adapter-compatibility.json")
+    checks = []
+    for provider in providers:
+        transport = provider["transport"]
+        spec = get_adapter_spec(transport)
+        assert spec is not None, f"Compatibility provider is not installed: {transport}"
+        config_cls = spec.config.load()
+        checks.append((config_cls.__name__, config_cls))
+    assert set(arms) == {title for title, _ in checks}
     for title, datacls in checks:
         assert title in arms, f"Schema missing oneOf arm {title!r}"
         schema_props = set(arms[title].get("properties", {}).keys())

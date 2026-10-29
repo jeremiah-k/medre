@@ -127,7 +127,10 @@ The current runtime rejects or ignores these abandoned development shapes:
 - incompatible SQLite schema fingerprints or schema versions.
 
 The supported built-in canonical native shapes are versioned namespaces:
-`native.matrix`, `native.meshtastic`, `native.meshcore`, and `native.lxmf`.
+`native.matrix`, `native.meshtastic`, `native.meshcore`, `native.lxmf`,
+`native.xmpp`, `native.chatmail`, and `native.simplexchat`. Provider-owned
+namespace readers validate these shapes; installing a community adapter can add
+another versioned transport namespace.
 MMRelay interoperability, when present, is separately namespaced under
 `native.interop.mmrelay`.
 

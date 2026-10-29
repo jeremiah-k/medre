@@ -164,15 +164,24 @@ bodies, and includes immediately invoked lambda bodies exactly once.
 
 ## 6. Cross-Transport Comparison
 
-| Dimension       | Matrix               | Meshtastic          | MeshCore         | LXMF                 |
-| --------------- | -------------------- | ------------------- | ---------------- | -------------------- |
-| Role            | Presentation         | Transport           | Transport        | Transport            |
-| Identity        | MXID                 | NodeNum / fromId    | Ed25519 pubkey   | Destination hash     |
-| Payload limit   | ~100 KB              | ~227 bytes          | 184 bytes        | Variable             |
-| Reply mechanism | `m.in_reply_to`      | `replyId`           | None native      | None native          |
-| Encryption      | TLS / Megolm         | Optional per-packet | Always-on E2EE   | Reticulum link-layer |
-| ACK model       | Sync `/sync` confirm | Async LoRa ACK      | Async ACK + CRC  | Link-level ACK       |
-| Send returns    | Event ID string      | MeshPacket protobuf | Event + ACK info | Delivery status      |
+All seven separately installed adapters use the same core contracts. The roles
+below describe their native interface; they do not determine support priority.
+See the [transport profiles](transport-profiles/README.md) for capabilities and
+[delivery lifecycle](delivery-lifecycle.md) for confirmation authority.
+
+| Adapter      | Role         | Conversation address                 | Native handoff boundary                                                            |
+| ------------ | ------------ | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| Matrix       | Presentation | Room ID                              | Homeserver accepts an event; sync readiness is separate.                           |
+| Meshtastic   | Transport    | Channel index                        | SDK radio handoff; packet observations do not prove recipient delivery.            |
+| MeshCore     | Transport    | Channel or configured contact        | SDK companion handoff; radio feedback has its own evidence scope.                  |
+| LXMF         | Transport    | Destination hash                     | Asynchronous SDK submission; later delivery observations retain destination scope. |
+| XMPP         | Hybrid       | Bare room or peer JID                | Local TLS transport write; an own-room echo is correlation evidence.               |
+| Chatmail     | Hybrid       | Profile-local decimal chat ID        | Native local queue, followed by correlated SMTP acceptance feedback.               |
+| SimpleX Chat | Hybrid       | Profile-local group:ID or contact:ID | Native local queue; no recipient confirmation is inferred.                         |
+
+Payload budgets, encryption policies and relation support belong to each
+provider's declared capabilities and configuration. Mesh packet budgets are
+byte limits, not universal character counts or recipient guarantees.
 
 ## 7. Runtime Orchestration
 

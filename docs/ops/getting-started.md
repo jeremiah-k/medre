@@ -112,16 +112,19 @@ noninteractive use, source contexts, and existing native connections.
 Use the transport-specific setup instructions for credentials, identity
 storage, device permissions, encryption, and native context formats:
 
-| Provider                                    | Configure                                             | Conversation example                     |
-| ------------------------------------------- | ----------------------------------------------------- | ---------------------------------------- |
-| [Matrix](transport-setup/matrix.md)         | Account, room membership, optional E2EE               | Room ID `!room:server` (not a `#` alias) |
-| [Meshtastic](transport-setup/meshtastic.md) | Node connection and RF provisioning                   | Channel index `0`                        |
-| [MeshCore](transport-setup/meshcore.md)     | Companion connection, contacts and channels           | Provider-declared contact or channel     |
-| [LXMF](transport-setup/lxmf.md)             | Reticulum identity, RNS configuration and destination | Native LXMF destination                  |
+| Provider                                       | Configure                                             | Conversation example                       |
+| ---------------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
+| [Matrix](transport-setup/matrix.md)            | Account, room membership, optional E2EE               | Room ID `!room:server` (not a `#` alias)   |
+| [Meshtastic](transport-setup/meshtastic.md)    | Node connection and RF provisioning                   | Channel index `0`                          |
+| [MeshCore](transport-setup/meshcore.md)        | Companion connection, contacts and channels           | Provider-declared contact or channel       |
+| [LXMF](transport-setup/lxmf.md)                | Reticulum identity, RNS configuration and destination | Native LXMF destination                    |
+| [XMPP](transport-setup/xmpp.md)                | Account, TLS, joined rooms and allowed contacts       | Bare JID `room@conference.example.org`     |
+| [Chatmail](transport-setup/chatmail.md)        | Dedicated account, accepted chats and native profile  | Local chat ID `"12"`                       |
+| [SimpleX Chat](transport-setup/simplexchat.md) | Dedicated profile, active groups and contacts         | Local channel `"group:7"` or `"contact:3"` |
 
 Create native instances through the provider-declared interactive setup (Matrix,
 Meshtastic, or MeshCore), or follow the individual transport guides for manual
-configuration and LXMF:
+configuration, including LXMF, XMPP, Chatmail, and SimpleX Chat:
 
 ```bash
 medre config native --transport matrix --adapter-id bot --output matrix.yaml

@@ -1,8 +1,10 @@
 # MEDRE
 
 **Modular Event-driven Routing Engine** — bridge conversations across Matrix,
-Meshtastic, MeshCore, and LXMF. MEDRE owns routing, persistence, and delivery
-evidence; each transport is an independently installed Python adapter.
+Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat. MEDRE owns routing,
+persistence, and delivery evidence; each transport is an independently installed
+Python adapter. MEDRE began with mesh and LoRa bridges and supports messaging
+services through the same adapter, routing, and evidence contracts.
 
 > **Working pre-release — testers welcome; not production-ready.** Configuration,
 > event, and database schemas are not frozen. Expect breaking changes, test with
@@ -51,17 +53,32 @@ the generated route plan before saving. The builder never connects to a device
 or starts a service. See **[Getting Started](docs/ops/getting-started.md)** for
 the complete walkthrough and live setup.
 
-## Providers
+## Adapters
 
-| Adapter                                                              | Transport                              | Setup                                           |
-| -------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
-| [Matrix](https://github.com/jeremiah-k/medre-adapter-matrix)         | Accounts, rooms, optional E2EE         | [Guide](docs/ops/transport-setup/matrix.md)     |
-| [Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic) | Radio nodes and channels               | [Guide](docs/ops/transport-setup/meshtastic.md) |
-| [MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore)     | Companion nodes, contacts and channels | [Guide](docs/ops/transport-setup/meshcore.md)   |
-| [LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf)             | Reticulum identities and destinations  | [Guide](docs/ops/transport-setup/lxmf.md)       |
+All seven adapters participate in configuration, routing, persistence, diagnostics,
+and SDK-free smoke testing. Native features and delivery confirmation vary by
+transport; each [transport profile](docs/spec/transport-profiles/README.md)
+describes those boundaries.
 
-Install only the providers you need. Community adapters can implement the same
-entry-point contracts; runtime startup never downloads packages. See
+| Adapter                                                                 | Transport                                              | Setup                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| [Matrix](https://github.com/jeremiah-k/medre-adapter-matrix)            | Accounts, rooms, optional E2EE                         | [Guide](docs/ops/transport-setup/matrix.md)      |
+| [Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic)    | Radio nodes and channels                               | [Guide](docs/ops/transport-setup/meshtastic.md)  |
+| [MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore)        | Companion nodes, contacts and channels                 | [Guide](docs/ops/transport-setup/meshcore.md)    |
+| [LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf)                | Reticulum identities and destinations                  | [Guide](docs/ops/transport-setup/lxmf.md)        |
+| [XMPP](https://github.com/jeremiah-k/medre-adapter-xmpp)                | Multi-user rooms and direct conversations              | [Guide](docs/ops/transport-setup/xmpp.md)        |
+| [Chatmail](https://github.com/jeremiah-k/medre-adapter-chatmail)        | Accepted groups and direct chats through Chatmail core | [Guide](docs/ops/transport-setup/chatmail.md)    |
+| [SimpleX Chat](https://github.com/jeremiah-k/medre-adapter-simplexchat) | Allowlisted groups and direct conversations            | [Guide](docs/ops/transport-setup/simplexchat.md) |
+
+Install only the adapters you need, for example:
+
+```bash
+medre adapters install xmpp chatmail simplexchat
+```
+
+Community adapters can implement the same entry-point contracts; runtime startup
+never installs Python packages. Native libraries and account/profile preparation
+follow each provider's setup guide. See
 [package management](docs/ops/package-management.md) for persistent CLI tools
 and [adapter sources](docs/ops/adapter-installation.md) for pinned projects.
 

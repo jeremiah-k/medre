@@ -22,7 +22,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                                                                             |
 | Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md) and [mixed-installation qualification](mixed-installation-restore-qualification.md) |
 | Derive a stopped-state inventory from provider declarations    | [Provider stopped-state declarations](stopped-state-provider-inventory.md)                                                                |
-| Connect a specific network or device                           | [Transport setup](transport-setup/)                                                                                                       |
+| Connect a specific network or device                           | [Transport setup](transport-setup/README.md)                                                                                              |
 | Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                                                                    |
 | Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                                                                     |
 

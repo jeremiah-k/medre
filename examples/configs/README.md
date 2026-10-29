@@ -6,7 +6,7 @@ credentials, and run `medre run --config <path>`.
 | Config File                               | Purpose                                            | Adapters                                    | Requires Hardware/Network    | Notes                                                                                                                                                              |
 | ----------------------------------------- | -------------------------------------------------- | ------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `fake-bridge-smoke.yaml`                  | Cross-adapter event routing with zero dependencies | Fake Matrix, Fake Meshtastic, Fake MeshCore | No                           | Start here to validate routing logic in CI or local dev                                                                                                            |
-| `fake-multi-adapter.yaml`                 | All four transports as fake adapters               | Fake Matrix, Meshtastic, MeshCore, LXMF     | No                           | Full-coverage dev/CI baseline; no SDK dependencies                                                                                                                 |
+| `fake-multi-adapter.yaml`                 | Four radio/Matrix transports as fake adapters      | Fake Matrix, Meshtastic, MeshCore, LXMF     | No                           | Four-provider dev/CI example; no SDK dependencies                                                                                                                  |
 | `fake-retry-smoke.yaml`                   | Config-driven retry for transient failures         | Fake Matrix, Fake Meshtastic                | No                           | Demonstrates the `retry` worker and per-route retry policy                                                                                                         |
 | `matrix.yaml`                             | Single Matrix adapter (plaintext or E2EE)          | Matrix                                      | Yes (homeserver)             | Copy and adjust for your bot account                                                                                                                               |
 | `meshtastic-serial.yaml`                  | Single Meshtastic adapter over USB-serial          | Meshtastic                                  | Yes (radio)                  | Most common setup for a dedicated node                                                                                                                             |
@@ -45,3 +45,7 @@ anchors, aliases, merge keys, or custom tags are supported. Quote
 values that YAML could misread — Matrix room IDs (`"!room:server"`), MXIDs
 (`"@user:server"`), channel IDs where string semantics matter (`"0"`), and
 path placeholders like `"{state}/medre.sqlite"`.
+
+For a sample containing every installed provider, run `medre config sample`.
+XMPP, Chatmail, and SimpleX native configuration examples and profile setup
+commands are in the [transport setup guides](../../docs/ops/transport-setup/README.md).

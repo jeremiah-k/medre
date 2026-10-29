@@ -1,0 +1,7 @@
+{
+  "adapter_id": "chat",
+  "jid": "bridge@example.org/medre",
+  "rooms": ["bridge@conference.example.org"],
+  "peers": ["friend@example.org"],
+  "nickname": "medre"
+}
