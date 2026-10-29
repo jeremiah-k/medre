@@ -737,23 +737,11 @@ class TestCrossShapeEquivalence:
 # ===========================================================================
 
 
-class TestNestedSessionDiagnosticsLimitation:
-    """Document that normalize_diagnostics operates on flat keys only.
+class TestNestedSessionDiagnostics:
+    """Project known session observations while preserving native detail."""
 
-    Some adapters (Meshtastic, MeshCore, LXMF) nest delivery failure counters
-    under a ``session`` sub-dict rather than at the top level.  The
-    ``normalize_diagnostics`` contract extracts common keys from the **top
-    level** of the input dict only — it does not recurse into nested dicts.
-
-    This is an intentional design choice: the contract is observational and
-    does not invent cross-transport normalization.  Consumers that need
-    delivery failure counters from these adapters must access
-    ``session.transient_delivery_failures`` directly from the raw adapter
-    diagnostics, not via the normalized output.
-    """
-
-    def test_nested_transient_failures_not_extracted(self) -> None:
-        """Delivery counters nested under 'session' resolve to None."""
+    def test_nested_transient_failures_extracted(self) -> None:
+        """Delivery counters nested under session retain their observed values."""
         raw = {
             "adapter_id": "mesh-1",
             "started": True,
@@ -768,10 +756,11 @@ class TestNestedSessionDiagnosticsLimitation:
         }
         result = normalize_diagnostics(raw)
 
-        # Top-level extraction finds connected via the session sub-dict?  No.
-        # The contract only looks at the top-level keys of *raw*.
-        assert result["transient_delivery_failures"] is None
-        assert result["permanent_delivery_failures"] is None
+        assert result["connected"] is True
+        assert result["reconnecting"] is False
+        assert result["reconnect_attempts"] == 0
+        assert result["transient_delivery_failures"] == 5
+        assert result["permanent_delivery_failures"] == 1
 
         # The nested session dict is preserved in transport_specific.
         assert (
