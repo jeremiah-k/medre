@@ -55,15 +55,18 @@ def test_onboarding_has_distinct_tool_and_project_workflows() -> None:
     guide = (_DOCS / "ops/getting-started.md").read_text(encoding="utf-8")
     assert "uv tool install" in guide
     assert "medre adapters install matrix meshtastic" in guide
-    assert "uv init --bare" in guide
-    assert "uv sync --locked" in guide
-    assert "uv run --locked medre version" in guide
+    deployment = (_DOCS / "ops/install.md").read_text(encoding="utf-8")
+    assert "install.md#locked-deployment" in guide
+    assert "uv init --bare" in deployment
+    assert "uv sync --locked" in deployment
+    assert "uv run --locked medre version" in deployment
     assert "not production-ready" in guide
-    assert "WAL sidecars" in guide
+    assert "WAL sidecars" in deployment
     assert "## 1. Install" in guide
     assert "## 2. Verify" in guide
-    assert "## 3. Build" in guide
-    assert "## 4. Connect" in guide
+    assert "## 3. Connect" in guide
+    assert "## 4. Choose" in guide
+    assert "## 5. Run" in guide
 
 
 def test_backup_guide_avoids_single_file_sqlite_backup_instructions() -> None:
