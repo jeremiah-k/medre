@@ -26,7 +26,7 @@ medre adapters
 
 On Windows, follow the printed uv command after MEDRE exits: the running
 executable cannot safely replace itself. For a reproducible, long-running
-bridge use a [locked deployment project](docs/ops/getting-started.md#set-up-a-locked-deployment)
+bridge use a [locked deployment project](docs/ops/install.md#locked-deployment)
 instead of floating Git branches.
 
 **2. Verify the pipeline before connecting anything.**

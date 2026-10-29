@@ -12,13 +12,13 @@ SDK is included in core; adapters are separately installable distributions.
 
 ## Which installation method?
 
-| Goal                                           | Use                                                                           | Repeatability                                      |
-| ---------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------- |
-| Operate a bridge                               | [Locked uv deployment project](getting-started.md#set-up-a-locked-deployment) | Pin Git commits and commit `uv.lock`               |
-| Keep a short `medre` command without a project | `uv tool install` below                                                       | Explicit Git revisions, but no deployment lockfile |
-| Try help or version once                       | `uvx --from ... medre version`                                                | Temporary isolated tool environment                |
-| Develop MEDRE                                  | Editable source checkout below                                                | Core `uv.lock`                                     |
-| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement                                | Depends on your requirements lock                  |
+| Goal                                           | Use                                                | Repeatability                                      |
+| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| Operate a bridge                               | [Locked uv deployment project](#locked-deployment) | Pin Git commits and commit `uv.lock`               |
+| Keep a short `medre` command without a project | `uv tool install` below                            | Explicit Git revisions, but no deployment lockfile |
+| Try help or version once                       | `uvx --from ... medre version`                     | Temporary isolated tool environment                |
+| Develop MEDRE                                  | Editable source checkout below                     | Core `uv.lock`                                     |
+| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement     | Depends on your requirements lock                  |
 
 Adapters install from **Git, local paths, or package indexes**; no PyPI
 publication is required. See [adapter installation](adapter-installation.md)
@@ -154,3 +154,49 @@ An installed provider may still lack its optional SDK. Check `medre adapters`
 and the provider's setup guide. Environment or permissions errors with devices,
 Matrix crypto or native identity files need native verification rather than a
 fake smoke. See [troubleshooting](troubleshooting.md).
+
+## Locked deployment
+
+Before changing versions, stop MEDRE and use a coherent backup of its private
+state. WAL sidecars can contain committed data; copying an active SQLite main
+file alone is not a complete backup. See
+[stopped-state snapshots](stopped-state-snapshots.md).
+
+For a bridge you intend to keep running, create a uv project and pin the
+reviewed MEDRE and provider Git commits. `uv.lock` captures the resolved
+packages, and `uv run --locked` executes against that project's environment.
+The following is a **starting example** using moving branches; replace each
+`@main` with the full reviewed commit SHA and keep the resulting lockfile.
+
+```bash
+uv init --bare --python 3.13 my-medre-bridge
+cd my-medre-bridge
+uv add \
+  'medre @ git+https://github.com/jeremiah-k/medre.git@main' \
+  'medre-adapter-matrix @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main' \
+  'medre-adapter-meshtastic @ git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@main'
+uv sync --locked
+uv run --locked medre version
+uv run --locked medre adapters
+```
+
+You can now prefix the tutorial's `medre` commands with `uv run --locked` from
+this project, or activate `.venv` and run plain `medre`. Never mix `uv tool`
+package changes with a project's dependency graph; use `uv add`, `uv remove`,
+and `uv sync --locked` instead. The full
+[adapter-source reference](adapter-installation.md) covers local checkouts,
+private Git servers, package indexes, and extras such as Matrix E2EE.
+
+For a private state directory in Bash:
+
+```bash
+mkdir -p .medre
+chmod 700 .medre
+export MEDRE_HOME="$PWD/.medre"
+printf '.medre/\n' >> .gitignore
+```
+
+In PowerShell, create `.medre`, restrict its ACL to the bridge operator, then
+set `$env:MEDRE_HOME = Join-Path $PWD '.medre'`. Set the same absolute path in
+your service environment; also exclude YAML secrets and SQLite evidence from
+Git. See [path configuration](configuration.md#medre_home-single-directory-mode).

@@ -11,7 +11,9 @@ def _doc(name: str) -> str:
 
 
 def test_getting_started_keeps_a_reproducible_deployment_environment() -> None:
-    guide = _doc("getting-started.md")
+    first_run = _doc("getting-started.md")
+    assert "install.md#locked-deployment" in first_run
+    guide = _doc("install.md")
     assert "uv init --bare" in guide
     assert "uv add" in guide
     assert "uv run --locked medre" in guide

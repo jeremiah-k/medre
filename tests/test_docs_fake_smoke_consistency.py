@@ -28,5 +28,7 @@ def test_onboarding_distinguishes_sample_from_bidirectional_bridge():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     guide = (OPS / "getting-started.md").read_text(encoding="utf-8")
     assert "one-way diagnostic route" in readme
-    assert "one-way diagnostic route" in guide
-    assert "--source-context CONTEXT" in guide
+    assert "one-way forwarding only" in guide
+    assert "guided-configuration.md" in guide
+    advanced = (OPS / "guided-configuration.md").read_text(encoding="utf-8")
+    assert "--source-context" in advanced
