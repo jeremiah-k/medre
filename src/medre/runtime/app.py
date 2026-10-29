@@ -1406,7 +1406,8 @@ class MedreApp:
                 pipeline=self.pipeline_runner,
             )
 
-        # 2.5. Construct the retry worker (if enabled). REPLAY scope never
+        # 2.5. Construct the outbox dispatcher. Initial work runs regardless
+        # of automatic retry policy. REPLAY scope never
         #        constructs it: a replay execution must not claim due
         #        pending/retry_wait rows belonging to unrelated work.
         if (
@@ -1429,11 +1430,7 @@ class MedreApp:
                     shown,
                     suffix,
                 )
-        if (
-            scope is StartupScope.LIVE
-            and self.config.retry.enabled
-            and self.storage is not None
-        ):
+        if scope is StartupScope.LIVE and self.storage is not None:
             from medre.runtime.retry import RetryWorker as _RW
 
             self._retry_worker = _RW(
@@ -1441,6 +1438,7 @@ class MedreApp:
                 pipeline=self.pipeline_runner,
                 capacity_controller=self._capacity_controller,
                 retry_config=self.config.retry,
+                initial_dispatch=True,
                 event_buffer=self._event_buffer,
                 lifecycle=self.pipeline_runner.delivery_lifecycle,
                 stop_timeout_seconds=float(
@@ -1834,7 +1832,9 @@ class MedreApp:
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:
             try:
-                await self._retry_worker.stop()
+                await self._retry_worker.stop(
+                    timeout_seconds=max(0.0, drain_deadline - _time.monotonic())
+                )
             except asyncio.CancelledError as c_exc:
                 # Cancellation during retry worker stop must NOT skip
                 # pipeline_runner.stop() or storage.close().  Defer
@@ -1844,18 +1844,22 @@ class MedreApp:
                 _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error("Error stopping retry worker: %s", exc)
-            # Visibility for the abandonment case: ``stop()`` returns
-            # normally even when the worker task was abandoned (i.e.
-            # cancellation-resistant), so the caller would otherwise
-            # have no signal.  Do not escalate to
-            # ``RuntimeShutdownError`` — abandonment is best-effort
-            # cleanup, the same as abandoned adapter stops.
-            if self._retry_worker.state.abandoned:
-                _logger.warning(
-                    "RetryWorker was abandoned during shutdown: "
-                    "background task did not finish within timeout; "
-                    "state.running=False, state.abandoned=True. "
-                    "Retained task may still be alive until event-loop shutdown."
+            if self._retry_worker.has_retained_work:
+                self._set_state(RuntimeState.FAILED)
+                _logger.error(
+                    "Outbox dispatch remains active after cancellation; "
+                    "pipeline, adapters and storage remain available"
+                )
+                if _cancelled is not None:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(_deferred_cancel_count):
+                            current.cancel()
+                    raise _cancelled
+                raise RuntimeShutdownError(
+                    "Outbox dispatch remains active after shutdown cancellation. "
+                    "Pipeline, adapters, and storage were left running; call "
+                    "stop() again after dispatch terminates."
                 )
 
         _logger.info("Runtime stopping — accepting no new work")
@@ -2662,7 +2666,37 @@ class MedreApp:
         adapter and core-resource cleanup so the ``CancelledError`` handler
         in ``start()`` can restore them.
         """
-        drained = await self._cleanup_started_adapters()
+        # Workers can activate at the final startup boundary before start()
+        # returns. Quiesce them before stopping their native dependencies.
+        drained = 0
+        deadline = _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
+        if self._ingress_worker is not None:
+            try:
+                await self._ingress_worker.stop()
+            except asyncio.CancelledError:
+                drained += _drain_pending_cancellations()
+            except Exception:
+                _logger.exception("Failed-startup ingress stop failed")
+        if self._capacity_controller is not None:
+            self._capacity_controller.stop_accepting()
+        if self._retry_worker is not None:
+            try:
+                await self._retry_worker.stop(
+                    timeout_seconds=max(0.0, deadline - _time.monotonic())
+                )
+            except asyncio.CancelledError:
+                drained += _drain_pending_cancellations()
+            except Exception:
+                _logger.exception("Failed-startup outbox stop failed")
+        if (self._ingress_worker is not None and self._ingress_worker.running) or (
+            self._retry_worker is not None and self._retry_worker.has_retained_work
+        ):
+            self._set_state(RuntimeState.FAILED)
+            _logger.error(
+                "Startup cleanup retains native dependencies while admitted work is active"
+            )
+            return drained
+        drained += await self._cleanup_started_adapters()
         try:
             await self._cleanup_core_resources()
         except asyncio.CancelledError:
@@ -2745,6 +2779,20 @@ class MedreApp:
                 _logger.error(
                     "Error stopping retry worker during startup cleanup: %s", exc
                 )
+
+        if (self._ingress_worker is not None and self._ingress_worker.running) or (
+            self._retry_worker is not None and self._retry_worker.has_retained_work
+        ):
+            self._set_state(RuntimeState.FAILED)
+            _logger.error("Core cleanup refused while native work remains active")
+            if _cancelled is not None:
+                _cleared_cancels += _drain_pending_cancellations()
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_cleared_cancels):
+                        current.cancel()
+                raise _cancelled
+            return
 
         # If the retry worker stop raised CE, the task likely has a
         # pending cancellation request that would prevent the awaits

@@ -109,8 +109,8 @@ raise `ConfigValidationError` before runtime construction. The top-level
 
 | Field              | Default | Description                                    |
 | ------------------ | ------- | ---------------------------------------------- |
-| `enabled`          | `False` | Whether the retry worker is active             |
-| `interval_seconds` | `10.0`  | Polling interval for due outbox work           |
+| `enabled`          | `False` | Whether automatic retry dispatch is active     |
+| `interval_seconds` | `10.0`  | Retry scan interval and operational-deferral floor |
 | `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 

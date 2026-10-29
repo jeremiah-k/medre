@@ -20,7 +20,11 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+from tests.helpers.pipeline import (
+    dispatch_initial_batch,
+    make_event,
+    make_pipeline_config_for_pipeline,
+)
 
 
 class _OfflineUntilRestart(FakePresentationAdapter):
@@ -76,6 +80,7 @@ async def test_fourway_fanout_broken_link_does_not_replay_healthy_targets(
         await worker.admit_ingress(event, "live")
         ingress = DurableIngressWorker(storage=store, pipeline=worker, batch_size=1)
         assert await ingress.run_once() == 1
+        await dispatch_initial_batch(store, worker)
         rows = await store.list_outbox_items_for_event(event.event_id)
         assert len(rows) == 4
         waiting = next(x for x in rows if x.target_adapter == "FXLF")

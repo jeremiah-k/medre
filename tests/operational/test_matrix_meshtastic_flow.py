@@ -72,6 +72,7 @@ from tests.helpers.storage_outbox import (
     apply_guarded_outbox_transition,
     find_existing_outbox_generation,
     find_existing_replay_run_claim,
+    release_guarded_outbox_claim,
     reserve_guarded_outbox_attempt,
 )
 
@@ -243,6 +244,20 @@ class _FakeStorage:
     ) -> int | None:
         return reserve_guarded_outbox_attempt(
             self._outbox, outbox_id, worker_id, from_attempt
+        )
+
+    async def release_outbox_claim(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        *,
+        release_status: str = "pending",
+    ) -> None:
+        release_guarded_outbox_claim(
+            self._outbox,
+            outbox_id,
+            worker_id,
+            release_status=release_status,
         )
 
     async def renew_outbox_lease(

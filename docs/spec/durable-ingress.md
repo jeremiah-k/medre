@@ -178,8 +178,58 @@ same event merely because one processing attempt exceeds the initial lease. A cl
 processing failure returns the work to `pending` until the bounded retry budget is
 exhausted, after which the row becomes terminal `failed`; cancellation or process
 death leaves the lease in place so another worker generation can reclaim it after
-expiry. Completing ingress work means routing/planning reached the existing durable
-outbox boundary; it does not mean every external target acknowledged delivery.
+expiry. Completing ingress work means routing/planning reached the durable outbox
+boundary; it does not await any native target handoff. Each initial obligation
+retains its exact route and delivery plan, including origin labeling, destination,
+capability, fallback, retry policy, deadline and routing attribution. Partial
+staging MUST defer ingress
+completion; repeating that staging MUST adopt existing obligations without
+rewinding attempts or native evidence.
+
+The runtime outbox dispatcher claims initial work even when automatic retries are
+disabled. A staged row has finalized attempt zero and no native submission. A
+successful guarded reservation creates positive attempt one immediately before
+handoff. Only reservations and actual attempt evidence can authorize native
+submission; a pending row is not a transport acceptance or delivery receipt.
+Expired or missing leases on attempt-zero claims without an active reservation
+MUST be reclaimable with automatic retries disabled. A positive reservation MUST
+remain held in that mode.
+
+Initial relation and conversation preparation MUST execute inside the renewed
+outbox claim lifetime, **before** reserving attempt one. A preparation failure
+MUST NOT consume a native attempt or create delivery evidence. The lifecycle
+MUST return the unreserved claim to pending work when its ownership still
+matches; a failed release leaves it claimable after lease expiry. Preparation
+failures SHOULD defer the adapter lane briefly to avoid a fast failure loop.
+Retained routing metadata, including matched routes, fanout group and the
+bounded route trace, MUST reach both initial and retry rendering without
+modifying the stored canonical event.
+
+Initial obligations are polled at most 0.5 seconds apart when a dispatch slot is
+available. Completed handoffs wake the dispatcher immediately so idle polling
+does not limit sustained message throughput. The configured retry interval remains
+authoritative for retry scans;
+frequent initial polling MUST NOT accelerate automatic retries. Status totals
+include immutable historical rows and MUST NOT be rescanned on every fast idle
+poll; they are last-known snapshots, refreshed on claim/completion or at the
+configured retry interval. Due work is
+ordered by its scheduled attempt time, or creation time for pending work, within
+adapter lanes and across the global claim limit. Fresh ingress MUST NOT receive
+unconditional priority over due retries.
+
+Startup-unavailable and capacity-refused work MUST retain its attempt number and
+wait at least one retry interval before being reconsidered. The dispatcher also
+pauses that adapter lane until the committed deferral time; completing a refusal
+MUST NOT immediately walk that adapter's pending siblings. This process-local
+cooldown grants no delivery authority and MUST NOT stop healthy adapter lanes.
+
+The dispatcher MUST NOT wait for one event's entire fanout before considering
+another event. It runs at most one handoff per adapter, bounded additionally by
+`max_inflight_deliveries`; unclaimed backlog remains in SQLite. A leased adapter
+lane is excluded before the claim limit is applied, so a stalled target cannot
+hide runnable work for another target. Adapter-owned send queues and radio pacing
+remain authoritative. A global delivery limit of one necessarily permits only one
+active native handoff; isolation does not manufacture additional capacity.
 
 Runtime diagnostics expose whether the durable-ingress worker is running plus its
 per-generation processed, failure, lost-lease, terminal-failure, deferral, and
@@ -203,7 +253,7 @@ budget. A deferred row is not reclaimed again in the same worker poll cycle.
 
 During graceful shutdown the runtime stops replay first, then tells the durable
 ingress worker to stop claiming new rows. The active ingress row and the subsequent
-in-flight delivery/replay drain share one
+outbox-dispatch stop and in-flight delivery/replay drain share one
 `limits.shutdown_drain_timeout_seconds` deadline, so congestion cannot consume
 the configured drain budget twice. The worker may finish its currently claimed
 event while delivery capacity remains open; the runtime then stops accepting new
@@ -213,3 +263,20 @@ intentionally left to expire rather than being immediately released; this avoids
 restart racing side effects that may still be covered by the corresponding outbox
 lease. Late adapter callbacks may still cross durable admission while adapters are
 shutting down; those rows remain pending for the next runtime generation.
+
+If shutdown is requested after the outbox has claimed a batch but before a
+particular row begins dispatch, the dispatcher SHOULD immediately release that
+row only when it has no active attempt reservation. Such a row remains durable
+and is claimable on restart without waiting for an unused lease to expire. A
+row carrying an earlier reserved attempt MUST retain its fence, even if the new
+scheduler generation did not issue another send: a native handoff may already
+have occurred. Failed claim cleanup may leave the lease until expiration but
+MUST NOT infer that delivery was unsent.
+
+If an outbox dispatch resists cancellation beyond the shared drain deadline,
+shutdown MUST return a failure while retaining pipeline, adapters and storage.
+Stopping the scheduler MUST NOT be reported as release of native ownership while
+one of its child dispatches is active. Once retained dispatches exit, another
+`stop()` may finish dependency teardown. Cancellation without accepted evidence
+MUST preserve the durable reservation for recovery; it MUST NOT manufacture an
+accepted handoff or reset the reservation to unsent.

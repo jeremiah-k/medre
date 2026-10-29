@@ -22,15 +22,13 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal, cast
 
 from medre.core.contracts.adapter import AdapterSendError
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.events.delivery import DeliverySource
 
-if TYPE_CHECKING:
-    from medre.core.routing.models import RouteTarget
-
+from medre.core.routing.models import RouteTarget
 
 # ---------------------------------------------------------------------------
 # Delivery strategy

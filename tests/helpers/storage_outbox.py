@@ -256,7 +256,9 @@ def reserve_guarded_outbox_attempt(
             return None
 
     object.__setattr__(item, "active_attempt", next_attempt)
-    object.__setattr__(item, "dispatch_source", "retry")
+    object.__setattr__(
+        item, "dispatch_source", "live" if item.attempt_number == 0 else "retry"
+    )
     return next_attempt
 
 
@@ -395,3 +397,22 @@ def apply_guarded_outbox_terminal(
     object.__setattr__(item, "locked_at", None)
     object.__setattr__(item, "lease_until", None)
     return True
+
+
+def release_guarded_outbox_claim(
+    items: dict[str, DeliveryOutboxItem],
+    outbox_id: str,
+    worker_id: str,
+    *,
+    release_status: str = "pending",
+) -> None:
+    """Mirror SQLite's unconditional release fence for unreserved claims."""
+    item = items.get(outbox_id)
+    if item is None or item.status != "in_progress" or item.worker_id != worker_id:
+        return
+    if item.active_attempt is not None:
+        return
+    object.__setattr__(item, "worker_id", None)
+    object.__setattr__(item, "locked_at", None)
+    object.__setattr__(item, "lease_until", None)
+    object.__setattr__(item, "status", release_status)

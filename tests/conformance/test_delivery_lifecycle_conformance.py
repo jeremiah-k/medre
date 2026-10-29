@@ -71,6 +71,7 @@ from tests.helpers.storage_outbox import (
     apply_guarded_outbox_transition,
     find_existing_outbox_generation,
     find_existing_replay_run_claim,
+    release_guarded_outbox_claim,
     reserve_guarded_outbox_attempt,
 )
 
@@ -243,6 +244,20 @@ class _MemoryStorage:
     ) -> int | None:
         return reserve_guarded_outbox_attempt(
             self._outbox, outbox_id, worker_id, from_attempt
+        )
+
+    async def release_outbox_claim(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        *,
+        release_status: str = "pending",
+    ) -> None:
+        release_guarded_outbox_claim(
+            self._outbox,
+            outbox_id,
+            worker_id,
+            release_status=release_status,
         )
 
     async def renew_outbox_lease(
@@ -436,6 +451,22 @@ async def test_memory_storage_canonicalizes_dispatch_source() -> None:
         == 2
     )
     assert created_live.dispatch_source == "retry"
+
+    initial = replace(
+        live,
+        outbox_id="obox-initial",
+        event_id="evt-initial",
+        attempt_number=0,
+        active_attempt=None,
+    )
+    created_initial = await storage.create_outbox_item(initial)
+    assert (
+        await storage.reserve_outbox_attempt(
+            created_initial.outbox_id, "worker-live", 0
+        )
+        == 1
+    )
+    assert created_initial.dispatch_source == "live"
 
     replay = DeliveryOutboxItem(
         outbox_id="obox-memory-replay-source",

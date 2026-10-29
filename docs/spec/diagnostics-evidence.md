@@ -1140,6 +1140,8 @@ Graceful shutdown does not cancel pending outbox items or scheduled retries.
 Non-terminal outbox rows (`pending`, `retry_wait`, `in_progress`, `queued`)
 survive in SQLite and are processed on next startup:
 
+- Never-dispatched initial obligations (attempt zero) are claimed independently
+  of retry configuration. Staged work is not transport acceptance.
 - Due `retry_wait` outbox rows (with `next_attempt_at` due) are claimed
   and processed by the `RetryWorker` (if enabled). Failed receipts remain
   immutable evidence.

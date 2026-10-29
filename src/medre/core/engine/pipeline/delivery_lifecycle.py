@@ -215,6 +215,16 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
 
+    async def release_outbox_claim(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        *,
+        release_status: str = "pending",
+    ) -> None:
+        """Release only an owned, unreserved claim under atomic fencing."""
+        ...
+
     async def reserve_outbox_attempt(
         self,
         outbox_id: str,
@@ -223,8 +233,9 @@ class DeliveryLifecycleStorage(Protocol):
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
-        The successful reservation also records ``dispatch_source='retry'``
-        as durable provenance for callbacks that can beat receipt append.
+        The successful reservation records ``live`` from attempt zero,
+        otherwise ``retry``, as provenance for callbacks that can beat receipt
+        append.
         Return its number, or ``None`` if the row is no longer owned,
         in progress, or eligible for a new reservation. A failed
         reservation must not proceed to transport dispatch.
@@ -1743,6 +1754,25 @@ class DeliveryLifecycleService:
             now=now,
         )
 
+    async def release_unstarted_retry_claim(
+        self, storage: DeliveryLifecycleStorage, item: DeliveryOutboxItem
+    ) -> None:
+        """Return unscheduled work to the outbox without fabricating an attempt.
+
+        An existing active reservation is potentially a native handoff, even
+        when a new dispatcher reclaimed its lease but never sent anything.
+        Such claims are not releasable here and must follow reconciliation.
+        """
+        if item.active_attempt is not None:
+            return
+        if not item.worker_id:
+            raise ValueError("unstarted claim release requires a worker owner")
+        await storage.release_outbox_claim(
+            item.outbox_id,
+            item.worker_id,
+            release_status="pending" if item.attempt_number == 0 else "retry_wait",
+        )
+
     async def defer_retry_outbox(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1754,9 +1784,19 @@ class DeliveryLifecycleService:
         receipt_id: str | None = None,
         error_summary: str | None = None,
         now: datetime | None = None,
+        min_delay: timedelta | None = None,
     ) -> datetime:
-        """Schedule one retry attempt with lifecycle-owned backoff."""
+        """Defer owned work without consuming a native attempt.
+
+        Operational refusals can impose a polling floor independent of the
+        transport retry backoff. The returned time is authoritative only after
+        the guarded outbox transition commits.
+        """
+        if min_delay is not None and min_delay < timedelta(0):
+            raise ValueError("min_delay must be non-negative")
         backoff = RetryExecutor(retry_policy).compute_backoff(attempt_number)
+        if min_delay is not None:
+            backoff = max(backoff, min_delay)
         next_attempt_at = (now or datetime.now(timezone.utc)) + backoff
         committed = await storage.mark_outbox_retry_wait(
             item.outbox_id,

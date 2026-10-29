@@ -15,12 +15,11 @@ which is mutable to allow runtime enable/disable toggling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from medre.core.events.metadata import FrozenDict
 
-if TYPE_CHECKING:
-    from medre.core.policies.route_policy import RoutePolicy
+from medre.core.policies.route_policy import RoutePolicy
 
 # ---------------------------------------------------------------------------
 # Route source

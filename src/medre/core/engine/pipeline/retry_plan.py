@@ -13,7 +13,11 @@ matches the original live delivery decision rather than defaulting to
 ``capability_level=None`` (which silently becomes ``"native"``) and
 ``strategy="direct"``.
 
-Fields that are *not* persisted and cannot be recovered:
+Runtime-staged obligations retain a complete ``OutboxDispatchContext``. Its
+route, strategy chain, policy and deadline are restored exactly and checked
+against the outbox identity. Direct/replay deliveries can instead carry only
+route-decision metadata; for that representation the following fields are not
+persisted and cannot be recovered:
 
 * ``fallback_chain`` — always ``[]``.
 * ``Route.source`` — always a minimal/dummy source.
@@ -29,7 +33,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import get_args
 
+import msgspec
+
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
@@ -47,6 +54,18 @@ _VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(
 )
 
 
+class OutboxDispatchContext(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Accepted route, plan and bounded routing attribution for a native dispatch.
+
+    Routing metadata is retained without duplicating message content. It is
+    restored on a delivery copy, independently of mutable router configuration.
+    """
+
+    route: Route
+    plan: DeliveryPlan
+    routing: RoutingMetadata
+
+
 @dataclass(frozen=True)
 class ReconstructedRetryPlan:
     """The reconstructed delivery context for a retry attempt.
@@ -54,19 +73,34 @@ class ReconstructedRetryPlan:
     Attributes
     ----------
     route:
-        Minimal :class:`Route` rebuilt from the outbox item.
+        Accepted route snapshot, or route rebuilt from direct/replay metadata.
     plan:
-        Minimal :class:`DeliveryPlan` rebuilt from the outbox item and
-        previous receipt.
+        Accepted plan snapshot, or plan rebuilt from the outbox and receipt.
     retry_policy:
         The resolved :class:`RetryPolicy` used for the plan (also returned
         separately so the caller can use it for backoff scheduling without
         reaching back into the plan).
+    routing:
+        Frozen routing attribution for staged obligations; absent for direct
+        deliveries that retain only reduced route-decision metadata.
     """
 
     route: Route
     plan: DeliveryPlan
     retry_policy: RetryPolicy
+    routing: RoutingMetadata | None = None
+
+
+def _destination_from_outbox(item: DeliveryOutboxItem) -> RouteDestination | None:
+    """Read the retained native address scope independently of its plan snapshot."""
+    if item.metadata is None or "destination_kind" not in item.metadata:
+        return None
+    return RouteDestination(
+        kind=item.metadata["destination_kind"],
+        destination_hash=item.metadata.get("destination_hash"),
+        destination_name=item.metadata.get("destination_name"),
+        metadata=item.metadata.get("destination_metadata", {}),
+    )
 
 
 def reconstruct_retry_delivery_plan(
@@ -75,7 +109,11 @@ def reconstruct_retry_delivery_plan(
     previous_receipt: DeliveryReceipt | None,
     default_max_attempts: int,
 ) -> ReconstructedRetryPlan:
-    """Reconstruct a minimal delivery plan and route for a retry attempt.
+    """Restore staged planning, or reconstruct a direct/replay delivery plan.
+
+    A complete staged snapshot takes precedence over the reduced representation
+    described below. Snapshot failure is terminal to reconstruction; it never
+    falls through to a guessed route or retry policy.
 
     Parameters
     ----------
@@ -133,6 +171,41 @@ def reconstruct_retry_delivery_plan(
     * ``fallback_chain`` — always ``[]``.
     * ``Route.source`` — always ``RouteSource(adapter=None, ...)``.
     """
+    if item.metadata is not None and "dispatch_context" in item.metadata:
+        context = msgspec.convert(
+            item.metadata["dispatch_context"], type=OutboxDispatchContext
+        )
+        plan = context.plan
+        if (
+            plan.event_id != item.event_id
+            or plan.plan_id != item.delivery_plan_id
+            or context.route.id != item.route_id
+            or (plan.route_id or "") != (item.route_id or "")
+            or plan.target.adapter != item.target_adapter
+            or (plan.target.channel or None) != (item.target_channel or None)
+            or plan.target not in context.route.targets
+            or plan.target.destination != _destination_from_outbox(item)
+            or (
+                plan.target.destination.destination_hash
+                if plan.target.destination
+                else None
+            )
+            != item.target_address
+            or plan.target_identity != delivery_target_identity(plan.target)
+            or context.route.id not in context.routing.matched_routes
+            or len(context.routing.route_trace) > 16
+        ):
+            raise ValueError("stored dispatch context disagrees with outbox identity")
+        return ReconstructedRetryPlan(
+            route=context.route,
+            plan=plan,
+            retry_policy=plan.retry_policy or RetryPolicy(max_attempts=1, jitter=False),
+            routing=context.routing,
+        )
+
+    if item.attempt_number == 0:
+        raise ValueError("never-dispatched work requires a complete dispatch context")
+
     # -- Retry policy from previous receipt with fallback defaults --------
     max_attempts = default_max_attempts
     backoff_base = 2.0
@@ -169,14 +242,7 @@ def reconstruct_retry_delivery_plan(
     )
 
     # -- Destination from item metadata -----------------------------------
-    dest: RouteDestination | None = None
-    if item.metadata and "destination_kind" in item.metadata:
-        dest = RouteDestination(
-            kind=item.metadata["destination_kind"],
-            destination_hash=item.metadata.get("destination_hash"),
-            destination_name=item.metadata.get("destination_name"),
-            metadata=item.metadata.get("destination_metadata", {}),
-        )
+    dest = _destination_from_outbox(item)
 
     # -- Target and route -------------------------------------------------
     target = RouteTarget(

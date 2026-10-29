@@ -214,7 +214,7 @@ The outbox state machine has eight statuses:
 | —             | `pending`       | `create_outbox_item()`        | Default durable work creation                                                                           |
 | —             | `in_progress`   | `create_outbox_item()`        | Pipeline claims delivery slot                                                                           |
 | `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance                                                                          |
-| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery                                                                  |
+| `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases an unreserved claim; `active_attempt` MUST be NULL                                      |
 | `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff                                                                      |
 | `queued`      | `sent`          | `finalize_deferred_handoff()` | `DeferredHandoffCompleted` proves the exact deferred attempt reached transport hand-off                 |
 | `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled                                                                      |

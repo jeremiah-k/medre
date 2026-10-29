@@ -1,4 +1,4 @@
-"""Bounded delivery retry worker for transient adapter failures.
+"""Bounded initial and retry dispatch from the durable delivery outbox.
 
 The RetryWorker polls for due outbox items and re-attempts delivery
 through the pipeline.  It is *not* a scheduling framework:
@@ -32,8 +32,10 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Protocol
+
+import msgspec
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
@@ -81,6 +83,10 @@ class RetryWorkerStorage(Protocol):
         worker_id: str,
         lease_seconds: int = 30,
         limit: int = 20,
+        *,
+        excluded_adapters: tuple[str, ...] = (),
+        initial_only: bool = False,
+        one_per_adapter: bool = False,
     ) -> list[DeliveryOutboxItem]: ...
 
     async def count_outbox_by_status(self) -> dict[str, int]: ...
@@ -158,10 +164,12 @@ class RetryWorkerState:
 
 
 class RetryWorker:
-    """In-process retry worker for transient adapter failures.
+    """Schedule durable initial obligations and configured retries.
 
-    Polls storage for due outbox items and re-attempts delivery
-    through the pipeline.  Runs as a background asyncio task.
+    Initial dispatch runs independently of automatic retry policy. Adapter
+    lanes bound native concurrency without storing a second in-memory backlog.
+    DeliveryLifecycleService owns every durable state transition; this class
+    only schedules existing outbox claims through the pipeline.
     """
 
     def __init__(
@@ -179,6 +187,7 @@ class RetryWorker:
         lifecycle: DeliveryLifecycleService | None = None,
         stop_timeout_seconds: float = 5.0,
         available_target_adapters: Iterable[str] | None = None,
+        initial_dispatch: bool = False,
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
         self._storage: RetryWorkerStorage = storage
@@ -195,12 +204,17 @@ class RetryWorker:
 
             lifecycle = DeliveryLifecycleService(logger=_logger)
         self._lifecycle = lifecycle
-        self._enabled = enabled if enabled is not None else config.enabled
+        self._retries_enabled = enabled if enabled is not None else config.enabled
+        self._initial_dispatch = initial_dispatch
+        self._enabled = self._retries_enabled or initial_dispatch
+        self._active: dict[str, asyncio.Task[None]] = {}
+        self._adapter_deferred_until: dict[str, datetime] = {}
         self._interval = (
             interval_seconds
             if interval_seconds is not None
             else config.interval_seconds
         )
+        self._next_retry_scan: datetime | None = None
         self._batch_size = batch_size if batch_size is not None else config.batch_size
         self._max_attempts = (
             max_attempts if max_attempts is not None else config.max_attempts
@@ -217,6 +231,7 @@ class RetryWorker:
             )
         self._stop_timeout = stop_timeout_seconds
         self._shutdown_event = asyncio.Event()
+        self._dispatch_wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         # Retained reference to a still-running task that was abandoned
         # by :meth:`stop` because it survived the cancel grace period.
@@ -230,7 +245,15 @@ class RetryWorker:
         self._stop_lock = asyncio.Lock()
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
-        self.state = RetryWorkerState(enabled=self._enabled)
+        self._last_outbox_count_refresh: datetime | None = None
+        self._outbox_counts_dirty = False
+        self._outbox_count_generation = 0
+        self.state = RetryWorkerState(enabled=self._retries_enabled)
+
+    @property
+    def has_retained_work(self) -> bool:
+        """Return whether an abandoned dispatch lifetime can perform side effects."""
+        return self._abandoned_task is not None and not self._abandoned_task.done()
 
     def set_available_target_adapters(self, adapter_ids: Iterable[str]) -> None:
         """Restrict transport retries to adapters that completed startup.
@@ -525,11 +548,21 @@ class RetryWorker:
             exc,
             exc_info=exc,
         )
+        # TaskGroup wraps child failures in ExceptionGroup. Report the
+        # actionable underlying cause in runtime events rather than only
+        # "unhandled errors in a TaskGroup"; the log above retains the full
+        # exception-group traceback for multiple simultaneous failures.
+        cause = exc
+        while isinstance(cause, BaseExceptionGroup) and cause.exceptions:
+            cause = cause.exceptions[0]
+        summary = f"{type(exc).__name__}: {exc}"
+        if cause is not exc:
+            summary += f"; first cause: {type(cause).__name__}: {cause}"
         self._emit(
             "retry_failed",
             {
                 **counts,
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": summary,
                 "error_type": type(exc).__name__,
             },
         )
@@ -615,11 +648,18 @@ class RetryWorker:
             if self._task is not None:
                 return
             await self._capture_startup_outbox_evidence()
+            self._next_retry_scan = None
+            self._last_outbox_count_refresh = None
+            self._outbox_counts_dirty = False
+            self._outbox_count_generation = 0
             self._shutdown_event.clear()
+            self._dispatch_wake.clear()
             self.state.running = True
             self._task = asyncio.create_task(self._run_loop())
             _logger.info(
-                "RetryWorker started (interval=%ss, batch=%d, max_attempts=%d)",
+                "Outbox dispatcher started (initial=%s, retries=%s, retry_interval=%ss, batch=%d, max_attempts=%d)",
+                self._initial_dispatch,
+                self._retries_enabled,
                 self._interval,
                 self._batch_size,
                 self._max_attempts,
@@ -634,8 +674,13 @@ class RetryWorker:
                 },
             )
 
-    async def stop(self) -> None:
+    async def stop(self, *, timeout_seconds: float | None = None) -> None:
         """Signal shutdown and wait for the worker to finish.
+
+        ``timeout_seconds`` supplies a shared runtime budget for both stages.
+        Without it each stage uses the configured stop timeout. Native sends
+        that outlive cancellation remain retained by the worker task group;
+        ``has_retained_work`` prevents dependent resources being torn down.
 
         Stop is **bounded** in two stages, both implemented as a
         short-cadence poll of :meth:`asyncio.Task.done` rather than
@@ -681,6 +726,8 @@ class RetryWorker:
           "stop was cancelled" state distinguishable from
           "stop succeeded" and from "stop never called".
         """
+        if timeout_seconds is not None and timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be non-negative")
         async with self._stop_lock:
             if self._task is None:
                 return
@@ -688,25 +735,33 @@ class RetryWorker:
                 # A previous stop() already abandoned the worker; do not
                 # emit duplicate retry_stopped / retry_failed events.
                 return
+            budget = (
+                self._stop_timeout * 2 if timeout_seconds is None else timeout_seconds
+            )
             _logger.info(
                 "RetryWorker stop requested: two-stage bounded shutdown "
                 "(stage 1: cooperative poll, stage 2: forced cancel), "
                 "effective wall-time up to ~%.1fs "
-                "(stop_timeout_seconds=%.1f x 2 stages)",
-                self._stop_timeout * 2,
+                "(stop_timeout_seconds=%.1f; shared budget overrides both stages)",
+                budget,
                 self._stop_timeout,
             )
             self._shutdown_event.set()
+            self._dispatch_wake.set()
             loop = asyncio.get_running_loop()
             # Stage 1: cooperative stop.  Poll ``task.done()`` on a
             # short cadence until either the task finishes (clean
             # stop) or the grace period expires.
-            deadline = loop.time() + self._stop_timeout
+            final_deadline = loop.time() + budget
+            deadline = loop.time() + min(self._stop_timeout, budget / 2)
             task = self._task
             try:
                 while not task.done():
                     if loop.time() >= deadline:
-                        await self._force_cancel_with_poll(task=task)
+                        await self._force_cancel_with_poll(
+                            task=task,
+                            timeout_seconds=max(0.0, final_deadline - loop.time()),
+                        )
                         return
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
@@ -753,7 +808,9 @@ class RetryWorker:
             else:
                 raise exc  # type: ignore[misc]
 
-    async def _force_cancel_with_poll(self, task: asyncio.Task[None]) -> None:
+    async def _force_cancel_with_poll(
+        self, task: asyncio.Task[None], *, timeout_seconds: float | None = None
+    ) -> None:
         """Cancel *task* and wait for it with a hard time bound that does
         **not** rely on ``asyncio.wait_for``'s cancel mechanism.
 
@@ -789,8 +846,17 @@ class RetryWorker:
         abandoned and re-raises.
         """
         task.cancel()
+        # Bounded event-loop turns let an idle/cooperative group settle even
+        # when ingress used the entire shared drain budget. No native call is
+        # awaited here and resistant ownership remains retained below.
+        for _ in range(5):
+            if task.done():
+                break
+            await asyncio.sleep(0)
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self._stop_timeout
+        deadline = loop.time() + (
+            self._stop_timeout if timeout_seconds is None else timeout_seconds
+        )
 
         # Poll on a 10 ms cadence.  If the task is cancellation-
         # responsive it will finish within a few cycles; if it is
@@ -830,61 +896,155 @@ class RetryWorker:
             )
 
     async def _run_loop(self) -> None:
-        """Main polling loop."""
-        while not self._shutdown_event.is_set():
-            try:
-                now = datetime.now(timezone.utc)
-                await self._process_due(now)
-            except Exception:
-                _logger.exception("RetryWorker cycle error")
-            try:
-                await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=self._interval,
-                )
-                break  # shutdown was signaled
-            except asyncio.TimeoutError:
-                pass  # normal interval elapsed
+        """Poll durable work without waiting for a stalled adapter's handoff.
 
-    async def _process_due(self, now: datetime) -> None:
-        """Find and process due outbox items."""
-        now_iso = now.isoformat()
-        worker_id = f"retry-worker-{uuid.uuid4().hex[:8]}"
+        At most one dispatch per adapter is active, and the global delivery
+        limit also bounds task creation. The database remains the backlog.
+        The task group retains cancellation-resistant sends so stop() cannot
+        mistake scheduler exit for released native ownership.
+        """
+        async with asyncio.TaskGroup() as group:
+            while not self._shutdown_event.is_set():
+                self._dispatch_wake.clear()
+                try:
+                    await self._process_due(datetime.now(timezone.utc), group=group)
+                except Exception:
+                    _logger.exception("Outbox dispatch cycle error")
+                try:
+                    await asyncio.wait_for(
+                        self._dispatch_wake.wait(),
+                        timeout=(
+                            min(self._interval, 0.5)
+                            if self._initial_dispatch
+                            else self._interval
+                        ),
+                    )
+                except TimeoutError:
+                    pass
 
-        items = await self._storage.claim_due_outbox_items(
-            now=now_iso,
-            worker_id=worker_id,
-            lease_seconds=int(self._interval * 1.5) or 30,
-            limit=self._batch_size,
+    async def _process_due(
+        self, now: datetime, *, group: asyncio.TaskGroup | None = None
+    ) -> None:
+        """Claim immediately runnable work; optionally await a single batch.
+
+        The background loop supplies its lifetime task group. Without a group,
+        this method settles one batch for controlled recovery invocations.
+        No row is claimed to wait behind an active send for the same adapter.
+        """
+        for adapter, task in tuple(self._active.items()):
+            if task.done():
+                del self._active[adapter]
+        self._adapter_deferred_until = {
+            adapter: until
+            for adapter, until in self._adapter_deferred_until.items()
+            if until > now
+        }
+        limit = self._capacity.delivery_limit if self._capacity is not None else 1
+        available = (
+            self._batch_size
+            if group is None
+            else min(self._batch_size, max(0, limit - len(self._active)))
         )
+        if available:
+            retry_scan = self._retries_enabled and (
+                group is None
+                or self._next_retry_scan is None
+                or now >= self._next_retry_scan
+            )
+            if retry_scan and group is not None:
+                self._next_retry_scan = now + timedelta(seconds=self._interval)
+            items = await self._storage.claim_due_outbox_items(
+                now=now.isoformat(),
+                worker_id=f"retry-worker-{uuid.uuid4().hex[:8]}",
+                lease_seconds=max(30, int(self._interval * 1.5)),
+                limit=available,
+                excluded_adapters=(*self._active, *self._adapter_deferred_until),
+                one_per_adapter=group is not None,
+                initial_only=self._initial_dispatch and not retry_scan,
+            )
+        else:
+            items = []
+        if items:
+            self.state.last_run_at = now.isoformat()
 
-        if not items:
-            # Refresh counts on idle cycles too.
-            try:
-                self._outbox_counts = await self._storage.count_outbox_by_status()
-                self._cycle_completed = True
-            except Exception:
-                _logger.debug("RetryWorker: failed to refresh outbox counts")
-            return
-
-        self.state.last_run_at = now_iso
-        for item in items:
-            if self._shutdown_event.is_set():
-                break
+        async def dispatch(item: DeliveryOutboxItem) -> None:
             try:
                 await self._retry_outbox_item(item)
             except asyncio.CancelledError:
                 raise
             except Exception:
+                _logger.exception("Outbox dispatch failed for %s", item.outbox_id)
+            finally:
+                # Completion frees a lane immediately. Refresh status totals
+                # at this boundary even if the idle scan interval has not
+                # elapsed, without counting on every empty fast poll.
+                self._outbox_count_generation += 1
+                self._outbox_counts_dirty = True
+                self._dispatch_wake.set()
+
+        if group is not None:
+            for index, item in enumerate(items):
+                if self._shutdown_event.is_set():
+                    await self._release_unstarted_claims(items[index:])
+                    break
+                task = group.create_task(
+                    dispatch(item), name=f"medre-outbox-{item.target_adapter}"
+                )
+                self._active[item.target_adapter] = task
+        else:
+            # A one-shot batch settles sequentially; background dispatch uses
+            # the lifetime task group and adapter-aware claim exclusions.
+            for index, item in enumerate(items):
+                if self._shutdown_event.is_set():
+                    await self._release_unstarted_claims(items[index:])
+                    break
+                await dispatch(item)
+        # Status totals include immutable terminal history. Do not scan that
+        # history on every fast idle poll; refresh after a claim or at most
+        # once per configured retry interval. The snapshot is last-known,
+        # not a live count of externally written rows.
+        if (
+            items
+            or self._outbox_counts_dirty
+            or not self._cycle_completed
+            or self._last_outbox_count_refresh is None
+            or now
+            >= self._last_outbox_count_refresh + timedelta(seconds=self._interval)
+        ):
+            try:
+                generation = self._outbox_count_generation
+                self._outbox_counts = await self._storage.count_outbox_by_status()
+                self._last_outbox_count_refresh = now
+                # A completion racing the query may have changed counts after
+                # the read snapshot. Keep that wake pending for a fresh count.
+                self._outbox_counts_dirty = generation != self._outbox_count_generation
+                self._cycle_completed = True
+            except Exception:
+                _logger.debug("Outbox dispatch: failed to refresh counts")
+
+    async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
+        """Return only never-reserved claims skipped during shutdown.
+
+        A prior ``active_attempt`` may represent an uncertain native handoff,
+        even if this dispatcher never touched it. Leave those leases intact
+        for normal evidence reconciliation after expiry; releasing one would
+        erase the reservation fence. New claims without a reservation can be
+        returned to the durable queue immediately and safely.
+        """
+        for item in items:
+            if item.active_attempt is not None:
+                continue
+            try:
+                await self._lifecycle.release_unstarted_retry_claim(
+                    self._lifecycle_storage, item
+                )
+            except Exception:
+                # Failed release is safe: the lease eventually expires. Never
+                # obscure the original shutdown with a cleanup exception.
                 _logger.exception(
-                    "RetryWorker: unexpected error for outbox %s",
+                    "Outbox dispatch: could not release unstarted claim %s",
                     item.outbox_id,
                 )
-        try:
-            self._outbox_counts = await self._storage.count_outbox_by_status()
-            self._cycle_completed = True
-        except Exception:
-            _logger.debug("RetryWorker: failed to refresh outbox counts")
 
     async def _retry_outbox_item(self, item: DeliveryOutboxItem) -> None:
         """Retry delivery for a single due outbox item.
@@ -946,6 +1106,16 @@ class RetryWorker:
                 self._log_superseded_transition(item, stale)
             return
 
+        if retry_context.routing is not None:
+            # Routing is an accepted dispatch decision, not a mutable route
+            # lookup. Preserve attribution on the delivery copy only.
+            event = msgspec.structs.replace(
+                event,
+                metadata=msgspec.structs.replace(
+                    event.metadata, routing=retry_context.routing
+                ),
+            )
+
         # A worker can reclaim an expired ``in_progress`` row after a prior
         # process persisted receipt evidence but failed before committing the
         # matching outbox transition.  Reconcile that evidence first: invoking
@@ -1006,6 +1176,7 @@ class RetryWorker:
                     retry_context.retry_policy,
                     failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
                     attempt_number=item.attempt_number,
+                    min_delay=timedelta(seconds=self._interval),
                     error_summary=(
                         "adapter_unavailable_startup: target adapter did not "
                         "complete runtime startup"
@@ -1028,6 +1199,7 @@ class RetryWorker:
                 )
                 return
 
+            self._adapter_deferred_until[item.target_adapter] = next_attempt
             self.state.failed += 1
             self._emit(
                 "retry_failed",
@@ -1077,6 +1249,7 @@ class RetryWorker:
                             retry_context.retry_policy,
                             failure_kind="capacity_rejection",
                             attempt_number=item.attempt_number,
+                            min_delay=timedelta(seconds=self._interval),
                         )
                     except RetryAttemptCommitRejected as stale:
                         self._log_superseded_transition(item, stale)
@@ -1086,6 +1259,8 @@ class RetryWorker:
                             "RetryWorker: failed to backoff outbox %s on capacity rejection",
                             item.outbox_id,
                         )
+                    if _cap_next is not None:
+                        self._adapter_deferred_until[item.target_adapter] = _cap_next
                     self._emit(
                         "retry_failed",
                         {
@@ -1115,13 +1290,15 @@ class RetryWorker:
                     # release_outbox_claim would restore to "pending" and
                     # cause immediate re-claim.  Delegate a durable backoff
                     # transition to the lifecycle authority instead.
-                    await self._lifecycle.defer_retry_outbox(
+                    next_attempt = await self._lifecycle.defer_retry_outbox(
                         self._lifecycle_storage,
                         item,
                         retry_context.retry_policy,
                         failure_kind="capacity_error",
                         attempt_number=item.attempt_number,
+                        min_delay=timedelta(seconds=self._interval),
                     )
+                    self._adapter_deferred_until[item.target_adapter] = next_attempt
                 except RetryAttemptCommitRejected as stale:
                     self._log_superseded_transition(item, stale)
                     return
@@ -1136,6 +1313,55 @@ class RetryWorker:
         renewal_task: asyncio.Task[None] | None = None
 
         try:
+            if item.attempt_number == 0:
+                # Initial relation/conversation projection can fail in storage
+                # before any native submission. Prepare while the claim is
+                # renewed but still unreserved; only the handoff that follows
+                # is allowed to consume attempt one.
+                try:
+                    renewed = await self._lifecycle.renew_retry_lease(
+                        self._lifecycle_storage,
+                        item,
+                        lease_seconds=max(30, int(self._interval * 1.5)),
+                    )
+                    if not renewed:
+                        self.state.processed += 1
+                        return
+                    renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
+                    event = await self._pipeline.prepare_initial_outbox_event(event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self.state.processed += 1
+                    self.state.failed += 1
+                    _logger.exception(
+                        "RetryWorker: initial event preparation failed for outbox %s; "
+                        "no native attempt reserved",
+                        item.outbox_id,
+                    )
+                    try:
+                        await self._lifecycle.release_unstarted_retry_claim(
+                            self._lifecycle_storage, item
+                        )
+                    except Exception:
+                        # Leave the unreserved claim to expire if release fails.
+                        _logger.exception(
+                            "RetryWorker: could not release unprepared outbox %s",
+                            item.outbox_id,
+                        )
+                    self._adapter_deferred_until[item.target_adapter] = datetime.now(
+                        timezone.utc
+                    ) + timedelta(seconds=self._interval)
+                    return
+                finally:
+                    if renewal_task is not None:
+                        renewal_task.cancel()
+                        try:
+                            await renewal_task
+                        except asyncio.CancelledError:
+                            pass
+                        renewal_task = None
+
             # Dispatch-begin boundary: durably reserve the next attempt
             # identity before invoking the transport.  From this commit
             # onward, callbacks carrying the reserved number are live for
@@ -1187,7 +1413,7 @@ class RetryWorker:
                 initial_renewal = await self._lifecycle.renew_retry_lease(
                     self._lifecycle_storage,
                     item,
-                    lease_seconds=int(self._interval * 1.5) or 30,
+                    lease_seconds=max(30, int(self._interval * 1.5)),
                 )
             except Exception as lifecycle_exc:
                 self.state.processed += 1
@@ -1211,10 +1437,19 @@ class RetryWorker:
                 )
                 return
 
-            renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
-
             route = retry_context.route
             plan = retry_context.plan
+            if item.attempt_number == 0:
+                await self._pipeline.deliver_initial_outbox(
+                    event,
+                    route,
+                    plan,
+                    item=item,
+                    reserved_attempt_number=reserved_attempt_number,
+                )
+                return
+
+            renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
 
             self._emit(
                 "retry_attempted",
@@ -1351,7 +1586,7 @@ class RetryWorker:
         worker fences determine whether finalization can still commit.
         """
         interval = max(0.05, self._interval * 0.5)
-        lease_seconds = int(self._interval * 1.5) or 30
+        lease_seconds = max(30, int(self._interval * 1.5))
         while True:
             await asyncio.sleep(interval)
             try:

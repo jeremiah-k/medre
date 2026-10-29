@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     replay_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
-    CHECK (attempt_number >= 1),
+    CHECK (attempt_number >= 0),
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
     CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),
@@ -388,6 +388,9 @@ CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
     ON delivery_receipts(parent_receipt_id, source);
 CREATE INDEX IF NOT EXISTS idx_outbox_due
     ON delivery_outbox(status, next_attempt_at);
+-- One-per-adapter claims probe active owners by adapter before lease expiry.
+CREATE INDEX IF NOT EXISTS idx_outbox_active_adapter
+    ON delivery_outbox(target_adapter, status, lease_until);
 CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event
@@ -755,8 +758,8 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "delivery_outbox": (
         (
-            "CHECK (attempt_number >= 1)",
-            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+            "CHECK (attempt_number >= 0)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*0\s*\)",
         ),
         (
             "CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1)",

@@ -86,7 +86,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
@@ -832,14 +832,51 @@ class PipelineRunner:
                         self._runtime_accounting.record_loop_prevented()
                 return result
 
-    async def process_admitted_event(self, event_id: str) -> list[DeliveryOutcome]:
+    async def prepare_initial_outbox_event(
+        self, event: CanonicalEvent
+    ) -> CanonicalEvent:
+        """Resolve initial delivery context before reserving a native attempt.
+
+        Preparation runs under the dispatcher's renewed, unreserved claim.
+        A failed projection must not consume an attempt or imply handoff.
+        """
+        event = await self._resolve_relations(event)
+        return await self._conversation_projection.project_event(event)
+
+    async def deliver_initial_outbox(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        item: DeliveryOutboxItem,
+        reserved_attempt_number: int,
+    ) -> DeliveryOutcome:
+        """Deliver a prepared and reserved obligation through the coordinator."""
+        return await self._delivery_coordinator.deliver_initial_outbox(
+            event,
+            route,
+            plan,
+            item=item,
+            reserved_attempt_number=reserved_attempt_number,
+        )
+
+    async def enqueue_admitted_event(self, event_id: str) -> list[DeliveryOutcome]:
+        """Transfer admitted ingress to the durable outbox without native I/O."""
+        return await self.process_admitted_event(event_id, enqueue=True)
+
+    async def process_admitted_event(
+        self, event_id: str, *, enqueue: bool = False
+    ) -> list[DeliveryOutcome]:
         """Route and deliver a previously admitted durable ingress event.
 
         This method deliberately performs no event/native-ref persistence.
         The durable ingress worker calls it after claiming the work marker.
-        Delivery creates deterministic outbox identities before each external
-        send, so replay after a worker crash remains idempotent at the MEDRE
-        work-state boundary.
+        ``enqueue=True`` persists every initial delivery obligation before
+        returning, without native I/O. The runtime ingress worker uses that
+        boundary. Direct callers can await completed fanout with the default.
+        Both paths adopt existing outbox identities instead of claiming or
+        rewinding a sibling obligation.
         """
         stored_event = await self._config.storage.get(event_id)
         if stored_event is None:
@@ -868,10 +905,10 @@ class PipelineRunner:
             conversation_id=event.conversation_id,
             source="live",
         ):
-            return await self._process_admitted_event_scoped(event)
+            return await self._process_admitted_event_scoped(event, enqueue=enqueue)
 
     async def _process_admitted_event_scoped(
-        self, event: CanonicalEvent
+        self, event: CanonicalEvent, *, enqueue: bool = False
     ) -> list[DeliveryOutcome]:
         if await self._is_reaction_to_reaction(event):
             self._log.info(
@@ -885,7 +922,11 @@ class PipelineRunner:
             self._log.info("No routes matched for event_id=%s", event.event_id)
             return []
 
-        outcomes = await self.deliver_to_targets(event, deliveries)
+        outcomes = (
+            await self._delivery_coordinator.enqueue_many(event, deliveries)
+            if enqueue
+            else await self.deliver_to_targets(event, deliveries)
+        )
         deferred_reasons: list[str] = []
         for outcome in outcomes:
             if outcome.failure_kind in {

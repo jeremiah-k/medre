@@ -233,7 +233,7 @@ class RetryConfig:
     Attributes
     ----------
     enabled:
-        Whether the background retry worker is active.
+        Whether automatic retry dispatch is active; initial outbox delivery remains active.
     interval_seconds:
         Polling interval in seconds for checking due outbox work.
     batch_size:
@@ -369,6 +369,8 @@ class RuntimeLimits:
     ------
     max_inflight_deliveries:
         Maximum number of deliveries that may be in-flight concurrently.
+        The durable outbox dispatcher also limits its native tasks to this
+        count and schedules at most one handoff per adapter.
     max_inflight_replay_events:
         Maximum number of replay events that may be processed concurrently.
     shutdown_drain_timeout_seconds:

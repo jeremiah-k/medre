@@ -38,7 +38,7 @@
             "max_inflight_deliveries": {
               "type": "integer",
               "default": 100,
-              "description": "Maximum concurrently in-flight deliveries.",
+              "description": "Maximum concurrently in-flight deliveries; also bounds outbox dispatch tasks, with at most one active handoff per adapter.",
               "minimum": 1
             },
             "max_inflight_replay_events": {
@@ -50,7 +50,7 @@
             "shutdown_drain_timeout_seconds": {
               "type": "number",
               "default": 10,
-              "description": "Maximum seconds to wait for in-flight work to drain during graceful shutdown.",
+              "description": "Shared drain deadline for durable ingress, outbox dispatch shutdown and in-flight delivery/replay work. Retained native dispatch prevents dependency teardown.",
               "exclusiveMinimum": 0
             },
             "delivery_acquire_timeout_seconds": {
@@ -127,12 +127,12 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Whether the background retry worker is active."
+          "description": "Whether automatic retry dispatch is active; initial durable outbox delivery remains active."
         },
         "interval_seconds": {
           "type": "number",
           "default": 10.0,
-          "description": "Polling interval in seconds for checking due outbox work."
+          "description": "Retry scan interval and minimum delay for startup-unavailable or capacity-refused work. Initial dispatch polls independently."
         },
         "batch_size": {
           "type": "integer",

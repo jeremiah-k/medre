@@ -15,6 +15,7 @@ import pytest
 
 from medre.config.paths import MedrePaths, resolve
 from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
@@ -553,18 +554,17 @@ class TestUncancelDrainAllAndRestore:
 
 
 class TestAppStopRetryWorkerAbandonmentVisibility:
-    """``MedreApp.stop()`` must log a warning when the retry worker
-    is abandoned during shutdown.  This gives operators a signal
-    that subprocess-driven retries may still be in-flight after
-    ``stop()`` returns.
+    """Shutdown must retain native dependencies until dispatch ownership ends.
 
-    Exercises the real ``MedreApp.stop()`` branch with a stub retry
-    worker to verify the warning is emitted.
+    Use the real ``MedreApp.stop()`` path with a stub outbox dispatcher to
+    check that abandoned native work fails closed rather than being logged
+    and followed by unsafe teardown.
     """
 
     @staticmethod
     def _build_app(paths: MedrePaths) -> MedreApp:
         from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
+
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
@@ -592,14 +592,10 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         return RuntimeBuilder(config=config, paths=paths).build()
 
     @pytest.mark.asyncio
-    async def test_stop_logs_warning_when_retry_worker_abandoned(
+    async def test_stop_refuses_teardown_when_native_dispatch_remains_active(
         self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
     ):
-        """When ``RetryWorker.stop()`` returns with
-        ``state.abandoned=True``, the retry-worker block in
-        ``MedreApp.stop()`` must log a warning naming the
-        abandonment.
-        """
+        """An abandoned native send is a shutdown failure, not a warning."""
         from medre.runtime.app import RuntimeState
         from medre.runtime.retry import RetryWorker, RetryWorkerState
 
@@ -614,21 +610,24 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
 
-        async def _abandon_on_stop() -> None:
+        async def _abandon_on_stop(*, timeout_seconds: float | None = None) -> None:
             pass
 
         worker.stop = _abandon_on_stop
+        worker.has_retained_work = True
         app._retry_worker = worker
 
-        with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):
-            await app.stop()
+        from medre.runtime.errors import RuntimeShutdownError
 
-        abandonment_warnings = [
-            r for r in caplog.records if "RetryWorker was abandoned" in r.getMessage()
-        ]
-        assert len(abandonment_warnings) == 1
-        assert "state.running=False, state.abandoned=True" in (
-            abandonment_warnings[0].getMessage()
+        with caplog.at_level(logging.ERROR, logger="medre.runtime.app"):
+            with pytest.raises(
+                RuntimeShutdownError, match="Outbox dispatch remains active"
+            ):
+                await app.stop()
+        assert app._state is RuntimeState.FAILED
+        assert any(
+            "Outbox dispatch remains active" in record.getMessage()
+            for record in caplog.records
         )
 
     @pytest.mark.asyncio
@@ -650,10 +649,11 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         worker = MagicMock(spec=RetryWorker)
         worker.state = worker_state
 
-        async def _clean_stop() -> None:
+        async def _clean_stop(*, timeout_seconds: float | None = None) -> None:
             pass
 
         worker.stop = _clean_stop
+        worker.has_retained_work = False
         app._retry_worker = worker
 
         with caplog.at_level(logging.WARNING, logger="medre.runtime.app"):
@@ -717,7 +717,6 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Suppressed delivery is terminal but must not increment retry success."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -757,7 +756,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -806,7 +805,6 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Known startup-unavailable targets are deferred, not dispatched."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -834,7 +832,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -861,6 +859,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     assert defer_call.kwargs == {
         "failure_kind": "adapter_transient",
         "attempt_number": 2,
+        "min_delay": timedelta(seconds=10),
         "error_summary": (
             "adapter_unavailable_startup: target adapter did not complete "
             "runtime startup"
@@ -883,7 +882,6 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reclaimed rows repair persisted evidence without duplicate delivery."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -917,7 +915,7 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -966,7 +964,6 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
     expected_dead_lettered: int,
 ) -> None:
     """Claim reconciliation updates counters/events without redispatch."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -1000,7 +997,7 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1033,7 +1030,6 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Empty exception messages still produce a useful retry failure error."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
@@ -1071,7 +1067,7 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1099,7 +1095,6 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Lifecycle write errors report their own error, not the delivery error."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -1133,7 +1128,7 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
@@ -1167,7 +1162,6 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Post-send outbox write failure is visible and not counted successful."""
-    from types import SimpleNamespace
 
     import medre.runtime.retry as retry_module
     from medre.core.planning.delivery_plan import RetryPolicy
@@ -1209,7 +1203,7 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),

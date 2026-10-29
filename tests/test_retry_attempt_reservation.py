@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
@@ -25,6 +24,7 @@ from medre.core.contracts.delivery import (
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -1027,7 +1027,7 @@ async def test_worker_dispatches_under_reserved_attempt(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=5),
@@ -1081,7 +1081,7 @@ async def test_worker_never_invokes_transport_on_lost_claim(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=5),
@@ -1127,7 +1127,7 @@ async def test_worker_skips_transport_when_initial_lease_renewal_fails(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=5),
@@ -1215,7 +1215,7 @@ async def test_worker_cancels_dispatch_lease_renewal_on_completion(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=5),
@@ -1406,7 +1406,7 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
-        lambda **_: SimpleNamespace(
+        lambda **_: ReconstructedRetryPlan(
             route=MagicMock(),
             plan=MagicMock(),
             retry_policy=RetryPolicy(max_attempts=3),
