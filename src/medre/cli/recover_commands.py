@@ -32,10 +32,16 @@ from typing import Any
 import medre.runtime.timeline as _timeline
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
+    DeliveryIdentity,
     effective_generation,
 )
 from medre.core.observability.classification import (
     failure_category as _failure_category,
+)
+from medre.core.observability.exact_recovery import (
+    ExactDeliverySelector,
+    ExactPreviewError,
+    exact_delivery_preview,
 )
 from medre.core.observability.recovery import delivery_guidance
 from medre.core.observability.sanitization import sanitize_error
@@ -92,6 +98,7 @@ async def _build_event_recovery_runbook(
     event_id: str,
     *,
     storage_path: str,
+    exact_selector: ExactDeliverySelector | None = None,
 ) -> dict[str, Any] | None:
     """Build a recovery runbook dict for a single event.
 
@@ -127,6 +134,39 @@ async def _build_event_recovery_runbook(
     delivery_actions, unique_commands = delivery_guidance(
         authority, event_id, storage_path=storage_path
     )
+    exact_preview = (
+        exact_delivery_preview(authority, exact_selector)
+        if exact_selector is not None
+        else None
+    )
+
+    if exact_selector is not None:
+        # A bounded, distinct result surface avoids presenting unrelated
+        # sibling failures or broad replay suggestions as an exact preview.
+        selected = [
+            {**action, "commands": []}
+            for action in delivery_actions
+            if DeliveryIdentity(
+                action["event_id"],
+                action["delivery_plan_id"],
+                action["target_adapter"],
+                action["target_channel"],
+            )
+            == exact_selector.identity
+        ]
+        if len(selected) != 1 or exact_preview is None:
+            raise ExactPreviewError("Exact delivery snapshot changed during preview")
+        return {
+            "scope": "exact_delivery_preview",
+            "event_id": event_id,
+            "exact_preview": exact_preview,
+            "delivery_actions": selected,
+            "recommended_commands": [],
+            "warnings": [
+                "Read-only snapshot, not execution authority. Broad replay can "
+                "send to sibling destinations; do not use it as an exact action.",
+            ],
+        }
 
     # Identify currently-failed lineages and classify by failure_kind.
     classification: dict[str, list[dict[str, Any]]] = {
@@ -573,8 +613,42 @@ async def _recover(
     json_output: bool,
     *,
     storage_path: str,
+    exact_plan_id: str | None = None,
+    exact_adapter: str | None = None,
+    exact_channel: str | None = None,
+    exact_no_channel: bool = False,
 ) -> None:
     """Analyze unresolved deliveries and generate a recovery runbook."""
+    exact_requested = any(
+        (
+            exact_plan_id is not None,
+            exact_adapter is not None,
+            exact_channel is not None,
+            exact_no_channel,
+        )
+    )
+    if exact_requested and (
+        not event_id
+        or not exact_plan_id
+        or not exact_adapter
+        or exact_channel == ""
+        or (exact_channel is None) == (not exact_no_channel)
+    ):
+        print(
+            "Error: exact preview requires --event, --exact-plan-id, "
+            "--exact-adapter, and exactly one of --exact-channel/--exact-no-channel",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_CONFIG)
+    selector = (
+        ExactDeliverySelector(
+            DeliveryIdentity(
+                event_id or "", exact_plan_id or "", exact_adapter or "", exact_channel
+            )
+        )
+        if exact_requested
+        else None
+    )
     if event_id is not None:
         scan_only: list[str] = []
         if since is not None:
@@ -596,9 +670,16 @@ async def _recover(
     try:
         if event_id is not None:
             # Single-event recovery.
-            runbook = await _build_event_recovery_runbook(
-                storage, event_id, storage_path=storage_path
-            )
+            try:
+                runbook = await _build_event_recovery_runbook(
+                    storage,
+                    event_id,
+                    storage_path=storage_path,
+                    exact_selector=selector,
+                )
+            except ExactPreviewError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(EXIT_NOT_FOUND)
             if runbook is None:
                 print(
                     f"Error: event not found: {event_id}",
@@ -609,7 +690,24 @@ async def _recover(
             if json_output:
                 print(to_json(runbook))
             else:
-                _print_event_runbook(runbook)
+                if selector is not None:
+                    chosen = runbook["delivery_actions"][0]
+                    print("Exact recovery preview (read-only):")
+                    print(f"  Event:   {event_id!r}")
+                    print(
+                        f"  Target:  {chosen['target_adapter']!r}/{chosen['target_channel']!r}"
+                    )
+                    print(f"  Plan:    {chosen['delivery_plan_id']!r}")
+                    print(f"  State:   {chosen['disposition']}")
+                    print(
+                        f"  Attempt: {runbook['exact_preview']['authority']['attempt_number']}"
+                    )
+                    print(
+                        f"  Fingerprint: {runbook['exact_preview']['observed_fingerprint']}"
+                    )
+                    print("  Execution authorized: no")
+                else:
+                    _print_event_runbook(runbook)
                 if runbook.get("warnings"):
                     print()
                     for w in runbook["warnings"]:

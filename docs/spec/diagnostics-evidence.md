@@ -1707,3 +1707,29 @@ storage, or authorize an uncertain native operation.
 Generated command arguments MUST preserve opaque identifiers and paths through
 shell quoting and CLI option parsing. Failure classification remains based on
 persisted failure kinds; error wording MUST NOT become retry authority.
+
+## Exact-destination recovery inspection (read-only candidate)
+
+`medre recover --event EVENT --storage-path PATH --exact-plan-id PLAN
+--exact-adapter ADAPTER --exact-channel CHANNEL` (or `--exact-no-channel`)
+MUST select exactly one full persisted `(event, plan, adapter, channel)`
+identity, including the explicit no-channel case. Absent or ambiguous
+identities MUST be refused; a channel filter MUST NOT silently widen to an
+adapter or route. The result includes the observed outbox/receipt authority,
+effective attempt generation and a deterministic observation fingerprint.
+
+This command MUST remain read-only. The fingerprint is **not** an execution
+permission, compare-and-swap token, or immutable route-plan fingerprint. It
+MUST NOT be passed to the existing broad BEST_EFFORT replay as proof of safe
+selection. A separate transactional generation/plan check is required before
+any future exact-target write path can exist. Other event siblings MUST NOT
+appear in the exact preview's action recommendations. Both top-level and
+per-action command lists MUST be empty in exact mode.
+
+The JSON result MUST conform to `exact-recovery-preview.schema.json`; the
+selected action retains the shared recovery-action schema with empty commands.
+
+Invalid exact-selector arguments MUST retain configuration exit status `2`.
+An absent exact destination MUST return not-found exit status `5`. Only typed
+exact-preview refusals may be classified this way; unrelated storage or data
+errors MUST retain their original failure authority.
