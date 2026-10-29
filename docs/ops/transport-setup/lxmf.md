@@ -11,7 +11,7 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 
 | Requirement         | Details                                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                     |
+| Reticulum instance  | An available Reticulum transport setup; MEDRE can attach to a running shared `rnsd` or initialize an instance         |
 | LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                 |
 | Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                      |
 | Python              | 3.11 or later                                                                                                         |
@@ -52,16 +52,30 @@ from medre.config.adapters.lxmf import LxmfConfig
 config = LxmfConfig(
     adapter_id="lxmf-alpha",
     connection_type="reticulum",
-    identity_path="/path/to/identity",
+    storage_path="/path/to/private/lxmf-alpha",  # Required for real mode
+    # identity_path="/path/to/identity",  # Optional: defaults to private profile
     display_name="MEDRE Alpha Node",
 )
 ```
 
-`LxmfConfig.identity_path` is validated as a non-empty string when provided. When `connection_type="reticulum"`, the `LxmfSession` loads the identity from this path at startup. If the file cannot be loaded, `start()` raises `LxmfConnectionError`. If `identity_path` is `None`, the session auto-generates a fresh identity (not persisted across restarts).
+`LxmfConfig.identity_path` is validated as a non-empty string when provided.
+For real mode, the owned native worker opens the explicit file under an exclusive
+identity lease; a missing or invalid explicit identity fails startup rather
+than silently replacing the address. If no path is configured, the worker
+atomically creates `{storage_path}/.medre-identity` on first use, leases it,
+and reopens **the same identity on restart**. Keep the private worker storage
+path stable, and back up its identity together with the handoff journal.
+The direct `LxmfSession` is a native implementation detail: MEDRE operates it
+inside a worker process, not in the core process.
 
 ### First-Run Consideration
 
-Do not create a new identity each run or you lose your address. The identity hash (16 bytes, displayed as 32 hex chars) is your permanent LXMF address.
+Do not delete, rotate, or overwrite the generated `.medre-identity` between
+runs: doing so changes the destination address and may invalidate reply
+references and handoff correlation. The delivery destination hash is 16 bytes,
+displayed as 32 hexadecimal characters. Preserve the profile journal and
+native router state as well; copying the identity alone is not a complete
+stopped-state capture.
 
 ### What MEDRE Sees
 
@@ -87,6 +101,8 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 ```python
 config = LxmfConfig(
     adapter_id="lxmf-alpha",
+    connection_type="reticulum",
+    storage_path="/path/to/private/lxmf-alpha",
     default_delivery_method="direct",  # direct | opportunistic | propagated | paper
     # Required when selecting propagated delivery in real mode:
     # outbound_propagation_node="0123456789abcdef0123456789abcdef",
@@ -130,7 +146,10 @@ Use asynchronous delivery observations for outcomes and the
 
 ### Threading Model
 
-Reticulum and LXMF use background daemon threads, not asyncio. The `LxmfSession` bridges this boundary: SDK callbacks fire in Reticulum threads, the session normalizes to plain dicts, then schedules onto the captured asyncio loop.
+Reticulum and LXMF use native background threads. MEDRE runs the real
+`LxmfSession` inside an owned subprocess; the worker normalizes SDK callbacks
+and forwards bounded protocol frames to the parent. MEDRE core does not
+construct or own native RNS SDK objects. The fake mode remains SDK-free.
 
 ### Outbound Async Behavior
 
@@ -158,13 +177,15 @@ Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion
 
 ### Reticulum Singleton
 
-`RNS.Reticulum()` is a singleton per process. Calling it twice raises `OSError`. This means:
+`RNS.Reticulum()` is a singleton **inside each native worker process**. It
+can attach to an existing shared Reticulum service; a second constructor in
+the same process is not required. This means:
 
-- MEDRE reuses the process-global Reticulum instance when one already exists.
-- Each `LXMRouter` supports one registered delivery identity. Multiple real
-  LXMF adapters still share the process-global Reticulum instance and have not
-  yet been live-validated together; MEDRE immediately restores pre-existing
-  process signal handlers after each embedded router is constructed.
+- The worker reuses a Reticulum instance already constructed in its own process.
+- Each real MEDRE LXMF profile has its own native worker, identity, router,
+  and handoff journal. Separate profiles can attach to the same network service
+  without claiming ownership of the service's state. Do not share a worker
+  profile directory with another application.
 - Test isolation requires custom config directories.
 
 ## Minimum Viable Reticulum Topology
@@ -222,38 +243,65 @@ not qualify for automatic attachment by other nodes under the transport filter.
 
 ## rnsd Usage
 
-`rnsd` is the Reticulum Network Stack daemon — it holds a `RNS.Reticulum()` instance alive for transport and announce propagation. It does not handle LXMF messages or provide LXMF services.
+`rnsd` is the Reticulum Network Stack daemon. It can provide an existing,
+shared transport service while MEDRE owns a separate LXMF identity and router.
+It does not itself handle LXMF messages or provide LXMF delivery services.
 
-| Scenario                         | Use rnsd?  | Why                                                           |
-| -------------------------------- | ---------- | ------------------------------------------------------------- |
-| MEDRE runs continuously          | Optional   | The adapter's `LxmfSession` creates its own `RNS.Reticulum()` |
-| Multiple local programs need RNS | Yes        | rnsd acts as shared instance master                           |
-| Development/testing              | Usually no | MEDRE creates its own instance; rnsd conflicts (singleton)    |
+| Scenario                         | Use `rnsd`?   | Reason                                                    |
+| -------------------------------- | ------------- | --------------------------------------------------------- |
+| MEDRE runs continuously          | Optional      | Attach to shared transport or initialize a local instance |
+| Multiple local programs need RNS | Often yes     | Avoid competing transport owners                          |
+| Isolated native tests            | Test-specific | Use a private test instance, not production state         |
 
-Do not run rnsd during MEDRE live harness execution — the harness needs to own its Reticulum instance with a custom `configdir` for test isolation.
+For the isolated native harness, do not reuse a production `rnsd` profile:
+its private test service uses its own `configdir` and instance name. Ordinary
+MEDRE operation **can** share a running `rnsd` when configured for the same
+Reticulum environment. A core host-file snapshot does not capture or stop that
+external service; restore it independently if necessary.
 
 ### Router Shutdown Ownership
 
-MEDRE owns each `LXMRouter` it creates. Because the router constructor replaces
-SIGINT/SIGTERM handlers, MEDRE snapshots the handlers that existed immediately
-before construction and restores them as soon as construction returns. On
-session teardown it runs the router's idempotent `exit_handler()` to detach
-delivery callbacks/links and persist router state, then unregisters that
-router's `atexit` callback. MEDRE deliberately does **not** call the
-process-global `RNS.Reticulum.exit_handler()`.
+The native worker owns each `LXMRouter` it creates. It restores signal
+handlers installed by native constructors and keeps its profile leases held
+through native exit persistence. The parent also retains process ownership
+until the worker exits, including after its Python-level cleanup. MEDRE does
+**not** shut down an external/shared Reticulum service when stopping a profile.
 
-The pinned LXMF SDK does not expose a join/stop primitive for the router's daemon job
-loop. The loop is quiesced by `exit_handler_running` but remains dormant until
-process exit; repeated router recreation may therefore leave dormant daemon
-threads.
+The pinned LXMF SDK does not expose a join/stop primitive for all of the
+router's background jobs. Process isolation bounds their lifetime: the owner
+must reap the worker rather than interpret a returned session-stop call as
+proof that every native thread has exited.
+
+### Selecting the Reticulum configuration
+
+Set `reticulum_config_dir` to the configuration directory used by `rnsd` when
+that service uses a non-default location. This selects the directory containing
+Reticulum's `config` file, not the LXMF `storage_path` or an individual file:
+
+```yaml
+adapters:
+  lxmf:
+    relay:
+      adapter_kind: real
+      connection_type: reticulum
+      storage_path: /private/medre/lxmf/relay
+      reticulum_config_dir: /private/reticulum
+```
+
+When omitted, Reticulum checks `/etc/reticulum/config`, then
+`~/.config/reticulum/config`, and otherwise uses `~/.reticulum`. The worker uses
+that configuration's shared-instance settings to attach to an available
+service or start its own Reticulum instance. Matching the service's directory
+is necessary to select the intended environment; it does not force a shared
+connection or override `share_instance`/interface settings.
 
 ## Connection Recovery
 
 Reticulum owns reconnecting its physical interfaces, including supported RNode
 serial/BLE and TCP connections. Recovery timing and availability depend on the
 configured interface. An interface can go offline and recover while MEDRE keeps
-the same LXMF router and delivery destination alive. MEDRE does not shut down the
-process-global Reticulum singleton when its LXMF session stops.
+the same LXMF router and delivery destination alive. Stopping the native
+worker does not shut down a separately running Reticulum service.
 
 `LxmfSession` contains a private bounded reconnect helper, but no production
 disconnect signal invokes it. MEDRE therefore does not automatically rebuild the
