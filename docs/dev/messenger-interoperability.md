@@ -11,7 +11,9 @@ behavior is defined by the [transport profiles](../spec/transport-profiles/READM
 [text selection](../spec/text-selection.md), and
 [transient typing](../spec/transient-typing.md) contracts. XMPP, Chatmail, and
 SimpleX Chat are supported adapters. Multiple attachments and puppeting remain
-extension work. The protocol references below were checked on 2026-10-17.
+extension work. The [presentation guide](../ops/message-presentation.md)
+distinguishes operator settings from provider/session implementation work. The
+protocol references below were checked on 2026-10-17.
 
 ## Decisions before a stable freeze
 
@@ -100,23 +102,24 @@ or permissions from a formatted mention.
 [XEP-0085](https://xmpp.org/extensions/xep-0085.html) defines chat-specific states,
 including composing and paused. Matrix has
 [typing notifications](https://spec.matrix.org/latest/client-server-api/#typing-notifications)
-with timeout behavior and ephemeral room events. Protocol support does not imply
-that MEDRE's Matrix adapter bridges typing; it does not expose that capability.
+with timeout behavior and ephemeral room events. MEDRE's Matrix and XMPP
+providers expose transient typing through the shared activity contract. Routing remains opt-in and transient activity does not enter
+durable message history or offline replay.
 
 An open CanonicalEvent payload can encode a typing flag, but the durable
 admission/outbox/replay path does not give that flag an appropriate lifetime.
-The intended seam is an optional, bounded activity path that reuses route and
+The implemented seam is an optional, bounded activity path that reuses route and
 context selection while expiring/coalescing activity by source actor and
 conversation. Keep native protocol states in the adapter; translate only shared
 meaning. Do not add durable typing events merely because the envelope accepts
 them. Presence, typing, delivered, and displayed are distinct concepts.
 
-When implementing it, start with a small typed activity value carrying source
-actor/context, activity state, and expiry. Drop expired activity, avoid history
+Keep the typed activity value carrying source actor/context, activity state,
+and expiry. Drop expired activity, avoid history
 replay and offline backlog delivery, clear state on disconnect/stop, and respect
 recipient support and operator privacy policy. A platform without activity
-support receives no invented chat message. Implement this with real Matrix/XMPP
-fixtures before introducing a generic activity framework or additional queues.
+support receives no invented chat message. Maintain real Matrix/XMPP fixtures
+for this contract before extending it to additional protocols or queues.
 
 ## Puppeting separates authorship from presentation and authentication
 
@@ -191,3 +194,13 @@ from that evidence rather than adding every scout-listed field to the envelope.
 Polls, contact cards, expiry, membership/roles, locations, and fan-out addressing
 remain feature contracts to design against concrete providers; they are not
 promised by the open payload mapping or a generic capability flag.
+
+## Content lifetime is shared across consumers
+
+Delivery deadlines, message-content retention, reply excerpts and optional
+plugin holds are separate lifetimes. The proposed
+[content lifecycle design](content-lifecycle.md) defines their terms, privacy
+ceilings and unavailable-content behavior. A renderer cannot keep an expired
+quote alive by copying it into metadata; a plugin declaration cannot authorize
+unbounded retention. The implemented storage/privacy boundary remains the
+security and privacy specification.

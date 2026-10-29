@@ -7,6 +7,12 @@ The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
 
+For an ordinary bridge, use a dedicated account on a homeserver you already
+have access to. You do not need homeserver administrator access. Server setup
+below is optional for people hosting their own Matrix service. For custom
+presentation and the separate application-service design, see
+[message presentation](../message-presentation.md).
+
 ## Prerequisites
 
 | Requirement       | Details                                                                                                                                                                                                                    |

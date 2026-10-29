@@ -15,6 +15,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Manage a persistent CLI and adapter packages                   | [Package management](package-management.md)                                                                                               |
 | Create native connections, change bridges, and explain routing | [Guided configuration](guided-configuration.md)                                                                                           |
 | Get optional AI help with setup                                | [AI-assisted setup](ai-assisted-setup.md)                                                                                                 |
+| Customize message layout or understand puppeting               | [Message presentation](message-presentation.md)                                                                                           |
 | Understand message storage and privacy choices                 | [Privacy and message storage](message-storage.md)                                                                                         |
 | Configure routes, contexts, or policies                        | [Configuration](configuration.md)                                                                                                         |
 | Preview connections, channel mappings, or Mermaid route graphs | [Route visualization](route-visualization.md)                                                                                             |
