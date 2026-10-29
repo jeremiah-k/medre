@@ -544,6 +544,12 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         "content", help="Count retained core content without displaying messages"
     )
     inspect_content.add_argument(
+        "--event",
+        default=None,
+        metavar="EVENT_ID",
+        help="Read-only dependency preview for one canonical event (no content bytes)",
+    )
+    inspect_content.add_argument(
         "--storage-path",
         required=True,
         metavar="PATH",
@@ -1099,7 +1105,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         if args.inspect_command == "content":
-            asyncio.run(_inspect_content(storage_path=args.storage_path))
+            asyncio.run(
+                _inspect_content(storage_path=args.storage_path, event_id=args.event)
+            )
         elif args.inspect_command == "radio-attempt":
             asyncio.run(
                 _inspect_radio_attempt(

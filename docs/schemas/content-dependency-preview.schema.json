@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/content-dependency-preview.schema.json",
+  "title": "MEDRE per-event advisory content-dependency preview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "scope",
+    "event_id",
+    "retention_authorized",
+    "deletion_authorized",
+    "delivery_hold_candidate",
+    "outbox",
+    "ingress",
+    "content_copies",
+    "unmeasured",
+    "note"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-content-dependency-preview"
+    },
+    "version": {
+      "const": 1
+    },
+    "scope": {
+      "const": "core_sqlite_event"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retention_authorized": {
+      "const": false
+    },
+    "deletion_authorized": {
+      "const": false
+    },
+    "delivery_hold_candidate": {
+      "type": "boolean"
+    },
+    "outbox": {
+      "$ref": "#/$defs/statusCounts"
+    },
+    "ingress": {
+      "$ref": "#/$defs/statusCounts"
+    },
+    "content_copies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relations",
+        "incoming_relations",
+        "receipts",
+        "observations",
+        "attachments",
+        "radio_plans"
+      ],
+      "properties": {
+        "relations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "incoming_relations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "attachments": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "radio_plans": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "unmeasured": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "statusCounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["status", "count"],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}
