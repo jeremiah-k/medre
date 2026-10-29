@@ -1882,7 +1882,11 @@ This specification explicitly does **not** provide:
   `confirmation_level`; it does not synthesize an ACK or promote local acceptance
   into remote/end-to-end confirmation.
 
-- **End-to-end delivery confirmation for any transport.** Matrix provides server-side confirmation only. The three constrained transports provide none. Even Matrix's confirmation does not guarantee delivery to end clients.
+- **Universal end-to-end delivery confirmation.** Matrix homeserver acceptance,
+  XMPP local transport writes, Chatmail SMTP acceptance and SimpleX local queue
+  admission have distinct ceilings. LXMF destination delivery observations retain
+  their own correlated scope. None establishes universal recipient or read
+  confirmation across a bridge.
 
 - **Distributed loop prevention.** Loop prevention operates within a single MEDRE process only. No shared state exists between instances.
 
@@ -1892,6 +1896,8 @@ This specification explicitly does **not** provide:
 
 - **E2EE at the pipeline level.** Encryption is an adapter-internal concern, not a pipeline concern. MEDRE sends and receives plaintext payloads; the transport encrypts them.
 
-- **Attachment or media delivery.** MEDRE handles text and replies only in the current release.
+- **Universal attachment delivery.** Durable attachment relay is opt-in and
+  capability-gated. Unsupported targets retain configured fallback/refusal
+  behavior; source media support does not confer destination media support.
 
 - **Cross-transport deduplication.** Native message IDs have different scopes and stability across transports. Code that compares native IDs across adapters is incorrect.

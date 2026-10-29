@@ -28,13 +28,17 @@ from tests.helpers.adapter_capabilities import default_provider_capabilities
 # Constants
 # ---------------------------------------------------------------------------
 
-TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf", "xmpp")
-
-_SENTINEL = object()
-
 PROFILES_DIR = (
     Path(__file__).resolve().parent.parent / "docs" / "spec" / "transport-profiles"
 )
+TRANSPORTS = tuple(
+    sorted(
+        path.name.removesuffix("-capabilities.json")
+        for path in PROFILES_DIR.glob("*-capabilities.json")
+    )
+)
+
+_SENTINEL = object()
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +141,14 @@ def _get_adapter_capabilities(transport: str) -> AdapterCapabilities:
 # ---------------------------------------------------------------------------
 # Parameterised conformance test
 # ---------------------------------------------------------------------------
+
+
+def test_profiles_cover_qualified_providers() -> None:
+    """Every provider in the compatibility selection has a capability contract."""
+    providers = json.loads(
+        (PROFILES_DIR.parents[2] / ".github" / "adapter-compatibility.json").read_text()
+    )
+    assert set(TRANSPORTS) == {provider["transport"] for provider in providers}
 
 
 @pytest.mark.parametrize("transport", TRANSPORTS)

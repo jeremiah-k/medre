@@ -29,6 +29,7 @@ The adapter delegates the SDK client lifecycle to its session; the adapter owns 
 | `max_text_bytes`          | `int`            | `16384`                         | UTF-8 byte budget for outbound message bodies                               |
 | `inbound_queue_size`      | `int`            | `100`                           | Bounded ingress queue depth                                                 |
 | `origin_label`            | `str`            | `""`                            | Platform-neutral operator-defined source label for relay prefixes           |
+| `metadata_embedding`      | `bool`           | `True`                          | Carry structured MEDRE relay context where the native stanza permits it     |
 | `relay_prefix`            | `str`            | `"[{origin_label}] {sender}: "` | Relay prefix template for outbound text                                     |
 
 Configured room and peer JIDs must already be **case-folded** (RFC 7622 preparation): servers deliver prepared addresses, and validation rejects ASCII uppercase so a mixed-case conversation cannot silently drop inbound traffic.

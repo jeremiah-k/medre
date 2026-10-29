@@ -433,6 +433,37 @@ adapters:
 | `identity_path`             | string | `None`        | Path to Reticulum identity file. Supports path placeholders.                                        |
 | `storage_path`              | string | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders.  |
 
+### `adapters.xmpp.<instance_name>`
+
+Install `xmpp` and configure `jid`, `rooms`, `peers`, and `nickname` for a
+dedicated account. Supply `password` through
+`MEDRE_ADAPTER__<TOKEN>__PASSWORD`. Room and peer allowlists use exact bare JIDs;
+optional `host` and `port` overrides are supplied together. See the
+[XMPP setup guide](transport-setup/xmpp.md) and
+[profile](../spec/transport-profiles/xmpp.md) for native connection and field
+semantics. Routes use the allowed room or contact JID as a channel string.
+
+### `adapters.chatmail.<instance_name>`
+
+Install `chatmail` and provision the dedicated profile explicitly through
+`medre adapter chatmail`. Configure `account_id` and integer `chats` from that
+profile's accepted conversations. `accounts_dir` and `state_dir` can override
+per-instance defaults. Routes use decimal channel strings, such as `"12"`.
+See the [Chatmail setup guide](transport-setup/chatmail.md) and
+[profile](../spec/transport-profiles/chatmail.md) for preparation, recovery,
+private state, and native delivery boundaries.
+
+### `adapters.simplexchat.<instance_name>`
+
+Install `simplexchat` and use `medre adapter simplexchat` to initialize a
+dedicated profile and inspect active groups/contacts. Configure `user_id` and
+string `chats`, such as `[group:7, contact:3]`. Profile path overrides use
+`database_prefix`; an encrypted profile's key can be supplied through
+`MEDRE_ADAPTER__<TOKEN>__DATABASE_KEY`. Routes use the exact allowlisted string.
+See the [SimpleX Chat setup guide](transport-setup/simplexchat.md) and
+[profile](../spec/transport-profiles/simplexchat.md) for ownership and startup
+budget considerations.
+
 ### `routes.<route_id>`
 
 Routes define named bridges between adapters. `route_id` contains only alphanumeric characters, underscores, or hyphens, and must be unique across the entire configuration.
@@ -942,6 +973,20 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 | `identity_path`   | `MEDRE_ADAPTER__LOCAL__IDENTITY_PATH={state}/lxmf/identity` |
 | `origin_label`    | `MEDRE_ADAPTER__LOCAL__ORIGIN_LABEL=MyMesh`                 |
 
+**XMPP, Chatmail, and SimpleX Chat:**
+
+| Provider            | Scalar override example                             |
+| ------------------- | --------------------------------------------------- |
+| XMPP                | `MEDRE_ADAPTER__CHAT__JID=bridge@example.org/medre` |
+| XMPP password       | `MEDRE_ADAPTER__CHAT__PASSWORD=<private-password>`  |
+| Chatmail            | `MEDRE_ADAPTER__MAIL__ACCOUNT_ID=1`                 |
+| SimpleX Chat        | `MEDRE_ADAPTER__SX__USER_ID=1`                      |
+| SimpleX profile key | `MEDRE_ADAPTER__SX__DATABASE_KEY=<private-key>`     |
+
+Use YAML for tuple allowlists such as XMPP `rooms`/`peers` and Chatmail/SimpleX
+`chats`. Profile-local IDs retain their native types: Chatmail YAML IDs are
+integers; SimpleX conversation entries are strings.
+
 Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use YAML instead.
 
 ### Unsupported Transport Prefixes
@@ -982,7 +1027,9 @@ MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
 ```
 
 `TRANSPORT` is required for env-created adapters. Accepted values are
-`matrix`, `meshtastic`, `meshcore`, and `lxmf`. `TRANSPORT` and the optional
+the installed provider names shown by `medre adapters`, including `matrix`,
+`meshtastic`, `meshcore`, `lxmf`, `xmpp`, `chatmail`, and `simplexchat`. The
+provider must be installed in the same environment. `TRANSPORT` and the optional
 `ADAPTER_KIND` (`real` or `fake`) use canonical lowercase values and are
 case-sensitive; mixed-case variants are rejected. The token is lowercased and
 underscores are replaced with hyphens for the default `adapter_id` (for example,
@@ -1158,6 +1205,15 @@ ls -la /path/to/identity.key
 # Expected: -rw------- (600)
 ```
 
+**XMPP, Chatmail, and SimpleX Chat:**
+
+XMPP account passwords and encrypted SimpleX profile keys can use environment
+overrides. Chatmail login QR payloads and SimpleX connection links use hidden
+provider prompts or stdin; never put them in command arguments or shared YAML.
+Their profiles, account databases, ownership sidecars, and handoff journals are
+private state. Stop native owners before maintenance and use
+[stopped-state snapshots](stopped-state-snapshots.md) for coherent backups.
+
 ### Automatic Redaction
 
 Any env var whose field name matches `TOKEN`, `SECRET`, `PASSWORD`, `KEY`, `AUTH`, or `CREDENTIAL` (case-insensitive) is redacted in provenance logs and diagnostic output (`***REDACTED***`). The raw values are still applied to the config.
@@ -1298,6 +1354,14 @@ medre routes diagram [CONFIG.yaml] [--config PATH] [--format terminal|text|merma
     Export graph source, JSON, per-adapter text or optional local Graphviz images. Room and address
     identifiers are abbreviated unless --full-context is given. See
     [route visualization](route-visualization.md).
+
+medre adapter chatmail {init,accounts,chats,join} [--adapter ID] [--config PATH]
+    Provision a native account, accept invitations, or discover accepted chat IDs.
+    Requires the installed Chatmail provider; profile commands contact native state.
+
+medre adapter simplexchat {init,groups,contacts,join,create-group,accept-group,connect} [--adapter ID] [--config PATH]
+    Prepare a dedicated profile and discover active conversations through the installed
+    SimpleX provider. See the transport setup guide before opening native state.
 
 medre smoke [--config PATH] [--json]             # Normal offline fake smoke
 medre smoke --drill NAME [--config PATH] --json   # Failure drill

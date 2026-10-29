@@ -1168,6 +1168,9 @@ _ADAPTER_ARM_DISTINCTIVE_FIELDS: dict[str, frozenset[str]] = {
     "MeshtasticConfig": frozenset({"radio_relay_prefix", "encrypted_action"}),
     "MeshCoreConfig": frozenset({"meshcore_relay_prefix", "serial_baudrate"}),
     "LxmfConfig": frozenset({"lxmf_relay_prefix", "default_delivery_method"}),
+    "XMPPConfig": frozenset({"jid", "rooms"}),
+    "ChatmailConfig": frozenset({"account_id", "chats"}),
+    "SimplexChatConfig": frozenset({"user_id", "chats"}),
 }
 
 _ADAPTER_CONFIG_EXAMPLES = sorted(_EXAMPLES_DIR.glob("adapter-config*-example.json"))

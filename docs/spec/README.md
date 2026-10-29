@@ -18,34 +18,34 @@ in a document under this tree.
 
 ### Normative Specifications
 
-| Document                                                   | Purpose                                                         |
-| ---------------------------------------------------------- | --------------------------------------------------------------- |
-| [principles.md](principles.md)                             | Design philosophy and invariants                                |
-| [architecture.md](architecture.md)                         | System overview, pipeline stages, runtime orchestration         |
-| [event-model.md](event-model.md)                           | CanonicalEvent, relations, event kinds, schema versioning       |
-| [transient-typing.md](transient-typing.md)                 | Bounded transient composing activity and relay aggregation      |
-| [adapter-runtime.md](adapter-runtime.md)                   | Adapter protocol, lifecycle, capabilities, codec                |
-| [routing-delivery.md](routing-delivery.md)                 | Route matching, fanout, delivery plans, receipts                |
-| [storage.md](storage.md)                                   | SQLite schema, append-only guarantees, replay semantics         |
-| [content-retention.md](content-retention.md) | Content surfaces, consumers, and read-only logical-byte accounting |
-| [state-machines.md](state-machines.md)                     | Receipt and outbox transition graphs                            |
-| [delivery-lifecycle.md](delivery-lifecycle.md)             | Delivery lifecycle authority hierarchy and vocabulary tables    |
-| [durable-ingress.md](durable-ingress.md)                   | Durable admission boundary, checkpoint ownership, drain handoff |
-| [identity-addressing.md](identity-addressing.md)           | Native identities, canonical actors, privacy boundaries         |
-| [metadata.md](metadata.md)                                 | Metadata namespaces, embedding modes, never-embed list          |
-| [compatibility-boundaries.md](compatibility-boundaries.md) | External compatibility and prerelease rejection policy          |
-| [matrix-event-shape.md](matrix-event-shape.md)             | Stable Matrix ingress/native metadata contract                  |
-| [configuration.md](configuration.md)                       | YAML config, XDG paths, env overrides, config model             |
-| [security-privacy.md](security-privacy.md)                 | Security model, credential handling, privacy boundaries         |
-| [diagnostics-evidence.md](diagnostics-evidence.md)         | Observability, diagnostics snapshots, evidence classification   |
-| [package-management.md](package-management.md)             | Explicit deployment helpers and source ownership                |
-| [conformance.md](conformance.md)                           | Conformance definition, test categories, authority rules        |
+| Document                                                   | Purpose                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------ |
+| [principles.md](principles.md)                             | Design philosophy and invariants                                   |
+| [architecture.md](architecture.md)                         | System overview, pipeline stages, runtime orchestration            |
+| [event-model.md](event-model.md)                           | CanonicalEvent, relations, event kinds, schema versioning          |
+| [transient-typing.md](transient-typing.md)                 | Bounded transient composing activity and relay aggregation         |
+| [adapter-runtime.md](adapter-runtime.md)                   | Adapter protocol, lifecycle, capabilities, codec                   |
+| [routing-delivery.md](routing-delivery.md)                 | Route matching, fanout, delivery plans, receipts                   |
+| [storage.md](storage.md)                                   | SQLite schema, append-only guarantees, replay semantics            |
+| [content-retention.md](content-retention.md)               | Content surfaces, consumers, and read-only logical-byte accounting |
+| [state-machines.md](state-machines.md)                     | Receipt and outbox transition graphs                               |
+| [delivery-lifecycle.md](delivery-lifecycle.md)             | Delivery lifecycle authority hierarchy and vocabulary tables       |
+| [durable-ingress.md](durable-ingress.md)                   | Durable admission boundary, checkpoint ownership, drain handoff    |
+| [identity-addressing.md](identity-addressing.md)           | Native identities, canonical actors, privacy boundaries            |
+| [metadata.md](metadata.md)                                 | Metadata namespaces, embedding modes, never-embed list             |
+| [compatibility-boundaries.md](compatibility-boundaries.md) | External compatibility and prerelease rejection policy             |
+| [matrix-event-shape.md](matrix-event-shape.md)             | Stable Matrix ingress/native metadata contract                     |
+| [configuration.md](configuration.md)                       | YAML config, XDG paths, env overrides, config model                |
+| [security-privacy.md](security-privacy.md)                 | Security model, credential handling, privacy boundaries            |
+| [diagnostics-evidence.md](diagnostics-evidence.md)         | Observability, diagnostics snapshots, evidence classification      |
+| [package-management.md](package-management.md)             | Explicit deployment helpers and source ownership                   |
+| [conformance.md](conformance.md)                           | Conformance definition, test categories, authority rules           |
 
 ### Transport Profiles
 
-| Document                                   | Purpose                             |
-| ------------------------------------------ | ----------------------------------- |
-| [transport-profiles/](transport-profiles/) | Per-adapter current-state reference |
+| Document                                           | Purpose                             |
+| -------------------------------------------------- | ----------------------------------- |
+| [Transport profiles](transport-profiles/README.md) | Per-adapter current-state reference |
 
 Transport profiles include machine-readable capability declarations
 (`*-capabilities.json`) validated by `tests/test_capability_conformance.py`.

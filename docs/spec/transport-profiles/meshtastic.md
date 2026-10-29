@@ -100,8 +100,8 @@ provides a label, the variable resolves to empty string.
 
 The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines all available template
-variables. This is the authoritative list used by all four transport
-renderers (Matrix, Meshtastic, MeshCore, LXMF).
+variables. This is the authoritative list used by provider renderers, including
+Matrix, Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat.
 
 **Canonical fields** (from `RelayAttribution`):
 

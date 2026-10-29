@@ -142,6 +142,12 @@ recorded evidence.
 - Meshtastic: TCP or serial connection to a physical radio.
 - MeshCore: TCP, serial, or BLE connection to a physical node.
 - LXMF: Reticulum network connection.
+- XMPP: Independent account and MUC/direct peer on a TLS server.
+- Chatmail: Dedicated native accounts with an independent peer over the named mail fixture.
+- SimpleX Chat: Separate native profiles in active groups or accepted direct conversations.
+
+Each result MUST retain its tested conversation and substrate scope. Group
+receipts MUST NOT qualify direct-contact or worker-restart delivery.
 
 Live tests MUST record the execution date, commit hash, Python version,
 environment description, and test outcomes.
