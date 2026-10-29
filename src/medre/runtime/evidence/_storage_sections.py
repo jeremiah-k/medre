@@ -74,6 +74,16 @@ async def _collect_storage_data_from_backend(
     Returns a section dict (``status``, ``data``, ``error``) with the same
     shape as the ``storage`` section in the evidence bundle.
 
+    With ``event_id``, the incident summary includes current delivery actions
+    and inspection or scoped dry-run recommendations, including work without a
+    receipt. Otherwise, collect global convergence data with a 10,000-record
+    limit per receipts/outbox query. ``replay_run_id`` independently selects
+    replay evidence; ``db_path`` labels the database and generated commands.
+
+    A missing event, a global query reaching its limit, or a pressure-read failure
+    produces a partial section. Exceptions during evidence collection are caught
+    and returned as a partial section with an error and any data collected so far.
+
     **Persistence boundary:** All data is read from storage tables
     (``canonical_events``, ``delivery_receipts``, ``delivery_observations``,
     ``native_message_refs``, ``delivery_outbox``) via read-only queries.  Derived
