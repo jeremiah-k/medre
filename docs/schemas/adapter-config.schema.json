@@ -56,6 +56,12 @@
           "minimum": 0,
           "description": "Timeout in milliseconds for long-polling sync requests."
         },
+        "initial_sync_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 45.0,
+          "description": "Startup wait after room joins for the first acknowledged Matrix sync. Zero disables the wait. Expiry retains degraded health and native recovery. The runtime adapter-start deadline bounds the complete startup attempt."
+        },
         "sync_stale_timeout_seconds": {
           "type": "number",
           "minimum": 0,

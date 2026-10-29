@@ -13,7 +13,7 @@ Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-r
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                                                                                    |
 | Bot account       | A dedicated Matrix user, not your personal account                                                                                                                                                                         |
-| Python            | 3.11 or later                                                                                                                                                                                                              |
+| Python            | 3.12 or later                                                                                                                                                                                                              |
 | Package install   | Install matrix in the MEDRE environment; see [installation](../install.md) (plaintext). Install matrix[e2e] in the MEDRE environment; see [installation](../install.md) (adds Olm/Megolm crypto libs for encrypted rooms). |
 | Access token      | Obtained via login API or Element UI                                                                                                                                                                                       |
 | A test room       | Unencrypted, bot has joined it                                                                                                                                                                                             |
@@ -182,64 +182,65 @@ The adapter accepts an optional `room_allowlist`: a set of room IDs. When set, t
 
 Always set the allowlist to exactly the room(s) you intend to monitor. Running without an allowlist means the adapter processes every message from every room the bot has joined.
 
-Environment variable: `MATRIX_ROOM_ALLOWLIST` — a comma-separated list of room IDs.
+Set `MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST` for the instance named `bridge`.
+Environment overrides use comma-separated room IDs; YAML uses a list:
 
 ```bash
-export MATRIX_ROOM_ALLOWLIST="!abc123:localhost,!def456:localhost"
+export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='!abc123:localhost,!def456:localhost'
 ```
 
 ## Running
 
-### Environment Variables
+### Configure and start the runtime
 
-| Variable                 | Required | Default        | Example                         | Notes                          |
-| ------------------------ | -------- | -------------- | ------------------------------- | ------------------------------ |
-| `MATRIX_HOMESERVER`      | Yes      |                | `http://localhost:8008`         | Full URL, no trailing slash    |
-| `MATRIX_USER_ID`         | Yes      |                | `@bot:localhost`                | Starts with `@`                |
-| `MATRIX_ACCESS_TOKEN`    | Yes      |                | `<matrix-access-token>`         | Keep it secret                 |
-| `MATRIX_ROOM_ALLOWLIST`  | No       | (all rooms)    | `!abc:localhost,!def:localhost` | Comma-separated room IDs       |
-| `MATRIX_ADAPTER_ID`      | No       | `matrix-alpha` | `my-adapter`                    | Adapter identifier for logging |
-| `MATRIX_SYNC_TIMEOUT_MS` | No       | `30000`        | `60000`                         | Sync long-poll timeout in ms   |
+Save a private `matrix.yaml` with an explicit instance and room allowlist:
 
-### Via medre run
+```yaml
+adapters:
+  matrix:
+    bridge:
+      adapter_kind: real
+      encryption_mode: plaintext
+      room_allowlist: ["!abc123:localhost"]
+routes: {}
+```
+
+Supply account settings through MEDRE's environment overrides or the provider's
+credential sidecar. The instance token matches `adapters.matrix.bridge`:
 
 ```bash
 export MEDRE_ADAPTER__BRIDGE__HOMESERVER=http://localhost:8008
 export MEDRE_ADAPTER__BRIDGE__USER_ID=@bot:localhost
 export MEDRE_ADAPTER__BRIDGE__ACCESS_TOKEN="<matrix-access-token>"
-export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='["!abc123:localhost"]'
 
-medre run
+medre config check --config matrix.yaml
+medre run --config matrix.yaml
 ```
 
-The `MEDRE_ADAPTER__<TOKEN>__<FIELD>` variables follow the runtime
-configuration convention. `<TOKEN>` matches the adapter instance name under
-`adapters.matrix.<token>` in YAML. The `MATRIX_*` variables are used only by
-pytest fixtures and direct adapter instantiation (see the table above).
-
-The runner:
-
-1. Configures logging (INFO level to stderr).
-2. Reads and validates all environment variables into a `MatrixConfig`.
-3. Creates subsystems: `EventBus`, `RenderingPipeline`, `SQLiteStorage`, `Diagnostician`, `Router`.
-4. Registers the `MatrixRenderer` on the rendering pipeline.
-5. Creates the `MatrixAdapter` with the validated config.
-6. Wires a `PipelineRunner` with all subsystems.
-7. Registers signal handlers for SIGINT and SIGTERM.
-8. Starts the `PipelineRunner`, then starts the `MatrixAdapter`.
-9. Logs initial diagnostics.
-10. Waits for a shutdown signal.
-11. On shutdown: stops the adapter, stops the pipeline runner, closes the database.
+This example starts one Matrix connection. Add a second adapter and create the
+routes with [guided configuration](../guided-configuration.md) to relay messages.
+`MATRIX_*` variables belong to test fixtures and direct harnesses; `medre run`
+uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead. Set the sync wait with
+`MEDRE_ADAPTER__BRIDGE__INITIAL_SYNC_TIMEOUT_SECONDS` and the request long-poll
+with `MEDRE_ADAPTER__BRIDGE__SYNC_TIMEOUT_MS` when overriding their defaults.
 
 ### Expected Startup Output
 
+With the default 45-second wait, acknowledged progress precedes completed
+startup. A representative log sequence for the configured instance is:
+
 ```text
-INFO  medre  Matrix runtime: config loaded for @bot:localhost
-INFO  medre  PipelineRunner started
-INFO  medre  MatrixAdapter matrix-alpha started
-INFO  medre  Initial diagnostics: {'status': 'degraded', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True}}
-INFO  medre  Matrix runtime running — awaiting shutdown signal
+INFO medre.runtime.app Starting adapter matrix.bridge
+INFO medre.adapters.bridge Waiting up to 45s for the first Matrix sync acknowledgement
+INFO medre.adapters.bridge.session Matrix durable sync acknowledged its first batch (completes_sync=True)
+INFO medre.adapters.matrix.adapter Matrix adapter bridge health=healthy reasons=none
+INFO medre.adapters.bridge MatrixAdapter bridge started
 ```
+
+If the wait expires, startup instead reports `degraded` with reason
+`waiting_initial_sync_ack` and native recovery remains active. Other failure or
+crypto restrictions can also prevent healthy startup. A later acknowledged
+sync updates current health without rewriting the startup observation.
 
 ### Expected Shutdown Output
 
@@ -441,3 +442,18 @@ fallback is non-durable and does not claim MEDRE-owned recovery.
 - [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay
+
+## First sync during startup
+
+Authentication and room membership precede sync readiness. With the default
+budget, the provider logs `Waiting up to 45s for the first Matrix sync acknowledgement`
+while it waits for accepted native progress. `initial_sync_timeout_seconds`
+controls the displayed budget; zero disables waiting and emits no wait log.
+If it expires, the sync owner stays active, health is `degraded`, and
+`waiting_initial_sync_ack` is recorded as the reason until progress arrives. Real sync failures
+and reconnects remain visible immediately.
+
+The runtime's `adapter_start_timeout_seconds` bounds the entire adapter start,
+including authentication, joins and this wait. Increase it for slow startup
+if necessary. See [running MEDRE](../running-medre.md#current-health-after-startup)
+for startup versus current health observations.
