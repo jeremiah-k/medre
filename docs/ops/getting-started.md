@@ -48,7 +48,10 @@ medre config native --transport meshtastic --adapter-id node \
 ```
 
 The prompts explain which values to enter. Creating the files does not start
-the bridge. They may contain credentials, so do not share them.
+the bridge. They may contain credentials: keep them outside version control
+and do not share them. If working in a Git project, ignore `matrix.yaml`,
+`connections.yaml`, and `bridge.yaml` **before** running these commands
+(see [locked deployment](install.md#locked-deployment)).
 
 For setup help or a different pair of networks, choose the guides you need:
 
@@ -83,8 +86,10 @@ options or existing routes, see [guided configuration](guided-configuration.md).
 medre run --config bridge.yaml
 ```
 
-Send a test message from each side and check that it appears on the other side.
-Leave MEDRE running to keep the bridge connected. Press **Ctrl+C** to stop it.
+Send a message from the configured source and verify it appears at the
+destination. If you selected **both ways** in step 4, also test the reverse
+direction. A one-way route must not forward messages in reverse. Leave MEDRE
+running to keep the bridge connected; press **Ctrl+C** to stop it.
 
 MEDRE stores messages and delivery records locally. Automatic message expiry is
 not available yet. See [privacy and message storage](message-storage.md) before

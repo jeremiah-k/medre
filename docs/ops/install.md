@@ -187,16 +187,34 @@ and `uv sync --locked` instead. The full
 [adapter-source reference](adapter-installation.md) covers local checkouts,
 private Git servers, package indexes, and extras such as Matrix E2EE.
 
-For a private state directory in Bash:
+Before generating bridge configuration or accepting credentials in a Git
+project, ignore the wizard outputs **as well as** the private runtime state.
+`uv.lock` is safe to commit, but generated YAML can contain account credentials.
+Run this before following the first-run commands (or store configs outside the
+repository entirely):
 
 ```bash
 mkdir -p .medre
 chmod 700 .medre
 export MEDRE_HOME="$PWD/.medre"
-printf '.medre/\n' >> .gitignore
+cat >> .gitignore <<'EOF'
+.medre/
+# Local configurations and smoke evidence (not sanitized examples)
+/sample.yaml
+/matrix.yaml
+/connections.yaml
+/bridge.yaml
+/smoke.sqlite3*
+EOF
 ```
 
+Do not rely on `.gitignore` to untrack files already committed: check with
+`git status` before committing, and remove any previously tracked secret
+configuration from Git's index and history using your normal secret-rotation
+procedure.
+
 In PowerShell, create `.medre`, restrict its ACL to the bridge operator, then
-set `$env:MEDRE_HOME = Join-Path $PWD '.medre'`. Set the same absolute path in
-your service environment; also exclude YAML secrets and SQLite evidence from
-Git. See [path configuration](configuration.md#medre_home-single-directory-mode).
+set `$env:MEDRE_HOME = Join-Path $PWD '.medre'`. Add the same ignore patterns
+to `.gitignore` before creating configuration files. Set the same absolute
+`MEDRE_HOME` in your service environment. See
+[path configuration](configuration.md#medre_home-single-directory-mode).

@@ -43,8 +43,11 @@ medre config check --config examples/configs/presentation-fake.yaml
 medre smoke --config examples/configs/presentation-fake.yaml --source-adapter radio
 ```
 
-The example uses in-memory storage and demonstrates local routing/presentation;
-it does not establish native recipient delivery. Change only the presentation
+The smoke command checks local routing and fake handoff evidence; it **does
+not display the rendered destination message** or verify its sender prefix.
+Inspect the actual destination client to check presentation with a real bridge.
+The example uses in-memory storage and does not establish native recipient
+delivery. Change only the presentation
 settings in your private real configuration after reviewing the example. See
 [configuration](configuration.md) for the supported prefix variables and
 [transport profiles](../spec/transport-profiles/README.md) for native features.
