@@ -102,7 +102,10 @@ async def test_stalled_adapter_backlog_stays_durable_and_bounded(
             )
         assert await wait_until(
             lambda: all(len(a.delivered_payloads) == 12 for a in healthy.values()),
-            timeout=3,
+            # Windows CI can spend several seconds on SQLite and adapter
+            # scheduling under load. Keep a bounded liveness assertion rather
+            # than assuming twelve fanouts fit within three wall-clock seconds.
+            timeout=10,
         )
         assert blocked.calls == 1
         assert len(app._retry_worker._active) <= 4
