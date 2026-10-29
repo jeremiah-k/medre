@@ -987,7 +987,7 @@ class TestRecoverClassification:
             assert fc["operational"][0]["failure_kind"] == "capacity_rejection"
 
     def test_recommended_commands_retryable(self) -> None:
-        """Retryable failures recommend DRY_RUN and BEST_EFFORT."""
+        """Retryable failures offer a scoped preview without a send command."""
         event = _FakeEvent()
         receipt = _FakeReceipt(
             status="failed",
@@ -1019,7 +1019,10 @@ class TestRecoverClassification:
             cmds = parsed["recommended_commands"]
             cmd_text = " ".join(cmds)
             assert "dry_run" in cmd_text
-            assert "best_effort" in cmd_text
+            assert "best_effort" not in cmd_text
+            preview = next(cmd for cmd in cmds if "--mode dry_run" in cmd)
+            assert "--target-adapters adapter_a" in preview
+            assert "--route-ids route-1" in preview
 
     def test_recommended_commands_permanent(self) -> None:
         """Permanent failures recommend inspect-event and inspect-receipts."""

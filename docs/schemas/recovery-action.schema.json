@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/recovery-action.schema.json",
+  "title": "Current delivery recovery guidance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "delivery_plan_id",
+    "target_adapter",
+    "reason",
+    "target_channel",
+    "route_id",
+    "outbox_id",
+    "outbox_status",
+    "receipt_id",
+    "receipt_status",
+    "attempt_number",
+    "disposition",
+    "commands"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "delivery_plan_id": {
+      "type": "string"
+    },
+    "target_adapter": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "target_channel": {
+      "type": ["string", "null"]
+    },
+    "route_id": {
+      "type": ["string", "null"]
+    },
+    "outbox_id": {
+      "type": ["string", "null"]
+    },
+    "outbox_status": {
+      "type": ["string", "null"]
+    },
+    "receipt_id": {
+      "type": ["string", "null"]
+    },
+    "receipt_status": {
+      "type": ["string", "null"]
+    },
+    "attempt_number": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "disposition": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "awaiting_feedback",
+        "retry_scheduled",
+        "completed",
+        "cancelled",
+        "inspect_native",
+        "preview_replay",
+        "needs_operator_action"
+      ]
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Read-only inspection or scoped dry-run previews; never native resend permission."
+    }
+  }
+}

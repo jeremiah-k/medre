@@ -9,7 +9,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | Schema                                           | Source Type                                                     | Description                                                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `canonical-event.schema.json`                    | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                                                     |
-| `content-inventory.schema.json` | `SQLiteStorage.inspect_content_inventory` | Read-only logical bytes and consumers without message values |
+| `content-inventory.schema.json`                  | `SQLiteStorage.inspect_content_inventory`                       | Read-only logical bytes and consumers without message values                                       |
 | `canonical-event.schema.yaml`                    | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document                        |
 | `styled-text.schema.json`                        | `StyledText` / `TextSpan`                                       | Optional semantic presentation over canonical plain text                                           |
 | `attachment.schema.json`                         | `AttachmentDescriptor`                                          | Retained/unavailable descriptors and retention-pending input                                       |
@@ -34,6 +34,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `native-bridge-context-expectations.schema.json` | Dict shape (native campaign report)                             | Optional bridge-context destination expectations in native campaign reports                        |
 | `stopped-state-inventory.schema.json`            | Dict shape (`medre.maintenance.stopped_inventory`)              | Operator-declared stopped installation inventory for capture/verify/restore                        |
 | `stopped-state-snapshot.schema.json`             | Dict shape (`medre.maintenance.stopped_snapshot`)               | Captured stopped-state snapshot manifest checked during verify and restore                         |
+| `recovery-action.schema.json`                    | `RecoveryAction` (`medre.core.observability.recovery`)          | Current destination ownership and read-only recovery guidance                                      |
 | `live-health.schema.json`                        | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                                             |
 
 ## Examples

@@ -999,3 +999,25 @@ diagnostics are read-only — they never repair state or block startup.
 
 - [diagnostics-and-evidence.md](diagnostics-and-evidence.md) — evidence provenance, bundle collection, report shapes
 - [troubleshooting.md](troubleshooting.md) — failure drill interpretation, routing diagnostics
+
+## Read current delivery guidance before replay
+
+`medre recover --event EVENT --storage-path PATH` and `medre inspect event EVENT
+--recovery --storage-path PATH` include current delivery guidance. JSON exposes
+`delivery_actions`; `medre evidence` exposes the same entries in its incident
+summary. A target can have pending work even when `failed_targets` is empty.
+
+| Disposition              | Next step                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `pending`, `in_progress` | Inspect the existing dispatcher or lease; avoid a competing replay.                 |
+| `awaiting_feedback`      | Inspect native queue and correlated feedback; admission has not settled.            |
+| `retry_scheduled`        | Let the retry worker own its scheduled attempt.                                     |
+| `inspect_native`         | Investigate possible native acceptance before deciding whether to resend.           |
+| `preview_replay`         | Review the generated destination/route dry run with the deployment's configuration. |
+| `completed`, `cancelled` | Respect terminal local state; a fresh send is a separate deliberate action.         |
+| `needs_operator_action`  | Inspect missing, permanent or contradictory evidence before proceeding.             |
+
+Generated previews filter adapters and routes. They cannot isolate one channel
+inside a route that fans out to several channels. Review every preview target;
+do not turn a preview into `best_effort` until its scope matches the intended
+recovery. These commands do not execute changes or settle uncertain handoffs.
