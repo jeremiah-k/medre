@@ -520,6 +520,7 @@ class TestNestedCommandCoverage:
                     "replay",
                     "radio-attempt",
                     "content",
+                    "decisions",
                 },
             ),
             ("trace", {"event", "replay"}),

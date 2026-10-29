@@ -229,8 +229,8 @@ class _OperatorDecisionMixin:
 
     async def list_operator_decisions(self, event_id: str) -> list[dict[str, Any]]:
         """Read immutable operator evidence without message content."""
-        if not event_id or len(event_id) > 512:
-            raise ValueError("Bounded event identity required")
+        if not isinstance(event_id, str) or not event_id:
+            raise ValueError("A non-empty event identifier is required")
         return await self._read_all(
             "SELECT * FROM operator_delivery_decisions WHERE event_id=? "
             "ORDER BY recorded_at, decision_id",
