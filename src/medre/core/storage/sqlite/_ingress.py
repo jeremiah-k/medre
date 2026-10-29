@@ -30,6 +30,7 @@ from medre.core.ingress import (
 )
 from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.backend import DuplicateEventError, StorageError
+from medre.core.storage.sqlite._content_identity import body_admission_op
 from medre.core.storage.sqlite.connection import (
     AttachmentAdmissionPlan,
     sync_admit_ingress,
@@ -110,6 +111,7 @@ class _IngressMixin:
                 ),
             )
         ]
+        ops.append(body_admission_op(event, _now_iso()))
         ops.extend(
             self._relation_op(event.event_id, relation) for relation in event.relations
         )

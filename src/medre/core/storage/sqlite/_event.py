@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite._content_identity import body_admission_op
 from medre.core.storage.sqlite.query import _build_query_sql
 from medre.core.storage.sqlite.serde import (
     _encode_json,
@@ -87,6 +88,7 @@ class _EventMixin:
                 ),
             )
         ]
+        ops.append(body_admission_op(event, _now_iso()))
         for rel in event.relations:
             ops.append(self._relation_op(event.event_id, rel))
         await self._write_batch(ops)
