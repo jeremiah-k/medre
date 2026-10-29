@@ -344,6 +344,25 @@ CREATE TABLE IF NOT EXISTS plugin_state (
     PRIMARY KEY(plugin_id, key)
 );
 
+-- Operator decisions are immutable audit evidence, not native-send grants.
+CREATE TABLE IF NOT EXISTS operator_delivery_decisions (
+    decision_id TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    observed_generation INTEGER NOT NULL,
+    observed_updated_at TEXT NOT NULL,
+    observed_status TEXT NOT NULL,
+    action TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    CHECK (action = 'cancel_unstarted'),
+    CHECK (observed_status IN ('pending', 'retry_wait')),
+    CHECK (observed_generation >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS _medre_schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -386,6 +405,8 @@ CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
     ON delivery_receipts(status, failure_kind, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
     ON delivery_receipts(parent_receipt_id, source);
+CREATE INDEX IF NOT EXISTS idx_operator_decisions_event
+    ON operator_delivery_decisions(event_id, outbox_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_due
     ON delivery_outbox(status, next_attempt_at);
 -- One-per-adapter claims probe active owners by adapter before lease expiry.
@@ -622,6 +643,22 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "adapter_checkpoints": frozenset(
         {"adapter_id", "stream", "cursor", "metadata", "updated_at"}
     ),
+    "operator_delivery_decisions": frozenset(
+        {
+            "decision_id",
+            "actor_id",
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "outbox_id",
+            "observed_generation",
+            "observed_updated_at",
+            "observed_status",
+            "action",
+            "recorded_at",
+        }
+    ),
     "plugin_state": frozenset(
         {
             "plugin_id",
@@ -658,6 +695,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # so column-presence validation alone is insufficient: an older pre-release
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
+    "operator_delivery_decisions": frozenset({("decision_id",)}),
     "radio_attempt_progress": frozenset({("outbox_id", "attempt_number")}),
     "delivery_outbox": frozenset(
         {
@@ -675,6 +713,12 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "radio_attempt_progress": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
+    "operator_delivery_decisions": frozenset(
+        {
+            ("event_id", "canonical_events", "event_id"),
+            ("outbox_id", "delivery_outbox", "outbox_id"),
+        }
     ),
     "conversation_membership": frozenset(
         {
@@ -696,6 +740,20 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "operator_delivery_decisions": (
+        (
+            "CHECK (observed_status IN ('pending', 'retry_wait'))",
+            r"CHECK\s*\(\s*observed_status\s+IN\s*\(\s*'pending'\s*,\s*'retry_wait'\s*\)\s*\)",
+        ),
+        (
+            "CHECK (action = 'cancel_unstarted')",
+            r"CHECK\s*\(\s*action\s*=\s*'cancel_unstarted'\s*\)",
+        ),
+        (
+            "CHECK (observed_generation >= 0)",
+            r"CHECK\s*\(\s*observed_generation\s*>=\s*0\s*\)",
+        ),
+    ),
     "radio_attempt_progress": (
         ("CHECK (attempt_number >= 1)", r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)"),
         ("CHECK (revision >= 0)", r"CHECK\s*\(\s*revision\s*>=\s*0\s*\)"),

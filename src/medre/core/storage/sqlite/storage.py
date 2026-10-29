@@ -56,6 +56,7 @@ from medre.core.storage.sqlite._event import _EventMixin
 from medre.core.storage.sqlite._ingress import _IngressMixin
 from medre.core.storage.sqlite._native_ref import _NativeRefMixin
 from medre.core.storage.sqlite._observation import _ObservationMixin
+from medre.core.storage.sqlite._operator_decision import _OperatorDecisionMixin
 from medre.core.storage.sqlite._outbox import _OutboxMixin
 from medre.core.storage.sqlite._pressure import (  # noqa: F401  -- public re-export surface
     PRESSURE_WINDOW_SECONDS,
@@ -687,6 +688,7 @@ class SQLiteStorage(
     _ReceiptMixin,
     _ObservationMixin,
     _OutboxMixin,
+    _OperatorDecisionMixin,
     _RadioMixin,
     _PressureMixin,
     _DeliveryFinalizationMixin,
