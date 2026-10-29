@@ -9,22 +9,22 @@ project that is not activated, use `uv run --locked medre ...` instead.
 
 ## Find the right guide
 
-| I want to…                                                     | Read                                                                                       |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Install from Git, local paths, or published indexes            | [Installation](install.md) and [adapter sources](adapter-installation.md)                  |
-| Manage a persistent CLI and adapter packages                   | [Package management](package-management.md)                                                |
-| Create native connections, change bridges, and explain routing | [Guided configuration](guided-configuration.md)                                            |
-| Get optional AI help with setup                                | [AI-assisted setup](ai-assisted-setup.md)                                                  |
-| Configure routes, contexts, or policies                        | [Configuration](configuration.md)                                                          |
-| Preview connections, channel mappings, or Mermaid route graphs  | [Route visualization](route-visualization.md)                                               |
-| Start, stop, and monitor a bridge                              | [Running MEDRE](running-medre.md)                                                          |
-| Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md) |
-| Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                              |
-| Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md)                                      |
-| Derive a stopped-state inventory from provider declarations    | [Provider stopped-state declarations](stopped-state-provider-inventory.md)                 |
-| Connect a specific network or device                           | [Transport setup](transport-setup/)                                                        |
-| Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                     |
-| Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                      |
+| I want to…                                                     | Read                                                                                                                                      |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Install from Git, local paths, or published indexes            | [Installation](install.md) and [adapter sources](adapter-installation.md)                                                                 |
+| Manage a persistent CLI and adapter packages                   | [Package management](package-management.md)                                                                                               |
+| Create native connections, change bridges, and explain routing | [Guided configuration](guided-configuration.md)                                                                                           |
+| Get optional AI help with setup                                | [AI-assisted setup](ai-assisted-setup.md)                                                                                                 |
+| Configure routes, contexts, or policies                        | [Configuration](configuration.md)                                                                                                         |
+| Preview connections, channel mappings, or Mermaid route graphs | [Route visualization](route-visualization.md)                                                                                             |
+| Start, stop, and monitor a bridge                              | [Running MEDRE](running-medre.md)                                                                                                         |
+| Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md)                                                |
+| Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                                                                             |
+| Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md) and [mixed-installation qualification](mixed-installation-restore-qualification.md) |
+| Derive a stopped-state inventory from provider declarations    | [Provider stopped-state declarations](stopped-state-provider-inventory.md)                                                                |
+| Connect a specific network or device                           | [Transport setup](transport-setup/)                                                                                                       |
+| Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                                                                    |
+| Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                                                                     |
 
 ## Before testing a new revision
 
