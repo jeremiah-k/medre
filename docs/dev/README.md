@@ -28,6 +28,7 @@ the relevant spec/ops/dev page.
 | [messenger-interoperability.md](messenger-interoperability.md)   | XMPP reference contracts, rendering, activity, security, and freeze evidence |
 | [attribution-status.md](attribution-status.md)                   | Native sender attribution claims and their authority limits                  |
 | [consistency-delivery-status.md](consistency-delivery-status.md) | Consistency, recovery, and delivery audit mapped to tests and evidence       |
+| [qualified-stack-export.md](qualified-stack-export.md)           | Offline exact-pin source bundles selected by core                            |
 | [source-export-verification.md](source-export-verification.md)   | Reproducible exported-stack bundles and offline pin verification             |
 | [four-target-recovery.md](four-target-recovery.md)               | Durable fanout close/reopen regression and its native qualification boundary |
 | [sqlite-measurement.md](sqlite-measurement.md)                   | Disposable synthetic SQLite append/reopen baseline measurement               |

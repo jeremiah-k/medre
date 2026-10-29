@@ -31,3 +31,9 @@ This check does not qualify SDK installations, hardware, recipient receipts,
 or the behavior of the checked-out head. It only confirms reproducible source
 objects. CI must still install and test exactly the revisions advertised in
 the compatibility manifest.
+
+To create a new exact-pin artifact, use the
+[qualified stack exporter](qualified-stack-export.md). Its `manifest.json`
+and independently checked bundles are a separate format from the historical
+`manifest.tsv` inputs accepted by this verifier; the exporter verifies its own
+output before publication.
