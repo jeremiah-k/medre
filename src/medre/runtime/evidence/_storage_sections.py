@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Callable
 
@@ -208,17 +210,33 @@ async def _collect_storage_data_from_backend(
                 else:
                     classification = "unknown"
 
-                cmds = (
-                    recommended_commands(classification, event_id, storage_path=db_path)
-                    if classification != "success"
-                    else [
-                        f"medre inspect event {event_id} --timeline --storage-path {db_path}"
-                    ]
-                )
+                from medre.core.delivery_authority import DeliveryAuthorityResolver
+                from medre.core.observability.recovery import recovery_action
+
+                actions = [
+                    asdict(recovery_action(snapshot, storage_path=db_path))
+                    for snapshot in DeliveryAuthorityResolver(
+                        receipts, outbox_items
+                    ).ordered_snapshots()
+                ]
+                cmds = list(
+                    dict.fromkeys(
+                        command
+                        for action in actions
+                        if action["disposition"] not in {"completed", "cancelled"}
+                        for command in action["commands"]
+                    )
+                ) or recommended_commands("unknown", event_id, storage_path=db_path)
 
                 # Specialised lower-level command for evidence bundle.
-                evidence_cmd = (
-                    f"medre evidence --event {event_id} --storage-path {db_path} --json"
+                evidence_cmd = shlex.join(
+                    [
+                        "medre",
+                        "evidence",
+                        f"--event={event_id}",
+                        f"--storage-path={db_path}",
+                        "--json",
+                    ]
                 )
 
                 # Primary commands are the inspect-first recommendations.
@@ -231,7 +249,16 @@ async def _collect_storage_data_from_backend(
                 # If a replay run is in context, add inspect_replay to primary.
                 if replay_run_id is not None:
                     structured_commands["primary"] = list(cmds) + [
-                        f"medre inspect replay {replay_run_id} --storage-path {db_path}",
+                        shlex.join(
+                            [
+                                "medre",
+                                "inspect",
+                                "replay",
+                                f"--storage-path={db_path}",
+                                "--",
+                                replay_run_id,
+                            ]
+                        ),
                     ]
 
                 # --- Incident summary enrichment (additive) ---
@@ -334,6 +361,7 @@ async def _collect_storage_data_from_backend(
                     "suppressed_count": suppressed_count,
                     "sent_unconfirmed_count": sent_unconfirmed_count,
                     "delivery_state_by_target": delivery_state_by_target,
+                    "delivery_actions": actions,
                 }
 
                 # The target compatibility view above and this machine-facing

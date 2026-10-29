@@ -1675,3 +1675,28 @@ Startup outcomes and `startup.startup_health` remain historical. Live recovery
 MUST clear degraded current health when the provider reports a confirmed usable
 connection. Native health reports MUST NOT create receipts, grant native calls
 or modify the authority of uncertain deliveries.
+
+## Current delivery recovery guidance
+
+`medre recover --event` and the evidence incident summary MUST derive
+`delivery_actions` from the same `DeliveryAuthorityResolver` snapshots. Each
+entry follows the [recovery action schema](../schemas/recovery-action.schema.json)
+and identifies the event, plan, adapter, channel, route, effective attempt,
+current outbox and its committed receipt. A generation admitted before its first
+receipt MUST remain visible; an older receipt MUST NOT decide its remedy.
+
+Pending, active, queued and scheduled-retry work MUST retain its existing owner.
+Abandoned work MUST require native inspection rather than recommend a resend.
+A committed handoff MUST NOT be described as recipient delivery. Missing retry
+deadlines and unknown mutable states MUST require operator investigation.
+
+Guidance commands MUST be read-only inspection or dry-run replay previews.
+Previews MUST select the failed adapter and its route when known. These filters
+do not isolate channels; the report MUST state that limitation for channel
+recovery. Operators MUST inspect all preview destinations before choosing a
+side-effecting replay. Guidance itself MUST NOT reserve, cancel, replay, mutate
+storage, or authorize an uncertain native operation.
+
+Generated command arguments MUST preserve opaque identifiers and paths through
+shell quoting and CLI option parsing. Failure classification remains based on
+persisted failure kinds; error wording MUST NOT become retry authority.

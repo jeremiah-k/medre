@@ -15,6 +15,8 @@ Public symbols
 
 from __future__ import annotations
 
+import shlex
+
 __all__ = [
     "RETRYABLE_KINDS",
     "PERMANENT_KINDS",
@@ -84,6 +86,9 @@ def recommended_commands(
     event_id: str,
     *,
     storage_path: str | None = None,
+    target_adapter: str | None = None,
+    route_id: str | None = None,
+    include_send: bool = True,
 ) -> list[str]:
     """Return recommended next commands for a failure category.
 
@@ -103,24 +108,48 @@ def recommended_commands(
     auto-discovers the config file via XDG defaults, but explicit
     paths are required when the config lives outside the standard
     search locations.
+
+    Optional destination and route filters narrow replay previews to the failed
+    adapter/route; they cannot isolate individual channels. Set ``include_send``
+    false for read-only decision aids that must not recommend a native send.
+    Opaque IDs and paths are shell-quoted without changing their argument values.
     """
-    sp = f" --storage-path {storage_path}" if storage_path else ""
+
+    def option(name: str, value: str) -> list[str]:
+        return [f"{name}={value}"] if value.startswith("-") else [name, value]
+
+    sp = option("--storage-path", storage_path) if storage_path else []
+    scope: list[str] = []
+    if target_adapter:
+        scope += option("--target-adapters", target_adapter)
+    if route_id:
+        scope += option("--route-ids", route_id)
+
+    def inspect(option: str) -> str:
+        # Opaque positional IDs beginning with '-' need argparse's sentinel,
+        # in addition to shell quoting. Put options before that sentinel.
+        args = ["medre", "inspect", "event"]
+        if event_id.startswith("-"):
+            args += [option, *sp, "--", event_id]
+        else:
+            args += [event_id, option, *sp]
+        return shlex.join(args)
+
+    def replay(mode: str) -> str:
+        event = option("--event", event_id)
+        return shlex.join(["medre", "replay", "--mode", mode, *event, *scope])
 
     if category == "retryable":
-        return [
-            f"medre inspect event {event_id} --recovery{sp}",
-            f"medre replay --mode dry_run --event {event_id}",
-            f"medre replay --mode best_effort --event {event_id}",
-        ]
+        commands = [inspect("--recovery"), replay("dry_run")]
+        if include_send:
+            commands.append(replay("best_effort"))
+        return commands
     if category == "permanent":
+        event = option("--event", event_id)
         return [
-            f"medre inspect event {event_id} --evidence{sp}",
-            f"medre inspect receipts --event {event_id}{sp}",
+            inspect("--evidence"),
+            shlex.join(["medre", "inspect", "receipts", *event, *sp]),
         ]
     if category == "operational":
-        return [
-            "medre diagnostics",
-            "medre config check",
-            f"medre inspect event {event_id} --timeline{sp}",
-        ]
-    return [f"medre inspect event {event_id} --timeline{sp}"]
+        return ["medre diagnostics", "medre config check", inspect("--timeline")]
+    return [inspect("--timeline")]
