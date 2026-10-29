@@ -10,6 +10,7 @@ the relevant spec/ops/dev page.
 | Document                                                         | Purpose                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [content-lifecycle.md](content-lifecycle.md)                     | Proposed content expiry, reply context and bounded consumer/plugin holds     |
+| [development-priorities.md](development-priorities.md)           | Coordinated recovery, conversation fidelity and qualification work           |
 | [environment.md](environment.md)                                 | Checkout setup, uv/pip workflows, extras, dependency updates, builds         |
 | [testing.md](testing.md)                                         | Test suite structure, patterns, tiers, live-test harness                     |
 | [static-typing.md](static-typing.md)                             | Strict-mypy gate scope, SDK import exemptions, and typing status             |

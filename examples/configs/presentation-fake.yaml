@@ -1,0 +1,32 @@
+# Offline presentation example. These fake adapters do not connect or send.
+runtime:
+  name: presentation-example
+storage:
+  backend: memory
+adapters:
+  matrix:
+    room:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://matrix.example.com
+      user_id: "@bridge:example.com"
+      access_token: fake_sample_token
+      room_allowlist: ["!bridge:example.com"]
+      relay_prefix: "[{origin_label}] {sender}: "
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: Forx mesh
+routes:
+  radio_to_room:
+    enabled: true
+    source_adapters: [radio]
+    dest_adapters: [room]
+    directionality: source_to_dest
+    source_channel: "0"
+    dest_channel: "!bridge:example.com"
+    policy:
+      allowed_event_types: [message.created, message.text]
