@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://medre.dev/schemas/runtime-snapshot.schema.json",
   "title": "RuntimeSnapshot",
-  "description": "Immutable, JSON-safe diagnostic snapshot of the runtime. Use capture_runtime_snapshot() to construct. Derived from dataclass(frozen=True).",
+  "description": "Immutable, JSON-safe diagnostic snapshot of the runtime. Use capture_runtime_snapshot() to construct. Derived from dataclass(frozen=True). Common adapter diagnostics prefer explicit adapter-level values, including null, and fill absent fields from same-named session observations; unobserved values remain null.",
   "type": "object",
   "properties": {
     "adapters": {

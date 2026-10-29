@@ -35,7 +35,7 @@
   {
     "transport": "xmpp",
     "repository": "jeremiah-k/medre-adapter-xmpp",
-    "ref": "3a7b146e7dc10b4c2c5061bb720d2dddd47cf962",
+    "ref": "c9bd779f0bd6ae84f3a3ea30e76b7ab632c3bddc",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-xmpp"
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "e02b785397a5827f23cb41d102bacea2f6cf56dc",
+    "ref": "f8eb8fd774d09632c1de7b51e9b1d267d529804f",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "eeac2b5562c9a0a0fe337d71ae21ff9d455fe382",
+    "ref": "d235adaf20c21157ba5cc51749ef0debe90b7db7",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"

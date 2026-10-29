@@ -2,7 +2,7 @@
 """Evidence parity audit tests — operational diagnostics key presence and type consistency.
 
 Proves the highest-value evidence parity findings:
-- All four adapters include the 8 common diagnostic keys in diagnostics().
+- Every qualified provider exposes the 8 common diagnostic keys in diagnostics().
 - Common key types match the spec (``diagnostics-evidence.md`` §2).
 - No-session fallback produces safe defaults instead of missing keys.
 - Matrix ``last_error`` is aliased alongside ``last_sync_error``.
@@ -710,12 +710,8 @@ class TestNormalizeDiagnosticsShapes:
         # extra_key should be in transport_specific
         assert result["transport_specific"]["extra_key"] == "value"
 
-    def test_nested_session_dict_not_extracted_as_common(self) -> None:
-        """Keys inside a 'session' sub-dict are not extracted as common keys.
-
-        The normalize_diagnostics function only looks at the flat top level.
-        Session-subdict keys become transport_specific entries.
-        """
+    def test_nested_session_dict_retains_common_observations(self) -> None:
+        """Session observations fill absent common keys and retain native detail."""
         raw = {
             "adapter_id": "mesh-1",
             "mode": "fake",
@@ -729,10 +725,12 @@ class TestNormalizeDiagnosticsShapes:
             },
         }
         result = normalize_diagnostics(raw)
-        # Only top-level mode is extracted as common.
         assert result["mode"] == "fake"
-        # connected at top level is missing → None (not extracted from session).
-        assert result["connected"] is None
+        assert result["connected"] is True
+        assert result["reconnecting"] is False
+        assert result["reconnect_attempts"] == 0
+        assert result["transient_delivery_failures"] == 0
+        assert result["permanent_delivery_failures"] == 0
         # The session sub-dict is preserved in transport_specific.
         assert "session" in result["transport_specific"]
 
@@ -881,3 +879,29 @@ def test_matrix_diagnostics_exposes_classic_ack_deferrals(matrix_adapter) -> Non
     assert matrix_adapter.diagnostics()["classic_ack_deferrals"] == 0
     matrix_adapter._session = _make_matrix_mock_session(classic_ack_deferrals=3)
     assert matrix_adapter.diagnostics()["classic_ack_deferrals"] == 3
+
+
+@pytest.mark.parametrize(
+    "transport",
+    ["matrix", "meshtastic", "meshcore", "lxmf", "xmpp", "chatmail", "simplexchat"],
+)
+async def test_qualified_provider_diagnostics_retain_health(transport):
+    """Core normalization preserves the provider's health without native requests."""
+    import msgspec
+
+    from medre.adapter_registry import get_adapter_spec
+
+    spec = get_adapter_spec(transport)
+    assert spec is not None and spec.sample_config is not None
+    sample = spec.sample_config.load()()
+    config = msgspec.convert(
+        {"adapter_id": "diagnostic-parity", **dict(sample.config)},
+        type=spec.config.load(),
+        strict=False,
+    )
+    adapter = spec.adapter.load()(config)
+    info = await adapter.health_check()
+    raw = adapter.diagnostics()
+    normalized = normalize_diagnostics(raw)
+    assert COMMON_DIAGNOSTIC_KEYS <= normalized.keys()
+    assert normalized["health"] == info.health

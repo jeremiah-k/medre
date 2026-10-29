@@ -295,7 +295,10 @@ def normalize_diagnostics(
 
     This function is **observational only**.  It does not infer authoritative
     state beyond the fields provided.  Missing common fields resolve to
-    ``None`` – never invented success.
+    ``None`` – never invented success. Fields absent from the adapter-level
+    mapping use the same named observation from ``session`` when available.
+    Explicit adapter values (including ``None``) take precedence. Safe session
+    details remain in the transport-specific projection.
 
     Parameters
     ----------
@@ -321,11 +324,16 @@ def normalize_diagnostics(
     {'connected': True, 'health': None, 'mode': None, ...}
     """
     flat = _to_flat_dict(raw)
+    session = flat.get("session")
+    session_fields = _to_flat_dict(session) if session is not None else {}
 
     # -- Extract common fields with None fallbacks --------------------------
     common: dict[str, Any] = {}
     for key in sorted(COMMON_DIAGNOSTIC_KEYS):
-        common[key] = flat.get(key, _UNSET)
+        # Explicit outer values, including None, retain provider authority.
+        # Session observations fill only absent fields; do not infer aliases
+        # such as cumulative reconnect counts or connection state from health.
+        common[key] = flat.get(key, session_fields.get(key, _UNSET))
 
     # Override mode if hint provided.
     if mode_hint is not None:

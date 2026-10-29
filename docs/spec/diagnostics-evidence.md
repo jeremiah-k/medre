@@ -47,18 +47,20 @@ the JSON snapshot schema.
 
 ## 2. Common Diagnostic Keys
 
-Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics()` returning a plain dict. The following eight keys SHALL appear in the `diagnostics()` output of all four adapter families:
+Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics()` returning a plain dict. The normalized core projection SHALL retain the following eight keys for every
+installed provider. Providers SHALL expose their observed common values through
+`diagnostics()`, directly or in a session sub-dict:
 
-| Key                           | Type          | Semantics                                                                               |
-| ----------------------------- | ------------- | --------------------------------------------------------------------------------------- |
-| `connected`                   | `bool`        | Transport connection state. MAY appear directly or nested in a session sub-dict.        |
-| `health`                      | `str`         | One of the six health vocabulary strings (see § 5).                                     |
-| `mode`                        | `str`         | Transport mode: `"fake"`, `"tcp"`, `"serial"`, `"ble"`, or `"reticulum"` as applicable. |
-| `reconnecting`                | `bool`        | `true` when an active reconnect loop is in progress.                                    |
-| `reconnect_attempts`          | `int`         | Current consecutive reconnect attempt count; retry policy is transport-specific.        |
-| `last_error`                  | `str or None` | `str()` of the last exception encountered. `None` when no error has occurred.           |
-| `transient_delivery_failures` | `int`         | Cumulative count of transient delivery failures since adapter start.                    |
-| `permanent_delivery_failures` | `int`         | Cumulative count of permanent delivery failures since adapter start.                    |
+| Key                           | Type           | Semantics                                                                                  |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------------------ |
+| `connected`                   | `bool or None` | Transport connection state. MAY appear directly or nested in a session sub-dict.           |
+| `health`                      | `str or None`  | One of the six health vocabulary strings (see § 5).                                        |
+| `mode`                        | `str or None`  | Transport mode such as `"fake"`, `"live"`, `"tcp"`, `"serial"`, `"ble"`, or `"reticulum"`. |
+| `reconnecting`                | `bool or None` | `true` when an active reconnect loop is in progress.                                       |
+| `reconnect_attempts`          | `int or None`  | Current consecutive reconnect attempt count; retry policy is transport-specific.           |
+| `last_error`                  | `str or None`  | `str()` of the last exception encountered. `None` when no error has occurred.              |
+| `transient_delivery_failures` | `int or None`  | Cumulative count of transient delivery failures since adapter start.                       |
+| `permanent_delivery_failures` | `int or None`  | Cumulative count of permanent delivery failures since adapter start.                       |
 
 **Matrix note:** `last_error` appears as `last_sync_error` within the session diagnostics dataclass.
 
@@ -76,10 +78,24 @@ and `inbound_published`. The `session` sub-dict exposes LXMF session fields
 pending_delivery_count, announce counters, delivery failures, and last error).
 All values are JSON-safe primitives.
 
-These eight keys SHALL be present across all adapter implementations. Their
-location (adapter-level vs session sub-dict) varies by adapter. The current
-MeshCore and LXMF implementations satisfy this contract. Keys SHALL NOT be
-removed or have their types changed without a version bump.
+Raw observations MAY appear at adapter level or in a session snapshot. Core
+MUST use a same-named session observation when the adapter-level key is absent.
+An explicit adapter-level value, including `None`, `False`, or zero, MUST take
+precedence. Session mappings, dataclasses, msgspec structs and public-attribute
+objects follow the same shape conversion as adapter-level snapshots. Safe
+session details MUST remain in the transport-specific projection. Core
+SHALL retain `None` when neither level supplies the common field.
+Providers SHALL publish known health and mode rather than hiding them only
+under transport-specific aliases. Keys SHALL NOT be removed or have their
+types changed without a version bump.
+
+XMPP, Chatmail, and SimpleX expose retained native health under `health` and
+preserve their provider-specific state and counters. Their SDK-free fakes expose
+`mode: "fake"`; native instances expose `mode: "live"`. Missing native connection
+observations and uncounted statistics SHALL remain `None`, not inferred success
+or zero failures. A cumulative `reconnects` count SHALL NOT be relabeled as the
+consecutive `reconnect_attempts` count. Health SHALL NOT establish remote peer
+reachability or delivery evidence.
 
 ## 3. Per-Adapter Diagnostic Keys
 
