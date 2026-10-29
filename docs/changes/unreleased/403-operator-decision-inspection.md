@@ -10,9 +10,9 @@ and the actor label originally supplied by the caller.
 `actor_labels_authenticated=false` is an explicit warning: an actor label is
 provenance, not an authenticated account. An event with no decisions returns an
 empty list; an absent event exits not-found. The command does not grant replay,
-cancellation, or any other mutation permission. Operator-applied cancellation
-remains an independent storage-level authority pending a trusted local caller
-boundary and explicit confirmation UI.
+cancellation, or any other mutation permission. Use `medre resolve` to
+cancel one unstarted destination under the separate private local caller
+boundary and explicit confirmation; inspection only reads its evidence.
 
 Accept every non-empty canonical event identifier for audit inspection,
 independently of the bounds on write-capable cancellation requests.

@@ -194,6 +194,7 @@ class TestParserCommandsDocumented:
             "evidence",
             "replay",
             "recover",
+            "resolve",
             "storage",
             "adapter",
             "support",

@@ -1440,6 +1440,14 @@ medre recover --storage-path PATH [--event ID] [--since TS] [--limit N] [--curso
     `medre replay --mode dry_run`. Prefer inspect event --recovery for
     per-event runbook.
 
+medre resolve --storage-path PATH --event ID --plan-id PLAN --target-adapter ADAPTER (--target-channel CHANNEL | --no-channel)
+    Local-only cancellation of exactly one unstarted destination. Preview is
+    read-only and non-authorizing. --apply additionally requires --yes,
+    --decision-id, --actor-label and every observed identity/version value,
+    and is refused unless the database is an owner-only regular file in an
+    owner-only directory on POSIX. Never sends, replays, or clears uncertain
+    native attempts.
+
 medre storage status [--storage-path PATH]
     Storage management (read-only). Reports schema health.
 
