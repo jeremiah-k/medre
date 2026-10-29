@@ -16,14 +16,18 @@ operator actions. Startup does not create accounts or accept invitations.
 
 The [machine-readable declaration](chatmail-capabilities.json) is checked
 against the real adapter and SDK-free fake. Text, groups, direct conversations,
-reply/thread text fallbacks, and native store-and-forward are supported.
+destination-scoped native replies with readable fallback, thread text fallbacks,
+and native store-and-forward are supported.
 Attachments, reactions, native edits/deletes, typing, presence, and forwarded
 read receipts are unsupported. The configured text limit defaults to 16,384
 UTF-8 bytes; it is enforced before native submission.
 
 The renderer preserves source attribution in plain text, applies the configured
-relay prefix, and uses bounded reply fallbacks. Platform IDs stay in native
-metadata and correlation references rather than being inferred from visible text.
+relay prefix, and binds native quote targets and bounded reply fallbacks to the
+durable attempt. Native targets require core's unique destination binding and
+provider-side validation of the active native profile and exact chat. Platform IDs
+stay in native metadata and correlation references rather than being inferred from
+visible text.
 
 ## Admission, recovery, and evidence
 
@@ -41,8 +45,14 @@ does not establish a MEDRE-verified peer identity.
 
 ## Qualification limits
 
-SDK contracts cover native group text, quotes, process recovery, and local
-storage. The six-adapter campaign qualifies an independent peer over its named
-mail transport fixture. A loopback SMTP/IMAP result does not qualify deployment
-of the official Chatmail Docker service. Attachment, relation, restart, and
-sustained-load campaigns remain separate evidence tiers.
+SDK contracts cover native group text, quote fields, process recovery and local
+storage. The provider's
+[native reply qualification](https://github.com/jeremiah-k/medre-adapter-chatmail/blob/8ff0ccfc3a3dd88f56df8b1f755700b2e8dd4435/docs/evidence/native-replies-2026-10-29.json)
+records exact source hashes and core/provider revisions for a dedicated two-profile
+2.65.0 campaign. Its independent encrypted-group peer observes the native quote,
+sender/origin presentation and SMTP handoff after reconnect and restart.
+
+The local GreenMail SMTP/IMAP fixture does not qualify deployment of the official
+Chatmail Docker service. Attachments, additional relation features and sustained
+load remain separate evidence tiers. A native quote observed by that peer does
+not promote SMTP handoff into a general recipient-delivery or read guarantee.
