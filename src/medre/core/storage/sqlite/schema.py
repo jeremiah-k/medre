@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS canonical_events (
     created_at TEXT NOT NULL
 );
 
+-- One current, immutable admission fact per canonical body.  Absence of a
+-- body is not an empty string.  These facts do NOT authorize retention, reads,
+-- or collection: those require separately implemented consumer authority.
+CREATE TABLE IF NOT EXISTS event_body_identity (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    version INTEGER NOT NULL CHECK (version = 1),
+    availability TEXT NOT NULL CHECK (availability IN ('retained', 'unavailable')),
+    recorded_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS event_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -493,6 +503,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "event_body_identity": frozenset(
+        {"event_id", "version", "availability", "recorded_at"}
+    ),
     "event_relations": frozenset(
         {
             "id",
@@ -695,6 +708,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # so column-presence validation alone is insufficient: an older pre-release
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
+    "event_body_identity": frozenset({("event_id",)}),
     "operator_delivery_decisions": frozenset({("decision_id",)}),
     "radio_attempt_progress": frozenset({("outbox_id", "attempt_number")}),
     "delivery_outbox": frozenset(
@@ -714,6 +728,7 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "radio_attempt_progress": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
+    "event_body_identity": frozenset({("event_id", "canonical_events", "event_id")}),
     "operator_delivery_decisions": frozenset(
         {
             ("event_id", "canonical_events", "event_id"),
@@ -740,6 +755,16 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "event_body_identity": (
+        (
+            "CHECK (version = 1)",
+            r"CHECK\s*\(\s*version\s*=\s*1\s*\)",
+        ),
+        (
+            "CHECK (availability IN ('retained', 'unavailable'))",
+            r"CHECK\s*\(\s*availability\s+IN\s*\(\s*'retained'\s*,\s*'unavailable'\s*\)\s*\)",
+        ),
+    ),
     "operator_delivery_decisions": (
         (
             "CHECK (observed_status IN ('pending', 'retry_wait'))",

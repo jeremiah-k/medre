@@ -35,8 +35,8 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # ---------------------------------------------------------------------------
 
 # Minimal old-shape DDL that triggers schema shape mismatch.
-# Uses the current DDL for all tables EXCEPT event_relations, which is missing
-# target_native_thread_id (a column added in a later pre-release build).
+# Includes the newer body-identity table so the first intended mismatch is
+# event_relations, which lacks target_native_thread_id.
 # schema_version is stamped as 1 to simulate an old prerelease DB.
 _OLD_SHAPE_DDL: str = """
 CREATE TABLE IF NOT EXISTS canonical_events (
@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS canonical_events (
     source_native_message_id TEXT,
     source_native_thread_id TEXT,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_body_identity (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    version INTEGER NOT NULL CHECK (version = 1),
+    availability TEXT NOT NULL CHECK (availability IN ('retained', 'unavailable')),
+    recorded_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS event_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

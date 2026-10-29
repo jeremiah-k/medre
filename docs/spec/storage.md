@@ -14,10 +14,15 @@ This document specifies the MEDRE storage layer. The current SQLite backend pers
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
 projection and its `conversation_projection_state`, `native_message_refs`,
 `delivery_receipts`, `delivery_outbox`, `radio_attempt_progress`,
-`durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
+`event_body_identity`, `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
 `attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
 `plugin_state` table,
 and schema metadata.
+
+The immutable `event_body_identity` row is admitted atomically with each new
+canonical event, recording version and explicit body presence only. It is not a
+read authorization or retention/expiry policy; see
+[content admission identity](content-admission-identity.md).
 
 The following tables are **planned — not implemented; tracked for
 post-prerelease**:
@@ -2121,7 +2126,6 @@ storage-owned checkpoint and parent. Observations never alter terminal outbox
 history or issue a delivery receipt. Duplicate observation IDs create no
 additional evidence. The native producer remains responsible for independent
 ACK source authority; historical admission is not ACK authentication.
-
 
 ### Native snapshot filenames
 
