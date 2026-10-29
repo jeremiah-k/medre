@@ -88,3 +88,17 @@ def test_multi_source_smoke_examples_use_instance_ids() -> None:
     )[0]
     assert "--source-adapter matrix_1" in section
     assert "--source-adapter meshtastic_1" in section
+
+
+def test_beginner_guides_do_not_reverse_one_way_routes_or_leak_configs() -> None:
+    """Operator examples must respect direction and exclude credential files."""
+    start = (_DOCS / "ops/getting-started.md").read_text(encoding="utf-8")
+    install = (_DOCS / "ops/install.md").read_text(encoding="utf-8")
+    presentation = (_DOCS / "ops/message-presentation.md").read_text(encoding="utf-8")
+    assert "A one-way route must not forward messages in reverse" in start
+    assert "test the reverse" in start
+    for filename in ("matrix.yaml", "connections.yaml", "bridge.yaml"):
+        assert f"/{filename}" in install.split("cat >> .gitignore", 1)[1]
+    assert "does not display the rendered destination message" in " ".join(
+        presentation.split()
+    )
