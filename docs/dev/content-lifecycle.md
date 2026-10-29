@@ -40,10 +40,11 @@ Offer a small set of understandable profiles before exposing individual duration
 - **History:** retain full content for an explicit operator-selected period.
   History and reply-context limits remain independent of delivery deadlines.
 
-Keep the existing storage behavior for existing installations until an explicit
-policy selection and validated migration. For new installations, recommend
-recent context once that profile is implemented and qualified. Do not advertise
-an unbounded archive as a requirement for reliable bridging.
+Retention profiles require completed runtime integration and qualification
+before activation. Prerelease schema changes use fresh development state,
+without upgrade paths or alternate readers for earlier layouts. Recent context
+is a proposed first-release default once implemented and qualified. An unbounded
+archive is not a requirement for reliable bridging.
 
 Advanced controls need separate limits for full bodies, excerpts, attachments,
 correlation metadata and optional consumers. Memory caches need both byte and
@@ -113,8 +114,9 @@ in-flight native call without a coordinated, persisted state transition.
 Inline canonical JSON and copied relation text prevent a safe implementation
 based on clearing `payload.body` after a callback. Preserve immutable envelope
 identity and ownership evidence while separating content storage and its
-availability projection. Define the envelope/content reference contract and its
-migration before changing stored representations.
+availability projection. Define one envelope/content-reference contract and
+its validated stored representation. Use fresh state when that prerelease
+contract changes; do not add alternate legacy read paths.
 
 Consumers receive content plus availability metadata, or a typed unavailable
 result. Reply enrichment can then choose, in order: an authorized native target,
@@ -148,8 +150,9 @@ semantics in addition to execution identity.
 1. Keep the inventory and add a metadata-only dependency projection and policy
    preview. A preview lists holds, expiry and unknown/provider-owned copies;
    it never treats a byte count as permission to delete.
-2. Introduce the content-reference/availability representation with explicit
-   migration and legacy reads. Preserve immutable envelope and attempt identity.
+2. Introduce one content-reference/availability representation and validate it
+   on fresh state. Preserve immutable envelope and attempt identity throughout
+   runtime processing; reject incompatible stored layouts.
 3. Wire delivery and reply-context holds, including durable ingress before fanout,
    partial fanout, queued feedback, restart and unavailable-quote fallback.
 4. Add opt-in release and bounded collection with race tests against dispatch,

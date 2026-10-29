@@ -48,9 +48,10 @@ The additional audit table is part of the **required** prerelease SQLite shape.
 MEDRE deliberately refuses older shapes before running `CREATE TABLE` against
 an existing database, even if they report the same frozen schema version 1.
 **Do not point this candidate at a production or existing development DB.**
-Qualify against separately selected fresh state. A validated upgrade/migration
-path is a separate prerequisite for installed-state adoption; this stage does
-not claim or perform such a migration.
+Qualify against separately selected fresh state. Pre-first-release development
+supports one current SQLite shape. Incompatible state MUST be refused, and
+review MUST use fresh state rather than a migration or compatibility reader.
+No upgrade path from earlier development layouts is provided.
 
 The required audit shape MUST preserve unique decision IDs and the action,
 observed-status and generation constraints. An audit write failure MUST roll

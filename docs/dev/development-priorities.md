@@ -12,7 +12,7 @@ list of upstream protocol possibilities.
 | Order | Work package                                    | User-visible outcome                                                                                             | Acceptance boundary                                                                                                                                                                 |
 | ----- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | Current recovery guidance                       | Explain whether each destination is waiting, active, uncertain or finished, and offer a scoped preview.          | Shared authority for recover/evidence, admitted-before-receipt work, no native resend, schema and SQLite/CLI regressions.                                                           |
-| 2     | Content lifecycle and expiry                    | Choose relay-only, recent-context or history retention without losing retry ownership.                           | Explicit content availability/migration, delivery and reply holds, bounded optional/plugin grants, hard privacy ceiling, metadata-only preview before collection.                   |
+| 2     | Content lifecycle and expiry                    | Choose relay-only, recent-context or history retention without losing retry ownership.                           | Explicit persisted content identity/availability, delivery and reply holds, bounded optional/plugin grants, hard privacy ceiling, metadata-only preview before collection.          |
 | 3     | Exact-destination recovery preview              | Recover one failed conversation without including completed sibling channels.                                    | Typed destination selection used identically by preview and delivery; fail closed on ambiguous or changed plans; generation and named-run identity retained.                        |
 | 4     | SimpleX native reply vertical                   | Display a real quote in a destination client while retaining sender/origin text.                                 | Immutable profile/user/conversation/item target in ledger, pinned native lookup/send contracts, fallback and budget checks, restart fence, independent peer proof before promotion. |
 | 5     | Guided first-run and presentation               | Connect two conversations without reading deployment or protocol internals first.                                | Short install/check/connect/route/run journey, linked deployment reference, honest storage notice, runnable fake presentation example and explicit supported/extension boundaries.  |
@@ -22,8 +22,9 @@ list of upstream protocol possibilities.
 
 Current recovery guidance is implemented. Exact-destination inspection and
 per-event content dependency counts establish read-only boundaries; neither
-executes recovery nor authorizes expiry. Transactional recovery decisions and
-versioned content availability remain the next core implementation work.
+executes recovery nor authorizes expiry. An exact-cancellation storage authority and a versioned content policy preview
+provide the next building blocks. Their operator workflow, persisted content
+identity and runtime enforcement remain the next core implementation work.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
@@ -35,6 +36,14 @@ optional plugin retention share the
 [content lifecycle proposal](content-lifecycle.md); presentation alternatives
 and application-service scope are described in the
 [presentation guide](../ops/message-presentation.md).
+
+## Prerelease development contract
+
+Develop against one current schema and API contract. Reject incompatible
+prerelease state and use fresh state. Provide no migrations or legacy readers.
+Provide no version aliases or compatibility shims. Version fields identify the
+supported format and allow strict refusal; they do not promise an upgrade path
+from earlier development formats.
 
 ## Architecture decisions
 

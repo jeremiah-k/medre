@@ -2,7 +2,7 @@
 
 Introduce a pure, versioned preview model for retained/unavailable/denied
 content and scope-limited consumer holds. The new functions are not installed
-in the runtime admission or deletion path; actual storage migration, content
+in the runtime admission or deletion path; persisted content identity, content
 expiry and plugin permissions remain separate safety-gated changes.
 
 Require an optional requester's live hold before revealing content presence;

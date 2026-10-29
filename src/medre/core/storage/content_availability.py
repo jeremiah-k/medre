@@ -2,7 +2,7 @@
 
 This is an opt-in policy *preview*. No runtime storage or provider reads are
 replaced by these decisions, and no retained bytes are deleted by this module.
-A future migration must persist these facts transactionally with admission.
+Runtime integration must persist these facts transactionally with admission.
 """
 
 from __future__ import annotations
