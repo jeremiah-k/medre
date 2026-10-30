@@ -27,9 +27,13 @@ CONTENT_SURFACES = (
     ),
     ContentSurface(
         "event_relations",
-        ("key", "fallback_text", "metadata"),
+        ("key", "metadata"),
         ("reply_quotes", "reaction_fallbacks"),
     ),
+    ContentSurface(
+        "event_body_content", ("body",), ("delivery", "reply_quotes", "replay")
+    ),
+    ContentSurface("event_relation_excerpts", ("excerpt",), ("reply_quotes",)),
     ContentSurface("native_message_refs", ("metadata",), ("native_correlation",)),
     ContentSurface(
         "delivery_receipts",

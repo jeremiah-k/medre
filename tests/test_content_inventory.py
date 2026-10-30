@@ -9,7 +9,7 @@ import jsonschema
 import pytest
 
 from medre.cli.inspect_commands import _inspect_content
-from medre.core.events import EventRelation
+from medre.core.events import EventRelation, NativeMessageRef
 from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
@@ -145,3 +145,51 @@ async def test_inventory_associates_rows_by_surface_not_result_order(
     assert by_table["canonical_events"]["rows"] == 1
     assert by_table["delivery_outbox"]["rows"] == 0
     assert by_table["attachment_blobs"]["logical_bytes"] == 0
+
+
+async def test_native_and_evidence_copies_count_without_returning_values(
+    temp_storage,
+):
+    quoted = "retained native quote"
+    await temp_storage.append(make_storage_event(event_id="evt-copy"))
+    await temp_storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-copy",
+            event_id="evt-copy",
+            adapter="matrix-main",
+            native_channel_id="!room:example.org",
+            native_message_id="$1",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+            metadata={"quote": quoted},
+        )
+    )
+    await temp_storage._write(
+        "INSERT INTO delivery_receipts "
+        "(receipt_id, event_id, delivery_plan_id, target_adapter, status, "
+        "receipt_kind, rendering_evidence, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "rcpt-copy",
+            "evt-copy",
+            "plan-copy",
+            "matrix-main",
+            "sent",
+            "attempt",
+            '{"quote": "retained native quote"}',
+            "2026-10-30T00:00:00+00:00",
+        ),
+    )
+    report = await temp_storage.inspect_content_inventory()
+    by_table = {item["table"]: item for item in report["surfaces"]}
+    refs = by_table["native_message_refs"]
+    assert refs["rows"] == 1
+    # Native metadata is stored as compact JSON by the storage layer.
+    assert refs["logical_bytes"] == len('{"quote":"retained native quote"}'.encode())
+    receipts = by_table["delivery_receipts"]
+    assert receipts["rows"] == 1
+    assert receipts["logical_bytes"] == len(
+        '{"quote": "retained native quote"}'.encode()
+    )
+    assert quoted not in json.dumps(report)

@@ -43,6 +43,7 @@ from medre.core.engine.pipeline.delivery_state import (
 )
 from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
@@ -264,6 +265,7 @@ class _OutboxMixin:
                     generation_select_params,
                     insert_sql,
                     insert_params,
+                    now,
                     replay_run_select_sql if item.replay_run_id else None,
                     replay_run_select_params if item.replay_run_id else None,
                 )
@@ -287,6 +289,7 @@ class _OutboxMixin:
                 select_params,
                 insert_sql,
                 insert_params,
+                now,
             )
             if existing_id is not None:
                 existing = await self.get_outbox_item(existing_id)
@@ -321,6 +324,7 @@ class _OutboxMixin:
         generation_select_params: tuple[Any, ...],
         insert_sql: str,
         insert_params: tuple[Any, ...],
+        observed_at: str,
         replay_run_select_sql: str | None = None,
         replay_run_select_params: tuple[Any, ...] | None = None,
     ) -> str | None:
@@ -359,6 +363,9 @@ class _OutboxMixin:
                 # canonical delivery_outbox INSERT assembled above.
                 params[7] = next_attempt
                 db.execute(insert_sql, tuple(params))
+                insert_outbox_dependency(
+                    db, str(params[0]), str(params[1]), observed_at
+                )
                 db.execute("COMMIT")
                 return None
             except BaseException:
@@ -375,6 +382,7 @@ class _OutboxMixin:
         select_params: tuple[Any, ...],
         insert_sql: str,
         insert_params: tuple[Any, ...],
+        observed_at: str,
     ) -> str | None:
         """Atomically adopt existing work or insert a row without reclaiming."""
         with self._lock:
@@ -385,6 +393,9 @@ class _OutboxMixin:
                     db.execute("COMMIT")
                     return str(row["outbox_id"])
                 db.execute(insert_sql, insert_params)
+                insert_outbox_dependency(
+                    db, str(insert_params[0]), str(insert_params[1]), observed_at
+                )
                 db.execute("COMMIT")
                 return None
             except BaseException:
