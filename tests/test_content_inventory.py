@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import jsonschema
+import msgspec
 import pytest
 
 from medre.cli.inspect_commands import _inspect_content
@@ -56,7 +57,13 @@ async def test_unicode_and_relation_copies_count_without_returning_values(temp_s
     assert by_table["event_body_content"]["logical_bytes"] == len(secret.encode())
     assert secret not in json.dumps(report)
     assert event.event_id not in json.dumps(report)
-    assert await temp_storage.get(event.event_id) == event
+    # Ordinary get() is metadata-only: identity survives, but neither the
+    # body nor the relation excerpt is hydrated without an owner-bound read.
+    public = await temp_storage.get(event.event_id)
+    assert public is not None
+    assert public.event_id == event.event_id
+    assert public.payload == {}
+    assert secret not in msgspec.json.encode(public).decode("utf-8")
 
 
 async def test_attachment_bytes_count_independently_of_event_payload(temp_storage):

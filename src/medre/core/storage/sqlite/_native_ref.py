@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from medre.core.events import NativeMessageRef
+from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
     _GET_NATIVE_REF,
@@ -118,6 +119,8 @@ class _NativeRefMixin:
         adapter: str,
         native_channel_id: str | None,
         native_message_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> NativeMessageRef | None:
         """Return the stored NativeMessageRef for the given triple.
 
@@ -126,7 +129,7 @@ class _NativeRefMixin:
         *native_channel_id*.
         """
         row = await self._read_one(
-            _GET_NATIVE_REF,
+            inspection_sql(_GET_NATIVE_REF, "native_message_refs", metadata_only),
             (adapter, native_channel_id, native_message_id),
         )
         return _row_to_native_ref(row) if row else None
@@ -134,6 +137,8 @@ class _NativeRefMixin:
     async def list_native_refs_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[NativeMessageRef]:
         """Return all native message refs for a specific event.
 
@@ -143,7 +148,9 @@ class _NativeRefMixin:
         namespaces.
         """
         rows = await self._read_all(
-            _SELECT_NREFS_FOR_EVENT,
+            inspection_sql(
+                _SELECT_NREFS_FOR_EVENT, "native_message_refs", metadata_only
+            ),
             (event_id,),
         )
         return [_row_to_native_ref(r) for r in rows]

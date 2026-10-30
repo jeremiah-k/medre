@@ -29,6 +29,7 @@ from medre.core.events import (
     normalize_delivery_provenance,
     normalize_replay_run_id,
 )
+from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL,
@@ -215,6 +216,8 @@ class _ReceiptMixin:
     async def list_receipts_by_replay_run(
         self,
         run_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all receipts produced by a specific replay run.
 
@@ -226,7 +229,9 @@ class _ReceiptMixin:
         if normalized_run_id is None:
             raise ValueError("replay-run receipt lookup requires a non-empty run ID")
         rows = await self._read_all(
-            _SELECT_RECEIPTS_BY_REPLAY_RUN,
+            inspection_sql(
+                _SELECT_RECEIPTS_BY_REPLAY_RUN, "delivery_receipts", metadata_only
+            ),
             (normalized_run_id,),
         )
         return [_row_to_receipt(r) for r in rows]
@@ -234,6 +239,8 @@ class _ReceiptMixin:
     async def list_receipts_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts for a specific event.
 
@@ -242,7 +249,9 @@ class _ReceiptMixin:
         adapters for this event.
         """
         rows = await self._read_all(
-            _SELECT_RECEIPTS_FOR_EVENT,
+            inspection_sql(
+                _SELECT_RECEIPTS_FOR_EVENT, "delivery_receipts", metadata_only
+            ),
             (event_id,),
         )
         return [_row_to_receipt(r) for r in rows]
@@ -251,6 +260,8 @@ class _ReceiptMixin:
         self,
         limit: int = 10_000,
         offset: int = 0,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts in sequence order.
 
@@ -259,7 +270,11 @@ class _ReceiptMixin:
         Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
-            f"{_SELECT_ALL_RECEIPTS.strip()} LIMIT ? OFFSET ?",  # nosec B608 - _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
+            inspection_sql(
+                f"{_SELECT_ALL_RECEIPTS.strip()} LIMIT ? OFFSET ?",
+                "delivery_receipts",
+                metadata_only,
+            ),  # nosec B608 - _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
             (limit, offset),
         )
         return [_row_to_receipt(r) for r in rows]

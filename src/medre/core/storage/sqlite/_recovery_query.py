@@ -110,7 +110,9 @@ _AUTHORITY_PREDICATE = (
 )
 
 
-def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
+def _select_unresolved_deliveries(
+    *, since_scoped: bool, metadata_only: bool = False
+) -> str:
     """Build one bounded candidate-window authority SELECT.
 
     The inner CTE applies the unresolved-status, keyset, event-time, ordering,
@@ -121,11 +123,12 @@ def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
     """
     status_placeholders = ",".join("?" for _ in UNRESOLVED_RECEIPT_STATUSES)
     since_clause = " AND ce.timestamp >= ?" if since_scoped else ""
+    error_column = "NULL AS error" if metadata_only else "dr.error"
     return (
         "WITH candidate_receipts AS ("
         " SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,"
         " dr.target_adapter, dr.target_channel, dr.route_id,"
-        " dr.status, dr.error, dr.failure_kind,"
+        f" dr.status, {error_column}, dr.failure_kind,"
         " dr.attempt_number, dr.next_retry_at, dr.outbox_id,"
         " dr.created_at AS receipt_created_at,"
         " dr.source, dr.replay_run_id,"
@@ -215,6 +218,7 @@ class _RecoveryQueryMixin:
         cursor: str | None = None,
         since_event_time: str | None = None,
         limit: int = DEFAULT_RECOVERY_PAGE_LIMIT,
+        metadata_only: bool = False,
     ) -> UnresolvedDeliveriesPage:
         """Return one bounded page of currently-unresolved deliveries.
 
@@ -228,10 +232,9 @@ class _RecoveryQueryMixin:
         candidate_limit = _candidate_batch_limit(page_limit)
         authoritative_rows: list[dict[str, Any]] = []
 
-        if since_event_time is not None:
-            select_sql = _SELECT_UNRESOLVED_DELIVERIES_SINCE
-        else:
-            select_sql = _SELECT_UNRESOLVED_DELIVERIES
+        select_sql = _select_unresolved_deliveries(
+            since_scoped=since_event_time is not None, metadata_only=metadata_only
+        )
 
         # One public page may cross several raw-candidate windows when stale
         # failures have been superseded. Each DB read is independently bounded

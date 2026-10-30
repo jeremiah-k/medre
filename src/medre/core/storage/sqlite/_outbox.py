@@ -44,6 +44,7 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
+from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
@@ -408,13 +409,19 @@ class _OutboxMixin:
                     pass
                 raise
 
-    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
+    async def get_outbox_item(
+        self, outbox_id: str, *, metadata_only: bool = False
+    ) -> DeliveryOutboxItem | None:
         """Retrieve a single outbox item by its ID.
 
         Authority: **list/get** (read-only).
         """
         row = await self._read_one(
-            "SELECT * FROM delivery_outbox WHERE outbox_id = ?",
+            inspection_sql(
+                "SELECT * FROM delivery_outbox WHERE outbox_id = ?",
+                "delivery_outbox",
+                metadata_only,
+            ),
             (outbox_id,),
         )
         if row is None:
@@ -482,6 +489,8 @@ class _OutboxMixin:
         self,
         limit: int = 10_000,
         offset: int = 0,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return all delivery outbox items in creation order.
 
@@ -489,7 +498,11 @@ class _OutboxMixin:
         outbox_id ASC`` for deterministic output.  Useful for global convergence analysis across all events.
         """
         rows = await self._read_all(
-            "SELECT * FROM delivery_outbox ORDER BY created_at ASC, outbox_id ASC LIMIT ? OFFSET ?",
+            inspection_sql(
+                "SELECT * FROM delivery_outbox ORDER BY created_at ASC, outbox_id ASC LIMIT ? OFFSET ?",
+                "delivery_outbox",
+                metadata_only,
+            ),
             (limit, offset),
         )
         return [_row_to_outbox_item(r) for r in rows]
@@ -497,6 +510,8 @@ class _OutboxMixin:
     async def list_outbox_items_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return all outbox items for a specific event.
 
@@ -504,8 +519,12 @@ class _OutboxMixin:
         outbox_id ASC`` for deterministic output.
         """
         rows = await self._read_all(
-            "SELECT * FROM delivery_outbox WHERE event_id = ? "
-            "ORDER BY created_at ASC, outbox_id ASC",
+            inspection_sql(
+                "SELECT * FROM delivery_outbox WHERE event_id = ? "
+                "ORDER BY created_at ASC, outbox_id ASC",
+                "delivery_outbox",
+                metadata_only,
+            ),
             (event_id,),
         )
         return [_row_to_outbox_item(r) for r in rows]
@@ -513,14 +532,20 @@ class _OutboxMixin:
     async def list_outbox_items_by_replay_run(
         self,
         replay_run_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return durable outbox generations owned by one named replay run."""
         run_id = normalize_replay_run_id(replay_run_id)
         if run_id is None:
             raise ValueError("replay-run outbox lookup requires a non-empty run ID")
         rows = await self._read_all(
-            "SELECT * FROM delivery_outbox WHERE replay_run_id = ? "
-            "ORDER BY created_at ASC, outbox_id ASC",
+            inspection_sql(
+                "SELECT * FROM delivery_outbox WHERE replay_run_id = ? "
+                "ORDER BY created_at ASC, outbox_id ASC",
+                "delivery_outbox",
+                metadata_only,
+            ),
             (run_id,),
         )
         return [_row_to_outbox_item(r) for r in rows]

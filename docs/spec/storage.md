@@ -131,7 +131,7 @@ class StorageBackend(Protocol):
         ...
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve a single event by unique identifier.
+        """Retrieve metadata identity without body, excerpts or opaque fields.
 
         MUST reconstruct the in-memory relations list from event_relations.
         Returns None if not found.
@@ -542,7 +542,8 @@ from `canonical_events.payload`; `event_body_identity.present_at_admission`
 records immutable presence. Mandatory `event_content_dependencies` rows are
 inserted in the same transaction as ingress admission or target outbox staging.
 See [content runtime authority](content-runtime-authority.md) for the
-**restricted** read seams and unmediated surfaces that remain.
+metadata-only inspection, explicit owner-held reads, and sensitive recovery
+surfaces.
 
 ### 4.2.1 conversation_membership
 
@@ -1431,13 +1432,19 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 
 ### 8.2 get(event_id)
 
-- Returns the `CanonicalEvent` for the given ID, or `None` if not found.
-- The in-memory `relations` list **MUST** be reconstructed by querying `event_relations`.
+`get`, `get_envelope` and `get_metadata` return identity/routing projections.
+They MUST NOT select canonical payload, relation excerpts/keys, or opaque
+provider/custom metadata. Missing identity returns `None`.
 
 ### 8.3 query(filter)
 
-- Yields events matching filter, ordered by `timestamp ASC`. No secondary sort.
-- Events with identical timestamps **MAY** be yielded in any order.
+`query` and `query_metadata` return the same metadata projection with bounded
+SQL selection and deterministic timestamp/event-ID ordering. Full event reads
+require `read_event_for_ingress`, `read_event_for_outbox`, or an explicit
+`read_event_for_replay` borrow. `read_reply_context` returns a scoped quote and
+sender context with typed retained/unavailable/denied results. These APIs MUST
+check authority and project content in the same transaction. See
+[content runtime authority](content-runtime-authority.md).
 
 ### 8.4 store_native_ref(ref)
 
@@ -1461,6 +1468,10 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 ### 8.7 list_relations(event_id)
 
 - Returns `list[EventRelation]` from `event_relations`, reconstructing each from the stored row.
+
+The returned relation view withholds reaction keys, fallback text and opaque
+relation metadata. Original relations are available only in authorized full
+reads; missing excerpts never erase native relation identity.
 
 ### 8.8 list_relation_sources(target_event_id)
 

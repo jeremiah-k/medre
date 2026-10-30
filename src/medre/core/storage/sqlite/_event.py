@@ -19,6 +19,7 @@ from medre.core.storage.sqlite._content_identity import (
     envelope_payload,
     ingress_dependency_op,
 )
+from medre.core.storage.sqlite._projections import EVENT_COLUMNS, RELATION_COLUMNS
 from medre.core.storage.sqlite.query import _build_query_sql
 from medre.core.storage.sqlite.serde import (
     _encode_json,
@@ -29,8 +30,6 @@ from medre.core.storage.sqlite.serde import (
 )
 from medre.core.storage.sqlite.statements import (
     _INSERT_EVENT,
-    _SELECT_EVENT,
-    _SELECT_RELATIONS,
 )
 
 
@@ -109,15 +108,24 @@ class _EventMixin:
         await self._write_batch(ops)
 
     async def get_envelope(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve event identity and relations, without body or excerpts."""
-        row = await self._read_one(_SELECT_EVENT, (event_id,))
+        """Fetch an event's metadata-only projection; no content grant implied."""
+        row = await self._read_one(
+            f"SELECT {EVENT_COLUMNS} FROM canonical_events WHERE event_id=?",  # nosec B608 - closed schema projection; all values use bound parameters.
+            (event_id,),
+        )
         if row is None:
             return None
         relations = await self._read_all(
-            "SELECT * FROM event_relations WHERE event_id=? ORDER BY id ASC",
+            f"SELECT {RELATION_COLUMNS} FROM event_relations "  # nosec B608 - closed schema projection; all values use bound parameters.
+            "WHERE event_id=? ORDER BY id ASC",
             (event_id,),
         )
-        return _row_to_event(row, [_row_to_relation(r) for r in relations])
+        event = _row_to_event(row, [_row_to_relation(r) for r in relations])
+        return event
+
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None:
+        """Read non-content identity; use owner-bound APIs for rendering."""
+        return await self.get_envelope(event_id)
 
     async def event_exists(self, event_id: str) -> bool:
         """Check canonical identity without decoding payload or relation content.
@@ -131,26 +139,8 @@ class _EventMixin:
         return row is not None
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve a single event by ID, including its relations.
-
-        Authority: **list/get** (read-only).
-        """
-        row = await self._read_one(_SELECT_EVENT, (event_id,))
-        if row is None:
-            return None
-        rel_rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
-        body_rows = await self._read_all(
-            "SELECT body, field FROM event_body_content WHERE event_id=?", (event_id,)
-        )
-        result = _row_to_event(row, [_row_to_relation(r) for r in rel_rows])
-        if not body_rows:
-            return result
-        from msgspec.structs import replace
-
-        return replace(
-            result,
-            payload={**result.payload, **{r["field"]: r["body"] for r in body_rows}},
-        )
+        """Return metadata only. Full content requires an authorized owner read."""
+        return await self.get_metadata(event_id)
 
     async def list_event_ids_page(
         self, *, after_event_id: str | None, limit: int
@@ -172,57 +162,30 @@ class _EventMixin:
             )
         return [str(row["event_id"]) for row in rows]
 
+    async def query_metadata(
+        self, event_filter: EventFilter
+    ) -> AsyncGenerator[CanonicalEvent, None]:
+        """Select metadata without loading body/excerpt tables or opaque fields."""
+        sql, params = _build_query_sql(event_filter)
+        rows = await self._read_all(sql, params)
+        ids = [row["event_id"] for row in rows]
+        rel_map: dict[str, list[EventRelation]] = {}
+        for offset in range(0, len(ids), 900):
+            chunk = ids[offset : offset + 900]
+            placeholders = ",".join("?" for _ in chunk)
+            relations = await self._read_all(
+                f"SELECT {RELATION_COLUMNS}, event_id FROM event_relations "  # nosec B608 - closed schema projection; all values use bound parameters.
+                f"WHERE event_id IN ({placeholders}) ORDER BY id ASC",
+                tuple(chunk),
+            )
+            for row in relations:
+                rel_map.setdefault(row["event_id"], []).append(_row_to_relation(row))
+        for row in rows:
+            yield _row_to_event(row, rel_map.get(row["event_id"], []))
+
     async def query(
         self, event_filter: EventFilter
     ) -> AsyncGenerator[CanonicalEvent, None]:
-        """Yield events matching *event_filter*, ordered by timestamp ascending.
-
-        Authority: **list/get** (read-only).
-        """
-        sql, params = _build_query_sql(event_filter)
-        rows = await self._read_all(sql, params)
-        if not rows:
-            return
-
-        # Fetch relations for all matched events in bounded batches.
-        # Some SQLite builds retain a conservative 999 host-parameter limit;
-        # chunk reads to stay below it.
-        event_ids = [r["event_id"] for r in rows]
-        rel_map: dict[str, list[EventRelation]] = {}
-        _CHUNK_SIZE = 900
-        content_map: dict[str, dict[str, str]] = {}
-        for offset in range(0, len(event_ids), _CHUNK_SIZE):
-            chunk = event_ids[offset : offset + _CHUNK_SIZE]
-            placeholders = ",".join("?" for _ in chunk)
-            rel_sql = (
-                "SELECT r.*, x.excerpt AS resolved_fallback_text "
-                "FROM event_relations r "
-                "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
-                "WHERE r.event_id "
-                f"IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
-            )
-            rel_rows = await self._read_all(rel_sql, tuple(chunk))
-            for rr in rel_rows:
-                rel_map.setdefault(rr["event_id"], []).append(_row_to_relation(rr))
-            content_sql = (
-                "SELECT event_id, field, body FROM event_body_content "
-                f"WHERE event_id IN ({placeholders})"  # nosec: placeholders are only ? markers, values passed as params
-            )
-            content_rows = await self._read_all(content_sql, tuple(chunk))
-            for content_row in content_rows:
-                content_map.setdefault(content_row["event_id"], {})[
-                    content_row["field"]
-                ] = content_row["body"]
-
-        # General query consumers still receive retained content. Selected
-        # runtime paths use the explicit owner-bound read APIs instead.
-        from msgspec.structs import replace
-
-        for row in rows:
-            result = _row_to_event(row, rel_map.get(row["event_id"], []))
-            content = content_map.get(row["event_id"])
-            yield (
-                replace(result, payload={**result.payload, **content})
-                if content
-                else result
-            )
+        """Return metadata-only results, not an implicit content grant."""
+        async for event in self.query_metadata(event_filter):
+            yield event
