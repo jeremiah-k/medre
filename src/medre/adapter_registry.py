@@ -79,7 +79,7 @@ class AdapterTypeRegistry:
         destinations: dict[str, DestinationSpec] = {}
         for spec in ordered:
             transport = spec.transport
-            if spec.api_version is not None and (
+            if (
                 type(spec.api_version) is not int
                 or spec.api_version != ADAPTER_API_VERSION
             ):

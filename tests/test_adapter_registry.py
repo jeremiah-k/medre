@@ -30,6 +30,7 @@ def _symbol(module: str = "builtins", name: str = "object") -> SymbolRef:
 
 def _synthetic_spec(transport: str) -> AdapterSpec:
     return AdapterSpec(
+        api_version=1,
         transport=transport,
         config=_symbol(),
         runtime_config=None,

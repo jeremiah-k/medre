@@ -151,3 +151,25 @@ def test_fake_declaration_can_be_omitted():
     spec = AdapterSpec(**values)
     assert spec.fake_adapter is None
     assert AdapterTypeRegistry((spec,)).get("private_chat") is spec
+
+
+@pytest.mark.parametrize("version", [None, 0, 2, True, "1"])
+def test_discovery_quarantines_wrong_api_version_without_loading_native_code(
+    version, monkeypatch
+):
+    spec = replace(make_adapter_spec("incompatible"), api_version=version)
+    monkeypatch.setattr(
+        metadata,
+        "entry_points",
+        lambda **kwargs: [Provider("incompatible", result=spec), Provider("healthy")],
+    )
+
+    def forbid_native_import(self):
+        raise AssertionError("Discovery loaded a lazy implementation")
+
+    monkeypatch.setattr(SymbolRef, "load", forbid_native_import)
+    registry = _discover_installed_adapters()
+    assert registry.transports() == ("healthy",)
+    assert len(registry.failures) == 1
+    assert registry.failures[0].transport == "incompatible"
+    assert "API version" in registry.failures[0].reason

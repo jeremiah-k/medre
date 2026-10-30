@@ -30,9 +30,9 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths
 from medre.maintenance.stopped_declare import (
     DeclaredFile,
-    ProviderCoverage,
     ExclusionRefused,
     LocalExclusion,
+    ProviderCoverage,
     StoppedPlanError,
     StoppedStateDeclaration,
     build_stopped_capture_plan,
@@ -152,6 +152,7 @@ def _not_a_declaration() -> int:
 
 def _fake_spec(transport: str, factory: SymbolRef | None = None) -> AdapterSpec:
     return AdapterSpec(
+        api_version=1,
         transport=transport,
         config=SymbolRef("tests.test_stopped_declarations", "_never_loaded"),
         runtime_config=None,

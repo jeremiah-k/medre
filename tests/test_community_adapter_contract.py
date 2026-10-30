@@ -41,6 +41,7 @@ def validate_address(destination):
 def spec():
     ref = SymbolRef("sensor_plugin", "reader")
     return AdapterSpec(
+        api_version=1,
         destinations=(DestinationSpec("sensor_device", SymbolRef("sensor_plugin", "validate_address")),),
         transport="community_sensor", config=SymbolRef("sensor_plugin", "SensorConfig"),
         runtime_config=None, adapter=SymbolRef("sensor_plugin", "FakeTransportAdapter"),

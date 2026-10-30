@@ -23,9 +23,8 @@ source of truth; an API-version match is necessary, never sufficient.
 Provider registration must declare the literal API version it implements.
 It must not read the current core constant to populate that declaration: that
 would hide mismatches instead of reporting them. Incompatible declarations fail
-SDK-free discovery before native modules are imported. During the metadata
-rollout, an omitted declaration remains unknown and accepted; explicit values
-are validated immediately. Mandatory declarations follow provider adoption. Separate plugins should
+SDK-free discovery before native modules are imported. Omitted, malformed or
+unsupported declarations are refused without an implicit default. Separate plugins should
 adopt their own explicitly named compatibility contract when the plugin runtime
 is implemented; do not reuse the adapter API version by accident.
 
