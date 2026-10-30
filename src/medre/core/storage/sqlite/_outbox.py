@@ -363,9 +363,12 @@ class _OutboxMixin:
                 # canonical delivery_outbox INSERT assembled above.
                 params[7] = next_attempt
                 db.execute(insert_sql, tuple(params))
-                insert_outbox_dependency(
-                    db, str(params[0]), str(params[1]), observed_at
-                )
+                # Replay may reuse historical identity, not silently acquire
+                # a fresh body-retention or native-send grant.
+                if params[23] != "replay":
+                    insert_outbox_dependency(
+                        db, str(params[0]), str(params[1]), observed_at
+                    )
                 db.execute("COMMIT")
                 return None
             except BaseException:

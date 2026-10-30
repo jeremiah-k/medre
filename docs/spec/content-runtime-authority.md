@@ -26,8 +26,11 @@ when an explicit non-string `body` makes the body-presence fact false. Append-on
 owner. Each new outbox generation adopts an independent target-scoped
 `outbox` dependency inside its own insert transaction, only when an eligible
 source dependency remains live. Duplicate admission cannot replace the original
-bytes or recreate an owner. The source is never released merely because one
-of several targets becomes terminal.
+bytes or recreate an owner. A new **replay** generation adopts no dependency of
+its own and never inherits a live outbox hold; its dispatch authority is the
+still-live admission dependency, observed in the same snapshot as the read, so
+replay fails closed once that hold is released or expired. The source is never
+released merely because one of several targets becomes terminal.
 
 An optional UTC `content_deadline` may be given to SQLite ingress admission.
 The deadline is not a default retention rule. Observing expiration releases
@@ -45,6 +48,8 @@ expose event/body bytes. These operations perform authorization and content
 projection in one SQLite transaction and apply a monotonic expiry observation.
 An admitted body that is missing or has a non-text storage value is a storage
 error, never fabricated text or a silently empty event.
+Outbox reads authorize a generation through its own target-scoped dependency
+or, for replay generations, through the live admission dependency.
 `authorize_native_submission` additionally checks the in-progress outbox
 owner and live content dependency just before adapter invocation. It is a
 **local dispatch-start fence**, not an atomic transaction with remote/native

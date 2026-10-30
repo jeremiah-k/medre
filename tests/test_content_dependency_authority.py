@@ -269,6 +269,65 @@ async def test_post_admission_excerpt_gets_atomic_append_owner(tmp_path):
         await store.close()
 
 
+async def test_replay_generation_reuses_admission_hold_only(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "replay.db"))
+    await store.initialize()
+    try:
+        deadline = _now() + timedelta(minutes=30)
+        await store.admit_ingress(
+            msgspec.structs.replace(
+                make_storage_event(event_id="replay-source"),
+                payload={"body": "live only"},
+            ),
+            None,
+            "live",
+            content_deadline=deadline,
+        )
+        from dataclasses import replace
+
+        replay = replace(
+            _item("replay-source", "target"),
+            dispatch_source="replay",
+            replay_run_id="run-1",
+        )
+        stored = await store.create_outbox_item(replay, allocate_new_generation=True)
+        assert stored.dispatch_source == "replay"
+        # A replay generation never mints its own target-scoped hold.
+        assert not any(
+            kind == "outbox" and owner == replay.outbox_id
+            for kind, owner, _, _ in await store.list_mandatory_content_dependencies(
+                "replay-source"
+            )
+        )
+        # While the admission hold is live, replay dispatch is authorized by
+        # that hold alone: no outbox dependency exists to inherit.
+        assert (
+            await store.read_event_for_outbox(
+                "replay-source", replay.outbox_id, now=_now()
+            )
+        ).status == "retained"
+        assert (
+            await store.read_body_for_outbox(
+                "replay-source", replay.outbox_id, now=_now()
+            )
+        ).status == "retained"
+        # Once the admission hold expires, replay fails closed: observation
+        # releases the source durably and replay can no longer dispatch bytes.
+        late = deadline + timedelta(minutes=1)
+        assert (
+            await store.read_event_for_outbox(
+                "replay-source", replay.outbox_id, now=late
+            )
+        ).status == "denied"
+        assert (
+            await store.read_body_for_outbox(
+                "replay-source", replay.outbox_id, now=_now()
+            )
+        ).status == "denied"
+    finally:
+        await store.close()
+
+
 async def test_secondary_text_has_owner_even_when_body_identity_is_absent(tmp_path):
     store = SQLiteStorage(str(tmp_path / "secondary.db"))
     await store.initialize()
