@@ -7,6 +7,7 @@ mistaking empty but explicitly present text for missing content.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import StorageError
@@ -93,7 +94,7 @@ def ingress_dependency_op(
     owner_kind: str = "ingress",
     deadline: str | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
-    """Insert the ingress/append dependency if body text was admitted.
+    """Insert the ingress/append dependency if string content was admitted.
 
     This op MUST run in the same transaction as the canonical row. The
     dependency does not itself imply expiry, release, or erasure.
@@ -104,7 +105,8 @@ def ingress_dependency_op(
         "INSERT INTO event_content_dependencies "
         "(event_id, owner_kind, owner_id, acquired_at, deadline) "
         "SELECT ?, ?, ?, ?, ? FROM event_body_identity "
-        "WHERE event_id=? AND (present_at_admission=1 OR EXISTS ("
+        "WHERE event_id=? AND (EXISTS (SELECT 1 FROM event_body_content c "
+        "WHERE c.event_id=event_body_identity.event_id) OR EXISTS ("
         "SELECT 1 FROM event_relations r "
         "JOIN event_relation_excerpts x ON x.relation_id=r.id "
         "WHERE r.event_id=?))",
@@ -126,6 +128,13 @@ def insert_outbox_dependency(db: Any, outbox_id: str, event_id: str, now: str) -
     A target whose ingress deadline has already passed does not receive
     content authority. It must not create a new native send.
     """
+    # The general outbox timestamp helper may omit fractional seconds. Use
+    # the same fixed UTC representation as admission deadlines and read gates.
+    now = (
+        datetime.fromisoformat(now)
+        .astimezone(timezone.utc)
+        .isoformat(timespec="microseconds")
+    )
     # Mark the source deadline within the same transaction before adoption.
     # A later backwards wall-clock adjustment must not resurrect an expired
     # admission lease or create a new target dependency.

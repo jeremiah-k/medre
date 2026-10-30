@@ -57,13 +57,20 @@ async def test_sqlite_grant_failures_use_storage_error(tmp_path, operation):
         await store.close()
 
 
-@pytest.mark.parametrize("payload", ["not JSON", "[]", "{}", '{"body": null}'])
-async def test_granted_read_reports_corrupt_payload_as_storage_error(tmp_path, payload):
+@pytest.mark.parametrize(
+    "corrupt_sql",
+    [
+        "DELETE FROM event_body_content WHERE event_id='body'",
+        "UPDATE event_body_content SET body=CAST('kept' AS BLOB) "
+        "WHERE event_id='body'",
+    ],
+)
+async def test_granted_read_reports_corrupt_content_as_storage_error(
+    tmp_path, corrupt_sql
+):
     store, now, _, _ = await _granted_store(tmp_path)
     try:
-        await store._write(
-            "UPDATE canonical_events SET payload=? WHERE event_id='body'", (payload,)
-        )
+        await store._write(corrupt_sql)
         with pytest.raises(StorageError):
             await store.read_body_for_consumer("body", "history", now=now)
     finally:
@@ -73,7 +80,14 @@ async def test_granted_read_reports_corrupt_payload_as_storage_error(tmp_path, p
 async def test_granted_read_reports_missing_admission_fact_as_corruption(tmp_path):
     store, now, _, _ = await _granted_store(tmp_path)
     try:
-        await store._write("DELETE FROM event_body_identity WHERE event_id='body'")
+        # Dependencies reference the manifest with enforced foreign keys;
+        # losing the manifest alone is out-of-band corruption.
+        db = sqlite3.connect(str(tmp_path / "state.sqlite"))
+        try:
+            db.execute("DELETE FROM event_body_identity WHERE event_id='body'")
+            db.commit()
+        finally:
+            db.close()
         with pytest.raises(StorageError, match="no valid body identity"):
             await store.read_body_for_consumer("body", "history", now=now)
         # A requester without a grant learns nothing about the broken manifest.

@@ -30,7 +30,12 @@ from medre.core.ingress import (
 )
 from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.backend import DuplicateEventError, StorageError
-from medre.core.storage.sqlite._content_identity import body_admission_op
+from medre.core.storage.sqlite._content_identity import (
+    body_admission_op,
+    body_content_ops,
+    envelope_payload,
+    ingress_dependency_op,
+)
 from medre.core.storage.sqlite.connection import (
     AttachmentAdmissionPlan,
     sync_admit_ingress,
@@ -62,6 +67,11 @@ class _IngressMixin:
         ) -> _T: ...
 
         @staticmethod
+        def _relation_excerpt_op(
+            relation: EventRelation,
+        ) -> tuple[str, tuple[Any, ...]] | None: ...
+
+        @staticmethod
         def _relation_op(
             event_id: str, relation: EventRelation
         ) -> tuple[str, tuple[Any, ...]]: ...
@@ -81,7 +91,7 @@ class _IngressMixin:
         ) -> int: ...
 
     def _event_admission_ops(
-        self, event: CanonicalEvent
+        self, event: CanonicalEvent, *, recorded_at: str, content_deadline: str | None
     ) -> list[tuple[str, tuple[Any, ...]]]:
         snr = event.source_native_ref
         ops: list[tuple[str, tuple[Any, ...]]] = [
@@ -97,7 +107,7 @@ class _IngressMixin:
                     event.source_channel_id,
                     event.parent_event_id,
                     _encode_json(event.lineage),
-                    _encode_json(event.payload),
+                    _encode_json(envelope_payload(event)),
                     _serialize_metadata(event.metadata),
                     event.depth,
                     event.trace_id,
@@ -112,9 +122,13 @@ class _IngressMixin:
             )
         ]
         ops.append(body_admission_op(event, _now_iso()))
-        ops.extend(
-            self._relation_op(event.event_id, relation) for relation in event.relations
-        )
+        ops.extend(body_content_ops(event, _now_iso()))
+        for relation in event.relations:
+            ops.append(self._relation_op(event.event_id, relation))
+            excerpt_op = self._relation_excerpt_op(relation)
+            if excerpt_op is not None:
+                ops.append(excerpt_op)
+        ops.append(ingress_dependency_op(event, recorded_at, deadline=content_deadline))
         return ops
 
     async def admit_ingress(
@@ -126,6 +140,7 @@ class _IngressMixin:
         suppress_routing: bool = False,
         attachment: InboundAttachmentContent | None = None,
         attachment_limits: AttachmentLimits | None = None,
+        content_deadline: datetime | None = None,
     ) -> AdmissionResult:
         """Atomically persist event, inbound native ref, and durable work.
 
@@ -148,12 +163,23 @@ class _IngressMixin:
         if inbound_ref is not None and inbound_ref.event_id != event.event_id:
             raise ValueError("inbound_ref.event_id must match event.event_id")
 
-        now = _now_iso()
+        observed_at = datetime.now(timezone.utc)
+        now = observed_at.isoformat(timespec="microseconds")
+        deadline: str | None = None
+        if content_deadline is not None:
+            if content_deadline.tzinfo is None or content_deadline.utcoffset() is None:
+                raise ValueError("Content deadline must be timezone-aware")
+            normalized = content_deadline.astimezone(timezone.utc)
+            if normalized <= observed_at:
+                raise ValueError("Content deadline must be after admission time")
+            deadline = normalized.isoformat(timespec="microseconds")
         suppress = suppress_routing or provenance == "history"
         work_status: IngressWorkStatus = "suppressed_history" if suppress else "pending"
 
         attachment_plan: AttachmentAdmissionPlan | None = None
-        event_ops = self._event_admission_ops(event)
+        event_ops = self._event_admission_ops(
+            event, recorded_at=now, content_deadline=deadline
+        )
         if attachment is not None:
             limits = attachment_limits or AttachmentLimits()
             attachment_plan = self._build_attachment_plan(
@@ -162,6 +188,7 @@ class _IngressMixin:
                 attachment=attachment,
                 limits=limits,
                 now_iso=now,
+                content_deadline=deadline,
             )
 
         native_identity = None
@@ -234,6 +261,7 @@ class _IngressMixin:
         attachment: InboundAttachmentContent,
         limits: AttachmentLimits,
         now_iso: str,
+        content_deadline: str | None,
     ) -> AttachmentAdmissionPlan:
         """Prepare atomic binary retention for one admission.
 
@@ -262,7 +290,11 @@ class _IngressMixin:
             unavailable_event = self._event_with_attachment_descriptor(
                 event, unavailable
             )
-            unavailable_ops = self._event_admission_ops(unavailable_event)
+            unavailable_ops = self._event_admission_ops(
+                unavailable_event,
+                recorded_at=now_iso,
+                content_deadline=content_deadline,
+            )
             return AttachmentAdmissionPlan(
                 content_ref=content_ref,
                 size_bytes=measured,
@@ -310,8 +342,12 @@ class _IngressMixin:
             content_ref=content_ref,
             size_bytes=measured,
             max_retained_bytes=limits.max_retained_bytes,
-            retained_event_ops=self._event_admission_ops(retained_event),
-            unavailable_event_ops=self._event_admission_ops(quota_event),
+            retained_event_ops=self._event_admission_ops(
+                retained_event, recorded_at=now_iso, content_deadline=content_deadline
+            ),
+            unavailable_event_ops=self._event_admission_ops(
+                quota_event, recorded_at=now_iso, content_deadline=content_deadline
+            ),
             retain_ops=retain_ops,
             media_kind=declared.kind,
             mime_type=declared.mime_type,

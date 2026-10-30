@@ -181,9 +181,16 @@ async def test_missing_manifest_is_corruption_not_absent_content(tmp_path):
     try:
         event = make_storage_event(event_id="manifest-lost")
         await storage.append(event)
-        await storage._write(
-            "DELETE FROM event_body_identity WHERE event_id=?", (event.event_id,)
-        )
+        # Content dependencies reference the manifest with enforced foreign
+        # keys, so losing the manifest alone is out-of-band corruption.
+        db = sqlite3.connect(str(tmp_path / "state.sqlite"))
+        try:
+            db.execute(
+                "DELETE FROM event_body_identity WHERE event_id=?", (event.event_id,)
+            )
+            db.commit()
+        finally:
+            db.close()
         with pytest.raises(StorageError, match="no valid body identity"):
             await storage.get_body_presence_at_admission(event.event_id)
         assert await storage.get_body_presence_at_admission("truly-absent") is None
