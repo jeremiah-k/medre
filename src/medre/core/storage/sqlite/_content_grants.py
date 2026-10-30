@@ -18,9 +18,10 @@ from medre.core.storage.backend import StorageError
 from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 
 if TYPE_CHECKING:
-    from medre.core.events import CanonicalEvent
     from collections.abc import Callable
     from typing import Concatenate, ParamSpec, TypeVar
+
+    from medre.core.events import CanonicalEvent
 
     _P = ParamSpec("_P")
     _T = TypeVar("_T")
@@ -94,6 +95,38 @@ def _requires_content_authority(db: sqlite3.Connection, event_id: str) -> bool:
         ).fetchone()[0]
     )
 
+
+def _outbox_content_authority(
+    db: sqlite3.Connection, event_id: str, outbox_id: str, observed: str
+) -> bool:
+    """Answer in one snapshot whether an outbox may dispatch retained content.
+
+    The ordinary authority is the target-scoped ``outbox`` dependency adopted
+    inside the generation's own insert transaction. A replay generation
+    deliberately adopts none; its authority is the admission hold itself, so
+    replay dispatch stays possible exactly while the retained source is live
+    and fails closed once that hold is released or expired. Callers must have
+    observed mandatory expiry first, so a backward clock adjustment cannot
+    resurrect a released admission through this path.
+    """
+    if (
+        db.execute(
+            "SELECT 1 FROM event_content_dependencies WHERE event_id=? "
+            "AND owner_kind='outbox' AND owner_id=? AND released_at IS NULL "
+            "AND acquired_at<=? AND (deadline IS NULL OR deadline>?)",
+            (event_id, outbox_id, observed, observed),
+        ).fetchone()
+        is not None
+    ):
+        return True
+    replay = db.execute(
+        "SELECT 1 FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
+        "AND dispatch_source='replay'",
+        (outbox_id, event_id),
+    ).fetchone()
+    if replay is None:
+        return False
+    return _source_dependency_live(db, event_id)
 
 
 def sync_issue_body_hold(
@@ -294,22 +327,29 @@ def sync_read_outbox_body(
     with lock, db:
         db.execute("BEGIN IMMEDIATE")
         _observe_mandatory_expiry(db, event_id, observed)
-        row = db.execute(
-            "SELECT (SELECT c.body FROM event_body_content c "
-            "WHERE c.event_id=b.event_id ORDER BY c.field='body' DESC LIMIT 1), "
-            "b.present_at_admission "
-            "FROM event_body_identity b "
-            "JOIN event_content_dependencies d ON d.event_id=b.event_id "
-            "JOIN delivery_outbox o ON o.outbox_id=d.owner_id AND o.event_id=b.event_id "
-            "WHERE b.event_id=? AND d.owner_kind='outbox' AND d.owner_id=? "
-            "AND d.released_at IS NULL AND d.acquired_at<=? "
-            "AND (d.deadline IS NULL OR d.deadline>?) "
-            "AND o.status IN ('pending', 'in_progress', 'retry_wait') "
-            "AND EXISTS (SELECT 1 FROM event_content_dependencies s "
-            "WHERE s.event_id=b.event_id AND s.owner_kind IN ('ingress','append') "
-            "AND s.released_at IS NULL)",
-            (event_id, outbox_id, observed, observed),
+        outbox = db.execute(
+            "SELECT 1 FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
+            "AND status IN ('pending', 'in_progress', 'retry_wait')",
+            (outbox_id, event_id),
         ).fetchone()
+        # Replay generations carry no outbox dependency; they dispatch on the
+        # still-live admission hold, like every other owner-bound outbox read.
+        authorized = (
+            outbox is not None
+            and _outbox_content_authority(db, event_id, outbox_id, observed)
+            and _source_dependency_live(db, event_id)
+        )
+        row = (
+            db.execute(
+                "SELECT (SELECT c.body FROM event_body_content c "
+                "WHERE c.event_id=b.event_id ORDER BY c.field='body' DESC LIMIT 1), "
+                "b.present_at_admission FROM event_body_identity b "
+                "WHERE b.event_id=?",
+                (event_id,),
+            ).fetchone()
+            if authorized
+            else None
+        )
     if row is None:
         return ContentBodyRead("denied")
     if row[1] not in (0, 1):
@@ -374,14 +414,20 @@ def sync_read_owned_event(
         if has_content:
             if not _source_dependency_live(db, event_id):
                 return AuthorizedEventRead("denied")
-            granted = db.execute(
-                "SELECT 1 FROM event_content_dependencies WHERE event_id=? "
-                "AND owner_kind=? AND owner_id=? AND released_at IS NULL "
-                "AND acquired_at<=? AND (deadline IS NULL OR deadline>?)",
-                (event_id, owner_kind, owner_id, observed, observed),
-            ).fetchone()
-            if granted is None:
-                return AuthorizedEventRead("denied")
+            if owner_kind == "outbox":
+                # Replay generations dispatch on the live admission hold; they
+                # never adopt a target-scoped dependency of their own.
+                if not _outbox_content_authority(db, event_id, owner_id, observed):
+                    return AuthorizedEventRead("denied")
+            else:
+                granted = db.execute(
+                    "SELECT 1 FROM event_content_dependencies WHERE event_id=? "
+                    "AND owner_kind=? AND owner_id=? AND released_at IS NULL "
+                    "AND acquired_at<=? AND (deadline IS NULL OR deadline>?)",
+                    (event_id, owner_kind, owner_id, observed, observed),
+                ).fetchone()
+                if granted is None:
+                    return AuthorizedEventRead("denied")
         row = db.execute(
             "SELECT * FROM canonical_events WHERE event_id=?", (event_id,)
         ).fetchone()
@@ -454,15 +500,7 @@ def sync_authorize_native_submission(
             return True
         if not _source_dependency_live(db, event_id):
             return False
-        return (
-            db.execute(
-                "SELECT 1 FROM event_content_dependencies WHERE event_id=? "
-                "AND owner_kind='outbox' AND owner_id=? AND released_at IS NULL "
-                "AND acquired_at<=? AND (deadline IS NULL OR deadline>?)",
-                (event_id, outbox_id, observed, observed),
-            ).fetchone()
-            is not None
-        )
+        return _outbox_content_authority(db, event_id, outbox_id, observed)
 
 
 class _ContentGrantsMixin:
