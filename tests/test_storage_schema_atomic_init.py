@@ -123,6 +123,23 @@ async def test_failed_index_ddl_leaves_no_partial_indexes(
         ro.close()
 
 
+def test_failed_initial_indexes_roll_back_tables_and_stamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "medre.core.storage.sqlite.connection._INDEXES",
+        _INDEXES + _BROKEN_INDEX_TAIL,
+    )
+    path = tmp_path / "initial-index-failure.db"
+    with pytest.raises(sqlite3.Error):
+        sync_open(str(path))
+    db = sqlite3.connect(path)
+    try:
+        assert db.execute("SELECT name FROM sqlite_master").fetchall() == []
+    finally:
+        db.close()
+
+
 def test_transactional_schema_matches_statement_by_statement_reference(
     tmp_path: Path,
 ) -> None:

@@ -100,9 +100,7 @@ class StorageInitializationError(StorageError):
 
 
 class PreReleaseSchemaMismatchError(StorageInitializationError):
-    """Raised when a pre-release database has the correct schema version
-    but is missing required columns — indicating it was created by an
-    older pre-release build.
+    """Raised when a pre-release database differs from the declared shape.
 
     Attributes
     ----------
@@ -112,21 +110,38 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
         Name of the table with missing columns.
     missing_columns:
         Sorted list of column names that are absent.
+    unexpected_columns:
+        Column names present outside the declared shape.
+    detail:
+        Structural mismatch such as an unstamped database or unexpected table.
     """
 
     def __init__(
         self,
         path: str | None,
         table: str,
-        missing_columns: list[str],
+        missing_columns: list[str] | None = None,
+        *,
+        unexpected_columns: list[str] | None = None,
+        detail: str | None = None,
     ) -> None:
         self.path = path
         self.table = table
-        self.missing_columns = missing_columns
+        self.missing_columns = sorted(missing_columns or [])
+        self.unexpected_columns = sorted(unexpected_columns or [])
+        self.detail = detail
+        differences = []
+        if self.missing_columns:
+            differences.append(f"missing required columns {self.missing_columns}")
+        if self.unexpected_columns:
+            differences.append(f"unexpected columns {self.unexpected_columns}")
+        if detail:
+            differences.append(detail)
+        reason = "; ".join(differences) or "incompatible definition"
         path_hint = f" (database: {path})" if path else ""
         super().__init__(
-            f"Pre-release schema shape mismatch: table '{table}' is "
-            f"missing required columns {sorted(missing_columns)}.{path_hint} "
+            f"Pre-release schema shape mismatch: table '{table}': "
+            f"{reason}.{path_hint} "
             f"The database does not match the current pre-release shape. "
             f"Please recreate the database; MEDRE does not automatically "
             f"transform pre-release database layouts."

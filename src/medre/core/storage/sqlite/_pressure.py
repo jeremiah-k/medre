@@ -139,11 +139,6 @@ class _PressureMixin:
         constant regardless of total pressure history; without it the
         listing is unbounded by design for full audits.
         """
-        # A read-only open of a schema-version-1 database created before
-        # this additive table skips DDL, so the table may legitimately not
-        # exist — that is an empty pressure history, not corruption.
-        from medre.core.storage.backend import StorageError
-
         base = (
             "SELECT window_start, source, outcome, count, "
             "first_seen_at, last_seen_at "
@@ -152,30 +147,15 @@ class _PressureMixin:
         where = "" if source is None else "WHERE source = ? "
         params: tuple[Any, ...] = () if source is None else (source,)
         if limit is None:
-            try:
-                return await self._read_all(
-                    base + where + "ORDER BY window_start, source, outcome",
-                    params,
-                )
-            except StorageError as exc:
-                if "inbound_pressure_observations" in str(exc) and (
-                    "no such table" in str(exc)
-                ):
-                    return []
-                raise
+            return await self._read_all(
+                base + where + "ORDER BY window_start, source, outcome", params
+            )
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
-        try:
-            rows = await self._read_all(
-                base + where + "ORDER BY window_start DESC, source DESC, outcome DESC "
-                "LIMIT ?",
-                (*params, limit),
-            )
-        except StorageError as exc:
-            if "inbound_pressure_observations" in str(exc) and (
-                "no such table" in str(exc)
-            ):
-                return []
-            raise
+        rows = await self._read_all(
+            base + where + "ORDER BY window_start DESC, source DESC, outcome DESC "
+            "LIMIT ?",
+            (*params, limit),
+        )
         rows.reverse()
         return rows

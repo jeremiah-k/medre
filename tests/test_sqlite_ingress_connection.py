@@ -359,13 +359,21 @@ def test_schema_shape_inspection_covers_unstamped_and_stamped_databases(
     db.commit()
     db.close()
     required = {"durable_ingress_work": frozenset({"event_id", "status"})}
-    assert sync_find_schema_shape_mismatch(str(db_path), required) is None
+    mismatch = sync_find_schema_shape_mismatch(str(db_path), required)
+    assert mismatch is not None
+    assert mismatch.table == "_medre_schema_meta"
+    assert mismatch.missing_columns == []
+    assert "unstamped database" in mismatch.detail
 
     db = sqlite3.connect(db_path)
     db.execute("CREATE TABLE _medre_schema_meta (key TEXT PRIMARY KEY, value TEXT)")
     db.commit()
     db.close()
-    assert sync_find_schema_shape_mismatch(str(db_path), required) is None
+    mismatch = sync_find_schema_shape_mismatch(str(db_path), required)
+    assert mismatch is not None
+    assert mismatch.table == "_medre_schema_meta"
+    assert mismatch.missing_columns == []
+    assert "stamp is missing" in mismatch.detail
 
     db = sqlite3.connect(db_path)
     db.execute(
@@ -374,16 +382,20 @@ def test_schema_shape_inspection_covers_unstamped_and_stamped_databases(
     db.execute("CREATE TABLE durable_ingress_work (event_id TEXT PRIMARY KEY)")
     db.commit()
     db.close()
-    assert sync_find_schema_shape_mismatch(str(db_path), required) == (
-        "durable_ingress_work",
-        ["status"],
-    )
+    mismatch = sync_find_schema_shape_mismatch(str(db_path), required)
+    assert mismatch is not None
+    assert mismatch.table == "durable_ingress_work"
+    assert mismatch.missing_columns == ["status"]
 
     db = sqlite3.connect(db_path)
     db.execute("ALTER TABLE durable_ingress_work ADD COLUMN status TEXT")
     db.commit()
     db.close()
-    assert sync_find_schema_shape_mismatch(str(db_path), required) is None
+    mismatch = sync_find_schema_shape_mismatch(str(db_path), required)
+    assert mismatch is not None
+    assert mismatch.table == "_medre_schema_meta"
+    assert mismatch.missing_columns == []
+    assert mismatch.detail == "unexpected table"
 
 
 def test_sync_ingress_helpers_preserve_original_error_when_rollback_fails() -> None:

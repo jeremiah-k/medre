@@ -7,7 +7,10 @@ import sqlite3
 
 import pytest
 
-from medre.core.storage.backend import MAX_RECOVERY_PAGE_LIMIT
+from medre.core.storage.backend import (
+    MAX_RECOVERY_PAGE_LIMIT,
+    PreReleaseSchemaConstraintMismatchError,
+)
 from medre.core.storage.sqlite._recovery_query import (
     _SELECT_UNRESOLVED_DELIVERIES,
     _SELECT_UNRESOLVED_DELIVERIES_SINCE,
@@ -75,8 +78,8 @@ def test_since_scope_filters_the_same_event_lineage() -> None:
     assert "replay_run_id" not in where_clause
 
 
-async def test_readonly_recovery_does_not_require_lineage_index(tmp_path) -> None:
-    """Read-only recovery stays valid before the optional lineage index exists."""
+async def test_readonly_recovery_requires_declared_lineage_index(tmp_path) -> None:
+    """A missing declared index is an incompatible prerelease shape."""
     db_path = tmp_path / "recovery-no-lineage-index.db"
     storage = SQLiteStorage(str(db_path))
     await storage.initialize()
@@ -89,13 +92,10 @@ async def test_readonly_recovery_does_not_require_lineage_index(tmp_path) -> Non
     finally:
         raw.close()
 
-    readonly = await SQLiteStorage.open_readonly(str(db_path))
-    try:
-        page = await readonly.query_unresolved_deliveries(limit=3)
-        assert page.items == []
-        assert page.has_more is False
-    finally:
-        await readonly.close()
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError, match="idx_receipts_lineage"
+    ):
+        await SQLiteStorage.open_readonly(str(db_path))
 
 
 class _RecoveryReadStub(_RecoveryQueryMixin):

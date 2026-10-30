@@ -1259,9 +1259,8 @@ section caps its listing). The table stores counters and timestamps only —
 never payloads, sender identity, or transport-native content — and it is
 operational evidence: rows never become canonical events, receipts, or
 outbox state, and pressure history deliberately spans runtime restarts.
-This is an additive table (see §4.12's additive-DDL note); it is absent
-from the required-columns shape guard and registered as additive in the
-DDL-parity test.
+This table is required by the strict prerelease schema. Initialization MUST
+reject a database that omits it before executing any schema DDL.
 
 ### 4.16 Index Policy
 
@@ -1606,11 +1605,10 @@ Pages are a live view of append-only evidence, not a snapshot.
 `since_event_time` is an inclusive bound on the **canonical event timestamp**
 (`canonical_events.timestamp`), distinct from receipt creation time. Outbox
 rows joined by `outbox_id` may only enrich disposition/retryability fields; they
-are never acceptance evidence. `idx_receipts_lineage` is an optional optimizer;
-recovery SQL does not require or hard-code that index, so read-only recovery
-remains correct on a database that has not yet been reopened read-write to
-create it. `replay_run_id` remains execution provenance and is not part of the
-lineage key.
+are never acceptance evidence. `idx_receipts_lineage` belongs to the declared
+prerelease shape; initialization refuses its absence. Recovery SQL leaves index
+selection to SQLite rather than requiring a particular query-plan hint.
+`replay_run_id` remains execution provenance and is not part of the lineage key.
 
 ### 8.18 Attachment content access
 
@@ -1711,7 +1709,8 @@ repeat normal shape validation after opening. This prevents
 prerelease tables. If any required table or column is missing,
 `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`)
 **MUST** be raised. The error message **MUST** identify the affected table, the
-missing columns, and the database file path. It **MUST NOT** suggest that
+missing columns, unexpected columns or metadata details as separate clauses,
+and the database file path. It **MUST NOT** suggest that
 automatic schema transformation is available.
 
 This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against stale prerelease databases.
@@ -1724,7 +1723,8 @@ transform that database in place.
 
 ### 10.3 Structural-Constraint Validation
 
-After opening, `initialize()` and `open_readonly()` **MUST** inspect foreign-key
+Before schema DDL or journal-mode changes, `initialize()` and `open_readonly()`
+**MUST** inspect foreign-key
 mappings, required UNIQUE keys, and the `sqlite_master` table definitions for required
 constraints. In particular, `delivery_outbox` MUST retain the event-scoped UNIQUE key
 `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`, and
@@ -1735,6 +1735,20 @@ shape, and status-vocabulary checks. `conversation_membership` MUST retain the c
 `conversation_id = root_event_id`, and the allowed `resolution_state` values. Missing
 constraints raise `PreReleaseSchemaConstraintMismatchError`; current columns alone do
 not make an older unconstrained table compatible.
+
+The complete declared SQLite catalog MUST match the catalog produced by the
+authoritative table and index DDL. This includes column types, nullability,
+defaults, primary and foreign keys (including actions), CHECK/UNIQUE constraints,
+collations, expression and partial indexes, and views. Missing or unexpected
+objects, including triggers, MUST be refused. SQLite-managed objects such as
+statistics and sequence tables are excluded. Hand-written equivalent DDL is
+outside this prerelease identity contract.
+
+Validation MUST leave an incompatible database unchanged. Writable initialization
+MUST repeat validation while holding its initialization transaction to prevent
+concurrent schema changes between preflight and use. A fresh database MUST create
+tables, indexes, and its version stamp in the same transaction; a nonempty
+unstamped database MUST NOT be adopted.
 
 ### 10.4 Pre-Release Stale Database Reset
 

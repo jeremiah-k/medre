@@ -305,11 +305,6 @@ CREATE TABLE IF NOT EXISTS adapter_checkpoints (
 -- retained byte string; identical content admitted twice stores once and
 -- consumes quota once.  ``data`` is the plaintext payload (see
 -- docs/spec/security-privacy.md); ordinary event queries never select it.
--- NOTE: this and ``event_attachment_associations`` below are additive
--- tables; they are intentionally absent from ``_REQUIRED_COLUMNS`` so a
--- pre-existing schema-version-1 database gains them additively instead of
--- failing the pre-release shape guard, and they are registered as
--- additive in the DDL-parity test.
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     content_ref TEXT PRIMARY KEY,
     size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
@@ -333,9 +328,8 @@ CREATE TABLE IF NOT EXISTS event_attachment_associations (
 -- source, outcome); counters only — a rejected or deferred arrival never
 -- persists payload, sender, or transport-native content here.  Written
 -- before durable admission, so it is the only durable trace of arrivals
--- the admission gate turned away.  NOTE: additive table; intentionally
--- absent from ``_REQUIRED_COLUMNS`` and registered as additive in the
--- DDL-parity test, like the attachment tables above.
+-- the admission gate turned away. Required in the strict prerelease shape,
+-- alongside the attachment tables; incompatible state is never repaired.
 CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     window_start INTEGER NOT NULL,
     source TEXT NOT NULL,
@@ -679,6 +673,15 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "value",
             "updated_at",
         }
+    ),
+    "attachment_blobs": frozenset(
+        {"content_ref", "size_bytes", "media_kind", "mime_type", "created_at", "data"}
+    ),
+    "event_attachment_associations": frozenset(
+        {"event_id", "content_ref", "created_at"}
+    ),
+    "inbound_pressure_observations": frozenset(
+        {"window_start", "source", "outcome", "count", "first_seen_at", "last_seen_at"}
     ),
     "_medre_schema_meta": frozenset(
         {
