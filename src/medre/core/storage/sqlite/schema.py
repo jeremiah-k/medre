@@ -47,6 +47,31 @@ CREATE TABLE IF NOT EXISTS event_body_identity (
     recorded_at TEXT NOT NULL
 );
 
+-- Canonical body text is stored separately from identity and envelope JSON.
+-- No row means no text; an empty string is an explicitly present body.
+-- This table is not a grant. It must not be exposed by ordinary inspection.
+CREATE TABLE IF NOT EXISTS event_body_content (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    field TEXT NOT NULL CHECK (field IN ('body', 'text')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, field)
+);
+
+-- One durable dependency per content owner. The ingress owner is admitted
+-- atomically with the event and durable work; each outbox owner is created
+-- atomically with its outbox generation. No collector runs in this slice.
+CREATE TABLE IF NOT EXISTS event_content_dependencies (
+    event_id TEXT NOT NULL REFERENCES event_body_identity(event_id),
+    owner_kind TEXT NOT NULL CHECK (owner_kind IN ('ingress', 'append', 'outbox')),
+    owner_id TEXT NOT NULL CHECK (length(owner_id) > 0),
+    acquired_at TEXT NOT NULL,
+    deadline TEXT,
+    released_at TEXT,
+    PRIMARY KEY (event_id, owner_kind, owner_id),
+    CHECK (deadline IS NULL OR acquired_at < deadline)
+);
+
 -- Explicit opt-in content read policy. No implicit grant is created by
 -- admission. The immutable event-level hard ceiling is set once, on first
 -- authorized policy installation; future grants cannot extend it.
@@ -80,9 +105,16 @@ CREATE TABLE IF NOT EXISTS event_relations (
     target_native_message_id TEXT,
     target_native_thread_id TEXT,
     key TEXT,
-    fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
+);
+
+-- Relation excerpts are content, not relation identity. Native target refs
+-- stay in event_relations even when the text excerpt becomes unavailable.
+CREATE TABLE IF NOT EXISTS event_relation_excerpts (
+    relation_id INTEGER NOT NULL REFERENCES event_relations(id),
+    excerpt TEXT NOT NULL,
+    UNIQUE (relation_id)
 );
 
 CREATE TABLE IF NOT EXISTS conversation_membership (
@@ -523,6 +555,10 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "event_body_identity": frozenset(
         {"event_id", "version", "present_at_admission", "recorded_at"}
     ),
+    "event_body_content": frozenset({"event_id", "body", "field", "created_at"}),
+    "event_content_dependencies": frozenset(
+        {"event_id", "owner_kind", "owner_id", "acquired_at", "deadline", "released_at"}
+    ),
     "event_relations": frozenset(
         {
             "id",
@@ -534,11 +570,11 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "target_native_message_id",
             "target_native_thread_id",
             "key",
-            "fallback_text",
             "metadata",
             "created_at",
         }
     ),
+    "event_relation_excerpts": frozenset({"relation_id", "excerpt"}),
     "event_content_access_policies": frozenset(
         {
             "event_id",
@@ -748,6 +784,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
     "event_body_identity": frozenset({("event_id",)}),
+    "event_body_content": frozenset({("event_id", "field")}),
+    "event_content_dependencies": frozenset({("event_id", "owner_kind", "owner_id")}),
+    "event_relation_excerpts": frozenset({("relation_id",)}),
     "event_content_access_policies": frozenset({("event_id",)}),
     "event_content_access_grants": frozenset({("event_id", "scope", "consumer")}),
     "operator_delivery_decisions": frozenset({("decision_id",)}),
@@ -770,6 +809,11 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
     "event_body_identity": frozenset({("event_id", "canonical_events", "event_id")}),
+    "event_body_content": frozenset({("event_id", "canonical_events", "event_id")}),
+    "event_content_dependencies": frozenset(
+        {("event_id", "event_body_identity", "event_id")}
+    ),
+    "event_relation_excerpts": frozenset({("relation_id", "event_relations", "id")}),
     "event_content_access_policies": frozenset(
         {("event_id", "canonical_events", "event_id")}
     ),

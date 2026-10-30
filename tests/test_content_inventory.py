@@ -47,7 +47,13 @@ async def test_unicode_and_relation_copies_count_without_returning_values(temp_s
     by_table = {item["table"]: item for item in report["surfaces"]}
     assert by_table["canonical_events"]["rows"] == 1
     assert by_table["event_relations"]["rows"] == 1
-    assert by_table["event_relations"]["logical_bytes"] == len(secret.encode()) + 2
+    # Relation identity keeps only its metadata envelope; the reply excerpt
+    # and the canonical body now live in their own content tables.
+    assert by_table["event_relations"]["logical_bytes"] == 2
+    assert by_table["event_relation_excerpts"]["rows"] == 1
+    assert by_table["event_relation_excerpts"]["logical_bytes"] == len(secret.encode())
+    assert by_table["event_body_content"]["rows"] == 1
+    assert by_table["event_body_content"]["logical_bytes"] == len(secret.encode())
     assert secret not in json.dumps(report)
     assert event.event_id not in json.dumps(report)
     assert await temp_storage.get(event.event_id) == event

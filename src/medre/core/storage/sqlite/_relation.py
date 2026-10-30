@@ -30,7 +30,9 @@ class _RelationMixin:
 
     if TYPE_CHECKING:
 
-        async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+        async def _write_batch(
+            self, ops: list[tuple[str, tuple[Any, ...]]]
+        ) -> None: ...
 
         async def _read_all(
             self, sql: str, params: tuple[Any, ...] = ()
@@ -53,10 +55,21 @@ class _RelationMixin:
                 nref.native_message_id if nref else None,
                 nref.native_thread_id if nref else None,
                 relation.key,
-                relation.fallback_text,
                 _encode_json(relation.metadata),
                 _now_iso(),
             ),
+        )
+
+    @staticmethod
+    def _relation_excerpt_op(
+        relation: EventRelation,
+    ) -> tuple[str, tuple[Any, ...]] | None:
+        if relation.fallback_text is None:
+            return None
+        return (
+            "INSERT INTO event_relation_excerpts (relation_id, excerpt) "
+            "VALUES (last_insert_rowid(), ?)",
+            (relation.fallback_text,),
         )
 
     async def store_relation(self, event_id: str, relation: EventRelation) -> None:
@@ -64,8 +77,24 @@ class _RelationMixin:
 
         Authority: **create**.
         """
-        sql, params = self._relation_op(event_id, relation)
-        await self._write(sql, params)
+        ops = [self._relation_op(event_id, relation)]
+        excerpt_op = self._relation_excerpt_op(relation)
+        if excerpt_op is not None:
+            ops.append(excerpt_op)
+            # A post-admission excerpt must never become an unowned copy.
+            # Adopt a source append dependency atomically if the event did not
+            # already own body/text or earlier excerpts.
+            ops.append(
+                (
+                    "INSERT INTO event_content_dependencies "
+                    "(event_id, owner_kind, owner_id, acquired_at) "
+                    "SELECT ?, 'append', ?, ? FROM canonical_events e WHERE e.event_id=? "
+                    "AND NOT EXISTS (SELECT 1 FROM event_content_dependencies d "
+                    "WHERE d.event_id=e.event_id AND d.owner_kind IN ('ingress','append'))",
+                    (event_id, event_id, _now_iso(), event_id),
+                )
+            )
+        await self._write_batch(ops)
 
     async def list_relations(self, event_id: str) -> list[EventRelation]:
         """Return all relations belonging to *event_id*.

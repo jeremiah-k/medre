@@ -34,129 +34,17 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Minimal old-shape DDL that triggers schema shape mismatch.
-# Includes the newer body-identity table so the first intended mismatch is
-# event_relations, which lacks target_native_thread_id.
-# schema_version is stamped as 1 to simulate an old prerelease DB.
-_OLD_SHAPE_DDL: str = """
-CREATE TABLE IF NOT EXISTS canonical_events (
-    event_id TEXT PRIMARY KEY,
-    event_kind TEXT NOT NULL,
-    schema_version INTEGER NOT NULL,
-    timestamp TEXT NOT NULL,
-    source_adapter TEXT NOT NULL,
-    source_transport_id TEXT NOT NULL,
-    source_channel_id TEXT,
-    parent_event_id TEXT,
-    lineage TEXT NOT NULL DEFAULT '[]',
-    payload TEXT NOT NULL DEFAULT '{}',
-    metadata TEXT NOT NULL DEFAULT '{}',
-    depth INTEGER NOT NULL DEFAULT 0,
-    trace_id TEXT,
-    root_event_id TEXT,
-    conversation_id TEXT,
-    source_native_adapter TEXT,
-    source_native_channel_id TEXT,
-    source_native_message_id TEXT,
-    source_native_thread_id TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS event_body_identity (
-    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
-    version INTEGER NOT NULL CHECK (version = 1),
-    present_at_admission INTEGER NOT NULL CHECK (present_at_admission IN (0, 1)),
-    recorded_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS event_relations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id TEXT NOT NULL,
-    relation_type TEXT NOT NULL,
-    target_event_id TEXT,
-    target_native_adapter TEXT,
-    target_native_channel_id TEXT,
-    target_native_message_id TEXT,
-    key TEXT,
-    fallback_text TEXT,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS native_message_refs (
-    id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
-    adapter TEXT NOT NULL,
-    native_channel_id TEXT,
-    native_message_id TEXT NOT NULL,
-    native_thread_id TEXT,
-    native_relation_id TEXT,
-    direction TEXT NOT NULL,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    UNIQUE(adapter, native_channel_id, native_message_id)
-);
-CREATE TABLE IF NOT EXISTS delivery_receipts (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-    receipt_id TEXT UNIQUE NOT NULL,
-    event_id TEXT NOT NULL,
-    delivery_plan_id TEXT NOT NULL,
-    target_adapter TEXT NOT NULL,
-    target_channel TEXT,
-    route_id TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL,
-    error TEXT,
-    failure_kind TEXT,
-    adapter_message_id TEXT,
-    next_retry_at TEXT,
-    attempt_number INTEGER NOT NULL DEFAULT 1,
-    parent_receipt_id TEXT,
-    source TEXT NOT NULL DEFAULT 'live',
-    replay_run_id TEXT,
-    retry_max_attempts INTEGER,
-    retry_backoff_base REAL,
-    retry_max_delay REAL,
-    retry_jitter INTEGER,
-    rendering_evidence TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS delivery_outbox (
-    outbox_id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
-    route_id TEXT NOT NULL DEFAULT '',
-    delivery_plan_id TEXT NOT NULL,
-    target_adapter TEXT NOT NULL,
-    target_channel TEXT,
-    target_address TEXT,
-    attempt_number INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL DEFAULT 'pending',
-    failure_kind TEXT,
-    failure_kind_detail TEXT,
-    next_attempt_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_attempt_at TEXT,
-    locked_at TEXT,
-    lease_until TEXT,
-    worker_id TEXT,
-    payload_hash TEXT,
-    receipt_id TEXT,
-    parent_receipt_id TEXT,
-    error_summary TEXT,
-    metadata TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
-);
-CREATE TABLE IF NOT EXISTS plugin_state (
-    plugin_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY(plugin_id, key)
-);
-CREATE TABLE IF NOT EXISTS _medre_schema_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-INSERT INTO _medre_schema_meta (key, value)
-    VALUES ('schema_version', '1');
-"""
+# Isolate the obsolete relation shape from unrelated schema additions, so
+# diagnostics name precisely the missing relation column.
+_relation_start = _SCHEMA.index("CREATE TABLE IF NOT EXISTS event_relations (")
+_relation_end = _SCHEMA.index("\n);", _relation_start)
+_OLD_SHAPE_DDL = (
+    _SCHEMA[:_relation_start]
+    + _SCHEMA[_relation_start:_relation_end].replace(
+        "    target_native_thread_id TEXT,\n", "", 1
+    )
+    + _SCHEMA[_relation_end:]
+)
 
 
 def _create_old_shape_db() -> str:
@@ -170,6 +58,11 @@ def _create_old_shape_db() -> str:
     raw = sqlite3.connect(db_path)
     try:
         raw.executescript(_OLD_SHAPE_DDL)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
     finally:
         raw.close()
 

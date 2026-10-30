@@ -28,9 +28,8 @@ INSERT INTO event_relations
     (event_id, relation_type, target_event_id,
      target_native_adapter, target_native_channel_id,
      target_native_message_id, target_native_thread_id,
-     key, fallback_text,
-     metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     key, metadata, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_NATIVE_REF = """
@@ -116,7 +115,12 @@ WHERE outbox_id = ?
 
 _SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
 
-_SELECT_RELATIONS = "SELECT * FROM event_relations WHERE event_id = ? ORDER BY id ASC"
+_SELECT_RELATIONS = (
+    "SELECT r.*, x.excerpt AS resolved_fallback_text "
+    "FROM event_relations r "
+    "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
+    "WHERE r.event_id=? ORDER BY r.id ASC"
+)
 
 _SELECT_RELATION_SOURCES = """
 SELECT event_id

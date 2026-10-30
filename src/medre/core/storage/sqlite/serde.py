@@ -98,7 +98,7 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
         target_event_id=row["target_event_id"],
         target_native_ref=target_native_ref,
         key=row["key"],
-        fallback_text=row["fallback_text"],
+        fallback_text=row.get("resolved_fallback_text"),
         metadata=_decode_json(row["metadata"]),
     )
 
