@@ -16,6 +16,36 @@ coordination so outstanding work cannot be sent without its required content.
 relations, and unknown provider copies separately. An empty blocker list is
 **not** permission to delete; the inventory is incomplete by construction.
 
+## New opt-in persisted body-read grants (not whole-runtime authority)
+
+Core SQLite now implements `issue_optional_body_hold`,
+`revoke_optional_body_hold`, and `read_body_for_consumer`. One immutable
+per-event ceiling and one exact `(event_id, body, consumer)` grant are stored
+transactionally; no event receives an implicit grant. An optional hold MUST
+name an allowlisted consumer, be issued at or before the observation time,
+expire within the policy maximum and the event-level ceiling, and MUST NOT be
+reissued after revocation. Bounds MUST compare UTC instants and elapsed
+durations, including across daylight-saving transitions. Non-retained read
+results MUST carry no body value. Incompatible policy attempts fail closed.
+
+A `read_body_for_consumer` call returns `denied` without body or existence
+information when the authenticated internal caller lacks a live grant, and
+returns `unavailable` only to a granted requester whose admitted body was
+absent. An empty string remains a present body. The grant predicate and
+content selection MUST share one SQLite statement/snapshot. This low-level
+storage API MUST report SQLite failures and payload-integrity violations as
+`StorageError`, preserving SQLite exception causes. Invalid caller requests
+remain `ValueError`. The API is for trusted core code; a consumer string is not authentication
+and must never be exposed to an untrusted extension as a capability.
+
+**This is not operational content expiry.** Canonical `get/query`, rendering,
+reply expansion, replay and provider-owned copies still access their existing
+retained representation. The event policy is installed explicitly after
+admission for this opt-in seam; mandatory ingress/delivery holds do not yet
+exist. No content collection, policy default, native deletion, or erasure
+claim is authorized until those remaining consumers and transactional
+admission requirements are integrated. See the gates below.
+
 ## Required runtime integration gates
 
 Before enabling an operator policy, implement one persisted content-reference

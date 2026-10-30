@@ -12,6 +12,10 @@ from medre.core.storage.sqlite.schema import _SCHEMA
     "filename,tables",
     [
         ("event-body-admission.schema.sql", {"event_body_identity"}),
+        (
+            "content-access-grants.schema.sql",
+            {"event_content_access_policies", "event_content_access_grants"},
+        ),
     ],
 )
 def test_content_schema_fragment_matches_authoritative_ddl(filename, tables):

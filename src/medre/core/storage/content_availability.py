@@ -41,7 +41,8 @@ class ContentHold:
         if self.issued_at is not None and (
             self.issued_at.tzinfo is None
             or self.issued_at.utcoffset() is None
-            or self.issued_at >= self.expires_at
+            or self.issued_at.astimezone(timezone.utc)
+            >= self.expires_at.astimezone(timezone.utc)
         ):
             raise ValueError("Hold issue time must precede expiry and have a timezone")
 
@@ -133,6 +134,7 @@ def preview_content_access(
     """
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("Observation time must be timezone aware")
+    now = now.astimezone(timezone.utc)
     if scope not in {"body", "reply_excerpt", "attachment"}:
         raise ValueError("Unsupported content scope")
     if type(available) is not bool:
@@ -158,7 +160,9 @@ def preview_content_access(
                 not hold.mandatory
                 and hold.consumer in policy.allowed_optional_consumers
                 and hold.issued_at is not None
-                and hold.expires_at - hold.issued_at <= policy.max_optional_hold
+                and hold.expires_at.astimezone(timezone.utc)
+                - hold.issued_at.astimezone(timezone.utc)
+                <= policy.max_optional_hold
             )
         )
         and (requester is None or hold.consumer == requester)
@@ -171,7 +175,10 @@ def preview_content_access(
         return AvailabilityDecision(1, "unavailable", "hard_ceiling_elapsed", None)
     if not valid:
         return AvailabilityDecision(1, "denied", "no_live_hold", None)
-    until = min(policy.hard_ceiling, max(hold.expires_at for hold in valid))
+    until = min(
+        policy.hard_ceiling,
+        max(hold.expires_at.astimezone(timezone.utc) for hold in valid),
+    )
     return AvailabilityDecision(1, "retained", "bounded_hold", until)
 
 

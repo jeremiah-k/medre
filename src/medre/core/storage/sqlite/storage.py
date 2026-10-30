@@ -49,6 +49,7 @@ from medre.core.storage.sqlite._attachments import (  # noqa: F401  -- public re
     StorageAttachmentAccess,
     _AttachmentsMixin,
 )
+from medre.core.storage.sqlite._content_grants import _ContentGrantsMixin
 from medre.core.storage.sqlite._content_identity import _ContentIdentityMixin
 from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
@@ -619,6 +620,7 @@ class _SQLiteStorageBase:
 
 class SQLiteStorage(
     _ContentIdentityMixin,
+    _ContentGrantsMixin,
     _EventMixin,
     _IngressMixin,
     _AttachmentsMixin,

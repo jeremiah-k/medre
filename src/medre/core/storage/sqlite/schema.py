@@ -47,6 +47,29 @@ CREATE TABLE IF NOT EXISTS event_body_identity (
     recorded_at TEXT NOT NULL
 );
 
+-- Explicit opt-in content read policy. No implicit grant is created by
+-- admission. The immutable event-level hard ceiling is set once, on first
+-- authorized policy installation; future grants cannot extend it.
+CREATE TABLE IF NOT EXISTS event_content_access_policies (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    version INTEGER NOT NULL CHECK (version = 1),
+    hard_ceiling TEXT NOT NULL,
+    allowed_consumers TEXT NOT NULL CHECK (json_valid(allowed_consumers)),
+    max_optional_hold_microseconds INTEGER NOT NULL CHECK (max_optional_hold_microseconds > 0),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_content_access_grants (
+    event_id TEXT NOT NULL REFERENCES event_content_access_policies(event_id),
+    scope TEXT NOT NULL CHECK (scope = 'body'),
+    consumer TEXT NOT NULL CHECK (length(consumer) BETWEEN 1 AND 128),
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    PRIMARY KEY(event_id, scope, consumer),
+    CHECK (issued_at < expires_at)
+);
+
 CREATE TABLE IF NOT EXISTS event_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -516,6 +539,19 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "event_content_access_policies": frozenset(
+        {
+            "event_id",
+            "version",
+            "hard_ceiling",
+            "allowed_consumers",
+            "max_optional_hold_microseconds",
+            "created_at",
+        }
+    ),
+    "event_content_access_grants": frozenset(
+        {"event_id", "scope", "consumer", "issued_at", "expires_at", "revoked_at"}
+    ),
     "conversation_membership": frozenset(
         {
             "event_id",
@@ -712,6 +748,8 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
     "event_body_identity": frozenset({("event_id",)}),
+    "event_content_access_policies": frozenset({("event_id",)}),
+    "event_content_access_grants": frozenset({("event_id", "scope", "consumer")}),
     "operator_delivery_decisions": frozenset({("decision_id",)}),
     "radio_attempt_progress": frozenset({("outbox_id", "attempt_number")}),
     "delivery_outbox": frozenset(
@@ -732,6 +770,12 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
     "event_body_identity": frozenset({("event_id", "canonical_events", "event_id")}),
+    "event_content_access_policies": frozenset(
+        {("event_id", "canonical_events", "event_id")}
+    ),
+    "event_content_access_grants": frozenset(
+        {("event_id", "event_content_access_policies", "event_id")}
+    ),
     "operator_delivery_decisions": frozenset(
         {
             ("event_id", "canonical_events", "event_id"),
@@ -766,6 +810,28 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
         (
             "CHECK (present_at_admission IN (0, 1))",
             r"CHECK\s*\(\s*present_at_admission\s+IN\s*\(\s*0\s*,\s*1\s*\)\s*\)",
+        ),
+    ),
+    "event_content_access_policies": (
+        ("CHECK (version = 1)", r"CHECK\s*\(\s*version\s*=\s*1\s*\)"),
+        (
+            "CHECK (json_valid(allowed_consumers))",
+            r"CHECK\s*\(\s*json_valid\s*\(\s*allowed_consumers\s*\)\s*\)",
+        ),
+        (
+            "CHECK (max_optional_hold_microseconds > 0)",
+            r"CHECK\s*\(\s*max_optional_hold_microseconds\s*>\s*0\s*\)",
+        ),
+    ),
+    "event_content_access_grants": (
+        ("CHECK (scope = 'body')", r"CHECK\s*\(\s*scope\s*=\s*'body'\s*\)"),
+        (
+            "CHECK (length(consumer) BETWEEN 1 AND 128)",
+            r"CHECK\s*\(\s*length\s*\(\s*consumer\s*\)\s+BETWEEN\s+1\s+AND\s+128\s*\)",
+        ),
+        (
+            "CHECK (issued_at < expires_at)",
+            r"CHECK\s*\(\s*issued_at\s*<\s*expires_at\s*\)",
         ),
     ),
     "operator_delivery_decisions": (

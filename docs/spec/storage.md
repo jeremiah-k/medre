@@ -14,7 +14,8 @@ This document specifies the MEDRE storage layer. The current SQLite backend pers
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
 projection and its `conversation_projection_state`, `native_message_refs`,
 `delivery_receipts`, `delivery_outbox`, `radio_attempt_progress`,
-`event_body_identity`, `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
+`event_body_identity`, `event_content_access_policies`,
+`event_content_access_grants`, `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
 `attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
 `plugin_state` table,
 and schema metadata.
