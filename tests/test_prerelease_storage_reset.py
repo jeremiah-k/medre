@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS canonical_events (
 CREATE TABLE IF NOT EXISTS event_body_identity (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     version INTEGER NOT NULL CHECK (version = 1),
-    availability TEXT NOT NULL CHECK (availability IN ('retained', 'unavailable')),
+    present_at_admission INTEGER NOT NULL CHECK (present_at_admission IN (0, 1)),
     recorded_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS event_relations (
