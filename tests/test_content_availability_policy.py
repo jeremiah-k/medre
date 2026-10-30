@@ -218,6 +218,38 @@ def test_optional_caller_cannot_convert_mandatory_hold_into_read_grant():
     assert internal.result == "retained"
 
 
+def test_optional_hold_never_authorizes_the_mandatory_internal_path():
+    optional = hold(scope="body")
+    for available in (True, False):
+        decision = preview_content_access(
+            now=NOW,
+            scope="body",
+            available=available,
+            policy=policy(),
+            holds=(optional,),
+            requester=None,
+        )
+        assert decision.result == "denied"
+        assert decision.reason == "no_live_hold"
+
+
+def test_optional_preview_refuses_hold_exceeding_immutable_ceiling():
+    policy_with_early_ceiling = replace(
+        policy(), hard_ceiling=NOW + timedelta(minutes=30)
+    )
+    optional = hold(scope="body", expiry=timedelta(hours=1))
+    decision = preview_content_access(
+        now=NOW,
+        scope="body",
+        available=True,
+        policy=policy_with_early_ceiling,
+        holds=(optional,),
+        requester="plugin-a",
+    )
+    assert decision.result == "denied"
+    assert decision.reason == "no_live_hold"
+
+
 def test_version_boolean_is_not_policy_version_one():
     with pytest.raises(ValueError, match="version"):
         AvailabilityPolicy(NOW, timedelta(hours=1), version=True)
@@ -311,14 +343,15 @@ def test_omitted_requester_cannot_select_internal_inspection():
         preview_content_access(now=NOW, scope="body", available=False, policy=policy())
 
 
-def test_optional_hold_is_clamped_at_privacy_ceiling_and_refused_afterward():
+def test_optional_hold_ending_at_privacy_ceiling_expires_without_leaking_presence():
     bounded = replace(policy(), hard_ceiling=NOW + timedelta(minutes=30))
+    exact = hold(expiry=timedelta(minutes=30))
     before = preview_content_access(
         now=NOW,
         scope="reply_excerpt",
         available=True,
         policy=bounded,
-        holds=(hold(),),
+        holds=(exact,),
         requester="plugin-a",
     )
     assert before.result == "retained"
@@ -328,9 +361,9 @@ def test_optional_hold_is_clamped_at_privacy_ceiling_and_refused_afterward():
         scope="reply_excerpt",
         available=True,
         policy=bounded,
-        holds=(hold(),),
+        holds=(exact,),
         requester="plugin-a",
     )
-    assert after.result == "unavailable"
-    assert after.reason == "hard_ceiling_elapsed"
+    assert after.result == "denied"
+    assert after.reason == "no_live_hold"
     assert after.held_until is None

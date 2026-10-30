@@ -146,6 +146,8 @@ def preview_content_access(
     # Optional callers need their own live optional hold before learning whether
     # bytes exist or the privacy ceiling has elapsed. Mandatory dependency holds
     # are trusted internal inputs and never grant an optional consumer access.
+    # Conversely, optional grants cannot authorize the internal requester=None
+    # path; that path requires an explicitly mandatory dependency hold.
     if requester is not None and requester not in policy.allowed_optional_consumers:
         return AvailabilityDecision(1, "denied", "consumer_not_authorized", None)
     valid = [
@@ -155,26 +157,29 @@ def preview_content_access(
         and hold.expires_at > now
         and (hold.issued_at is None or hold.issued_at <= now)
         and (
-            (hold.mandatory and requester is None)
+            (requester is None and hold.mandatory)
             or (
-                not hold.mandatory
+                requester is not None
+                and not hold.mandatory
+                and hold.consumer == requester
                 and hold.consumer in policy.allowed_optional_consumers
                 and hold.issued_at is not None
+                and hold.expires_at.astimezone(timezone.utc)
+                <= policy.hard_ceiling.astimezone(timezone.utc)
                 and hold.expires_at.astimezone(timezone.utc)
                 - hold.issued_at.astimezone(timezone.utc)
                 <= policy.max_optional_hold
             )
         )
-        and (requester is None or hold.consumer == requester)
     ]
-    if requester is not None and not valid:
+    if not valid:
+        # The mandatory and optional paths both deny unheld inspection before
+        # disclosing whether bytes exist or the privacy ceiling has elapsed.
         return AvailabilityDecision(1, "denied", "no_live_hold", None)
     if not available:
         return AvailabilityDecision(1, "unavailable", "bytes_absent", None)
     if now >= policy.hard_ceiling:
         return AvailabilityDecision(1, "unavailable", "hard_ceiling_elapsed", None)
-    if not valid:
-        return AvailabilityDecision(1, "denied", "no_live_hold", None)
     until = min(
         policy.hard_ceiling,
         max(hold.expires_at.astimezone(timezone.utc) for hold in valid),
