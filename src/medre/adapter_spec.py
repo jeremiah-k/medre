@@ -13,12 +13,16 @@ from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
+    "ADAPTER_API_VERSION",
     "AdapterSpec",
     "AdapterSample",
     "DestinationSpec",
     "SymbolRef",
     "NativeSetupField",
 ]
+
+
+ADAPTER_API_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +119,7 @@ class AdapterSpec:
     native_setup_fields: tuple[NativeSetupField, ...] = ()
     logger_levels: tuple[tuple[str, str], ...] = ()
     stopped_state_declaration: SymbolRef | None = None
+    api_version: int | None = None
 
     @property
     def has_python_sdk(self) -> bool:

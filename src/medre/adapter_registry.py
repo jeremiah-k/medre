@@ -17,7 +17,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from medre.adapter_spec import AdapterSpec, DestinationSpec
+from medre.adapter_spec import ADAPTER_API_VERSION, AdapterSpec, DestinationSpec
 
 __all__ = [
     "AdapterDiscoveryFailure",
@@ -79,6 +79,14 @@ class AdapterTypeRegistry:
         destinations: dict[str, DestinationSpec] = {}
         for spec in ordered:
             transport = spec.transport
+            if spec.api_version is not None and (
+                type(spec.api_version) is not int
+                or spec.api_version != ADAPTER_API_VERSION
+            ):
+                raise ValueError(
+                    f"adapter {transport!r} declares API version {spec.api_version!r}; "
+                    f"core requires {ADAPTER_API_VERSION}"
+                )
             if not valid_transport_name(transport):
                 raise ValueError(f"invalid adapter transport name: {transport!r}")
             if transport in by_transport:
