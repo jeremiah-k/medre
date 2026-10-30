@@ -7,6 +7,7 @@ filtering, dead-letter retry, and non-mutation constraints.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
@@ -285,12 +286,20 @@ class TestReplayPolicy:
             assert sample_event.event_kind == orig_kind
             assert dict(sample_event.payload) == orig_payload
 
-            # Stored version unchanged
+            # Stored version unchanged: the metadata view stays identity-only
+            # and the authorized replay read still returns the full payload.
             stored = await temp_storage.get(sample_event.event_id)
             assert stored is not None
             assert stored.event_id == orig_id
             assert stored.event_kind == orig_kind
-            assert dict(stored.payload) == orig_payload
+            assert stored.payload == {}
+            authorized = await temp_storage.read_event_for_replay(
+                sample_event.event_id,
+                now=datetime.now(timezone.utc),
+            )
+            assert authorized.status == "retained"
+            assert authorized.event is not None
+            assert dict(authorized.event.payload) == orig_payload
 
     # ------------------------------------------------------------------
     # Dead-letter / retry replay semantics

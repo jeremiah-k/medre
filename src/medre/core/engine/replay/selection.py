@@ -28,6 +28,39 @@ class _ReplaySelectionMixin:
         _diagnostician: Diagnostician | None
         _accounting: RuntimeAccounting | None
 
+    async def _borrow_replay_content(
+        self, event: CanonicalEvent
+    ) -> tuple[bool, CanonicalEvent]:
+        """Authorize one temporary full read against the live source hold.
+
+        Selection is metadata-only; an explicit replay may read complete
+        content only while the original admission/append dependency is still
+        live. A replay never renews retention, recreates a hold or bypasses
+        delivery's separate outbox/attempt submission authority. Returns
+        ``(allowed, event)`` where *event* carries content only when allowed.
+        """
+        authorized = await self._storage.read_event_for_replay(event.event_id)
+        if authorized.status != "retained" or authorized.event is None:
+            return False, event
+        return True, authorized.event
+
+    async def _read_replay_stage(
+        self, event: CanonicalEvent, stage: str
+    ) -> CanonicalEvent | ReplayResult:
+        """Recheck content authority separately for each consuming stage."""
+        if stage == "store":
+            return event
+        allowed, borrowed = await self._borrow_replay_content(event)
+        if allowed:
+            return borrowed
+        return ReplayResult(
+            event_id=event.event_id,
+            stage=stage,
+            status="skipped",
+            error="replay_content_authority_denied",
+            lineage=list(event.lineage),
+        )
+
     async def count_matching(self, request: ReplayRequest) -> int:
         """Return the number of events matching *request* without replaying.
 
@@ -56,7 +89,7 @@ class _ReplaySelectionMixin:
             for eid in request.correlation_ids:
                 if count >= request.limit:
                     break
-                event = await self._storage.get(eid)
+                event = await self._storage.get_metadata(eid)
                 if event is None:
                     # Missing ID — count it to stay consistent with
                     # _iter_by_ids and replay().
@@ -65,7 +98,7 @@ class _ReplaySelectionMixin:
                     count += 1
         else:
             event_filter = _request_to_filter(request)
-            async for _ in self._storage.query(event_filter):
+            async for _ in self._storage.query_metadata(event_filter):
                 count += 1
 
         return count
@@ -91,7 +124,7 @@ class _ReplaySelectionMixin:
         for eid in ids:
             if yielded >= request.limit:
                 break
-            event = await self._storage.get(eid)
+            event = await self._storage.get_metadata(eid)
             if event is None:
                 yielded += 1
                 yield (eid, None)

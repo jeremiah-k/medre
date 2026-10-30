@@ -118,21 +118,23 @@ async def assemble_event_timeline(
       :func:`medre.runtime.trace.assemble_event_timeline`.
     - **ordering_guarantees**: reference to :data:`ORDERING_GUARANTEES`.
     """
-    event: CanonicalEvent | None = await storage.get(event_id)
+    event: CanonicalEvent | None = await storage.get_metadata(event_id)
     if event is None:
         return None
 
     receipts: list[DeliveryReceipt] = await storage.list_receipts_for_event(
-        event_id,
+        event_id, metadata_only=True
     )
     native_refs: list[NativeMessageRef] = await storage.list_native_refs_for_event(
-        event_id
+        event_id, metadata_only=True
     )
     observations: list[DeliveryObservation] = (
-        await storage.list_delivery_observations_for_event(event_id)
+        await storage.list_delivery_observations_for_event(event_id, metadata_only=True)
     )
     relations = await storage.list_relations(event_id)
-    outbox_items = await storage.list_outbox_items_for_event(event_id)
+    outbox_items = await storage.list_outbox_items_for_event(
+        event_id, metadata_only=True
+    )
 
     # -- Source classification --
     sources = {getattr(r, "source", "live") for r in receipts}
@@ -209,9 +211,11 @@ async def assemble_replay_timeline(
     neither durable outbox claims nor immutable receipts exist for the run.
     """
     receipts: list[DeliveryReceipt] = await storage.list_receipts_by_replay_run(
-        replay_run_id
+        replay_run_id, metadata_only=True
     )
-    outbox_items = await storage.list_outbox_items_by_replay_run(replay_run_id)
+    outbox_items = await storage.list_outbox_items_by_replay_run(
+        replay_run_id, metadata_only=True
+    )
     if not receipts and not outbox_items:
         return None
 
@@ -223,7 +227,7 @@ async def assemble_replay_timeline(
     )
     event_cache: dict[str, CanonicalEvent] = {}
     for event_id in event_ids:
-        event = await storage.get(event_id)
+        event = await storage.get_metadata(event_id)
         if event is not None:
             event_cache[event_id] = event
 

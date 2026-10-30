@@ -638,10 +638,10 @@ class TestEvidenceShowsFailureReason:
         )
         entry = await _get_dsbt_entry(db_path, event_id)
         assert entry["failure_kind"] == "adapter_permanent"
-        assert entry["error"] is not None
+        assert entry["error"] is None
 
     async def test_failure_kind_detail_enriched(self, tmp_path: Any) -> None:
-        """failure_kind_detail is enriched for specific failure patterns."""
+        """Safe failure detail uses the structured category, never opaque prose."""
         event_id = "ev-opdiag-faildetail-001"
         db_path = str(tmp_path / "fail-detail.db")
         await _build_db(
@@ -657,10 +657,10 @@ class TestEvidenceShowsFailureReason:
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        assert entry["failure_kind_detail"] == "queue_rejected"
+        assert entry["failure_kind_detail"] == "adapter_transient"
 
     async def test_suppression_reason_in_dsbt(self, tmp_path: Any) -> None:
-        """suppression_reason explains *why* a delivery was suppressed."""
+        """Free-form suppression reasons stay outside metadata inspection."""
         event_id = "ev-opdiag-suppreason-001"
         db_path = str(tmp_path / "supp-reason.db")
         await _build_db(
@@ -676,12 +676,10 @@ class TestEvidenceShowsFailureReason:
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        assert entry["suppression_reason"] == (
-            "reactions unsupported by adapter (event has reaction relation)"
-        )
+        assert entry["suppression_reason"] is None
 
     async def test_error_field_in_dsbt(self, tmp_path: Any) -> None:
-        """error field captures the raw error for operator inspection."""
+        """Ordinary operator inspection withholds opaque error text."""
         event_id = "ev-opdiag-errorfield-001"
         db_path = str(tmp_path / "error-field.db")
         await _build_db(
@@ -697,8 +695,8 @@ class TestEvidenceShowsFailureReason:
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        assert entry["error"] is not None
-        assert "TimeoutError" in str(entry["error"])
+        assert entry["error"] is None
+        assert "TimeoutError" not in str(entry["error"])
 
     async def test_failure_reason_in_report_dict(self) -> None:
         """delivery_receipt_to_report_dict includes failure_kind and error."""

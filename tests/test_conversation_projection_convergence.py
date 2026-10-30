@@ -19,6 +19,7 @@ from medre.core.storage.backend import (
     ConversationProjectionState,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.content_reads import inspection_rows
 
 _TS = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
@@ -154,9 +155,11 @@ class _MemoryProjectionStorage:
         del adapter, native_channel_id, native_message_id
         return None
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
         del event_id
-        return []
+        return inspection_rows([], "native_message_refs", metadata_only)
 
     async def list_relation_sources(self, target_event_id: str) -> list[str]:
         return [

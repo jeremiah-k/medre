@@ -268,7 +268,7 @@ class ConversationProjectionStorage(Protocol):
     ) -> str | None: ...
 
     async def list_native_refs_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only: bool = False
     ) -> list[NativeMessageRef]: ...
 
     async def list_relation_sources(self, target_event_id: str) -> list[str]: ...
@@ -747,7 +747,9 @@ class ConversationProjectionService:
         """Return sources whose native relation may resolve to *event_id*."""
         ordered: list[str] = []
         seen: set[str] = set()
-        for ref in await self._storage.list_native_refs_for_event(event_id):
+        for ref in await self._storage.list_native_refs_for_event(
+            event_id, metadata_only=True
+        ):
             sources = await self._storage.list_relation_sources_for_native_ref(
                 ref.adapter,
                 ref.native_channel_id,

@@ -749,9 +749,7 @@ class TestCapabilitySuppressedEvidenceBundle:
         summary = await _get_incident_summary(db_path, event_id)
         dsbt = summary["delivery_state_by_target"]
         entry = next(iter(dsbt.values()))
-        assert entry["suppression_reason"] == (
-            "reactions unsupported by adapter (event has reaction relation)"
-        )
+        assert entry["suppression_reason"] is None
 
     @pytest.mark.asyncio
     async def test_capability_suppressed_dsbt_has_capability_field(
@@ -864,7 +862,7 @@ class TestCapabilitySuppressedEvidenceBundle:
         assert "failure_kind" in entry
         assert entry["failure_kind"] == "capability_suppressed"
         assert "suppression_reason" in entry
-        assert entry["suppression_reason"] is not None
+        assert entry["suppression_reason"] is None
         assert "capability_field" in entry
         assert entry["capability_field"] == "reactions"
         assert "capability_level" in entry
@@ -903,7 +901,7 @@ class TestCapabilitySuppressedEvidenceBundle:
         summary = await _get_incident_summary(db_path, event_id)
         dsbt = summary["delivery_state_by_target"]
         entry = next(iter(dsbt.values()))
-        assert entry["suppression_reason"] == "Self-loop guard"
+        assert entry["suppression_reason"] is None
         assert entry["capability_level"] is None
         assert entry["capability_field"] is None
         assert entry["source"] == "live"

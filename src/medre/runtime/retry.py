@@ -58,6 +58,7 @@ from medre.core.engine.pipeline.retry_plan import (
 )
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.read_contracts import AuthorizedEventRead
 from medre.runtime.events import RuntimeEventType
 
 __all__ = ["RetryWorker", "RetryWorkerState", "RetryWorkerStorage"]
@@ -91,7 +92,11 @@ class RetryWorkerStorage(Protocol):
 
     async def count_outbox_by_status(self) -> dict[str, int]: ...
 
-    async def get(self, event_id: str) -> CanonicalEvent | None: ...
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None: ...
+
+    async def read_event_for_outbox(
+        self, event_id: str, outbox_id: str, *, now: datetime | None = None
+    ) -> AuthorizedEventRead: ...
 
     async def delivery_status(
         self,
@@ -1055,12 +1060,7 @@ class RetryWorker:
         """
         # Load identity only until persisted native evidence is reconciled.
         # Content may not be projected before the outbox owner is checked.
-        get_envelope = getattr(self._storage, "get_envelope", None)
-        event = (
-            await get_envelope(item.event_id)
-            if callable(get_envelope)
-            else await self._storage.get(item.event_id)
-        )
+        event = await self._storage.get_metadata(item.event_id)
         if event is None:
             _logger.warning(
                 "RetryWorker: event %s not found for outbox %s",
@@ -1113,17 +1113,6 @@ class RetryWorker:
                 self._log_superseded_transition(item, stale)
             return
 
-        if retry_context.routing is not None and not callable(
-            getattr(self._storage, "read_event_for_outbox", None)
-        ):
-            # Non-SQLite test backends retain their existing projection path.
-            event = msgspec.structs.replace(
-                event,
-                metadata=msgspec.structs.replace(
-                    event.metadata, routing=retry_context.routing
-                ),
-            )
-
         # A worker can reclaim an expired ``in_progress`` row after a prior
         # process persisted receipt evidence but failed before committing the
         # matching outbox transition.  Reconcile that evidence first: invoking
@@ -1168,34 +1157,31 @@ class RetryWorker:
             )
             return
 
-        read_owned = getattr(self._storage, "read_event_for_outbox", None)
-        if callable(read_owned):
-            authorized = await read_owned(
-                item.event_id, item.outbox_id, now=datetime.now(timezone.utc)
-            )
-            if authorized.status != "retained" or authorized.event is None:
-                # Reconcile persisted evidence above BEFORE treating an
-                # unavailable body as terminal. The outbox attempt remains
-                # durable; this refusal never invokes the native transport.
-                self.state.processed += 1
-                self.state.failed += 1
-                try:
-                    await self._lifecycle.abandon_retry_outbox(
-                        self._lifecycle_storage,
-                        item,
-                        error_summary="content_authority_denied",
-                    )
-                except RetryAttemptCommitRejected as stale:
-                    self._log_superseded_transition(item, stale)
-                return
-            event = authorized.event
-            if retry_context.routing is not None:
-                event = msgspec.structs.replace(
-                    event,
-                    metadata=msgspec.structs.replace(
-                        event.metadata, routing=retry_context.routing
-                    ),
+        read_owned = self._storage.read_event_for_outbox
+        authorized = await read_owned(item.event_id, item.outbox_id)
+        if authorized.status != "retained" or authorized.event is None:
+            # Reconcile persisted evidence above BEFORE treating an
+            # unavailable body as terminal. The outbox attempt remains
+            # durable; this refusal never invokes the native transport.
+            self.state.processed += 1
+            self.state.failed += 1
+            try:
+                await self._lifecycle.abandon_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    error_summary="content_authority_denied",
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
+            return
+        event = authorized.event
+        if retry_context.routing is not None:
+            event = msgspec.structs.replace(
+                event,
+                metadata=msgspec.structs.replace(
+                    event.metadata, routing=retry_context.routing
+                ),
+            )
 
         if (
             self._available_target_adapters is not None

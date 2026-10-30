@@ -257,9 +257,8 @@ class TestF4SuppressionReasonInRecover:
         report = json.loads(stdout_buf.getvalue())
         failed = report["failed_targets"]
         assert len(failed) >= 1
-        assert (
-            "suppression_reason" in failed[0]
-        ), f"Expected 'suppression_reason' in failed target, keys: {sorted(failed[0].keys())}"
+        assert failed[0].get("suppression_reason") is None
+        assert failed[0]["failure_kind"] == "capability_suppressed"
 
 
 # ---------------------------------------------------------------------------

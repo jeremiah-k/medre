@@ -610,8 +610,8 @@ class TargetDeliveryService:
         # immediately before native submission. No new native operation may
         # start on an expired or missing target dependency. This does not
         # rewrite prior accepted or uncertain native-attempt evidence.
-        authorize_content = getattr(self._storage, "authorize_native_submission", None)
-        if outbox_id is not None and callable(authorize_content):
+        authorize_content = self._storage.authorize_native_submission
+        if outbox_id is not None:
             if not await authorize_content(event.event_id, outbox_id, now=now):
                 evidence = await self._persist_failure_evidence(
                     event=event,
@@ -967,7 +967,7 @@ class TargetDeliveryService:
                         "radio continuation requires a configured retry policy"
                     )
                 resume_from = predecessor
-            if outbox_id is not None and callable(authorize_content):
+            if outbox_id is not None:
                 if not await authorize_content(
                     event.event_id, outbox_id, now=datetime.now(timezone.utc)
                 ):

@@ -440,7 +440,7 @@ class TestRecoverDispatch:
     def test_recover_single_event_not_found(self) -> None:
         """Recover with unknown event_id exits EXIT_NOT_FOUND."""
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=None)
+        mock_storage.get_metadata = AsyncMock(return_value=None)
         mock_storage.close = AsyncMock()
 
         with patch(
@@ -463,7 +463,7 @@ class TestRecoverDispatch:
         event = _FakeEvent()
         receipt = _FakeReceipt()
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -498,7 +498,7 @@ class TestRecoverDispatch:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(
             return_value=[ok_receipt, failed_receipt, dead_receipt]
         )
@@ -530,7 +530,7 @@ class TestRecoverDispatch:
         radio_ref = _FakeNativeRef(adapter="meshtastic")
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[radio_ref])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -559,7 +559,7 @@ class TestRecoverDispatch:
         """Human-readable output includes event info."""
         event = _FakeEvent()
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -622,7 +622,7 @@ class TestRecoverDispatch:
         """JSON output has deterministically sorted keys."""
         event = _FakeEvent()
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -663,7 +663,7 @@ class TestRecoverChannelRoute:
             error="boom",
         )
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -884,7 +884,7 @@ class TestRecoverClassification:
         ok = _FakeReceipt(status="sent", target_adapter="adapter_c")
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1, r2, ok])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -927,7 +927,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1, r2])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -963,7 +963,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[r1])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -997,7 +997,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1035,7 +1035,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1070,7 +1070,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1105,7 +1105,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1140,7 +1140,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1174,7 +1174,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1200,7 +1200,7 @@ class TestRecoverClassification:
             assert "replay_result" not in parsed
             assert "replay_summary" not in parsed
             # Only read methods called.
-            mock_storage.get.assert_called()
+            mock_storage.get_metadata.assert_called()
             mock_storage.list_receipts_for_event.assert_called()
             # No write methods.
             mock_storage.append.assert_not_called()
@@ -1217,7 +1217,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1252,7 +1252,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1286,7 +1286,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])
@@ -1318,7 +1318,7 @@ class TestRecoverClassification:
         )
 
         mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.get_metadata = AsyncMock(return_value=event)
         mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
         mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
         mock_storage.list_relations = AsyncMock(return_value=[])

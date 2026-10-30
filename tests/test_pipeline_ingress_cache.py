@@ -26,6 +26,7 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.content_reads import inspection_rows
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
 from tests.helpers.storage_outbox import admit_event
 
@@ -45,14 +46,27 @@ class _CallCountingStorage:
         self.list_refs_call_ids: list[str] = []
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
+        return await self._real.get_metadata(event_id)
+
+    async def read_reply_context(self, event_id: str, *, now=None):
+        # The runner's per-ingress target reads go through the borrow;
+        # count them on the same surface as gets.
         self.get_call_count += 1
         self.get_call_ids.append(event_id)
-        return await self._real.get(event_id)
+        return await self._real.read_reply_context(event_id, now=now)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
         self.list_refs_call_count += 1
         self.list_refs_call_ids.append(event_id)
-        return await self._real.list_native_refs_for_event(event_id)
+        return inspection_rows(
+            await self._real.list_native_refs_for_event(
+                event_id, metadata_only=metadata_only
+            ),
+            "native_message_refs",
+            metadata_only,
+        )
 
     # Delegate remaining storage methods to the real storage.
 
@@ -83,10 +97,16 @@ class _BlockingStorage:
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
         self.get_call_ids.append(event_id)
+        return await self._real.get(event_id)
+
+    async def read_reply_context(self, event_id: str, *, now=None):
+        # The runner's per-ingress target reads go through the authorized
+        # borrow; block there to force deterministic interleaving.
+        self.get_call_ids.append(event_id)
         if event_id == self._blocked_id:
             self._entered_event.set()
             await self._block_event.wait()
-        return await self._real.get(event_id)
+        return await self._real.read_reply_context(event_id, now=now)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
@@ -122,7 +142,12 @@ def _make_cached_get(storage: _CallCountingStorage):
     async def cached_get(event_id: str) -> CanonicalEvent | None:
         if event_id in cache:
             return cache[event_id]
-        result = await storage.get(event_id)
+        read = await storage.read_reply_context(event_id, now=datetime.now(UTC))
+        result = (
+            read.event
+            if read.status != "denied"
+            else await storage.get_metadata(event_id)
+        )
         cache[event_id] = result
         return result
 
@@ -136,7 +161,7 @@ def _make_cached_list_refs(storage: _CallCountingStorage):
     async def cached_list(event_id: str) -> list[NativeMessageRef]:
         if event_id in cache:
             return cache[event_id]
-        result = await storage.list_native_refs_for_event(event_id)
+        result = await storage.list_native_refs_for_event(event_id, metadata_only=True)
         cache[event_id] = result
         return result
 
@@ -746,9 +771,15 @@ class TestEnricherWithCachedCallables:
             event, target_adapter="adapter-a"
         )
 
-        # With cached callables that delegate to storage.
+        # With cached callables that delegate to storage through the
+        # authorized live-hold borrow.
         async def _cached_get(eid: str) -> CanonicalEvent | None:
-            return await temp_storage.get(eid)
+            authorized = await temp_storage.read_event_for_replay(
+                eid, now=datetime.now(UTC)
+            )
+            if authorized.status == "retained":
+                return authorized.event
+            return await temp_storage.get_metadata(eid)
 
         async def _cached_list(eid: str) -> list[NativeMessageRef]:
             return await temp_storage.list_native_refs_for_event(eid)

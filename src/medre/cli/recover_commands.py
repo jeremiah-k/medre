@@ -727,6 +727,7 @@ async def _recover(
             cursor=cursor,
             since_event_time=since,
             limit=page_limit,
+            metadata_only=True,
         )
 
         scan_report: dict[str, Any] = {

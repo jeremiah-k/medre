@@ -23,13 +23,14 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-class FakeStorage:
+class FakeStorage(CannedContentReads):
     """Duck-typed fake storage providing ``get`` and ``list_native_refs_for_event``.
 
     Supports optional per-method failure injection for resilience tests.
@@ -51,15 +52,21 @@ class FakeStorage:
     def set_list_raises(self, value: bool = True) -> None:
         self._list_raises = value
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def _read_event(self, event_id: str) -> CanonicalEvent | None:
         if self._get_raises:
             raise RuntimeError("simulated storage.get failure")
         return self._events.get(event_id)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
         if self._list_raises:
             raise RuntimeError("simulated list_native_refs failure")
-        return list(self._native_refs.get(event_id, []))
+        return inspection_rows(
+            list(self._native_refs.get(event_id, [])),
+            "native_message_refs",
+            metadata_only,
+        )
 
 
 class _MissingMethodsStorage:
@@ -1125,9 +1132,9 @@ class TestNonDictTargetPayload:
                 return target if event_id == "target-str" else None
 
             async def list_native_refs_for_event(
-                self, event_id: str
+                self, event_id: str, *, metadata_only=False
             ) -> list[NativeMessageRef]:
-                return []
+                return inspection_rows([], "native_message_refs", metadata_only)
 
         enricher = _make_enricher(storage=_Storage())
         event = _make_event(
@@ -1332,15 +1339,19 @@ class TestRelationTargetFactAttachment:
                 self.get_calls = 0
                 self.list_calls = 0
 
-            async def get(self, event_id: str) -> CanonicalEvent | None:
+            async def _read_event(self, event_id: str) -> CanonicalEvent | None:
                 self.get_calls += 1
-                return await super().get(event_id)
+                return await super()._read_event(event_id)
 
             async def list_native_refs_for_event(
-                self, event_id: str
+                self, event_id: str, *, metadata_only=False
             ) -> list[NativeMessageRef]:
                 self.list_calls += 1
-                return await super().list_native_refs_for_event(event_id)
+                return inspection_rows(
+                    await super().list_native_refs_for_event(event_id),
+                    "native_message_refs",
+                    metadata_only,
+                )
 
         self_ref = self._nref("native-1")
         storage = CountingStorage()

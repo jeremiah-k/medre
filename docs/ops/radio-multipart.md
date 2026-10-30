@@ -103,3 +103,11 @@ This handoff change introduces no additional database shape change.
 
 For the internal continuation contract, see
 [radio text planning](../spec/radio-text-planning.md#explicit-continuation-of-a-proven-unsent-tail).
+
+## Content-safe inspection
+
+`medre inspect radio-attempt` reports parent identity, plan fingerprint and
+per-packet state with a `handoff_recorded` presence flag. It withholds the retained wire-text plan and marks
+`content_withheld: true`. Continuation assessment uses native handoff facts;
+it grants no send and does not validate withheld wire content. Full plan
+validation remains part of the owned runtime continuation transaction.

@@ -9,7 +9,6 @@ It **never** writes to storage or mutates runtime state.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Protocol, cast
 
@@ -54,63 +53,19 @@ from medre.core.recovery.recovery_source import RecoverySource
 
 
 class _EvidenceStorage(Protocol):
-    """Minimal storage interface the collector requires.
+    """Metadata-only storage interface for ordinary operator inspection.
 
-    Tests can supply any object satisfying these methods without
-    implementing the full backend.
-
-    ``list_outbox_items_for_event`` is intentionally omitted from this
-    protocol because the collector probes for it via ``getattr`` /
-    ``callable`` - backends that predate the outbox method are
-    supported without raising ``AttributeError``.
+    Outbox inspection is optional; missing outbox support is reported as
+    incomplete evidence, not mistaken for an empty outbox.
     """
 
-    async def get(self, event_id: str) -> Any: ...
-    async def list_receipts_for_event(self, event_id: str) -> list[Any]: ...
-    async def list_native_refs_for_event(self, event_id: str) -> list[Any]: ...
-
-
-# ---------------------------------------------------------------------------
-# Rendering evidence parsing
-# ---------------------------------------------------------------------------
-
-
-def _parse_rendering_evidence(
-    raw: str | None,
-    *,
-    receipt_id: str,
-    event_id: str,
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Parse ``rendering_evidence`` defensively.
-
-    Returns ``(parsed_dict_or_None, warning_or_None)``.
-
-    * ``None`` raw -> ``(None, None)`` - no warning.
-    * Valid JSON object -> ``(dict, None)``.
-    * Valid non-object JSON -> ``(None, warning)`` - schema expects object.
-    * Invalid JSON -> ``(None, warning)`` - with receipt/event context,
-      raw evidence not echoed except for length.
-    """
-    if raw is None:
-        return None, None
-
-    try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, ValueError, TypeError):
-        length = len(raw) if isinstance(raw, str) else 0
-        return None, (
-            f"Invalid rendering_evidence JSON on receipt {receipt_id} "
-            f"(event {event_id}): parse error (raw length={length})"
-        )
-
-    if isinstance(parsed, dict):
-        return parsed, None
-
-    # Valid JSON but not an object.
-    return None, (
-        f"Non-object rendering_evidence on receipt {receipt_id} "
-        f"(event {event_id}): expected JSON object, got {type(parsed).__name__}"
-    )
+    async def get_metadata(self, event_id: str) -> Any: ...
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only: bool = False
+    ) -> list[Any]: ...
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only: bool = False
+    ) -> list[Any]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -154,17 +109,9 @@ def _summarize_event(event: CanonicalEvent) -> dict[str, Any]:
 def _summarize_receipt(receipt: Any, warnings: list[str]) -> ReceiptSummary:
     """Build a :class:`ReceiptSummary` from a :class:`DeliveryReceipt`.
 
-    Parses ``rendering_evidence`` defensively, appending warnings for
-    invalid JSON.
+    Deliberately does not parse or expose free-form rendering evidence.
+    Native evidence remains persisted for authorized recovery operations.
     """
-    parsed_evidence, warn = _parse_rendering_evidence(
-        receipt.rendering_evidence,
-        receipt_id=receipt.receipt_id,
-        event_id=receipt.event_id,
-    )
-    if warn is not None:
-        warnings.append(warn)
-
     return ReceiptSummary(
         receipt_id=receipt.receipt_id,
         sequence=receipt.sequence,
@@ -177,12 +124,12 @@ def _summarize_receipt(receipt: Any, warnings: list[str]) -> ReceiptSummary:
         source=receipt.source,
         replay_run_id=receipt.replay_run_id,
         failure_kind=receipt.failure_kind,
-        error=receipt.error,
+        error=None,  # Provider error strings may embed message bytes.
         capability_level=receipt.capability_level,
         capability_field=receipt.capability_field,
-        capability_reason=receipt.capability_reason,
+        capability_reason=None,  # Free-form text requires an authorized read.
         delivery_strategy=receipt.delivery_strategy,
-        rendering_evidence=parsed_evidence,
+        rendering_evidence=None,
         created_at=(
             receipt.created_at.isoformat()
             if isinstance(receipt.created_at, datetime)
@@ -238,7 +185,7 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "status": item.status,
         "replay_run_id": item.replay_run_id,
         "failure_kind": item.failure_kind,
-        "error_summary": item.error_summary,
+        "error_summary": None,  # Never export unstructured provider errors.
         "created_at": _to_json_safe_timestamp(item.created_at),
         "updated_at": _to_json_safe_timestamp(item.updated_at),
     }
@@ -334,7 +281,7 @@ class EvidenceCollector:
         warnings: list[str] = []
 
         # -- Event summary -------------------------------------------------
-        event = await self._storage.get(event_id)
+        event = await self._storage.get_metadata(event_id)
         event_summary: dict[str, Any] | None = None
         if event is not None:
             event_summary = _summarize_event(event)
@@ -342,13 +289,17 @@ class EvidenceCollector:
             warnings.append(f"Event {event_id!r} not found in storage")
 
         # -- Receipts (ordered by sequence) --------------------------------
-        receipts = await self._storage.list_receipts_for_event(event_id)
+        receipts = await self._storage.list_receipts_for_event(
+            event_id, metadata_only=True
+        )
         # Defensive: ensure order by sequence.
         receipts = sorted(receipts, key=lambda r: r.sequence)
         receipt_summaries = tuple(_summarize_receipt(r, warnings) for r in receipts)
 
         # -- Native refs (ordered by created_at, id) -----------------------
-        native_refs = await self._storage.list_native_refs_for_event(event_id)
+        native_refs = await self._storage.list_native_refs_for_event(
+            event_id, metadata_only=True
+        )
         # Defensive: ensure order by created_at, id even if storage sorts.
         native_refs = sorted(native_refs, key=lambda r: (r.created_at, r.id))
         native_ref_summaries = tuple(_summarize_native_ref(r) for r in native_refs)
@@ -358,7 +309,8 @@ class EvidenceCollector:
         list_outbox = getattr(self._storage, "list_outbox_items_for_event", None)
         if callable(list_outbox):
             outbox_items = await cast(
-                Coroutine[Any, Any, list[Any]], list_outbox(event_id)
+                Coroutine[Any, Any, list[Any]],
+                list_outbox(event_id, metadata_only=True),
             )
         else:
             # Optional storage capability: list_outbox_items_for_event is unavailable.
@@ -406,6 +358,9 @@ class EvidenceCollector:
             receipts=receipts,
             outbox_items=outbox_items,
         ).to_dict()
+        for entry in delivery_outcome_ledger.get("entries", {}).values():
+            if isinstance(entry, dict):
+                entry["error"] = None
 
         # -- Retry/outbox accountability summary (pure) ----------------------
         retry_outbox_summary_obj = build_retry_outbox_summary(
@@ -413,6 +368,9 @@ class EvidenceCollector:
             outbox_items=outbox_items,
         )
         retry_outbox_dict = _retry_outbox_summary_to_dict(retry_outbox_summary_obj)
+        for item in retry_outbox_dict["items"]:
+            item["failure_kind_detail"] = None
+            item["reason_pending"] = None
 
         # -- Convergence diagnostics (pure, from receipts + outbox) -----------
         # Convergence diagnostics are pure functions over already-loaded snapshots.

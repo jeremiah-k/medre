@@ -419,7 +419,7 @@ async def run_fake_bridge_smoke(
         stored_event: CanonicalEvent | None = None
         if storage is not None:
             try:
-                stored_event = await storage.get(event.event_id)
+                stored_event = await storage.get_metadata(event.event_id)
             except Exception:
                 # cleanup-silent: stored_event stays None; reported as
                 # event_stored=False below.

@@ -133,7 +133,12 @@ class TestFullPipeline:
             stored = await storage.get(event.event_id)
             assert stored is not None
             assert stored.event_id == event.event_id
-            assert stored.payload["body"] == "Hello from radio"
+            stored_read = await storage.read_event_for_replay(
+                event.event_id, now=datetime.now(timezone.utc)
+            )
+            assert stored_read.status == "retained"
+            assert stored_read.event is not None
+            assert stored_read.event.payload["body"] == "Hello from radio"
 
             # ------------------------------------------------------------------
             # 4. Router matches route

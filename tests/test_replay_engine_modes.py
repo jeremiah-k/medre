@@ -143,7 +143,13 @@ class TestStrictMode:
         assert stored is not None
         assert stored.event_id == orig_id
         assert stored.event_kind == orig_kind
-        assert dict(stored.payload) == orig_payload
+        assert stored.payload == {}  # Public storage inspection never hydrates content.
+        content = await temp_storage.read_event_for_replay(
+            orig_id, now=datetime.now(timezone.utc)
+        )
+        assert content.status == "retained"
+        assert content.event is not None
+        assert dict(content.event.payload) == orig_payload
         assert list(stored.lineage) == orig_lineage
 
 

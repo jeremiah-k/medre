@@ -11,6 +11,8 @@ packages required.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
@@ -353,7 +355,19 @@ class TestLxmfWrapperCallbackIngress:
             )
             assert resolved is not None
 
-            stored = await temp_storage.get(resolved)
+            # Identity columns survive the metadata projection, but payload
+            # and native metadata bytes only appear through the authorized
+            # live-hold borrow of the just-admitted event.
+            stored_meta = await temp_storage.get_metadata(resolved)
+            assert stored_meta is not None
+            assert stored_meta.source_native_ref is not None
+            assert stored_meta.source_native_ref.native_message_id == "meta-msg-001"
+            assert stored_meta.metadata.native is None
+            stored_read = await temp_storage.read_event_for_replay(
+                resolved, now=datetime.now(timezone.utc)
+            )
+            assert stored_read.status == "retained"
+            stored = stored_read.event
             assert stored is not None
 
             # source_adapter matches the adapter

@@ -73,7 +73,7 @@ class TestPipeline:
             stored = await temp_storage.get("pipeline-001")
             assert stored is not None
             assert stored.event_id == "pipeline-001"
-            assert stored.payload["text"] == "hello pipeline"
+            assert stored.payload == {}
 
             # Adapter received a rendered payload (not raw CanonicalEvent)
             assert len(fake_presentation.delivered_payloads) == 1

@@ -38,6 +38,7 @@ from medre.core.planning.relation_binding import (
     REASON_TARGET_NOT_STORED,
     RelationBindingAuthority,
 )
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 
 # ---------------------------------------------------------------------------
 # Synthetic non-Matrix world: opaque ids only
@@ -126,7 +127,7 @@ def _ref(
     )
 
 
-class FakeStorage:
+class FakeStorage(CannedContentReads):
     """Duck-typed storage with failure injection, like the enricher tests."""
 
     def __init__(self) -> None:
@@ -135,15 +136,19 @@ class FakeStorage:
         self.get_raises = False
         self.list_raises = False
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def _read_event(self, event_id: str) -> CanonicalEvent | None:
         if self.get_raises:
             raise RuntimeError("simulated storage.get failure")
         return self.events.get(event_id)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
         if self.list_raises:
             raise RuntimeError("simulated list_native_refs failure")
-        return list(self.refs.get(event_id, []))
+        return inspection_rows(
+            list(self.refs.get(event_id, [])), "native_message_refs", metadata_only
+        )
 
     def add_ref(self, ref: NativeMessageRef) -> None:
         self.refs.setdefault(ref.event_id, []).append(ref)

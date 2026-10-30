@@ -39,6 +39,7 @@ from medre.core.evidence.shutdown import build_shutdown_evidence
 from medre.core.evidence.tiers import infer_evidence_tier
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+from tests.helpers.content_reads import inspection_rows
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------
@@ -95,22 +96,36 @@ class FakeStorage:
         self._native_refs: dict[str, list[NativeMessageRef]] = {}
         self._outbox: dict[str, list[DeliveryOutboxItem]] = {}
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None:
         return self._events.get(event_id)
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        return sorted(self._receipts.get(event_id, []), key=lambda r: r.sequence)
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[DeliveryReceipt]:
+        return inspection_rows(
+            sorted(self._receipts.get(event_id, []), key=lambda r: r.sequence),
+            "delivery_receipts",
+            metadata_only,
+        )
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
-        return sorted(
-            self._native_refs.get(event_id, []),
-            key=lambda r: (r.created_at, r.id),
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
+        return inspection_rows(
+            sorted(
+                self._native_refs.get(event_id, []),
+                key=lambda r: (r.created_at, r.id),
+            ),
+            "native_message_refs",
+            metadata_only,
         )
 
     async def list_outbox_items_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only=False
     ) -> list[DeliveryOutboxItem]:
-        return self._outbox.get(event_id, [])
+        return inspection_rows(
+            self._outbox.get(event_id, []), "delivery_outbox", metadata_only
+        )
 
 
 # ---------------------------------------------------------------------------

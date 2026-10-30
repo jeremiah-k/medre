@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import msgspec
 
-from medre.core.storage.radio import StoredRadioAttempt
+from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
 from medre.core.storage.radio_handoff import (
     RadioLocalHandoff,
     plain_channel_payload_fingerprint,
 )
 
 
-def assess_radio_continuation(checkpoint: StoredRadioAttempt) -> dict[str, object]:
+def assess_radio_continuation(
+    checkpoint: StoredRadioAttempt | RadioAttemptMetadata,
+) -> dict[str, object]:
     """Describe a possible accepted-prefix/unsent-tail transfer without mutation.
 
     Decode all accepted local handoffs, requiring a common payload fingerprint.
@@ -24,9 +26,12 @@ def assess_radio_continuation(checkpoint: StoredRadioAttempt) -> dict[str, objec
     parent identity, route semantics, current worker and lease are checked in
     the storage transaction and at each native grant, not by this report.
     """
-    if not isinstance(checkpoint, StoredRadioAttempt):
-        raise TypeError("radio assessment requires a retained typed checkpoint")
-    parts = checkpoint.progress.parts
+    if isinstance(checkpoint, StoredRadioAttempt):
+        parts = checkpoint.progress.parts
+    elif isinstance(checkpoint, RadioAttemptMetadata):
+        parts = checkpoint.parts
+    else:
+        raise TypeError("radio assessment requires typed progress evidence")
     accepted = sum(part.state == "accepted" for part in parts)
     unsent = sum(part.state == "unsent" for part in parts)
     reasons: list[str] = []

@@ -21,6 +21,7 @@ import pytest
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
+    EventMetadata,
     NativeMessageRef,
 )
 from medre.core.evidence.bundle import (
@@ -33,6 +34,7 @@ from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.content_reads import inspection_rows
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------
@@ -139,22 +141,39 @@ class FakeStorage:
         self._native_refs: dict[str, list[NativeMessageRef]] = {}
         self._outbox: dict[str, list[DeliveryOutboxItem]] = {}
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
-        return self._events.get(event_id)
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None:
+        event = self._events.get(event_id)
+        if event is None:
+            return None
+        return msgspec.structs.replace(event, payload={}, metadata=EventMetadata())
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        return sorted(self._receipts.get(event_id, []), key=lambda r: r.sequence)
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[DeliveryReceipt]:
+        return inspection_rows(
+            sorted(self._receipts.get(event_id, []), key=lambda r: r.sequence),
+            "delivery_receipts",
+            metadata_only,
+        )
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
-        return sorted(
-            self._native_refs.get(event_id, []),
-            key=lambda r: (r.created_at, r.id),
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
+        return inspection_rows(
+            sorted(
+                self._native_refs.get(event_id, []),
+                key=lambda r: (r.created_at, r.id),
+            ),
+            "native_message_refs",
+            metadata_only,
         )
 
     async def list_outbox_items_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only=False
     ) -> list[DeliveryOutboxItem]:
-        return self._outbox.get(event_id, [])
+        return inspection_rows(
+            self._outbox.get(event_id, []), "delivery_outbox", metadata_only
+        )
 
 
 def _populated_fake(
@@ -293,9 +312,7 @@ class TestCollectorValidRenderingEvidence:
         bundle = await collector.collect_for_event("evt-ev")
 
         r = bundle.delivery_receipts[0]
-        assert r.rendering_evidence is not None
-        assert r.rendering_evidence["truncated"] is True
-        assert r.rendering_evidence["delivery_strategy"] == "direct"
+        assert r.rendering_evidence is None
         # No warnings for valid evidence.
         assert not any("rendering_evidence" in w for w in bundle.warnings)
 
@@ -327,12 +344,12 @@ class TestCollectorStructuredCapabilityEvidence:
         summary = bundle.delivery_receipts[0]
         assert summary.capability_level == "fallback"
         assert summary.capability_field == "replies"
-        assert summary.capability_reason == "native reply unavailable"
+        assert summary.capability_reason is None
         assert summary.delivery_strategy == "fallback_text"
         as_dict = bundle.to_dict()["delivery_receipts"][0]
         assert as_dict["capability_level"] == "fallback"
         assert as_dict["capability_field"] == "replies"
-        assert as_dict["capability_reason"] == "native reply unavailable"
+        assert as_dict["capability_reason"] is None
         assert as_dict["delivery_strategy"] == "fallback_text"
 
 
@@ -355,8 +372,7 @@ class TestCollectorInvalidRenderingEvidence:
 
         r = bundle.delivery_receipts[0]
         assert r.rendering_evidence is None
-        assert any("Invalid rendering_evidence" in w for w in bundle.warnings)
-        assert any("rcpt-bad" in w for w in bundle.warnings)
+        assert not any("rendering_evidence" in w for w in bundle.warnings)
 
     @pytest.mark.asyncio
     async def test_warns_on_non_object_json(self) -> None:
@@ -374,7 +390,7 @@ class TestCollectorInvalidRenderingEvidence:
 
         r = bundle.delivery_receipts[0]
         assert r.rendering_evidence is None
-        assert any("Non-object rendering_evidence" in w for w in bundle.warnings)
+        assert not any("rendering_evidence" in w for w in bundle.warnings)
 
     @pytest.mark.asyncio
     async def test_none_rendering_evidence_no_warning(self) -> None:
@@ -584,7 +600,7 @@ class TestSQLiteRoundTrip:
 
         # Receipt present with parsed evidence.
         assert len(bundle.delivery_receipts) == 1
-        assert bundle.delivery_receipts[0].rendering_evidence == {"truncated": False}
+        assert bundle.delivery_receipts[0].rendering_evidence is None
 
         # Native ref present.
         assert len(bundle.native_refs) == 1
@@ -644,12 +660,10 @@ class TestCollectorCanonicalEvidence:
 
         assert len(bundle.delivery_receipts) == 1
         parsed = bundle.delivery_receipts[0].rendering_evidence
-        assert parsed is not None
-        assert parsed["schema_version"] == "1"
-        assert parsed["renderer"] == "matrix_rend"
-        assert parsed["delivery_strategy"] == "direct"
-        assert parsed["target_adapter"] == "matrix_conf"
-        assert parsed["capability_level"] == "native"
+        assert parsed is None
+        # Free-form rendering evidence remains persisted but is not a
+        # default inspection grant (even when its values look harmless).
+        assert storage._receipts["evt-canon"][0].rendering_evidence == ev_json
         assert not any("rendering_evidence" in w for w in bundle.warnings)
 
 
@@ -852,3 +866,26 @@ class TestToDictDefensiveCopy:
         assert orig is not None
         assert orig["key"] == "value"
         assert orig["nested"]["a"] == 1
+
+
+@pytest.mark.asyncio
+async def test_default_bundle_does_not_export_free_form_provider_content() -> None:
+    secret = "MESSAGE-CONTENT-NEVER-EXPORT-9a8b"
+    receipt = msgspec.structs.replace(
+        _make_receipt(event_id="sensitive", status="failed"),
+        error=secret,
+        capability_reason=secret,
+        rendering_evidence=json.dumps({"body": secret}),
+    )
+    outbox = _make_outbox_item(event_id="sensitive", status="dead_lettered")
+    outbox.error_summary = secret
+    outbox.failure_kind_detail = secret
+    storage = _populated_fake(
+        event_id="sensitive", receipts=[receipt], outbox_items=[outbox]
+    )
+    bundle = await EvidenceCollector(storage, now_fn=_fixed_now).collect_for_event(
+        "sensitive"
+    )
+    assert secret not in bundle.to_json()
+    assert bundle.delivery_receipts[0].status == "failed"
+    assert bundle.delivery_receipts[0].error is None

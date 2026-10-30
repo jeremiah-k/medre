@@ -137,8 +137,8 @@ class ReplayEngine(
     values control which stages are executed and whether side effects
     (delivery to adapters) are allowed.
 
-    Persistence authority: replay never writes to storage directly.  All
-    storage access is read-only (``get`` and ``query``).  In BEST_EFFORT
+    Persistence authority: replay never writes to storage directly.  Selection reads metadata-only projections and explicit replay content
+    reads are authorized against the live source dependency.  In BEST_EFFORT
     mode, delivery delegates to the pipeline's ``deliver_to_targets`` with
     ``source="replay"`` and ``replay_run_id``, which creates a fresh outbox
     generation for each new replay execution identity, append-only receipts,
@@ -179,9 +179,9 @@ class ReplayEngine(
         combination.
 
         When ``request.correlation_ids`` is set, events are fetched by
-        individual ID (via :meth:`StorageBackend.get`) and remaining
+        individual ID (via :meth:`StorageBackend.get_metadata`) and remaining
         filter criteria are applied as post-filters.  Otherwise a
-        standard :meth:`StorageBackend.query` is used.
+        standard :meth:`StorageBackend.query_metadata` is used.
 
         **Determinism guarantee:** Results are yielded in the order
         events are returned by storage (timestamp ascending for queries,
@@ -226,7 +226,7 @@ class ReplayEngine(
                         yield result
         else:
             event_filter = _request_to_filter(request)
-            async for event in self._storage.query(event_filter):
+            async for event in self._storage.query_metadata(event_filter):
                 if self._cancel_event.is_set():
                     _logger.info("Replay cancelled --- stopping event iteration")
                     return
@@ -300,10 +300,19 @@ class ReplayEngine(
         plan_result: list[Any] | None = None
         enriched_event: CanonicalEvent | None = None
 
-        # Immutability guard: checkpoint event identity before processing.
+        # Selection is metadata-only. Explicit replay may temporarily read
+        # complete content only through the selection mixin's live-hold
+        # borrow; it never renews retention or bypasses delivery's separate
+        # outbox/attempt submission authority.
+        metadata_event = event
         _verify_immutability(event, event.event_id)
 
         for stage in stages:
+            stage_read = await self._read_replay_stage(metadata_event, stage)
+            if isinstance(stage_read, ReplayResult):
+                yield stage_read
+                continue
+            event = stage_read
             # Check cancellation between stages --- skip remaining stages
             # for this event if cancellation was requested mid-event.
             if self._cancel_event.is_set():

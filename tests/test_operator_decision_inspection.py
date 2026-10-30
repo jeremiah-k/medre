@@ -138,8 +138,11 @@ async def test_inspection_does_not_decode_corrupt_event_content(
     reopened = await SQLiteStorage.open_readonly(path)
     try:
         assert await reopened.event_exists(sample_event.event_id)
-        with pytest.raises(msgspec.DecodeError):
-            await reopened.get(sample_event.event_id)
+        # The metadata projection selects safe columns and never decodes the
+        # damaged payload bytes, so inspection succeeds with an empty payload.
+        metadata_view = await reopened.get(sample_event.event_id)
+        assert metadata_view is not None
+        assert metadata_view.payload == {}
     finally:
         await reopened.close()
     await _inspect_decisions(sample_event.event_id, storage_path=path)

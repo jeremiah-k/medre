@@ -218,7 +218,7 @@ class RelationBindingAuthority:
 
         Returns an immutable fact.  Never mutates stored events or refs.
         """
-        get_fn = cached_get_fn or getattr(self._storage, "get", None)
+        get_fn = cached_get_fn or getattr(self._storage, "get_metadata", None)
         list_fn = cached_list_fn or getattr(
             self._storage, "list_native_refs_for_event", None
         )
@@ -284,7 +284,13 @@ class RelationBindingAuthority:
 
         if callable(list_fn):
             try:
-                refs = await cast(_ListNativeRefsFn, list_fn)(target_event_id)
+                refs = (
+                    await cast(_ListNativeRefsFn, list_fn)(target_event_id)
+                    if cached_list_fn is not None
+                    else await cast(
+                        Callable[..., Awaitable[list[NativeMessageRef]]], list_fn
+                    )(target_event_id, metadata_only=True)
+                )
             except Exception:
                 self._log.debug(
                     "Relation binding list_native_refs_for_event failed: "
