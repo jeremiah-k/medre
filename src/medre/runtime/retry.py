@@ -1053,7 +1053,14 @@ class RetryWorker:
         context, finds the lifecycle-authoritative receipt for lineage, and
         re-attempts delivery through the pipeline.
         """
-        event = await self._storage.get(item.event_id)
+        # Load identity only until persisted native evidence is reconciled.
+        # Content may not be projected before the outbox owner is checked.
+        get_envelope = getattr(self._storage, "get_envelope", None)
+        event = (
+            await get_envelope(item.event_id)
+            if callable(get_envelope)
+            else await self._storage.get(item.event_id)
+        )
         if event is None:
             _logger.warning(
                 "RetryWorker: event %s not found for outbox %s",
@@ -1106,9 +1113,10 @@ class RetryWorker:
                 self._log_superseded_transition(item, stale)
             return
 
-        if retry_context.routing is not None:
-            # Routing is an accepted dispatch decision, not a mutable route
-            # lookup. Preserve attribution on the delivery copy only.
+        if retry_context.routing is not None and not callable(
+            getattr(self._storage, "read_event_for_outbox", None)
+        ):
+            # Non-SQLite test backends retain their existing projection path.
             event = msgspec.structs.replace(
                 event,
                 metadata=msgspec.structs.replace(
@@ -1159,6 +1167,35 @@ class RetryWorker:
                 reconciled.outcome,
             )
             return
+
+        read_owned = getattr(self._storage, "read_event_for_outbox", None)
+        if callable(read_owned):
+            authorized = await read_owned(
+                item.event_id, item.outbox_id, now=datetime.now(timezone.utc)
+            )
+            if authorized.status != "retained" or authorized.event is None:
+                # Reconcile persisted evidence above BEFORE treating an
+                # unavailable body as terminal. The outbox attempt remains
+                # durable; this refusal never invokes the native transport.
+                self.state.processed += 1
+                self.state.failed += 1
+                try:
+                    await self._lifecycle.abandon_retry_outbox(
+                        self._lifecycle_storage,
+                        item,
+                        error_summary="content_authority_denied",
+                    )
+                except RetryAttemptCommitRejected as stale:
+                    self._log_superseded_transition(item, stale)
+                return
+            event = authorized.event
+            if retry_context.routing is not None:
+                event = msgspec.structs.replace(
+                    event,
+                    metadata=msgspec.structs.replace(
+                        event.metadata, routing=retry_context.routing
+                    ),
+                )
 
         if (
             self._available_target_adapters is not None

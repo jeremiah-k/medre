@@ -606,6 +606,32 @@ class TargetDeliveryService:
                 evidence=evidence,
             ) from None
 
+        # MEDRE's SQLite authority is consulted before rendering, then again
+        # immediately before native submission. No new native operation may
+        # start on an expired or missing target dependency. This does not
+        # rewrite prior accepted or uncertain native-attempt evidence.
+        authorize_content = getattr(self._storage, "authorize_native_submission", None)
+        if outbox_id is not None and callable(authorize_content):
+            if not await authorize_content(event.event_id, outbox_id, now=now):
+                evidence = await self._persist_failure_evidence(
+                    event=event,
+                    route=route,
+                    plan=plan,
+                    adapter_id=adapter_id or "",
+                    receipt_id=receipt_id,
+                    error="content_authority_denied",
+                    failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                    attempt_number=attempt_number,
+                    parent_receipt_id=parent_receipt_id,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                    outbox_id=outbox_id,
+                    created_at=now,
+                )
+                raise _AdapterDeliveryError(
+                    adapter_id or "", "content_authority_denied", evidence=evidence
+                ) from None
+
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
         # identity instead of adapter-name heuristics.
@@ -941,6 +967,11 @@ class TargetDeliveryService:
                         "radio continuation requires a configured retry policy"
                     )
                 resume_from = predecessor
+            if outbox_id is not None and callable(authorize_content):
+                if not await authorize_content(
+                    event.event_id, outbox_id, now=datetime.now(timezone.utc)
+                ):
+                    raise AdapterPermanentError("content_authority_denied")
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(

@@ -20,8 +20,8 @@ are neither message counts nor physical database, WAL, or disk usage.
 
 ## Content surfaces and consumers
 
-The inventory covers canonical payload and metadata; relation keys, fallback
-text and metadata; native-reference metadata; receipt and observation diagnostic
+The inventory covers canonical envelope JSON and metadata, separately stored
+`event_body_content` text; relation keys, separately stored excerpts and metadata; native-reference metadata; receipt and observation diagnostic
 fields; outbox destinations, error summaries and metadata; immutable radio plans
 and packet progress; ingress provenance and errors; attachment bytes;
 checkpoint cursors and metadata; and reserved plugin values. Empty JSON

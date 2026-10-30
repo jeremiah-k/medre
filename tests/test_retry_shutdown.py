@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from medre.core.events.canonical import (
@@ -125,6 +126,10 @@ class TestRetryShutdown:
         )
         storage.claim_due_outbox_items = AsyncMock(return_value=[outbox_item])
         storage.get = AsyncMock(return_value=event)
+        storage.get_envelope = AsyncMock(return_value=event)
+        storage.read_event_for_outbox = AsyncMock(
+            return_value=SimpleNamespace(status="retained", event=event)
+        )
         storage.delivery_status = AsyncMock(return_value=None)
         storage.list_receipts_for_delivery = AsyncMock(return_value=[])
         storage.count_outbox_by_status = AsyncMock(return_value={})

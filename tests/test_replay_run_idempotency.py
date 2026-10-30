@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -472,7 +473,12 @@ async def test_retry_preserves_originating_replay_run_provenance(
         replay_run_id=item.replay_run_id,
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    stored = object()
+    storage.get = AsyncMock(return_value=stored)
+    storage.get_envelope = AsyncMock(return_value=stored)
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=stored)
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(return_value=sent)

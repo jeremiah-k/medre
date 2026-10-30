@@ -514,7 +514,6 @@ CREATE TABLE event_relations (
     target_native_message_id TEXT,
     target_native_thread_id TEXT,
     key TEXT,
-    fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
@@ -534,6 +533,16 @@ The canonical relation row is historical evidence and **MUST NOT** be rewritten 
 late native target becomes resolvable. Current relation resolution for delivery happens
 on an in-memory event copy, while current ancestry is stored separately in the derived
 projection below.
+
+The optional human-readable `fallback_text` is stored only in
+`event_relation_excerpts(relation_id, excerpt)`, not in the immutable
+relation identity row. An absent excerpt is distinct from an empty excerpt.
+Body and `text` string fields are stored in `event_body_content` and excluded
+from `canonical_events.payload`; `event_body_identity.present_at_admission`
+records immutable presence. Mandatory `event_content_dependencies` rows are
+inserted in the same transaction as ingress admission or target outbox staging.
+See [content runtime authority](content-runtime-authority.md) for the
+**restricted** read seams and unmediated surfaces that remain.
 
 ### 4.2.1 conversation_membership
 

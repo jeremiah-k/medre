@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
@@ -207,7 +208,12 @@ async def test_retry_worker_reports_callback_won_queued_race_as_committed_succes
     item = _item()
     queued = _receipt()
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    stored = object()
+    storage.get = AsyncMock(return_value=stored)
+    storage.get_envelope = AsyncMock(return_value=stored)
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=stored)
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(return_value=queued)
