@@ -75,3 +75,18 @@ copies must be inventoried and governed appropriately. Current runtime behavior
 No storage migrations are provided for superseded, unsupported prerelease
 schemas. SQLite schema version remains 1. A later declared supported baseline
 may introduce deliberately tested forward-only additive migrations.
+
+## Content-safe storage read contracts
+
+Canonical `get`, `get_envelope`, `query`, `list_relations` and their explicit
+metadata variants select identity and routing facts without opaque payload,
+native/custom metadata, relation keys or excerpts. Full-event and reply-context
+reads require an existing source dependency, including bodyless events with
+opaque payload or metadata. A missing dependency fails closed without backfill.
+
+Scoped reads return typed retained, unavailable or denied results. Reply context
+includes canonical quote selection and authorized sender context without
+unrelated payload or nested excerpts. Production read clocks are sampled after
+acquiring the SQLite transaction. Metadata projections for receipts, outbox,
+observations, native references and radio progress are available to inspection
+consumers; privileged recovery reads preserve their separate content contract.

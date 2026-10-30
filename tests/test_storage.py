@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from datetime import datetime, timezone
 
 from medre.core.events import (
     EventRelation,
@@ -22,7 +23,7 @@ from tests.helpers.storage import make_storage_event
 
 
 class TestAppendAndGet:
-    """append() then get() must return an equivalent event."""
+    """append() preserves bytes while get() exposes only metadata."""
 
     async def test_append_and_get_round_trip(self, temp_storage: SQLiteStorage) -> None:
         event = make_storage_event()
@@ -31,7 +32,13 @@ class TestAppendAndGet:
         assert retrieved is not None
         assert retrieved.event_id == event.event_id
         assert retrieved.event_kind == event.event_kind
-        assert retrieved.payload == event.payload
+        assert retrieved.payload == {}
+        retained = await temp_storage.read_event_for_replay(
+            event.event_id, now=datetime.now(timezone.utc)
+        )
+        assert retained.status == "retained"
+        assert retained.event is not None
+        assert retained.event.payload == event.payload
 
     async def test_get_returns_none_for_unknown_id(
         self, temp_storage: SQLiteStorage
@@ -201,7 +208,13 @@ class TestRelations:
         stored = await temp_storage.list_relations("evt-inline")
         assert len(stored) == 1
         assert stored[0].relation_type == "reaction"
-        assert stored[0].key == "👍"
+        assert stored[0].key is None
+        retained = await temp_storage.read_event_for_replay(
+            "evt-inline", now=datetime.now(timezone.utc)
+        )
+        assert retained.status == "retained"
+        assert retained.event is not None
+        assert retained.event.relations[0].key == "👍"
 
 
 # ===================================================================

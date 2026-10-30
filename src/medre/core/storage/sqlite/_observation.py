@@ -27,6 +27,7 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation
 
@@ -242,15 +243,25 @@ class _ObservationMixin:
         return await self._radio_transaction(insert)
 
     async def list_delivery_observations_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only: bool = False
     ) -> list[DeliveryObservation]:
         """Return observations for an event in append order."""
-        rows = await self._read_all(_SELECT_OBSERVATIONS_FOR_EVENT, (event_id,))
+        rows = await self._read_all(
+            inspection_sql(
+                _SELECT_OBSERVATIONS_FOR_EVENT, "delivery_observations", metadata_only
+            ),
+            (event_id,),
+        )
         return [_row_to_delivery_observation(row) for row in rows]
 
     async def list_delivery_observations_for_outbox(
-        self, outbox_id: str
+        self, outbox_id: str, *, metadata_only: bool = False
     ) -> list[DeliveryObservation]:
         """Return observations for one exact outbox item in append order."""
-        rows = await self._read_all(_SELECT_OBSERVATIONS_FOR_OUTBOX, (outbox_id,))
+        rows = await self._read_all(
+            inspection_sql(
+                _SELECT_OBSERVATIONS_FOR_OUTBOX, "delivery_observations", metadata_only
+            ),
+            (outbox_id,),
+        )
         return [_row_to_delivery_observation(row) for row in rows]

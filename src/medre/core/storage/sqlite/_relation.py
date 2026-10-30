@@ -11,13 +11,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from msgspec.structs import replace
+
 from medre.core.events import EventRelation
+from medre.core.storage.sqlite._projections import RELATION_COLUMNS
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _row_to_relation
 from medre.core.storage.sqlite.statements import (
     _INSERT_RELATION,
     _SELECT_RELATION_SOURCES,
     _SELECT_RELATION_SOURCES_FOR_NATIVE_REF,
-    _SELECT_RELATIONS,
 )
 
 
@@ -81,19 +83,8 @@ class _RelationMixin:
         excerpt_op = self._relation_excerpt_op(relation)
         if excerpt_op is not None:
             ops.append(excerpt_op)
-            # A post-admission excerpt must never become an unowned copy.
-            # Adopt a source append dependency atomically if the event did not
-            # already own body/text or earlier excerpts.
-            ops.append(
-                (
-                    "INSERT INTO event_content_dependencies "
-                    "(event_id, owner_kind, owner_id, acquired_at) "
-                    "SELECT ?, 'append', ?, ? FROM canonical_events e WHERE e.event_id=? "
-                    "AND NOT EXISTS (SELECT 1 FROM event_content_dependencies d "
-                    "WHERE d.event_id=e.event_id AND d.owner_kind IN ('ingress','append'))",
-                    (event_id, event_id, _now_iso(), event_id),
-                )
-            )
+            # Admission already owns the full event. Appending a relation
+            # must never recreate a missing or released source dependency.
         await self._write_batch(ops)
 
     async def list_relations(self, event_id: str) -> list[EventRelation]:
@@ -101,8 +92,17 @@ class _RelationMixin:
 
         Authority: **list/get** (read-only).
         """
-        rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
-        return [_row_to_relation(r) for r in rows]
+        rows = await self._read_all(
+            f"SELECT {RELATION_COLUMNS} FROM event_relations "  # nosec B608 - closed schema projection; all values use bound parameters.
+            "WHERE event_id=? ORDER BY id ASC",
+            (event_id,),
+        )
+        return [
+            replace(
+                _row_to_relation(r), fallback_text=None, metadata={}, target_fact=None
+            )
+            for r in rows
+        ]
 
     async def list_relation_sources(self, target_event_id: str) -> list[str]:
         """Return unique source event IDs targeting *target_event_id*.

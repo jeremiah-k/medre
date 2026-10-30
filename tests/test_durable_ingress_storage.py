@@ -211,7 +211,19 @@ async def test_explicit_suppression_persists_relations_without_routing(
         )
 
         assert result.work_status == "suppressed_history"
-        assert await storage.list_relations(event.event_id) == [relation]
+        # Public relation listing is metadata-only; the stored excerpt is
+        # visible through the authorized live-hold borrow.
+        listed = await storage.list_relations(event.event_id)
+        assert listed is not None
+        assert listed[0].relation_type == relation.relation_type
+        assert listed[0].target_native_ref == relation.target_native_ref
+        assert listed[0].fallback_text is None
+        authorized = await storage.read_event_for_replay(
+            event.event_id, now=datetime.now(UTC)
+        )
+        assert authorized.status == "retained"
+        assert authorized.event is not None
+        assert authorized.event.relations == (relation,)
     finally:
         await storage.close()
 

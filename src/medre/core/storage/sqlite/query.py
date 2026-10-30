@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite._projections import EVENT_COLUMNS
 
 
 def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
@@ -46,6 +47,7 @@ def _build_query_sql(filt: EventFilter) -> tuple[str, tuple[Any, ...]]:
         params.append(filt.time_end.isoformat())
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"  # nosec: clauses are hardcoded field names, values via ? parameters
+    projection = EVENT_COLUMNS
+    sql = f"SELECT {projection} FROM canonical_events{where} ORDER BY timestamp ASC, event_id ASC LIMIT ?"  # nosec: clauses and projection are internal constants, values via parameters
     params.append(filt.limit)
     return sql, tuple(params)

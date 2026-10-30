@@ -267,7 +267,11 @@ class TestAtomicAdmission:
             assert fact.size_bytes == len(data)
             assert fact.content_ref == "sha256:" + hashlib.sha256(data).hexdigest()
 
-            stored = await storage.get("evt-1")
+            stored_read = await storage.read_event_for_ingress(
+                "evt-1", now=datetime.now(UTC)
+            )
+            assert stored_read.status == "retained"
+            stored = stored_read.event
             descriptor = attachment_descriptor_from_event_payload(stored.payload)
             assert descriptor is not None and descriptor.retained
             assert descriptor.content_ref == fact.content_ref
@@ -292,7 +296,11 @@ class TestAtomicAdmission:
             fact = result.attachment
             assert fact is not None and fact.retained
             assert fact.size_bytes == 10  # measured, never declared
-            stored = await storage.get("evt-dishonest")
+            stored_read = await storage.read_event_for_ingress(
+                "evt-dishonest", now=datetime.now(UTC)
+            )
+            assert stored_read.status == "retained"
+            stored = stored_read.event
             descriptor = attachment_descriptor_from_event_payload(stored.payload)
             assert descriptor is not None and descriptor.size_bytes == 10
         finally:
@@ -361,7 +369,11 @@ class TestAtomicAdmission:
             fact = second.attachment
             assert fact is not None and not fact.retained
             assert fact.reason == "quota_exceeded"
-            stored = await storage.get("evt-q2")
+            stored_read = await storage.read_event_for_ingress(
+                "evt-q2", now=datetime.now(UTC)
+            )
+            assert stored_read.status == "retained"
+            stored = stored_read.event
             descriptor = attachment_descriptor_from_event_payload(stored.payload)
             assert descriptor is not None
             assert descriptor.unavailable_reason == "quota_exceeded"

@@ -113,15 +113,6 @@ WHERE outbox_id = ?
 # SELECT statements
 # ---------------------------------------------------------------------------
 
-_SELECT_EVENT = "SELECT * FROM canonical_events WHERE event_id = ?"
-
-_SELECT_RELATIONS = (
-    "SELECT r.*, x.excerpt AS resolved_fallback_text "
-    "FROM event_relations r "
-    "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
-    "WHERE r.event_id=? ORDER BY r.id ASC"
-)
-
 _SELECT_RELATION_SOURCES = """
 SELECT event_id
 FROM event_relations

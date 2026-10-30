@@ -54,8 +54,9 @@ async def test_body_and_text_bytes_are_separate_and_preserved(tmp_path):
             ("body", "confidential body"),
             ("text", "legacy duplicate"),
         ]
-        restored = await store.get("split")
-        assert restored.payload == event.payload
+        assert (await store.get_metadata("split")).payload == {}
+        restored = await store.read_event_for_ingress("split", now=_now())
+        assert restored.status == "retained" and restored.event.payload == event.payload
         assert await store.get_body_presence_at_admission("split") is True
         assert (await store.list_mandatory_content_dependencies("split"))[0][
             0
@@ -77,7 +78,7 @@ async def test_empty_body_and_absent_body_are_distinct(tmp_path):
         assert await store.get_body_presence_at_admission("empty") is True
         assert await store.get_body_presence_at_admission("missing") is False
         assert len(await store.list_mandatory_content_dependencies("empty")) == 1
-        assert await store.list_mandatory_content_dependencies("missing") == ()
+        assert len(await store.list_mandatory_content_dependencies("missing")) == 1
     finally:
         await store.close()
 
@@ -101,7 +102,10 @@ async def test_relation_excerpt_is_separate_and_has_ingress_owner(tmp_path):
             "SELECT * FROM event_relations WHERE event_id='reply'"
         )
         assert "fallback_text" not in raw
-        assert (await store.get("reply")).relations[0].fallback_text == "secret quote"
+        assert (await store.get_metadata("reply")).relations[0].fallback_text is None
+        assert (
+            await store.read_event_for_ingress("reply", now=_now())
+        ).event.relations[0].fallback_text == "secret quote"
         assert len(await store.list_mandatory_content_dependencies("reply")) == 1
         await store.store_relation("reply", relation)
         assert len(await store.list_relations("reply")) == 2
@@ -232,7 +236,10 @@ async def test_duplicate_id_does_not_replace_content_or_duplicate_hold(tmp_path)
             "live",
         )
         assert duplicate.created is False
-        assert (await store.get("dup")).payload["body"] == "original"
+        assert (await store.get_metadata("dup")).payload == {}
+        assert (await store.read_event_for_ingress("dup", now=_now())).event.payload[
+            "body"
+        ] == "original"
         assert len(await store.list_mandatory_content_dependencies("dup")) == 1
     finally:
         await store.close()
@@ -249,7 +256,8 @@ async def test_post_admission_excerpt_gets_atomic_append_owner(tmp_path):
             None,
             "live",
         )
-        assert await store.list_mandatory_content_dependencies("late-quote") == ()
+        before = await store.list_mandatory_content_dependencies("late-quote")
+        assert len(before) == 1
         relation = EventRelation(
             relation_type="reply",
             target_event_id="target",
@@ -259,12 +267,14 @@ async def test_post_admission_excerpt_gets_atomic_append_owner(tmp_path):
         )
         await store.store_relation("late-quote", relation)
         owners = await store.list_mandatory_content_dependencies("late-quote")
-        assert [(owner, eid) for owner, eid, _, _ in owners] == [
-            ("append", "late-quote")
-        ]
-        assert (await store.get("late-quote")).relations[
+        assert owners == before
+        assert (await store.get_metadata("late-quote")).relations[
             0
-        ].fallback_text == "a late secret"
+        ].fallback_text is None
+        raw_excerpts = await store._read_all(
+            "SELECT excerpt FROM event_relation_excerpts"
+        )
+        assert [row["excerpt"] for row in raw_excerpts] == ["a late secret"]
     finally:
         await store.close()
 
@@ -360,7 +370,11 @@ async def test_secondary_text_has_owner_even_when_body_identity_is_absent(tmp_pa
             (item.outbox_id,),
         )
         assert not await store.authorize_native_submission(
-            "secondary", item.outbox_id, now=_now()
+            "secondary",
+            item.outbox_id,
+            worker_id="unowned",
+            attempt_number=1,
+            now=_now(),
         )
     finally:
         await store.close()
@@ -404,7 +418,11 @@ async def test_missing_source_dependency_never_authorizes_content(tmp_path, cont
             (item.outbox_id,),
         )
         assert not await store.authorize_native_submission(
-            item.event_id, item.outbox_id, now=_now()
+            item.event_id,
+            item.outbox_id,
+            worker_id="unowned",
+            attempt_number=1,
+            now=_now(),
         )
     finally:
         await store.close()

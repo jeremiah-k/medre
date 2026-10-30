@@ -39,7 +39,8 @@ from medre.core.ingress import (
     StoredAttachmentContent,
 )
 from medre.core.rendering.radio_text import RadioTextPlan
-from medre.core.storage.radio import StoredRadioAttempt
+from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.read_contracts import AuthorizedEventRead, ReplyContextRead
 
 # ---------------------------------------------------------------------------
 # Lazy cached helpers for circular-import-safe access to delivery_state
@@ -867,11 +868,21 @@ class StorageBackend(Protocol):
         ...
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
-        """Retrieve a single event by its unique identifier.
+        """Retrieve a content-free identity projection, never retained bytes.
 
-        Authority: **list/get** (read-only).  Returns ``None`` when no
-        event with *event_id* exists.
+        Authority: **list/get** (metadata-only). Returns ``None`` for absent
+        identities. Full-event reads require a scoped ingress/outbox owner.
         """
+        ...
+
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None:
+        """Return metadata identity without body, excerpt or opaque payload bytes."""
+        ...
+
+    def query_metadata(
+        self, event_filter: EventFilter
+    ) -> AsyncGenerator[CanonicalEvent, None]:
+        """Return bounded metadata-only event projections."""
         ...
 
     async def list_event_ids_page(
@@ -881,15 +892,45 @@ class StorageBackend(Protocol):
         ...
 
     def query(self, event_filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
-        """Yield events matching *event_filter*, ordered by timestamp ascending.
+        """Yield metadata-only events matching *event_filter*.
 
-        Authority: **list/get** (read-only).  Implementations use
+        Authority: **list/get** (metadata-only).  Implementations use
         ``async def`` with ``yield`` (async generator).  The protocol
         declares this as a regular ``def`` returning
         :class:`AsyncGenerator` because calling an async generator function
         returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
         one.
         """
+        ...
+
+    async def read_reply_context(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> ReplyContextRead:
+        """Authorize canonical quote and source sender context without retention."""
+        ...
+
+    async def read_event_for_replay(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> AuthorizedEventRead:
+        """Owner-checked full replay read, without acquiring retention."""
+        ...
+
+    async def read_event_for_ingress(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> AuthorizedEventRead:
+        """Authorized full-event read for a live durable ingress owner."""
+        ...
+
+    async def read_event_for_outbox(
+        self, event_id: str, outbox_id: str, *, now: datetime | None = None
+    ) -> AuthorizedEventRead:
+        """Authorized full-event read for one durable delivery generation."""
+        ...
+
+    async def authorize_native_submission(
+        self, event_id: str, outbox_id: str, *, now: datetime
+    ) -> bool:
+        """Check generation content authority before native submission."""
         ...
 
     # -- Durable ingress -----------------------------------------------------
@@ -1056,6 +1097,8 @@ class StorageBackend(Protocol):
         adapter: str,
         native_channel_id: str | None,
         native_message_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> NativeMessageRef | None:
         """Return the stored NativeMessageRef for the given triple.
 
@@ -1077,6 +1120,8 @@ class StorageBackend(Protocol):
     async def list_native_refs_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[NativeMessageRef]:
         """Return all native message refs for a specific event.
 
@@ -1184,13 +1229,13 @@ class StorageBackend(Protocol):
         ...
 
     async def list_delivery_observations_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only: bool = False
     ) -> list[DeliveryObservation]:
         """Return post-handoff observations for an event in append order."""
         ...
 
     async def list_delivery_observations_for_outbox(
-        self, outbox_id: str
+        self, outbox_id: str, *, metadata_only: bool = False
     ) -> list[DeliveryObservation]:
         """Return observations for an exact outbox item in append order."""
         ...
@@ -1296,6 +1341,8 @@ class StorageBackend(Protocol):
     async def list_receipts_by_replay_run(
         self,
         run_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all receipts produced by a specific replay run.
 
@@ -1310,6 +1357,8 @@ class StorageBackend(Protocol):
     async def list_receipts_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts for a specific event.
 
@@ -1325,6 +1374,7 @@ class StorageBackend(Protocol):
         cursor: str | None = None,
         since_event_time: str | None = None,
         limit: int = DEFAULT_RECOVERY_PAGE_LIMIT,
+        metadata_only: bool = False,
     ) -> UnresolvedDeliveriesPage:
         """Return one bounded page of currently-unresolved deliveries.
 
@@ -1380,6 +1430,8 @@ class StorageBackend(Protocol):
         self,
         limit: int = 10_000,
         offset: int = 0,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryReceipt]:
         """Return all delivery receipts in sequence order for global analysis.
 
@@ -1490,7 +1542,9 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
+    async def get_outbox_item(
+        self, outbox_id: str, *, metadata_only: bool = False
+    ) -> DeliveryOutboxItem | None:
         """Retrieve a single outbox item by its ID.
 
         Authority: **list/get** (read-only).  Returns ``None`` when no
@@ -1530,6 +1584,8 @@ class StorageBackend(Protocol):
         self,
         limit: int = 10_000,
         offset: int = 0,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return all delivery outbox items in creation order for global analysis.
 
@@ -1547,6 +1603,8 @@ class StorageBackend(Protocol):
     async def list_outbox_items_for_event(
         self,
         event_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return all outbox items for a specific event.
 
@@ -1560,6 +1618,8 @@ class StorageBackend(Protocol):
     async def list_outbox_items_by_replay_run(
         self,
         replay_run_id: str,
+        *,
+        metadata_only: bool = False,
     ) -> list[DeliveryOutboxItem]:
         """Return durable outbox generations owned by one named replay run.
 
@@ -1809,6 +1869,12 @@ class StorageBackend(Protocol):
         worker_id: str | None,
     ) -> StoredRadioAttempt | None:
         """Persist interrupted native submissions as unknown before returning."""
+        ...
+
+    async def inspect_radio_attempt(
+        self, outbox_id: str, attempt_number: int
+    ) -> RadioAttemptMetadata | None:
+        """Read radio progress and provenance while withholding wire text."""
         ...
 
     async def get_radio_attempt_snapshot(

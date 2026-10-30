@@ -94,7 +94,7 @@ def ingress_dependency_op(
     owner_kind: str = "ingress",
     deadline: str | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
-    """Insert the ingress/append dependency if string content was admitted.
+    """Own every full canonical projection, including opaque payload and metadata.
 
     This op MUST run in the same transaction as the canonical row. The
     dependency does not itself imply expiry, release, or erasure.
@@ -104,21 +104,8 @@ def ingress_dependency_op(
     return (
         "INSERT INTO event_content_dependencies "
         "(event_id, owner_kind, owner_id, acquired_at, deadline) "
-        "SELECT ?, ?, ?, ?, ? FROM event_body_identity "
-        "WHERE event_id=? AND (EXISTS (SELECT 1 FROM event_body_content c "
-        "WHERE c.event_id=event_body_identity.event_id) OR EXISTS ("
-        "SELECT 1 FROM event_relations r "
-        "JOIN event_relation_excerpts x ON x.relation_id=r.id "
-        "WHERE r.event_id=?))",
-        (
-            event.event_id,
-            owner_kind,
-            event.event_id,
-            recorded_at,
-            deadline,
-            event.event_id,
-            event.event_id,
-        ),
+        "VALUES (?, ?, ?, ?, ?)",
+        (event.event_id, owner_kind, event.event_id, recorded_at, deadline),
     )
 
 

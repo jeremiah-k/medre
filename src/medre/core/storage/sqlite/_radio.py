@@ -18,7 +18,7 @@ from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartProgress
 from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.storage.backend import StorageError
-from medre.core.storage.radio import StoredRadioAttempt
+from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite.serde import _now_iso
 
@@ -451,6 +451,42 @@ class _RadioMixin:
             return result if count == 1 else None
 
         return await self._radio_transaction(recover)
+
+    async def inspect_radio_attempt(
+        self, outbox_id: str, attempt_number: int
+    ) -> RadioAttemptMetadata | None:
+        """Read progress/provenance without selecting retained wire-plan bytes."""
+        row = await self._read_one(
+            "SELECT outbox_id, attempt_number, plan_fingerprint, parts_json, provenance_json, revision "
+            "FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",
+            (outbox_id, attempt_number),
+        )
+        if row is None:
+            return None
+        try:
+            provenance = msgspec.json.decode(
+                row["provenance_json"], type=DeliveryAttemptProvenance
+            )
+            raw_parts = json.loads(row["parts_json"])
+            if not isinstance(raw_parts, list) or any(
+                not isinstance(part, dict)
+                or set(part) != {"ordinal", "state", "handoff_id"}
+                for part in raw_parts
+            ):
+                raise ValueError("invalid radio progress metadata")
+            if (
+                provenance.outbox_id != outbox_id
+                or provenance.attempt_number != attempt_number
+            ):
+                raise ValueError("radio metadata identity mismatch")
+            return RadioAttemptMetadata(
+                provenance,
+                tuple(RadioPartProgress(**part) for part in raw_parts),
+                row["revision"],
+                row["plan_fingerprint"],
+            )
+        except (ValueError, TypeError, msgspec.DecodeError) as exc:
+            raise StorageError(f"Invalid radio metadata: {exc}") from exc
 
     async def get_radio_attempt_snapshot(
         self,

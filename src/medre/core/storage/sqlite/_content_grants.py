@@ -1,8 +1,9 @@
 """Opt-in SQLite-backed content read grants; never a deletion authority.
 
 Owner-bound ingress/outbox reads and native dispatch use this authority.
-General get/query, delivery evidence and provider stores remain outside it;
-this is not whole-runtime retention enforcement.
+Ordinary event and evidence inspection use SQL metadata projections. Retained
+recovery evidence and provider stores remain sensitive; read mediation does
+not implement physical retention enforcement.
 """
 
 from __future__ import annotations
@@ -10,18 +11,21 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Literal
 
 from medre.core.storage.backend import StorageError
 from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
+from medre.core.storage.read_contracts import (
+    AuthorizedEventRead,
+    ContentBodyRead,
+    ReplyContextRead,
+)
+from medre.core.storage.sqlite._projections import REPLY_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Concatenate, ParamSpec, TypeVar
-
-    from medre.core.events import CanonicalEvent
 
     _P = ParamSpec("_P")
     _T = TypeVar("_T")
@@ -31,22 +35,6 @@ def _utc(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("Content authority requires a timezone-aware datetime")
     return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
-
-
-@dataclass(frozen=True, slots=True)
-class ContentBodyRead:
-    """One authorized result; denied results never expose presence or bytes."""
-
-    status: Literal["retained", "unavailable", "denied"]
-    body: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.status not in {"retained", "unavailable", "denied"}:
-            raise ValueError("Unknown content body read status")
-        if (self.status == "retained" and not isinstance(self.body, str)) or (
-            self.status != "retained" and self.body is not None
-        ):
-            raise ValueError("Only retained reads contain a string body")
 
 
 def _observe_mandatory_expiry(
@@ -78,21 +66,16 @@ def _source_dependency_live(db: sqlite3.Connection, event_id: str) -> bool:
 
 
 def _requires_content_authority(db: sqlite3.Connection, event_id: str) -> bool:
-    """Inspect content facts, never infer absence from a missing grant row.
+    """Every admitted full projection requires a source owner.
 
-    Secondary text still needs an owner when an explicit non-string body makes
-    the canonical body-presence fact false. Missing dependencies must fail
-    closed rather than make retained content look like an envelope-only event.
+    Opaque payload, native/custom metadata and relation keys can carry bytes
+    without a canonical body. No heuristic may pronounce them content-free.
     """
-    return bool(
+    return (
         db.execute(
-            "SELECT EXISTS (SELECT 1 FROM event_body_identity "
-            "WHERE event_id=? AND present_at_admission=1) "
-            "OR EXISTS (SELECT 1 FROM event_body_content WHERE event_id=?) "
-            "OR EXISTS (SELECT 1 FROM event_relations r "
-            "JOIN event_relation_excerpts x ON x.relation_id=r.id WHERE r.event_id=?)",
-            (event_id, event_id, event_id),
-        ).fetchone()[0]
+            "SELECT 1 FROM canonical_events WHERE event_id=?", (event_id,)
+        ).fetchone()
+        is not None
     )
 
 
@@ -257,13 +240,15 @@ def sync_read_authorized_body(
     lock: threading.Lock,
     event_id: str,
     consumer: str,
-    now: datetime,
+    now: datetime | None = None,
 ) -> ContentBodyRead:
-    observed = _utc(now)
+    observed = _utc(now) if now is not None else None
     # Only a granted, live, unrevoked requester can project payload into Python.
     # All checks happen in one SQLite snapshot, not a check-then-read pair.
     with lock, db:
         db.execute("BEGIN IMMEDIATE")
+        if observed is None:
+            observed = _utc(datetime.now(timezone.utc))
         _observe_mandatory_expiry(db, event_id, observed)
         if _requires_content_authority(db, event_id) and not _source_dependency_live(
             db, event_id
@@ -316,16 +301,18 @@ def sync_read_outbox_body(
     lock: threading.Lock,
     event_id: str,
     outbox_id: str,
-    now: datetime,
+    now: datetime | None = None,
 ) -> ContentBodyRead:
     """Authorize an outbox-owned body through one SQLite read snapshot.
 
     A content read is not permission to call a native SDK indefinitely. The
     worker must also own a valid attempt reservation at send time.
     """
-    observed = _utc(now)
+    observed = _utc(now) if now is not None else None
     with lock, db:
         db.execute("BEGIN IMMEDIATE")
+        if observed is None:
+            observed = _utc(datetime.now(timezone.utc))
         _observe_mandatory_expiry(db, event_id, observed)
         outbox = db.execute(
             "SELECT 1 FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
@@ -361,27 +348,13 @@ def sync_read_outbox_body(
     return ContentBodyRead("retained", row[0])
 
 
-@dataclass(frozen=True, slots=True)
-class AuthorizedEventRead:
-    """Closed response; a denied caller receives no event object."""
-
-    status: Literal["retained", "denied"]
-    event: "CanonicalEvent | None" = None
-
-    def __post_init__(self) -> None:
-        if self.status not in {"retained", "denied"}:
-            raise ValueError("Unknown authorized event read status")
-        if (self.status == "retained") != (self.event is not None):
-            raise ValueError("Only retained authorized reads return an event")
-
-
 def sync_read_owned_event(
     db: sqlite3.Connection,
     lock: threading.Lock,
     event_id: str,
-    owner_kind: Literal["ingress", "outbox"],
+    owner_kind: Literal["ingress", "outbox", "replay", "reply"],
     owner_id: str,
-    now: datetime,
+    now: datetime | None = None,
 ) -> AuthorizedEventRead:
     """Check the durable owner and construct the event in the same snapshot.
 
@@ -392,9 +365,11 @@ def sync_read_owned_event(
 
     from medre.core.storage.sqlite.serde import _row_to_event, _row_to_relation
 
-    observed = _utc(now)
+    observed = _utc(now) if now is not None else None
     with lock, db:
         db.execute("BEGIN IMMEDIATE")
+        if observed is None:
+            observed = _utc(datetime.now(timezone.utc))
         _observe_mandatory_expiry(db, event_id, observed)
         if owner_kind == "outbox":
             owner = db.execute(
@@ -402,11 +377,17 @@ def sync_read_owned_event(
                 "AND status IN ('pending', 'in_progress', 'retry_wait')",
                 (owner_id, event_id),
             ).fetchone()
-        else:
+        elif owner_kind == "ingress":
             owner = db.execute(
                 "SELECT 1 FROM durable_ingress_work WHERE event_id=? "
                 "AND status IN ('pending', 'processing')",
                 (event_id,),
+            ).fetchone()
+        else:
+            # Explicit replay does not adopt an owner or extend retention.
+            # It can only borrow the still-live, already-admitted source hold.
+            owner = db.execute(
+                "SELECT 1 FROM canonical_events WHERE event_id=?", (event_id,)
             ).fetchone()
         if owner is None:
             return AuthorizedEventRead("denied")
@@ -419,7 +400,7 @@ def sync_read_owned_event(
                 # never adopt a target-scoped dependency of their own.
                 if not _outbox_content_authority(db, event_id, owner_id, observed):
                     return AuthorizedEventRead("denied")
-            else:
+            elif owner_kind == "ingress":
                 granted = db.execute(
                     "SELECT 1 FROM event_content_dependencies WHERE event_id=? "
                     "AND owner_kind=? AND owner_id=? AND released_at IS NULL "
@@ -428,18 +409,30 @@ def sync_read_owned_event(
                 ).fetchone()
                 if granted is None:
                     return AuthorizedEventRead("denied")
+            # Replay and reply context borrow the existing source dependency;
+            # neither creates retention or exempts opaque bodyless payloads.
+        # Reply hydration selects canonical text and source metadata only.
+        # Provider-owned sender projection needs native metadata, but unrelated
+        # payload fields and the target's own quoted relations are not a quote.
+        columns = REPLY_COLUMNS if owner_kind == "reply" else "*"
+        # Closed schema projections; event identities are bound parameters.
         row = db.execute(
-            "SELECT * FROM canonical_events WHERE event_id=?", (event_id,)
+            f"SELECT {columns} FROM canonical_events WHERE event_id=?",  # nosec B608
+            (event_id,),
         ).fetchone()
         if row is None:
             return AuthorizedEventRead("denied")
-        rel_rows = db.execute(
-            "SELECT r.*, x.excerpt AS resolved_fallback_text "
-            "FROM event_relations r "
-            "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
-            "WHERE r.event_id=? ORDER BY r.id ASC",
-            (event_id,),
-        ).fetchall()
+        rel_rows = (
+            []
+            if owner_kind == "reply"
+            else db.execute(
+                "SELECT r.*, x.excerpt AS resolved_fallback_text "
+                "FROM event_relations r "
+                "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
+                "WHERE r.event_id=? ORDER BY r.id ASC",
+                (event_id,),
+            ).fetchall()
+        )
         body_rows = db.execute(
             "SELECT field, body FROM event_body_content WHERE event_id=?",
             (event_id,),
@@ -451,6 +444,10 @@ def sync_read_owned_event(
         ):
             raise StorageError("Relation excerpt content is not text")
         result = _row_to_event(dict(row), [_row_to_relation(dict(r)) for r in rel_rows])
+        if any(
+            isinstance(result.payload.get(field), str) for field in ("body", "text")
+        ):
+            raise StorageError("Canonical envelope contains separated body content")
         identity = db.execute(
             "SELECT present_at_admission FROM event_body_identity WHERE event_id=?",
             (event_id,),
@@ -463,6 +460,8 @@ def sync_read_owned_event(
             raise StorageError("Admitted event has no valid body identity")
         if any(not isinstance(r["body"], str) for r in body_rows):
             raise StorageError("Admitted body content is not text")
+        if owner_kind == "reply" and identity[0] == 0:
+            body_rows = []
         payload = {**result.payload, **{r["field"]: r["body"] for r in body_rows}}
         present = isinstance(payload.get("body"), str) or (
             "body" not in payload and isinstance(payload.get("text"), str)
@@ -474,6 +473,21 @@ def sync_read_owned_event(
         if body_rows:
             result = replace(result, payload=payload)
         return AuthorizedEventRead("retained", result)
+
+
+def sync_read_reply_context(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    event_id: str,
+    now: datetime | None = None,
+) -> ReplyContextRead:
+    read = sync_read_owned_event(db, lock, event_id, "reply", event_id, now)
+    if read.status == "denied" or read.event is None:
+        return ReplyContextRead("denied")
+    present = any(
+        isinstance(read.event.payload.get(key), str) for key in ("body", "text")
+    )
+    return ReplyContextRead("retained" if present else "unavailable", read.event)
 
 
 def sync_authorize_native_submission(
@@ -501,6 +515,8 @@ def sync_authorize_native_submission(
         if not _source_dependency_live(db, event_id):
             return False
         return _outbox_content_authority(db, event_id, outbox_id, observed)
+
+
 
 
 class _ContentGrantsMixin:
@@ -559,7 +575,7 @@ class _ContentGrantsMixin:
         return await self._run_grant_op(sync_revoke_body_hold, event_id, consumer, now)
 
     async def read_event_for_outbox(
-        self, event_id: str, outbox_id: str, *, now: datetime
+        self, event_id: str, outbox_id: str, *, now: datetime | None = None
     ) -> AuthorizedEventRead:
         if not event_id or not outbox_id:
             raise ValueError("An event and outbox identity are required")
@@ -568,12 +584,34 @@ class _ContentGrantsMixin:
         )
 
     async def read_event_for_ingress(
-        self, event_id: str, *, now: datetime
+        self, event_id: str, *, now: datetime | None = None
     ) -> AuthorizedEventRead:
         if not event_id:
             raise ValueError("An event identity is required")
         return await self._run_grant_op(
             sync_read_owned_event, event_id, "ingress", event_id, now
+        )
+
+    async def read_reply_context(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> ReplyContextRead:
+        """Borrow canonical quote and sender context without adopting a hold."""
+        if not isinstance(event_id, str) or not event_id:
+            raise ValueError("An exact event ID is required")
+        return await self._run_grant_op(sync_read_reply_context, event_id, now)
+
+    async def read_event_for_replay(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> AuthorizedEventRead:
+        """Read a replay candidate only while its source content remains live.
+
+        The caller must be an explicitly requested replay operation. This
+        method does not grant an outbox claim, reset expiry, or create a hold.
+        """
+        if not isinstance(event_id, str) or not event_id:
+            raise ValueError("An exact event ID is required")
+        return await self._run_grant_op(
+            sync_read_owned_event, event_id, "replay", event_id, now
         )
 
     async def authorize_native_submission(
@@ -593,7 +631,7 @@ class _ContentGrantsMixin:
         return await self._run_grant_op(sync_inspect_content_dependencies, event_id)
 
     async def read_body_for_outbox(
-        self, event_id: str, outbox_id: str, *, now: datetime
+        self, event_id: str, outbox_id: str, *, now: datetime | None = None
     ) -> ContentBodyRead:
         if (
             not isinstance(event_id, str)
@@ -605,7 +643,7 @@ class _ContentGrantsMixin:
         return await self._run_grant_op(sync_read_outbox_body, event_id, outbox_id, now)
 
     async def read_body_for_consumer(
-        self, event_id: str, consumer: str, *, now: datetime
+        self, event_id: str, consumer: str, *, now: datetime | None = None
     ) -> ContentBodyRead:
         if (
             not isinstance(event_id, str)
