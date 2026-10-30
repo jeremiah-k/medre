@@ -51,6 +51,15 @@ def _stored_admitted_event(event_id: str) -> CanonicalEvent:
     )
 
 
+async def _admit(runner: PipelineRunner, event: CanonicalEvent) -> None:
+    """Admit through the durable ingress boundary.
+
+    process_admitted_event enforces ingress content authority, so a plain
+    storage.append() no longer represents an admissible event for it.
+    """
+    await runner.admit_ingress(event, "live")
+
+
 async def test_admit_ingress_tracks_created_duplicate_and_history(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -124,7 +133,7 @@ async def test_process_admitted_event_suppresses_reaction_to_reaction(
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-reaction")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     is_reaction = AsyncMock(return_value=True)
     route_event = AsyncMock()
     monkeypatch.setattr(runner, "_is_reaction_to_reaction", is_reaction)
@@ -140,7 +149,7 @@ async def test_process_admitted_event_handles_no_routes(
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-no-routes")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
     )
@@ -176,8 +185,8 @@ async def test_process_admitted_event_refreshes_late_native_relation_in_memory(
         relations=(relation,),
     )
     parent = _stored_admitted_event("evt-late-parent")
-    await temp_storage.append(child)
-    await temp_storage.append(parent)
+    await _admit(runner, child)
+    await _admit(runner, parent)
     await temp_storage.store_native_ref(
         NativeMessageRef(
             id="nref-late-parent",
@@ -214,7 +223,7 @@ async def test_process_admitted_event_delivers_routed_targets(
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-routed")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     delivery = object()
     outcome = DeliveryOutcome(
         event_id=event.event_id,
@@ -274,7 +283,7 @@ async def test_process_admitted_event_defers_when_delivery_responsibility_not_tr
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-deferred")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     delivery = object()
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
@@ -306,7 +315,7 @@ async def test_process_admitted_event_accepts_terminal_existing_outbox_skip(
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-terminal-outbox")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     delivery = object()
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
@@ -339,7 +348,7 @@ async def test_partial_deferral_does_not_redeliver_successful_target(
 ) -> None:
     runner = _runner(temp_storage)
     event = _stored_admitted_event("evt-partial-deferral")
-    await temp_storage.append(event)
+    await _admit(runner, event)
     route = Route(
         id="route-partial-deferral",
         source=RouteSource(

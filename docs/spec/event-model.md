@@ -796,7 +796,6 @@ CREATE TABLE event_relations (
     target_native_message_id TEXT,
     target_native_thread_id TEXT,
     key TEXT,
-    fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
@@ -805,6 +804,12 @@ CREATE INDEX idx_relations_event ON event_relations(event_id);
 CREATE INDEX idx_relations_target ON event_relations(target_event_id);
 CREATE INDEX idx_relations_type ON event_relations(relation_type);
 ```
+
+Relation excerpts are stored in `event_relation_excerpts`, keyed by the
+immutable relation row ID; string body/text fields are stored in
+`event_body_content`, not inline with `canonical_events.payload`. These are
+separate persistence surfaces, not proof of content expiry or complete read
+mediation. See [runtime content authority](content-runtime-authority.md).
 
 Stored relation rows are immutable. A relation admitted with only
 `target_native_ref` remains that way in `event_relations` even if the native identity is

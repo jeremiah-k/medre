@@ -1,8 +1,8 @@
 """Opt-in SQLite-backed content read grants; never a deletion authority.
 
-This is the first closed content-read seam. Existing event.get/query, runtime
-renderers, delivery evidence and provider stores are NOT yet mediated by it;
-no site may describe this module as whole-runtime retention enforcement.
+Owner-bound ingress/outbox reads and native dispatch use this authority.
+General get/query, delivery evidence and provider stores remain outside it;
+this is not whole-runtime retention enforcement.
 """
 
 from __future__ import annotations

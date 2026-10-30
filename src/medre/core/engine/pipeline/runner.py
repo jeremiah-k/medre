@@ -878,7 +878,27 @@ class PipelineRunner:
         Both paths adopt existing outbox identities instead of claiming or
         rewinding a sibling obligation.
         """
-        stored_event = await self._config.storage.get(event_id)
+        stored_event: CanonicalEvent | None
+        read_ingress = getattr(self._config.storage, "read_event_for_ingress", None)
+        if callable(read_ingress):
+            authorized = await read_ingress(event_id, now=datetime.now(timezone.utc))
+            stored_event = authorized.event
+            if authorized.status != "retained":
+                # Distinguish a never-admitted (or deleted) event from a live
+                # admission whose content authority has lapsed, using a
+                # metadata-only probe that leaks no content bytes.
+                event_exists = getattr(self._config.storage, "event_exists", None)
+                if (
+                    stored_event is None
+                    and callable(event_exists)
+                    and not await event_exists(event_id)
+                ):
+                    raise RuntimeError(f"admitted ingress event is missing: {event_id}")
+                raise RuntimeError(
+                    f"admitted ingress content authority denied: {event_id}"
+                )
+        else:
+            stored_event = await self._config.storage.get(event_id)
         if stored_event is None:
             raise RuntimeError(f"admitted ingress event is missing: {event_id}")
 
@@ -888,7 +908,12 @@ class PipelineRunner:
             # or dependents from storage.
             if candidate_id == event_id:
                 return stored_event
-            return await self._config.storage.get(candidate_id)
+            get_envelope = getattr(self._config.storage, "get_envelope", None)
+            return (
+                await get_envelope(candidate_id)
+                if callable(get_envelope)
+                else await self._config.storage.get(candidate_id)
+            )
 
         # Stored relations are immutable ingress evidence.  Refresh unresolved
         # native targets on the in-memory delivery copy so work admitted before

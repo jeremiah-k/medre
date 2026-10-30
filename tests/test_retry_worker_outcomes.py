@@ -9,6 +9,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -564,7 +565,6 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
     @staticmethod
     def _build_app(paths: MedrePaths) -> MedreApp:
         from medre.config.adapters.matrix_runtime import MatrixRuntimeConfig
-
         from medre.config.model import (
             AdapterConfigSet,
             LoggingConfig,
@@ -734,7 +734,10 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     storage.list_receipts_for_delivery = AsyncMock(return_value=[])
     storage.reserve_outbox_attempt = AsyncMock(return_value=2)
@@ -821,7 +824,10 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
         status="in_progress",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock()
@@ -899,7 +905,10 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
         status="in_progress",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock()
@@ -981,7 +990,10 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
         status="in_progress",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock()
@@ -1048,7 +1060,10 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError())
@@ -1112,7 +1127,10 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(
@@ -1189,7 +1207,10 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
         outbox_id=item.outbox_id,
     )
     storage = MagicMock()
-    storage.get = AsyncMock(return_value=object())
+    storage.get_envelope = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(return_value=sent)
