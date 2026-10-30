@@ -61,6 +61,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from tests.helpers.content_reads import inspection_rows
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
     make_deferred_completion,
@@ -108,8 +109,14 @@ class _MemoryStorage:
         self._observations.append(observation)
         return True
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        return [r for r in self._receipts if r.event_id == event_id]
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[DeliveryReceipt]:
+        return inspection_rows(
+            [r for r in self._receipts if r.event_id == event_id],
+            "delivery_receipts",
+            metadata_only,
+        )
 
     async def list_receipts_for_delivery(
         self,
@@ -233,8 +240,12 @@ class _MemoryStorage:
         self._outbox[item.outbox_id] = item
         return item
 
-    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
-        return self._outbox.get(outbox_id)
+    async def get_outbox_item(
+        self, outbox_id: str, *, metadata_only=False
+    ) -> DeliveryOutboxItem | None:
+        return inspection_rows(
+            self._outbox.get(outbox_id), "delivery_outbox", metadata_only
+        )
 
     async def reserve_outbox_attempt(
         self,
@@ -416,10 +427,23 @@ class _MemoryStorage:
     async def get(self, event_id: str):
         raise NotImplementedError
 
+    async def authorize_native_submission(
+        self,
+        event_id: str,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        now=None,
+    ) -> bool:
+        # The service path fences native starts through this contract; the
+        # conformance flow drives one authorized attempt at a time.
+        return True
+
     async def resolve_native_ref(self, adapter, native_channel_id, native_message_id):
         raise NotImplementedError
 
-    async def list_native_refs_for_event(self, event_id: str):
+    async def list_native_refs_for_event(self, event_id: str, *, metadata_only=False):
         raise NotImplementedError
 
 
@@ -992,6 +1016,8 @@ class TestServicePathDeliveryConformance:
             route,
             plan,
             outbox_id=f"obox-{plan_id}",
+            reserved_attempt_number=1,
+            expected_outbox_worker_id="pipeline:conformance",
         )
 
         # Receipt fields.

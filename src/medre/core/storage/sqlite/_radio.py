@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 import msgspec
@@ -20,6 +21,10 @@ from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._content_grants import (
+    _native_submission_authorized,
+    _utc,
+)
 from medre.core.storage.sqlite.serde import _now_iso
 
 if TYPE_CHECKING:
@@ -140,7 +145,6 @@ def _owns(
         """SELECT * FROM delivery_outbox AS current
            WHERE outbox_id = ? AND worker_id IS ?
              AND status = 'in_progress'
-             AND (lease_until IS NULL OR lease_until > ?)
              AND COALESCE(active_attempt, attempt_number) = ?
              AND NOT EXISTS (
                  SELECT 1 FROM delivery_outbox AS sibling
@@ -154,12 +158,19 @@ def _owns(
         (
             claim.outbox_id,
             worker_id,
-            _now_iso(),
             claim.attempt_number,
             claim.attempt_number,
         ),
     ).fetchone()
-    return row is not None and (
+    if row is None:
+        return False
+    if row["lease_until"] is not None:
+        try:
+            if _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso():
+                return False
+        except (ValueError, TypeError):
+            return False
+    return (
         row["event_id"],
         row["delivery_plan_id"],
         row["target_adapter"],
@@ -357,11 +368,27 @@ class _RadioMixin:
         expected: StoredRadioAttempt,
         worker_id: str | None,
         updated: RadioAttemptProgress,
+        *,
+        native_start: bool = False,
+        deadline: datetime | None = None,
     ) -> StoredRadioAttempt | None:
         """CAS only an exact active checkpoint; accepted native facts never regress."""
         claim = expected.provenance
 
         def checkpoint(db: sqlite3.Connection) -> StoredRadioAttempt | None:
+            if native_start:
+                observed = datetime.now(timezone.utc)
+                if deadline is not None and observed >= deadline:
+                    return None
+                if not worker_id or not _native_submission_authorized(
+                    db,
+                    claim.event_id,
+                    claim.outbox_id,
+                    worker_id,
+                    claim.attempt_number,
+                    _utc(observed),
+                ):
+                    return None
             if not _owns(db, claim, worker_id):
                 return None
             row = db.execute(
@@ -392,10 +419,18 @@ class _RadioMixin:
         expected: StoredRadioAttempt,
         worker_id: str | None,
         ordinal: int,
+        *,
+        deadline: datetime | None = None,
     ) -> StoredRadioAttempt | None:
-        """Commit the next native-call boundary; only a returned grant permits send."""
+        """Atomically authorize content/claim/deadline and commit a native-call grant."""
+        if deadline is not None:
+            _utc(deadline)
         return await self._checkpoint_radio_attempt(
-            expected, worker_id, expected.progress.begin(ordinal)
+            expected,
+            worker_id,
+            expected.progress.begin(ordinal),
+            native_start=True,
+            deadline=deadline,
         )
 
     async def observe_radio_part(

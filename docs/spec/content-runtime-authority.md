@@ -53,9 +53,17 @@ An admitted body that is missing or has a non-text storage value is a storage
 error, never fabricated text or a silently empty event.
 Outbox reads authorize a generation through its own target-scoped dependency
 or, for replay generations, through the live admission dependency.
-`authorize_native_submission` checks the live generation content dependency
-before native submission. This local check is not an atomic transaction with a
-remote transport and cannot undo an accepted operation.
+`authorize_native_submission` additionally checks the in-progress outbox
+worker, exact attempt, unexpired lease, newer sibling generations and live
+content dependency just before adapter invocation. Initial pipeline-owned
+generations use their already-claimed attempt; retry workers must own an
+active reservation. Radio packet grants repeat authority checks after pacing,
+preserving accepted prefixes when a later packet is refused. The packet-start
+checkpoint transaction checks content, exact claim and deadline after acquiring
+SQLite; post-send observation does not require live content authority. Deadlines are
+rechecked after rendering and after awaited pre-submission authorization. It is a
+**local dispatch-start fence**, not an atomic transaction with remote/native
+submission. It cannot undo a packet already accepted by a transport.
 
 The durable ingress processing path and outbox retry path use owner-bound
 reads through the required storage contract, while the target service gates native

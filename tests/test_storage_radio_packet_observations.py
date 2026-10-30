@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -33,7 +34,8 @@ async def enrolled(tmp_path):
             make_outbox_item(
                 status="in_progress", target_adapter="meshtastic", target_channel="0"
             ),
-            worker_id="worker-one",
+            worker_id="pipeline:worker-one",
+            lease_until=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
         )
         item = await create_outbox_item_with_parent(storage, item)
         claim = DeliveryAttemptProvenance(
@@ -46,15 +48,17 @@ async def enrolled(tmp_path):
             "live",
         )
         plan = plan_radio_text("café radio message " * 10, max_text_bytes=40)
-        initial = await storage.bind_radio_attempt(claim, "worker-one", plan)
+        initial = await storage.bind_radio_attempt(claim, "pipeline:worker-one", plan)
         assert initial is not None
         current = initial
         for ordinal in range(1, len(plan.parts) + 1):
-            started = await storage.begin_radio_part(current, "worker-one", ordinal)
+            started = await storage.begin_radio_part(
+                current, "pipeline:worker-one", ordinal
+            )
             assert started is not None
             current = await storage.observe_radio_part(
                 started,
-                "worker-one",
+                "pipeline:worker-one",
                 ordinal,
                 handoff_id=RadioLocalHandoff(
                     ordinal, str(ordinal), "0", "local_transport"
@@ -95,7 +99,10 @@ def observation(claim, *, ordinal=1, **overrides):
 async def test_original_attempt_delayed_ack_survives_new_generation(enrolled):
     """Advancing the parent claim preserves delayed evidence and its original scope."""
     storage, item, claim, checkpoint = enrolled
-    assert await storage.reserve_outbox_attempt(item.outbox_id, "worker-one", 1) == 2
+    assert (
+        await storage.reserve_outbox_attempt(item.outbox_id, "pipeline:worker-one", 1)
+        == 2
+    )
     first = observation(claim)
     assert await storage.append_radio_packet_observation(first)
     assert not await storage.append_radio_packet_observation(first)

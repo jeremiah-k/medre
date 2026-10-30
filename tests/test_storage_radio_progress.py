@@ -6,6 +6,7 @@ import asyncio
 import json
 from contextlib import closing
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,8 @@ async def claim(storage, *, generation=1, replay_run_id=None):
     """Admit an owned outbox row through production validation."""
     item = replace(
         make_outbox_item(status="in_progress", attempt_number=generation),
-        worker_id="sender-1",
+        worker_id="pipeline:sender-1",
+        lease_until=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
         dispatch_source="replay" if replay_run_id else "live",
         replay_run_id=replay_run_id,
     )
@@ -64,17 +66,24 @@ async def test_plan_and_each_transition_are_durable_without_parent_completion(st
     """Local packet acceptance preserves parent status and creates no receipts."""
     item, provenance = await claim(storage)
     wire = plan()
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", wire)
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", wire)
     assert initial is not None and initial.revision == 0
-    assert await storage.bind_radio_attempt(provenance, "sender-1", wire) is None
+    assert (
+        await storage.bind_radio_attempt(provenance, "pipeline:sender-1", wire) is None
+    )
     checkpoint = initial
     for ordinal in range(1, len(wire.parts) + 1):
-        submitting = await storage.begin_radio_part(checkpoint, "sender-1", ordinal)
+        submitting = await storage.begin_radio_part(
+            checkpoint, "pipeline:sender-1", ordinal
+        )
         assert submitting is not None
         observed = await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
         assert observed["parts"][ordinal - 1]["state"] == "submitting"
         checkpoint = await storage.observe_radio_part(
-            submitting, "sender-1", ordinal, handoff_id=f"radio:north:{ordinal}"
+            submitting,
+            "pipeline:sender-1",
+            ordinal,
+            handoff_id=f"radio:north:{ordinal}",
         )
         assert checkpoint is not None
     assert checkpoint.progress.handoff_complete
@@ -87,20 +96,20 @@ async def test_plan_and_each_transition_are_durable_without_parent_completion(st
 async def test_only_one_concurrent_begin_grants_a_native_call(storage):
     """Two send owners cannot acquire the same packet from one retained revision."""
     _, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     results = await asyncio.gather(
-        storage.begin_radio_part(initial, "sender-1", 1),
-        storage.begin_radio_part(initial, "sender-1", 1),
+        storage.begin_radio_part(initial, "pipeline:sender-1", 1),
+        storage.begin_radio_part(initial, "pipeline:sender-1", 1),
     )
     assert sum(result is not None for result in results) == 1
     submitting = next(result for result in results if result is not None)
     accepted = await storage.observe_radio_part(
-        submitting, "sender-1", 1, handoff_id="native:1"
+        submitting, "pipeline:sender-1", 1, handoff_id="native:1"
     )
     assert accepted is not None
     assert (
         await storage.observe_radio_part(
-            submitting, "sender-1", 1, handoff_id="conflicting:2"
+            submitting, "pipeline:sender-1", 1, handoff_id="conflicting:2"
         )
         is None
     )
@@ -109,32 +118,35 @@ async def test_only_one_concurrent_begin_grants_a_native_call(storage):
 async def test_restart_preserves_prefix_and_commits_unknown_before_returning(storage):
     """A persisted in-flight call blocks replay and rejects a late old observation."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
-    submitting = await storage.begin_radio_part(initial, "sender-1", 1)
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
+    submitting = await storage.begin_radio_part(initial, "pipeline:sender-1", 1)
     accepted = await storage.observe_radio_part(
-        submitting, "sender-1", 1, handoff_id="native:1"
+        submitting, "pipeline:sender-1", 1, handoff_id="native:1"
     )
-    interrupted = await storage.begin_radio_part(accepted, "sender-1", 2)
+    interrupted = await storage.begin_radio_part(accepted, "pipeline:sender-1", 2)
     await storage.close()
     await storage.initialize()
     before = await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
     assert before["parts"][1]["state"] == "submitting"  # inspection is read-only
-    recovered = await storage.recover_radio_attempt(provenance, "sender-1")
+    recovered = await storage.recover_radio_attempt(provenance, "pipeline:sender-1")
     assert recovered.progress.parts[0].handoff_id == "native:1"
     assert recovered.progress.parts[1].state == "unknown"
     assert recovered.progress.next_unsent is None
     assert recovered.revision == interrupted.revision + 1
-    assert await storage.recover_radio_attempt(provenance, "sender-1") == recovered
+    assert (
+        await storage.recover_radio_attempt(provenance, "pipeline:sender-1")
+        == recovered
+    )
     assert (
         await storage.observe_radio_part(
-            interrupted, "sender-1", 2, handoff_id="late:2"
+            interrupted, "pipeline:sender-1", 2, handoff_id="late:2"
         )
         is None
     )
     after = await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
     assert after == recovered.progress.to_data()
     with pytest.raises(ValueError, match="not eligible"):
-        await storage.begin_radio_part(recovered, "sender-1", 2)
+        await storage.begin_radio_part(recovered, "pipeline:sender-1", 2)
 
 
 @pytest.mark.parametrize(
@@ -155,22 +167,24 @@ async def test_full_claim_fences_binding_and_recovery(storage, field, value):
     _, provenance = await claim(storage, replay_run_id="run-1")
     # A retry can retain replay lineage; an arbitrary source cannot borrow it.
     changed = replace(provenance, **{field: value})
-    assert await storage.bind_radio_attempt(changed, "sender-1", plan()) is None
-    assert await storage.recover_radio_attempt(changed, "sender-1") is None
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    assert (
+        await storage.bind_radio_attempt(changed, "pipeline:sender-1", plan()) is None
+    )
+    assert await storage.recover_radio_attempt(changed, "pipeline:sender-1") is None
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     assert initial is not None
 
 
 async def test_wrong_owner_and_newer_sibling_fence_every_writer(storage):
     """Ownership and generation are checked in the checkpoint transaction."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     assert await storage.begin_radio_part(initial, "sender-2", 1) is None
     assert await storage.recover_radio_attempt(provenance, "sender-2") is None
     sibling = replace(item, outbox_id="new-outbox", attempt_number=2)
     await storage.create_outbox_item(sibling)
-    assert await storage.begin_radio_part(initial, "sender-1", 1) is None
-    assert await storage.recover_radio_attempt(provenance, "sender-1") is None
+    assert await storage.begin_radio_part(initial, "pipeline:sender-1", 1) is None
+    assert await storage.recover_radio_attempt(provenance, "pipeline:sender-1") is None
 
 
 @pytest.mark.parametrize("native_state", ["submitting", "accepted", "unknown"])
@@ -179,32 +193,35 @@ async def test_new_outbox_generation_cannot_erase_prior_native_work(
 ):
     """Reallocating an outbox ID cannot bypass uncertainty or duplicate acceptance."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
-    submitted = await storage.begin_radio_part(initial, "sender-1", 1)
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
+    submitted = await storage.begin_radio_part(initial, "pipeline:sender-1", 1)
     if native_state != "submitting":
         await storage.observe_radio_part(
             submitted,
-            "sender-1",
+            "pipeline:sender-1",
             1,
             handoff_id="native:1" if native_state == "accepted" else None,
         )
     sibling = replace(item, outbox_id="new-outbox", attempt_number=2)
     await storage.create_outbox_item(sibling)
     replacement = replace(provenance, outbox_id=sibling.outbox_id, attempt_number=2)
-    assert await storage.bind_radio_attempt(replacement, "sender-1", plan()) is None
+    assert (
+        await storage.bind_radio_attempt(replacement, "pipeline:sender-1", plan())
+        is None
+    )
 
 
 async def test_wholly_unsent_generation_can_be_rebound_only_to_exact_wire_plan(storage):
     """Claim replacement before native work keeps exact persisted bytes."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     sibling = replace(item, outbox_id="new-outbox", attempt_number=2)
     await storage.create_outbox_item(sibling)
     replacement = replace(provenance, outbox_id=sibling.outbox_id, attempt_number=2)
     changed = plan_radio_text("different", max_text_bytes=40)
     with pytest.raises(StorageError, match="wire plan"):
-        await storage.bind_radio_attempt(replacement, "sender-1", changed)
-    rebound = await storage.bind_radio_attempt(replacement, "sender-1", plan())
+        await storage.bind_radio_attempt(replacement, "pipeline:sender-1", changed)
+    rebound = await storage.bind_radio_attempt(replacement, "pipeline:sender-1", plan())
     assert rebound.progress.plan == initial.progress.plan
     assert rebound.progress.next_unsent == 1
 
@@ -223,7 +240,7 @@ async def test_wholly_unsent_generation_can_be_rebound_only_to_exact_wire_plan(s
 async def test_corrupted_evidence_fails_closed(storage, column, value):
     """Malformed retained state cannot become a new send grant or valid report."""
     item, provenance = await claim(storage)
-    await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     # Deliberate fault injection; column identifiers come only from this test table.
     storage._db.execute(
         f"UPDATE radio_attempt_progress SET {column}=? WHERE outbox_id=?",  # nosec B608 - deliberate fault injection; column comes from this test's cases
@@ -233,38 +250,38 @@ async def test_corrupted_evidence_fails_closed(storage, column, value):
     with pytest.raises(StorageError, match="evidence is invalid"):
         await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
     with pytest.raises(StorageError, match="evidence is invalid"):
-        await storage.recover_radio_attempt(provenance, "sender-1")
+        await storage.recover_radio_attempt(provenance, "pipeline:sender-1")
 
 
 async def test_failed_checkpoint_rolls_back_and_does_not_grant_send(storage):
     """A SQLite write failure leaves the prior checkpoint intact and reusable."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     storage._db.executescript("""
         CREATE TRIGGER reject_radio_update BEFORE UPDATE ON radio_attempt_progress
         BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;
     """)
     with pytest.raises(StorageError, match="transaction failed"):
-        await storage.begin_radio_part(initial, "sender-1", 1)
+        await storage.begin_radio_part(initial, "pipeline:sender-1", 1)
     assert (
         await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
         == initial.progress.to_data()
     )
     storage._db.execute("DROP TRIGGER reject_radio_update")
-    assert await storage.begin_radio_part(initial, "sender-1", 1) is not None
+    assert await storage.begin_radio_part(initial, "pipeline:sender-1", 1) is not None
 
 
 async def test_readonly_inspection_never_grants_a_send(storage):
     """Inspection preserves submitting; an attempted write through mode=ro fails."""
     item, provenance = await claim(storage)
-    initial = await storage.bind_radio_attempt(provenance, "sender-1", plan())
-    await storage.begin_radio_part(initial, "sender-1", 1)
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
+    await storage.begin_radio_part(initial, "pipeline:sender-1", 1)
     readonly = await SQLiteStorage.open_readonly(storage._db_path)
     try:
         snapshot = await readonly.get_radio_attempt_snapshot(item.outbox_id, 1)
         assert snapshot["parts"][0]["state"] == "submitting"
         with pytest.raises(StorageError):
-            await readonly.recover_radio_attempt(provenance, "sender-1")
+            await readonly.recover_radio_attempt(provenance, "pipeline:sender-1")
         assert await storage.get_radio_attempt_snapshot(item.outbox_id, 1) == snapshot
     finally:
         await readonly.close()
@@ -281,11 +298,17 @@ async def test_reserved_retry_generation_is_the_only_eligible_claim(storage):
     """An active retry reservation fences the earlier finalized generation."""
     _, provenance = await claim(storage)
     assert (
-        await storage.reserve_outbox_attempt(provenance.outbox_id, "sender-1", 1) == 2
+        await storage.reserve_outbox_attempt(
+            provenance.outbox_id, "pipeline:sender-1", 1
+        )
+        == 2
     )
-    assert await storage.bind_radio_attempt(provenance, "sender-1", plan()) is None
+    assert (
+        await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
+        is None
+    )
     retry = replace(provenance, attempt_number=2, source="retry")
-    checkpoint = await storage.bind_radio_attempt(retry, "sender-1", plan())
+    checkpoint = await storage.bind_radio_attempt(retry, "pipeline:sender-1", plan())
     assert checkpoint is not None
     assert checkpoint.progress.attempt_number == 2
 
@@ -327,7 +350,9 @@ async def test_missing_required_radio_table_is_rejected_before_ddl(tmp_path):
 async def test_missing_part_fields_are_not_reconstructed_from_defaults(storage, field):
     """An incomplete stored part cannot masquerade as a fresh unsent packet."""
     item, provenance = await claim(storage)
-    checkpoint = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    checkpoint = await storage.bind_radio_attempt(
+        provenance, "pipeline:sender-1", plan()
+    )
     data = checkpoint.progress.to_data()
     del data["parts"][0][field]
     storage._db.execute(
@@ -336,16 +361,16 @@ async def test_missing_part_fields_are_not_reconstructed_from_defaults(storage, 
     )
     storage._db.commit()
     with pytest.raises(StorageError, match="evidence is invalid"):
-        await storage.recover_radio_attempt(provenance, "sender-1")
+        await storage.recover_radio_attempt(provenance, "pipeline:sender-1")
 
 
 async def test_queued_parent_cannot_authorize_another_native_radio_call(storage):
     """A local-queue handoff releases the worker, so no further packet may start."""
     item, provenance = await claim(storage)
-    bound = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    bound = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     assert bound is not None
     assert await storage.mark_outbox_queued(
-        item.outbox_id, attempt_number=1, expected_worker_id="sender-1"
+        item.outbox_id, attempt_number=1, expected_worker_id="pipeline:sender-1"
     )
     queued = await storage.get_outbox_item(item.outbox_id)
     assert queued.status == "queued" and queued.worker_id is None
@@ -359,15 +384,15 @@ async def test_queued_parent_cannot_authorize_another_native_radio_call(storage)
 async def test_expired_dispatch_lease_cannot_authorize_radio_submission(storage):
     """An expired reservation may be inspected but must not grant a native send."""
     item, provenance = await claim(storage)
-    bound = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    bound = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
     assert bound is not None
     storage._db.execute(
         "UPDATE delivery_outbox SET lease_until=? WHERE outbox_id=?",
         ("2000-01-01T00:00:00+00:00", item.outbox_id),
     )
     storage._db.commit()
-    assert await storage.begin_radio_part(bound, "sender-1", 1) is None
-    assert await storage.recover_radio_attempt(provenance, "sender-1") is None
+    assert await storage.begin_radio_part(bound, "pipeline:sender-1", 1) is None
+    assert await storage.recover_radio_attempt(provenance, "pipeline:sender-1") is None
     assert await storage.get_radio_attempt_snapshot(item.outbox_id, 1) == (
         bound.progress.to_data()
     )
@@ -407,7 +432,9 @@ async def test_radio_lookup_rejects_invalid_attempt_boundaries(storage, boundary
 async def test_radio_lookup_is_scoped_before_attempt_and_read_only(storage):
     """Checkpoint selection cannot borrow another outbox or mutate retained proof."""
     item, provenance = await claim(storage)
-    checkpoint = await storage.bind_radio_attempt(provenance, "sender-1", plan())
+    checkpoint = await storage.bind_radio_attempt(
+        provenance, "pipeline:sender-1", plan()
+    )
     assert checkpoint is not None
     assert (
         await storage.get_latest_radio_attempt(item.outbox_id, before_attempt=1) is None

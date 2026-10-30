@@ -495,28 +495,65 @@ def sync_authorize_native_submission(
     lock: threading.Lock,
     event_id: str,
     outbox_id: str,
-    now: datetime,
+    worker_id: str,
+    attempt_number: int,
+    now: datetime | None = None,
 ) -> bool:
-    """Fence native calls and durably observe expiry without erasing evidence."""
-    observed = _utc(now)
+    """Fence one live worker and attempt before native submission.
+
+    The SQLite check is atomic with expiry observation. It is not a claim
+    that the SDK participates in a distributed exactly-once transaction.
+    """
+    observed = _utc(now) if now is not None else None
     with lock, db:
         db.execute("BEGIN IMMEDIATE")
-        _observe_mandatory_expiry(db, event_id, observed)
-        owner = db.execute(
-            "SELECT 1 FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
-            "AND status='in_progress'",
-            (outbox_id, event_id),
-        ).fetchone()
-        if owner is None:
-            return False
-        has_content = _requires_content_authority(db, event_id)
-        if not has_content:
-            return True
-        if not _source_dependency_live(db, event_id):
-            return False
-        return _outbox_content_authority(db, event_id, outbox_id, observed)
+        if observed is None:
+            observed = _utc(datetime.now(timezone.utc))
+        return _native_submission_authorized(
+            db, event_id, outbox_id, worker_id, attempt_number, observed
+        )
 
 
+def _native_submission_authorized(
+    db: sqlite3.Connection,
+    event_id: str,
+    outbox_id: str,
+    worker_id: str,
+    attempt_number: int,
+    observed: str,
+) -> bool:
+    """Validate one native start inside the caller's owned SQLite transaction."""
+    _observe_mandatory_expiry(db, event_id, observed)
+    owner = db.execute(
+        "SELECT lease_until FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
+        "AND status='in_progress' AND worker_id=? "
+        "AND (active_attempt=? OR (active_attempt IS NULL "
+        "AND worker_id LIKE 'pipeline:%' AND attempt_number=?)) "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM delivery_outbox AS sibling "
+        "WHERE sibling.outbox_id<>delivery_outbox.outbox_id "
+        "AND sibling.event_id=delivery_outbox.event_id "
+        "AND sibling.delivery_plan_id=delivery_outbox.delivery_plan_id "
+        "AND sibling.target_adapter=delivery_outbox.target_adapter "
+        "AND COALESCE(sibling.target_channel, '')="
+        "COALESCE(delivery_outbox.target_channel, '') "
+        "AND COALESCE(sibling.active_attempt,sibling.attempt_number)>="
+        "COALESCE(delivery_outbox.active_attempt,delivery_outbox.attempt_number))",
+        (outbox_id, event_id, worker_id, attempt_number, attempt_number),
+    ).fetchone()
+    if owner is None or not isinstance(owner[0], str):
+        return False
+    try:
+        lease = _utc(datetime.fromisoformat(owner[0]))
+    except ValueError:
+        return False
+    if lease <= observed:
+        return False
+    if not _requires_content_authority(db, event_id) or not _source_dependency_live(
+        db, event_id
+    ):
+        return False
+    return _outbox_content_authority(db, event_id, outbox_id, observed)
 
 
 class _ContentGrantsMixin:
@@ -615,12 +652,32 @@ class _ContentGrantsMixin:
         )
 
     async def authorize_native_submission(
-        self, event_id: str, outbox_id: str, *, now: datetime
+        self,
+        event_id: str,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        now: datetime | None = None,
     ) -> bool:
-        if not event_id or not outbox_id:
+        if (
+            not isinstance(event_id, str)
+            or not event_id
+            or not isinstance(outbox_id, str)
+            or not outbox_id
+        ):
             raise ValueError("An event and outbox identity are required")
+        if not isinstance(worker_id, str) or not worker_id:
+            raise ValueError("A concrete outbox worker is required")
+        if type(attempt_number) is not int or attempt_number < 1:
+            raise ValueError("A positive reserved attempt number is required")
         return await self._run_grant_op(
-            sync_authorize_native_submission, event_id, outbox_id, now
+            sync_authorize_native_submission,
+            event_id,
+            outbox_id,
+            worker_id,
+            attempt_number,
+            now,
         )
 
     async def list_mandatory_content_dependencies(

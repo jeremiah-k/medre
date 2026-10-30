@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import replace
 
 import pytest
 
@@ -43,8 +42,15 @@ def wire_plan():
 
 async def rendering(storage):
     """Create an authoritative owned attempt and a renderer-selected wire plan."""
-    item = replace(make_outbox_item(status="in_progress"), worker_id="radio-owner")
+    from datetime import datetime, timezone
+
+    item = make_outbox_item(status="pending", attempt_number=0)
     item = await create_outbox_item_with_parent(storage, item)
+    claimed = await storage.claim_due_outbox_items(
+        datetime.now(timezone.utc).isoformat(), "radio-owner"
+    )
+    assert any(row.outbox_id == item.outbox_id for row in claimed)
+    assert await storage.reserve_outbox_attempt(item.outbox_id, "radio-owner", 0) == 1
     claim = DeliveryAttemptProvenance(
         event_id=item.event_id,
         delivery_plan_id=item.delivery_plan_id,
@@ -154,7 +160,7 @@ async def test_claim_loss_while_waiting_for_send_owner_prevents_native_invocatio
         calls.append(packet.payload)
         return AdapterHandoffResult()
 
-    with pytest.raises(AdapterPermanentError, match="claim expired"):
+    with pytest.raises(AdapterPermanentError, match="native start denied"):
         await deliver_radio_plan(storage, result, "radio-owner", deliver)
     assert calls == []
     snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
@@ -355,3 +361,129 @@ async def test_lost_claim_during_uncertainty_checkpoint_is_correlated(storage, c
     assert "attempt=1 part=1" in caplog.text
     snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
     assert snapshot["parts"][0]["state"] == "submitting"
+
+
+async def test_content_release_between_packets_preserves_accepted_prefix(storage):
+    from datetime import datetime, timezone
+
+    result = await rendering(storage)
+    calls = []
+
+    async def deliver(packet):
+        await packet.before_native_send()
+        calls.append(packet.payload)
+        if len(calls) == 1:
+            await storage._write(
+                "UPDATE event_content_dependencies SET released_at=? "
+                "WHERE event_id=? AND owner_kind IN ('ingress','append')",
+                (
+                    datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                    result.event_id,
+                ),
+            )
+        return AdapterHandoffResult()
+
+    with pytest.raises(AdapterPermanentError):
+        await deliver_radio_plan(storage, result, "radio-owner", deliver)
+    checkpoint = await storage.get_radio_attempt(result.outbox_id, 1)
+    assert len(calls) == 1
+    assert checkpoint.progress.parts[0].state == "accepted"
+    assert all(part.state == "unsent" for part in checkpoint.progress.parts[1:])
+
+
+async def test_radio_inspection_does_not_select_wire_plan(storage):
+    import sqlite3
+
+    import msgspec
+
+    result = await rendering(storage)
+    saved = await storage.bind_radio_attempt(
+        result.attempt_provenance, "radio-owner", result.radio_plan
+    )
+    assert saved is not None
+
+    def authorize(action, table, column, database, source):
+        return (
+            sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_READ
+            and (table, column) == ("radio_attempt_progress", "plan_json")
+            else sqlite3.SQLITE_OK
+        )
+
+    await storage._run_in_thread(storage._require_db().set_authorizer, authorize)
+    try:
+        metadata = await storage.inspect_radio_attempt(result.outbox_id, 1)
+        assert metadata.to_data()["content_withheld"] is True
+        assert "wire_text" not in msgspec.json.encode(metadata.to_data()).decode()
+        assert metadata.parts == saved.progress.parts
+    finally:
+        await storage._run_in_thread(storage._require_db().set_authorizer, None)
+
+
+@pytest.mark.parametrize("expired", ["content", "deadline"])
+async def test_expiry_during_radio_checkpoint_wait_cannot_grant_native_send(
+    storage, monkeypatch, expired
+):
+    from datetime import datetime, timedelta, timezone
+
+    import medre.core.engine.pipeline.radio_delivery as delivery_module
+    import medre.core.storage.sqlite._radio as radio_module
+
+    result = await rendering(storage)
+
+    class Clock(datetime):
+        current = datetime.now(timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(delivery_module, "datetime", Clock)
+    monkeypatch.setattr(radio_module, "datetime", Clock)
+    deadline = Clock.current + timedelta(seconds=10)
+    original_begin = storage.begin_radio_part
+    native_calls = 0
+
+    async def queued_checkpoint(*args, **kwargs):
+        if expired == "content":
+            await storage._write(
+                "UPDATE event_content_dependencies SET released_at=? WHERE event_id=?",
+                (Clock.current.isoformat(), result.event_id),
+            )
+        else:
+            Clock.current = deadline
+        return await original_begin(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "begin_radio_part", queued_checkpoint)
+
+    async def send(packet):
+        nonlocal native_calls
+        await packet.before_native_send()
+        native_calls += 1
+        return AdapterHandoffResult()
+
+    with pytest.raises(AdapterPermanentError):
+        await deliver_radio_plan(
+            storage, result, "radio-owner", send, deadline=deadline
+        )
+    assert native_calls == 0
+    saved = await storage.get_radio_attempt(result.outbox_id, 1)
+    assert all(part.state == "unsent" for part in saved.progress.parts)
+
+
+async def test_radio_start_compares_offset_lease_as_an_instant(storage):
+    from datetime import datetime, timedelta, timezone
+
+    result = await rendering(storage)
+    lease = (datetime.now(timezone.utc) + timedelta(minutes=5)).astimezone(
+        timezone(timedelta(hours=-5))
+    )
+    await storage._write(
+        "UPDATE delivery_outbox SET lease_until=? WHERE outbox_id=?",
+        (lease.isoformat(), result.outbox_id),
+    )
+    bound = await storage.bind_radio_attempt(
+        result.attempt_provenance, "radio-owner", result.radio_plan
+    )
+    assert bound is not None
+    assert await storage.begin_radio_part(bound, "radio-owner", 1) is not None

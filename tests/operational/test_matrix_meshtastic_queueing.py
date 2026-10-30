@@ -130,6 +130,8 @@ class TestQueuedReceiptCreation:
             route,
             plan,
             outbox_id="obox-queued-q",
+            reserved_attempt_number=1,
+            expected_outbox_worker_id="pipeline:queueing",
         )
 
         assert receipt is not None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jsonschema
@@ -157,7 +158,11 @@ async def test_inspect_assessment_preserves_database_and_matches_schema(
     path = tmp_path / "radio.sqlite"
     storage = SQLiteStorage(db_path=str(path))
     await storage.initialize()
-    item = replace(make_outbox_item(status="in_progress"), worker_id="owner")
+    item = replace(
+        make_outbox_item(status="in_progress"),
+        worker_id="pipeline:owner",
+        lease_until=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
     item = await create_outbox_item_with_parent(storage, item)
     provenance = DeliveryAttemptProvenance(
         item.event_id,
@@ -169,9 +174,9 @@ async def test_inspect_assessment_preserves_database_and_matches_schema(
         "live",
     )
     planned = plan_radio_text("hello " * 24, max_text_bytes=32)
-    checkpoint = await storage.bind_radio_attempt(provenance, "owner", planned)
+    checkpoint = await storage.bind_radio_attempt(provenance, "pipeline:owner", planned)
     assert checkpoint is not None
-    submitting = await storage.begin_radio_part(checkpoint, "owner", 1)
+    submitting = await storage.begin_radio_part(checkpoint, "pipeline:owner", 1)
     assert submitting is not None
     await storage.close()
     before = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -191,6 +196,7 @@ async def test_inspect_assessment_preserves_database_and_matches_schema(
     for name in (
         "radio-text-plan",
         "radio-attempt-progress",
+        "radio-attempt-metadata",
         "radio-attempt-inspection",
     ):
         schema = json.loads((folder / f"{name}.schema.json").read_text())

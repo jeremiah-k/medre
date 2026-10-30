@@ -108,7 +108,9 @@ class _FakeStorage(CannedContentReads):
         event_id: str,
         outbox_id: str,
         *,
-        now: datetime,
+        worker_id: str,
+        attempt_number: int,
+        now=None,
     ) -> bool:
         # The delivery fence requires this contract before any native start;
         # this flow exercises one authorized attempt at a time.
