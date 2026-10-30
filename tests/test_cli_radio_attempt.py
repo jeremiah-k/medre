@@ -60,6 +60,7 @@ async def test_inspection_preserves_inflight_checkpoint_and_validates_report(
     for name in (
         "radio-text-plan",
         "radio-attempt-progress",
+        "radio-attempt-metadata",
         "radio-attempt-inspection",
     ):
         schema = json.loads((directory / f"{name}.schema.json").read_text())

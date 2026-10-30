@@ -454,10 +454,18 @@ class TestOrphanEventReplay:
             assert len(replay_from_run) == 1
             assert replay_from_run[0].replay_run_id == "run-orphan-001"
 
-            # Original event fields unchanged.
-            stored_event = await storage.get("orphan-001")
-            assert stored_event is not None
-            stored_snapshot = _snapshot_event_fields(stored_event)
+            # Original event fields unchanged. The metadata view carries no
+            # payload, so compare the full event through the authorized
+            # replay read while the admission hold is still live.
+            stored_meta = await storage.get_metadata("orphan-001")
+            assert stored_meta is not None
+            assert stored_meta.payload == {}
+            authorized = await storage.read_event_for_replay(
+                "orphan-001", now=datetime.now(timezone.utc)
+            )
+            assert authorized.status == "retained"
+            assert authorized.event is not None
+            stored_snapshot = _snapshot_event_fields(authorized.event)
             assert stored_snapshot == original_snapshot
         finally:
             await runner.stop()
@@ -524,10 +532,16 @@ class TestOrphanEventReplay:
             # No receipts created — delivery was suppressed.
             assert await storage.count_receipts() == 0
 
-            # Original event fields unchanged.
-            stored_event = await storage.get("orphan-dry-001")
-            assert stored_event is not None
-            stored_snapshot = _snapshot_event_fields(stored_event)
+            # Original event fields unchanged, via the authorized replay read.
+            stored_meta = await storage.get_metadata("orphan-dry-001")
+            assert stored_meta is not None
+            assert stored_meta.payload == {}
+            authorized = await storage.read_event_for_replay(
+                "orphan-dry-001", now=datetime.now(timezone.utc)
+            )
+            assert authorized.status == "retained"
+            assert authorized.event is not None
+            stored_snapshot = _snapshot_event_fields(authorized.event)
             assert stored_snapshot == original_snapshot
         finally:
             await runner.stop()

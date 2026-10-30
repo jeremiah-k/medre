@@ -64,6 +64,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
@@ -81,7 +82,7 @@ from tests.helpers.storage_outbox import (
 # ---------------------------------------------------------------------------
 
 
-class _FakeStorage:
+class _FakeStorage(CannedContentReads):
     """Minimal in-memory storage for operational tests.
 
     Supports outbox methods as no-ops for PipelineRunner compatibility.
@@ -99,8 +100,19 @@ class _FakeStorage:
     async def append(self, event: CanonicalEvent) -> None:
         self._events[event.event_id] = event
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def _read_event(self, event_id: str) -> CanonicalEvent | None:
         return self._events.get(event_id)
+
+    async def authorize_native_submission(
+        self,
+        event_id: str,
+        outbox_id: str,
+        *,
+        now: datetime,
+    ) -> bool:
+        # The delivery fence requires this contract before any native start;
+        # this flow exercises one authorized attempt at a time.
+        return True
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs[ref.id] = ref
@@ -114,8 +126,14 @@ class _FakeStorage:
         key = (adapter, native_channel_id, native_message_id)
         return self._native_ref_index.get(key)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
-        return [r for r in self._native_refs.values() if r.event_id == event_id]
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
+        return inspection_rows(
+            [r for r in self._native_refs.values() if r.event_id == event_id],
+            "native_message_refs",
+            metadata_only,
+        )
 
     async def list_relation_sources(self, target_event_id: str) -> list[str]:
         return [
@@ -169,8 +187,14 @@ class _FakeStorage:
         self._observations.append(observation)
         return True
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        return [r for r in self._receipts if r.event_id == event_id]
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[DeliveryReceipt]:
+        return inspection_rows(
+            [r for r in self._receipts if r.event_id == event_id],
+            "delivery_receipts",
+            metadata_only,
+        )
 
     async def list_receipts_for_delivery(
         self,
@@ -233,8 +257,12 @@ class _FakeStorage:
         self._outbox[item.outbox_id] = item
         return item
 
-    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
-        return self._outbox.get(outbox_id)
+    async def get_outbox_item(
+        self, outbox_id: str, *, metadata_only=False
+    ) -> DeliveryOutboxItem | None:
+        return inspection_rows(
+            self._outbox.get(outbox_id), "delivery_outbox", metadata_only
+        )
 
     async def reserve_outbox_attempt(
         self,

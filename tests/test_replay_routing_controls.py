@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from medre.core.engine.replay.summary import _build_summary, collect_replay_summary
@@ -573,13 +574,20 @@ class TestReplayNoMutation:
         assert dict(event.payload) == orig_payload
         assert event.source_adapter == orig_source
 
-        # Stored event also unchanged
+        # Stored event also unchanged; the full payload stays available to
+        # an authorized replay read while the admission hold is live.
         stored = await temp_storage.get(event.event_id)
         assert stored is not None
         assert stored.event_id == orig_id
         assert stored.event_kind == orig_kind
-        assert dict(stored.payload) == orig_payload
+        assert stored.payload == {}
         assert stored.source_adapter == orig_source
+        authorized = await temp_storage.read_event_for_replay(
+            event.event_id, now=datetime.now(timezone.utc)
+        )
+        assert authorized.status == "retained"
+        assert authorized.event is not None
+        assert dict(authorized.event.payload) == orig_payload
 
     async def test_best_effort_preserves_original_event(
         self,
@@ -611,7 +619,13 @@ class TestReplayNoMutation:
         assert dict(event.payload) == orig_payload
         stored = await temp_storage.get(event.event_id)
         assert stored is not None
-        assert dict(stored.payload) == orig_payload
+        assert stored.payload == {}
+        authorized = await temp_storage.read_event_for_replay(
+            event.event_id, now=datetime.now(timezone.utc)
+        )
+        assert authorized.status == "retained"
+        assert authorized.event is not None
+        assert dict(authorized.event.payload) == orig_payload
 
 
 # ===================================================================

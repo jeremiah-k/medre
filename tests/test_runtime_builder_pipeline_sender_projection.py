@@ -43,6 +43,7 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 from tests.helpers.native_metadata import meshtastic_native_data
 from tests.helpers.runtime_builder import clean_path_env, make_all_enabled_config
 
@@ -76,7 +77,7 @@ def built_app(tmp_paths: MedrePaths) -> MedreApp:
     return builder.build()
 
 
-class _FakeStorage:
+class _FakeStorage(CannedContentReads):
     """Minimal storage stub returning canned events by id.
 
     Mirrors the duck-typed storage shape consumed by
@@ -89,11 +90,13 @@ class _FakeStorage:
     def __init__(self, events: dict[str, CanonicalEvent]) -> None:
         self._events = events
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def _read_event(self, event_id: str) -> CanonicalEvent | None:
         return self._events.get(event_id)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[Any]:
-        return []
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[Any]:
+        return inspection_rows([], "native_message_refs", metadata_only)
 
 
 def _ts() -> datetime:

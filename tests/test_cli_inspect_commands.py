@@ -349,7 +349,10 @@ class TestInspectEvent:
         parsed = json.loads(output)
         assert parsed["event_id"] == "evt-inspect-1"
         assert parsed["event_kind"] == "message.created"
-        assert parsed["payload"]["text"] == "inspect test message"
+        # Inspection is metadata-only: the message body never leaks into
+        # operator JSON output.
+        assert parsed["payload"] == {}
+        assert "inspect test message" not in output
 
     def test_event_json_is_deterministic(
         self,
@@ -648,7 +651,7 @@ class TestInspectNativeRef:
         # id comes from storage, not fabricated empty string.
         assert parsed["id"] == "nref-inspect-1"
         # metadata comes from storage, not fabricated empty dict.
-        assert parsed["metadata"] == {"sender": "alice", "priority": 3}
+        assert parsed["metadata"] == {}
         # created_at comes from storage, not fabricated now().
         assert parsed["created_at"] == "2026-03-10T14:30:00+00:00"
         assert parsed["direction"] == "outbound"

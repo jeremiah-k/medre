@@ -40,6 +40,7 @@ from medre.core.evidence.tiers import (
     infer_evidence_tier,
     tier_is_live,
 )
+from tests.helpers.content_reads import inspection_rows
 from tests.helpers.storage import make_storage_event
 
 # ---------------------------------------------------------------------------
@@ -89,11 +90,24 @@ class FakeStorage:
     async def get(self, event_id: str) -> CanonicalEvent | None:
         return self._events.get(event_id)
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        return self._receipts.get(event_id, [])
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None:
+        # Collector reads the metadata projection; this in-memory fake has
+        # no separate content tables to withhold.
+        return self._events.get(event_id)
 
-    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
-        return self._native_refs.get(event_id, [])
+    async def list_receipts_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[DeliveryReceipt]:
+        return inspection_rows(
+            self._receipts.get(event_id, []), "delivery_receipts", metadata_only
+        )
+
+    async def list_native_refs_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[NativeMessageRef]:
+        return inspection_rows(
+            self._native_refs.get(event_id, []), "native_message_refs", metadata_only
+        )
 
 
 def _populated_fake(

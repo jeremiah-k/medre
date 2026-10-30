@@ -2,12 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://medre.dev/schemas/radio-attempt-inspection.schema.json",
   "title": "Read-only exact radio attempt inspection",
-  "description": "Current parent authority and exact historical radio progress. Inspection performs no recovery and grants no native submission or remote delivery authority.",
+  "description": "Current parent authority and metadata-only historical radio progress. Wire text is withheld; inspection grants no native submission or remote delivery authority.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "outbox", "progress"],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": {
+      "const": 1
+    },
     "outbox": {
       "type": "object",
       "additionalProperties": false,
@@ -21,11 +23,25 @@
         "current_attempt_number"
       ],
       "properties": {
-        "outbox_id": { "type": "string", "minLength": 1 },
-        "event_id": { "type": "string", "minLength": 1 },
-        "delivery_plan_id": { "type": "string", "minLength": 1 },
-        "target_adapter": { "type": "string", "minLength": 1 },
-        "target_channel": { "type": ["string", "null"] },
+        "outbox_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delivery_plan_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_channel": {
+          "type": ["string", "null"]
+        },
         "current_status": {
           "enum": [
             "pending",
@@ -38,7 +54,10 @@
             "abandoned"
           ]
         },
-        "current_attempt_number": { "type": "integer", "minimum": 1 }
+        "current_attempt_number": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "continuation_assessment": {
@@ -105,6 +124,8 @@
         }
       }
     },
-    "progress": { "$ref": "radio-attempt-progress.schema.json" }
+    "progress": {
+      "$ref": "radio-attempt-metadata.schema.json"
+    }
   }
 }

@@ -25,8 +25,11 @@ per-event content dependency counts establish read-only boundaries; neither
 executes recovery nor authorizes expiry. The exact-cancellation authority is
 available through the confirmed local-owner `medre resolve` command, with
 read-only audit inspection through `medre inspect decisions`. A versioned
-content policy preview provides the decision model; persisted content identity,
-grants and runtime enforcement remain the next core implementation work.
+content policy preview provides the decision model. Canonical content identity,
+transactional source/outbox dependencies, metadata-only event inspection,
+source-held reply/replay reads and exact dispatch fences are implemented.
+Terminal-owner settlement, complete retained-copy accounting and bounded
+collection remain the next core lifecycle work; collection stays disabled.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after

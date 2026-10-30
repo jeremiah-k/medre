@@ -180,7 +180,8 @@ async def case(
 
     try:
         bridge = await start(settings["barrier"])
-        storage = await SQLiteStorage.open_readonly(settings["database"])
+        storage = SQLiteStorage(settings["database"])
+        await storage.initialize()
         if name in ("transient_outage", "retry_exhaustion"):
             await bridge.command("block")
             await wait_health(bridge, healthy=False)

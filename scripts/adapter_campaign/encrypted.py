@@ -65,9 +65,8 @@ async def run(fixture: dict, directory: Path) -> dict:
                 name: entry["keys"] for name, entry in topology.items()
             }, "A device crypto identity changed"
             if storage is None:
-                storage = await SQLiteStorage.open_readonly(
-                    str(directory / "medre.sqlite3")
-                )
+                storage = SQLiteStorage(str(directory / "medre.sqlite3"))
+                await storage.initialize()
             for name, source, media, epoch in CASES:
                 if epoch != generation:
                     continue

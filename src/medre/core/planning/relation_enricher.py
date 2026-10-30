@@ -29,7 +29,8 @@ stays unset rather than reading native identity keys.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, Mapping, cast
+from datetime import datetime
+from typing import Awaitable, Callable, Mapping, Protocol, cast
 
 import msgspec
 
@@ -44,6 +45,7 @@ from medre.core.planning.relation_binding import (
     MUTATION_RELATION_TYPES,
     RelationBindingAuthority,
 )
+from medre.core.storage.read_contracts import ReplyContextRead
 
 _logger = logging.getLogger(__name__)
 
@@ -55,6 +57,13 @@ _logger = logging.getLogger(__name__)
 #: in the adapter layer (e.g. ``medre.adapters._attribution_dispatch``)
 #: and are injected into core by the runtime to preserve layering.
 SenderProjectionFn = Callable[[CanonicalEvent], Mapping[str, str | None]]
+
+
+class _ReplyStorage(Protocol):
+    async def get_metadata(self, event_id: str) -> CanonicalEvent | None: ...
+    async def read_reply_context(
+        self, event_id: str, *, now: datetime | None = None
+    ) -> ReplyContextRead: ...
 
 
 class RelationEnricher:
@@ -99,7 +108,7 @@ class RelationEnricher:
 
     def __init__(
         self,
-        storage: object,
+        storage: _ReplyStorage | None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._storage = storage
@@ -137,11 +146,10 @@ class RelationEnricher:
             target_adapter: Adapter ID to match native refs against.
             target_channel: Optional native channel ID — when given, prefer
                 refs whose ``native_channel_id`` equals this value.
-            cached_get_fn: Optional pre-wired/cached ``storage.get`` callable.
-                When provided, used instead of ``getattr(storage, "get")`` so
-                that callers (e.g. :class:`PipelineRunner`) can memoize lookups
-                across multiple enrichment calls within a single ingress.
-                Must have the same signature as ``storage.get(event_id)``.
+            cached_get_fn: Optional memoized authorized reply-context lookup.
+                Callers must use ``read_reply_context`` and return metadata
+                only on denial. This shares scoped lookups across targets
+                within one ingress without granting unrestricted event reads.
             cached_list_fn: Optional pre-wired/cached
                 ``storage.list_native_refs_for_event`` callable.  When
                 provided, used instead of ``getattr(storage,
@@ -186,8 +194,7 @@ class RelationEnricher:
         if cached_get_fn is not None:
             get_fn = cached_get_fn
         else:
-            raw_get_fn = getattr(storage, "get", None)
-            if callable(raw_get_fn):
+            if storage is not None:
                 get_cache: dict[str, CanonicalEvent | None] = {}
                 get_errors: dict[str, Exception] = {}
 
@@ -196,10 +203,19 @@ class RelationEnricher:
                         raise get_errors[event_id]
                     if event_id not in get_cache:
                         try:
-                            get_cache[event_id] = await cast(
-                                Callable[[str], Awaitable[CanonicalEvent | None]],
-                                raw_get_fn,
-                            )(event_id)
+                            result: CanonicalEvent | None = None
+                            # Quote text only while the target's admission or
+                            # append hold is live; once it lapses fall back to
+                            # the metadata projection so enrichment renders an
+                            # honest missing-quote fallback instead of stale
+                            # bytes.
+                            read = await storage.read_reply_context(event_id)
+                            result = (
+                                read.event
+                                if read.status != "denied"
+                                else await storage.get_metadata(event_id)
+                            )
+                            get_cache[event_id] = result
                         except Exception as exc:
                             get_errors[event_id] = exc
                             raise
@@ -223,9 +239,9 @@ class RelationEnricher:
                     if event_id not in list_cache:
                         try:
                             list_cache[event_id] = await cast(
-                                Callable[[str], Awaitable[list[NativeMessageRef]]],
+                                Callable[..., Awaitable[list[NativeMessageRef]]],
                                 raw_list_fn,
-                            )(event_id)
+                            )(event_id, metadata_only=True)
                         except Exception as exc:
                             list_errors[event_id] = exc
                             raise

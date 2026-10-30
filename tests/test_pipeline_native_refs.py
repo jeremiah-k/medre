@@ -96,12 +96,18 @@ class TestCanonicalImmutabilityDownstream:
         try:
             await runner.handle_ingress(event)
 
-            # Retrieve from storage — fields must match original.
-            stored = await temp_storage.get("immut-001")
+            # Retrieve from storage — identity via the metadata view, then
+            # the payload through the authorized live-hold borrow.
+            stored = await temp_storage.get_metadata("immut-001")
             assert stored is not None
             assert stored.event_kind == original_kind
-            assert stored.payload["text"] == original_payload_body
             assert stored.source_adapter == original_source
+            authorized = await temp_storage.read_event_for_replay(
+                "immut-001", now=datetime.now(timezone.utc)
+            )
+            assert authorized.status == "retained"
+            assert authorized.event is not None
+            assert authorized.event.payload["text"] == original_payload_body
         finally:
             await runner.stop()
 

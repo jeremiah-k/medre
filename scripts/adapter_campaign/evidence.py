@@ -13,7 +13,8 @@ async def snapshots(storage, prefix: str) -> list[dict]:
         raise AssertionError("Campaign evidence exceeds the bounded event window")
     results = []
     for event_id in ids:
-        event = await storage.get(event_id)
+        read = await storage.read_event_for_replay(event_id)
+        event = read.event if read.status == "retained" else None
         if event is None or prefix not in str(
             event.payload.get("body", event.payload.get("text", ""))
         ):

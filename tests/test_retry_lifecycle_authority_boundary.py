@@ -16,7 +16,8 @@ _ALLOWED_WORKER_STORAGE_CALLS = frozenset(
         "claim_due_outbox_items",
         "count_outbox_by_status",
         "delivery_status",
-        "get",
+        "get_metadata",
+        "read_event_for_outbox",
     }
 )
 
@@ -26,18 +27,26 @@ def _source_tree(path: Path) -> ast.Module:
 
 
 def _self_storage_calls(tree: ast.AST) -> set[str]:
+    """Names the worker reads or invokes on ``self._storage`` directly.
+
+    Attribute loads count alongside calls: a bound method such as
+    ``read_event_for_outbox`` is captured before it is awaited elsewhere.
+    """
     calls: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        owner = node.func.value
+        owner = None
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            owner = node.func.value
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            owner = node.value
         if (
             isinstance(owner, ast.Attribute)
             and owner.attr == "_storage"
             and isinstance(owner.value, ast.Name)
             and owner.value.id == "self"
         ):
-            calls.add(node.func.attr)
+            name = node.func.attr if isinstance(node, ast.Call) else node.attr
+            calls.add(name)
     return calls
 
 

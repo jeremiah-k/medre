@@ -421,7 +421,7 @@ async def run_bridge_session(
         if storage is not None:
             for eid in event_ids:
                 try:
-                    persisted = await storage.get(eid)
+                    persisted = await storage.get_metadata(eid)
                     if persisted is not None:
                         stored_event_ids.add(eid)
                 except Exception as exc:

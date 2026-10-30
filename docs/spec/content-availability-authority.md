@@ -44,9 +44,12 @@ content dependencies atomically with ingress/outbox writes. `read_event_for_ingr
 `read_event_for_outbox`, `read_body_for_outbox`, and
 `authorize_native_submission` provide held-owner checks used in selected
 runtime paths. Neither the optional-consumer grants nor these dependency rows
-authorize collection. Generic `get/query`, relation listing, replay, rendering
-evidence, radio packets, and provider-owned copies remain outside comprehensive
-read enforcement. See [content runtime authority](content-runtime-authority.md).
+authorize collection. Generic event/relation reads and ordinary operator
+inspection now use metadata-only projections. Replay and reply content reads
+require a live source dependency; native starts require the exact worker,
+reserved attempt and lease. Retained recovery records, packet wire plans,
+attachments and provider-owned copies remain sensitive. See
+[content runtime authority](content-runtime-authority.md).
 
 ## Required runtime integration gates
 

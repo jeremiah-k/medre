@@ -126,7 +126,7 @@ class TestRetryShutdown:
         )
         storage.claim_due_outbox_items = AsyncMock(return_value=[outbox_item])
         storage.get = AsyncMock(return_value=event)
-        storage.get_envelope = AsyncMock(return_value=event)
+        storage.get_metadata = AsyncMock(return_value=event)
         storage.read_event_for_outbox = AsyncMock(
             return_value=SimpleNamespace(status="retained", event=event)
         )

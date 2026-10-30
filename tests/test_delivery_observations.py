@@ -523,7 +523,7 @@ async def test_observation_evidence_sanitizes_error_and_metadata(temp_storage) -
         for row in result["timeline_entries"]
         if row["entry_type"] == "delivery_observation"
     )
-    assert "syt_supersecretvalue" not in entry["data"]["error"]
+    assert entry["data"]["error"] is None
     assert "access_token" not in entry["data"]["metadata"]
 
     section = await _collect_storage_data_from_backend(
@@ -533,7 +533,7 @@ async def test_observation_evidence_sanitizes_error_and_metadata(temp_storage) -
         None,
     )
     observation = section["data"]["delivery_observations_for_event"][0]
-    assert "syt_supersecretvalue" not in observation["error"]
+    assert observation["error"] is None
     assert "access_token" not in observation["metadata"]
 
 

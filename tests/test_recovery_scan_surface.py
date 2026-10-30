@@ -236,8 +236,8 @@ def test_recovery_outputs_sanitize_persisted_receipt_errors(tmp_path: Path) -> N
 
     assert "super-secret-value" not in scan_text
     assert "super-secret-value" not in event_text
-    assert "[REDACTED]" in scan["unresolved"][0]["error"]
-    assert "[REDACTED]" in event_runbook["failed_targets"][0]["error"]
+    assert scan["unresolved"][0]["error"] is None
+    assert event_runbook["failed_targets"][0].get("error") is None
 
     stdout, _stderr, code = _run_cli_raw(
         "recover",
@@ -246,7 +246,7 @@ def test_recovery_outputs_sanitize_persisted_receipt_errors(tmp_path: Path) -> N
     )
     assert code in (None, 0)
     assert "super-secret-value" not in stdout
-    assert "[REDACTED]" in stdout
+    assert "adapter failed" not in stdout
 
 
 def test_recover_rejects_removed_dry_run_flag() -> None:
@@ -330,7 +330,7 @@ def test_scan_finds_unresolved_failure(tmp_path: Path) -> None:
     assert row["attempt_source"] == "live"
     assert row["attempt_number"] == 1
     assert isinstance(row["receipt_sequence"], int)
-    assert row["error"]
+    assert row["error"] is None
 
 
 def test_successful_retry_supersedes_failure(tmp_path: Path) -> None:

@@ -44,7 +44,7 @@ async def _inspect_event(
     if not (timeline or evidence or recovery):
         storage = await _open_readonly_storage(storage_path)
         try:
-            event = await storage.get(event_id)
+            event = await storage.get_metadata(event_id)
             if event is None:
                 print(
                     f"Error: event not found: {event_id}",
@@ -62,7 +62,7 @@ async def _inspect_event(
     # Augmented path: build a compound result.
     storage = await _open_readonly_storage(storage_path)
     try:
-        event = await storage.get(event_id)
+        event = await storage.get_metadata(event_id)
         if event is None:
             print(
                 f"Error: event not found: {event_id}",
@@ -118,9 +118,13 @@ async def _inspect_receipts(
     _exit_code: int | None = None
     try:
         if event_id is not None:
-            receipts = await storage.list_receipts_for_event(event_id)
+            receipts = await storage.list_receipts_for_event(
+                event_id, metadata_only=True
+            )
         elif replay_run_id is not None:
-            receipts = await storage.list_receipts_by_replay_run(replay_run_id)
+            receipts = await storage.list_receipts_by_replay_run(
+                replay_run_id, metadata_only=True
+            )
         else:
             print("Error: specify --event or --replay-run", file=sys.stderr)
             _exit_code = EXIT_CONFIG
@@ -151,7 +155,9 @@ async def _inspect_native_ref(
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
     try:
-        ref = await storage.get_native_ref(adapter, channel, message)
+        ref = await storage.get_native_ref(
+            adapter, channel, message, metadata_only=True
+        )
         if ref is None:
             print(
                 f"Error: native ref not found: adapter={adapter!r}, "
@@ -175,7 +181,7 @@ async def _inspect_native_ref(
                 result["native_channel_id"] = None
                 result["channel"] = None
             # Fetch the full event for richer output.
-            event = await storage.get(ref.event_id)
+            event = await storage.get_metadata(ref.event_id)
             if event is not None:
                 result["event"] = json.loads(msgspec.json.encode(event))
             print(to_json(result))
@@ -266,16 +272,12 @@ async def _inspect_radio_attempt(
         # Use the same retained checkpoint for presentation and assessment.
         # Two separate reads could otherwise describe different native states
         # while another process is committing a packet handoff.
-        checkpoint = None
-        if assess_continuation:
-            checkpoint = await storage.get_radio_attempt(outbox_id, attempt)
-            snapshot = checkpoint.progress.to_data() if checkpoint is not None else None
-        else:
-            snapshot = await storage.get_radio_attempt_snapshot(outbox_id, attempt)
+        checkpoint = await storage.inspect_radio_attempt(outbox_id, attempt)
+        snapshot = checkpoint.to_data() if checkpoint is not None else None
         if snapshot is None:
             print("Error: radio attempt not found", file=sys.stderr)
             raise SystemExit(EXIT_NOT_FOUND)
-        parent = await storage.get_outbox_item(outbox_id)
+        parent = await storage.get_outbox_item(outbox_id, metadata_only=True)
         if parent is None:
             raise StorageError("Retained radio attempt has no outbox parent")
         report: dict[str, Any] = {

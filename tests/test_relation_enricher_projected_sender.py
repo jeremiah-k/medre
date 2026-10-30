@@ -31,25 +31,26 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 
 # ---------------------------------------------------------------------------
 # Fakes & helpers
 # ---------------------------------------------------------------------------
 
 
-class FakeStorage:
+class FakeStorage(CannedContentReads):
     """Minimal storage stub returning canned events by id."""
 
     def __init__(self, events: dict[str, CanonicalEvent]) -> None:
         self._events = events
 
-    async def get(self, event_id: str) -> CanonicalEvent | None:
+    async def _read_event(self, event_id: str) -> CanonicalEvent | None:
         return self._events.get(event_id)
 
     async def list_native_refs_for_event(
-        self, event_id: str
+        self, event_id: str, *, metadata_only=False
     ) -> list[Any]:  # pragma: no cover - unused in this file
-        return []
+        return inspection_rows([], "native_message_refs", metadata_only)
 
 
 def _ts() -> datetime:

@@ -41,7 +41,7 @@ class _ReplayStoreMixin:
         """
         t0 = time.monotonic()
         try:
-            stored = await self._storage.get(event.event_id)
+            stored = await self._storage.get_metadata(event.event_id)
             if stored is None:
                 if self._diagnostician is not None:
                     self._diagnostician.record_replay_skip(

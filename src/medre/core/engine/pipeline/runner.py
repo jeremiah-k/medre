@@ -529,20 +529,24 @@ class PipelineRunner:
         _refs_inflight: dict[str, asyncio.Task[list[NativeMessageRef]]] = {}
 
         async def _cached_get(event_id: str) -> CanonicalEvent | None:
-            """Memoized storage.get for this ingress pass."""
+            """Memoized authorized target read for this ingress pass.
+
+            Relation enrichment quotes target content only while that
+            target's admission/append hold is still live. Once the hold
+            lapses the enricher sees the metadata projection and renders
+            an honest missing-quote fallback instead of stale bytes.
+            """
             if event_id in _event_cache:
                 return _event_cache[event_id]
             # Reuse an in-flight storage task if one is already running.
             if event_id in _event_inflight:
                 return await asyncio.shield(_event_inflight[event_id])
-            get_fn = getattr(self._config.storage, "get", None)
-            if not callable(get_fn):
-                return None
 
             async def _fetch_event() -> CanonicalEvent | None:
-                return await cast(
-                    Callable[[str], Awaitable[CanonicalEvent | None]], get_fn
-                )(event_id)
+                read = await self._config.storage.read_reply_context(event_id)
+                if read.status != "denied":
+                    return read.event
+                return await self._config.storage.get_metadata(event_id)
 
             task: asyncio.Task[CanonicalEvent | None] = asyncio.create_task(
                 _fetch_event()
@@ -564,14 +568,11 @@ class PipelineRunner:
             # Reuse an in-flight storage task if one is already running.
             if event_id in _refs_inflight:
                 return await asyncio.shield(_refs_inflight[event_id])
-            list_fn = getattr(self._config.storage, "list_native_refs_for_event", None)
-            if not callable(list_fn):
-                return []
 
             async def _fetch_refs() -> list[NativeMessageRef]:
-                return await cast(
-                    Callable[[str], Awaitable[list[NativeMessageRef]]], list_fn
-                )(event_id)
+                return await self._config.storage.list_native_refs_for_event(
+                    event_id, metadata_only=True
+                )
 
             rtask: asyncio.Task[list[NativeMessageRef]] = asyncio.create_task(
                 _fetch_refs()
@@ -689,7 +690,7 @@ class PipelineRunner:
             cached = _event_cache.get(candidate_id)
             if cached is not None:
                 return cached
-            result = await self._config.storage.get(candidate_id)
+            result = await self._config.storage.get_metadata(candidate_id)
             _event_cache[candidate_id] = result
             return result
 
@@ -879,26 +880,16 @@ class PipelineRunner:
         rewinding a sibling obligation.
         """
         stored_event: CanonicalEvent | None
-        read_ingress = getattr(self._config.storage, "read_event_for_ingress", None)
-        if callable(read_ingress):
-            authorized = await read_ingress(event_id, now=datetime.now(timezone.utc))
-            stored_event = authorized.event
-            if authorized.status != "retained":
-                # Distinguish a never-admitted (or deleted) event from a live
-                # admission whose content authority has lapsed, using a
-                # metadata-only probe that leaks no content bytes.
-                event_exists = getattr(self._config.storage, "event_exists", None)
-                if (
-                    stored_event is None
-                    and callable(event_exists)
-                    and not await event_exists(event_id)
-                ):
-                    raise RuntimeError(f"admitted ingress event is missing: {event_id}")
-                raise RuntimeError(
-                    f"admitted ingress content authority denied: {event_id}"
-                )
-        else:
-            stored_event = await self._config.storage.get(event_id)
+        read_ingress = self._config.storage.read_event_for_ingress
+        authorized = await read_ingress(event_id)
+        stored_event = authorized.event
+        if authorized.status != "retained":
+            # Distinguish a never-admitted (or deleted) event from a live
+            # admission whose content authority has lapsed, using a
+            # metadata-only probe that leaks no content bytes.
+            if await self._config.storage.get_metadata(event_id) is None:
+                raise RuntimeError(f"admitted ingress event is missing: {event_id}")
+            raise RuntimeError(f"admitted ingress content authority denied: {event_id}")
         if stored_event is None:
             raise RuntimeError(f"admitted ingress event is missing: {event_id}")
 
@@ -908,12 +899,7 @@ class PipelineRunner:
             # or dependents from storage.
             if candidate_id == event_id:
                 return stored_event
-            get_envelope = getattr(self._config.storage, "get_envelope", None)
-            return (
-                await get_envelope(candidate_id)
-                if callable(get_envelope)
-                else await self._config.storage.get(candidate_id)
-            )
+            return await self._config.storage.get_metadata(candidate_id)
 
         # Stored relations are immutable ingress evidence.  Refresh unresolved
         # native targets on the in-memory delivery copy so work admitted before

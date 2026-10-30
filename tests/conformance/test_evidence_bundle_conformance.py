@@ -117,10 +117,9 @@ class TestSentDeliveryEvidenceConformance:
 
         rcpt = bundle.delivery_receipts[0]
         assert rcpt.status == "sent"
-        assert rcpt.rendering_evidence == {
-            "delivery_strategy": "direct",
-            "truncated": False,
-        }
+        # Free-form rendering evidence is withheld from ordinary bundles; the
+        # persisted receipt row retains it for authorized recovery reads.
+        assert rcpt.rendering_evidence is None
         assert bundle.sources_seen == ("live",)
         assert bundle.replay_run_ids == ()
         _assert_json_safe(bundle)
@@ -196,10 +195,9 @@ class TestQueuedToSentEvidenceConformance:
         statuses = [r.status for r in bundle.delivery_receipts]
         assert statuses == ["queued", "sent"]
 
-        # Second receipt has rendering evidence.
-        assert bundle.delivery_receipts[1].rendering_evidence == {
-            "delivery_strategy": "direct",
-        }
+        # Rendering evidence never enters ordinary bundles, even when the
+        # persisted receipt row carries valid evidence JSON.
+        assert bundle.delivery_receipts[1].rendering_evidence is None
         _assert_json_safe(bundle)
 
 
@@ -289,7 +287,9 @@ class TestInvalidRenderingEvidenceConformance:
     """Invalid rendering_evidence produces a warning, not a crash."""
 
     @pytest.mark.asyncio
-    async def test_invalid_json_warns(self, temp_storage: SQLiteStorage) -> None:
+    async def test_invalid_json_never_parsed_or_exposed(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         event_id = "evt-invalid-conf"
         event = make_storage_event(event_id=event_id)
         await temp_storage.append(event)
@@ -304,14 +304,20 @@ class TestInvalidRenderingEvidenceConformance:
         collector = EvidenceCollector(temp_storage, now_fn=_fixed_now)
         bundle = await collector.collect_for_event(event_id)
 
+        # The collector never parses free-form evidence, so damaged raw
+        # values produce neither a warning nor a leak; they simply stay
+        # persisted for authorized recovery reads.
         rcpt = bundle.delivery_receipts[0]
         assert rcpt.rendering_evidence is None
-        assert any("Invalid rendering_evidence" in w for w in bundle.warnings)
+        assert not any("rendering_evidence" in w for w in bundle.warnings)
+        assert "broken json" not in str(bundle)
         # Bundle is still JSON-safe.
         _assert_json_safe(bundle)
 
     @pytest.mark.asyncio
-    async def test_non_object_json_warns(self, temp_storage: SQLiteStorage) -> None:
+    async def test_non_object_json_never_parsed_or_exposed(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
         event_id = "evt-nonobj-conf"
         event = make_storage_event(event_id=event_id)
         await temp_storage.append(event)
@@ -326,7 +332,8 @@ class TestInvalidRenderingEvidenceConformance:
         collector = EvidenceCollector(temp_storage, now_fn=_fixed_now)
         bundle = await collector.collect_for_event(event_id)
 
-        assert any("Non-object rendering_evidence" in w for w in bundle.warnings)
+        assert not any("rendering_evidence" in w for w in bundle.warnings)
+        assert "42" not in str(bundle.delivery_receipts[0].rendering_evidence)
         _assert_json_safe(bundle)
 
 

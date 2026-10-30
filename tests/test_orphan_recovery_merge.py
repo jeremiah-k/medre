@@ -40,6 +40,7 @@ from medre.core.recovery.models import (
     RecoveryOwnershipAction,
     StartupRecoveryLedger,
 )
+from tests.helpers.content_reads import inspection_rows
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -233,14 +234,31 @@ def _make_storage(
         async def get(self, event_id: str) -> Any:
             return event
 
-        async def list_receipts_for_event(self, event_id: str) -> list[Any]:
-            return list(receipts or [])
+        async def get_metadata(self, event_id: str) -> Any:
+            # The collector reads the metadata projection; this duck-typed
+            # fake has no separate content tables to withhold.
+            return event
 
-        async def list_native_refs_for_event(self, event_id: str) -> list[Any]:
-            return list(native_refs or [])
+        async def list_receipts_for_event(
+            self, event_id: str, *, metadata_only=False
+        ) -> list[Any]:
+            return inspection_rows(
+                list(receipts or []), "delivery_receipts", metadata_only
+            )
 
-        async def list_outbox_items_for_event(self, event_id: str) -> list[Any]:
-            return list(outbox_items or [])
+        async def list_native_refs_for_event(
+            self, event_id: str, *, metadata_only=False
+        ) -> list[Any]:
+            return inspection_rows(
+                list(native_refs or []), "native_message_refs", metadata_only
+            )
+
+        async def list_outbox_items_for_event(
+            self, event_id: str, *, metadata_only=False
+        ) -> list[Any]:
+            return inspection_rows(
+                list(outbox_items or []), "delivery_outbox", metadata_only
+            )
 
     return _FakeStorage()
 
@@ -738,8 +756,10 @@ class _FakeTimelineStorage:
     async def count_delivery_observations(self) -> int:
         return 0
 
-    async def list_outbox_items_for_event(self, event_id: str) -> list[dict]:
-        return self._outbox_items
+    async def list_outbox_items_for_event(
+        self, event_id: str, *, metadata_only=False
+    ) -> list[dict]:
+        return inspection_rows(self._outbox_items, "delivery_outbox", metadata_only)
 
     async def close(self) -> None:
         pass
@@ -765,11 +785,15 @@ class _FakeGlobalStorage:
     async def count_delivery_observations(self) -> int:
         return 0
 
-    async def list_all_receipts(self, limit: int = 10_000) -> list[dict]:
-        return self._all_receipts
+    async def list_all_receipts(
+        self, limit: int = 10_000, *, metadata_only=False
+    ) -> list[dict]:
+        return inspection_rows(self._all_receipts, "delivery_receipts", metadata_only)
 
-    async def list_all_outbox_items(self, limit: int = 10_000) -> list[dict]:
-        return self._all_outbox
+    async def list_all_outbox_items(
+        self, limit: int = 10_000, *, metadata_only=False
+    ) -> list[dict]:
+        return inspection_rows(self._all_outbox, "delivery_outbox", metadata_only)
 
     async def close(self) -> None:
         pass

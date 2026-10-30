@@ -41,10 +41,9 @@ class ReceiptSummary(msgspec.Struct, frozen=True):
 
     **Persistence boundary:** Fields are derived from rows in the
     ``delivery_receipts`` storage table (read-only).  The
-    ``rendering_evidence`` field contains the parsed JSON of the persisted
-    ``rendering_evidence`` column on the same receipt row; it is a stored
-    receipt attribute, not a derived computation.  This summary never
-    writes back to storage.
+    ``rendering_evidence`` is withheld from ordinary bundles because its
+    free-form values may contain message bytes; its presence on a persisted
+    receipt never grants a content read. This summary does not write storage.
     """
 
     receipt_id: str = ""

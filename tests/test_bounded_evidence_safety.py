@@ -262,11 +262,15 @@ async def test_oversized_payloads_truncated() -> None:
                 payload_factory=_big_payload,
             )
 
-            # Stored payloads are intact (SQLite stores as-is).
+            # Stored payloads are intact (SQLite stores as-is), verified
+            # through the authorized live-hold borrow.
             for eid in event_ids:
-                retrieved = await storage.get(eid)
-                assert retrieved is not None
-                assert retrieved.payload["text"] == big_text
+                authorized = await storage.read_event_for_replay(
+                    eid, now=datetime.now(timezone.utc)
+                )
+                assert authorized.status == "retained"
+                assert authorized.event is not None
+                assert authorized.event.payload["text"] == big_text
 
             # Snapshot is metadata-only — no oversized strings inlined.
             snap = build_runtime_snapshot(
@@ -383,13 +387,20 @@ async def test_recursive_metadata_payloads() -> None:
             metadata=EventMetadata(routing=routing_meta),
         )
         await storage.append(evt)
-        retrieved = await storage.get("recursive-evt-001")
+        retrieved = await storage.get_metadata("recursive-evt-001")
         assert retrieved is not None
-        assert "level_1" in retrieved.payload
-        assert "leaf" in str(retrieved.payload)
+        # Routing survives the metadata projection; opaque payload bytes are
+        # only visible through the authorized live-hold borrow.
         assert retrieved.metadata.routing is not None
         assert len(retrieved.metadata.routing.route_trace) == _RECURSIVE_DEPTH
         assert retrieved.metadata.routing.route_trace[0] == "route-trace-0"
+        authorized = await storage.read_event_for_replay(
+            "recursive-evt-001", now=datetime.now(timezone.utc)
+        )
+        assert authorized.status == "retained"
+        assert authorized.event is not None
+        assert "level_1" in authorized.event.payload
+        assert "leaf" in str(authorized.event.payload)
         assert len(retrieved.metadata.routing.matched_routes) == 10
 
         # Wide payload: 500 top-level keys + nested sub-dicts.
@@ -412,9 +423,12 @@ async def test_recursive_metadata_payloads() -> None:
             metadata=EventMetadata(),
         )
         await storage.append(wide_evt)
-        wide_r = await storage.get("recursive-evt-002")
-        assert wide_r is not None
-        assert len(wide_r.payload) >= 500
+        wide = await storage.read_event_for_replay(
+            "recursive-evt-002", now=datetime.now(timezone.utc)
+        )
+        assert wide.status == "retained"
+        assert wide.event is not None
+        assert len(wide.event.payload) >= 500
 
 
 # ===================================================================

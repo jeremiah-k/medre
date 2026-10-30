@@ -11,6 +11,7 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.core.rendering.relations import degrade_relations_inline
+from tests.helpers.content_reads import CannedContentReads, inspection_rows
 
 
 def _event(event_id, payload, relations=()):
@@ -31,17 +32,17 @@ def _event(event_id, payload, relations=()):
     )
 
 
-class StoredEvents:
+class StoredEvents(CannedContentReads):
     """Return authoritative canonical targets without inventing native references."""
 
     def __init__(self, event):
         self.event = event
 
-    async def get(self, event_id):
+    async def _read_event(self, event_id):
         return self.event if self.event.event_id == event_id else None
 
-    async def list_native_refs_for_event(self, _event_id):
-        return []
+    async def list_native_refs_for_event(self, _event_id, *, metadata_only=False):
+        return inspection_rows([], "native_message_refs", metadata_only)
 
 
 @pytest.mark.parametrize(
@@ -60,7 +61,7 @@ class StoredEvents:
             "styled authoritative",
         ),
         ({"body": "stale alias", "text": ""}, None),
-        ({"body": None, "text": "available text"}, "available text"),
+        ({"body": None, "text": "available text"}, None),
         ({"text": "plain text"}, "plain text"),
         ({"body": "plain body"}, "plain body"),
     ],

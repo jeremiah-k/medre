@@ -96,6 +96,9 @@ def _storage(
 ) -> AsyncMock:
     storage = AsyncMock()
     storage.get = AsyncMock(return_value=_FakeEvent())
+    # Timeline assembly reads the metadata projection; an unconfigured
+    # AsyncMock child would surface coroutine objects as field values.
+    storage.get_metadata = AsyncMock(return_value=_FakeEvent())
     storage.list_receipts_for_event = AsyncMock(return_value=receipts or [])
     storage.list_native_refs_for_event = AsyncMock(return_value=[])
     storage.list_delivery_observations_for_event = AsyncMock(return_value=[])
@@ -169,7 +172,9 @@ async def test_admitted_replay_run_is_visible_before_first_receipt() -> None:
             "outbox_statuses": ["pending"],
         }
     ]
-    storage.list_outbox_items_for_event.assert_awaited_once_with("evt-1")
+    storage.list_outbox_items_for_event.assert_awaited_once_with(
+        "evt-1", metadata_only=True
+    )
 
 
 @pytest.mark.asyncio

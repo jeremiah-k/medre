@@ -251,7 +251,7 @@ class _AttachmentHarness:
         self.source_adapter_id = source_adapter_id
         self.dest_adapter_id = dest_adapter_id
         self.admissions: list[
-            tuple[AdmissionResult, InboundAttachmentContent | None]
+            tuple[AdmissionResult, InboundAttachmentContent | None, str | None]
         ] = []
         # The harness owns its store-root precondition; ordinary nio clients
         # in this suite do not create parent directories.
@@ -341,7 +341,11 @@ class _AttachmentHarness:
             result = await self.runner.admit_ingress(
                 event, provenance, attachment=attachment
             )
-            self.admissions.append((result, attachment))
+            descriptor = event.payload.get("attachment")
+            filename = (
+                descriptor.get("filename") if isinstance(descriptor, dict) else None
+            )
+            self.admissions.append((result, attachment, filename))
             return result
 
         storage = self.storage
@@ -437,18 +441,11 @@ class _AttachmentHarness:
         """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            for result, attachment in self.admissions:
-                if not (result.created and attachment is not None):
-                    continue
-                canonical = await self.storage.get(result.event_id)
-                descriptor = (
-                    canonical.payload.get("attachment")
-                    if canonical is not None
-                    else None
-                )
+            for result, attachment, admitted_filename in self.admissions:
                 if (
-                    isinstance(descriptor, dict)
-                    and descriptor.get("filename") == filename
+                    result.created
+                    and attachment is not None
+                    and admitted_filename == filename
                 ):
                     return result
             await asyncio.sleep(0.25)
@@ -547,8 +544,9 @@ class TestSynapseAttachmentSmoke:
             )
             assert stored.data == _MEDIA_BYTES
             # Canonical event carries the retained descriptor.
-            canonical = await storage.get(result.event_id)
-            assert canonical is not None
+            read = await storage.read_event_for_ingress(result.event_id)
+            assert read.status == "retained" and read.event is not None
+            canonical = read.event
             descriptor = canonical.payload.get("attachment")
             assert descriptor is not None
             assert descriptor["content_ref"] == result.attachment.content_ref
@@ -885,7 +883,9 @@ class TestSynapseEncryptedAttachmentSmoke:
             downloaded = _download_media(env, env.test_access_token, content["url"])
             assert downloaded == _MEDIA_BYTES
             # No file key material in any persisted canonical evidence.
-            canonical = await storage.get(result.event_id)
+            read = await storage.read_event_for_replay(result.event_id)
+            assert read.status == "retained" and read.event is not None
+            canonical = read.event
             canonical_payload = json.dumps(canonical.payload)
             assert keys["key"]["k"] not in canonical_payload
             assert keys["iv"] not in canonical_payload
