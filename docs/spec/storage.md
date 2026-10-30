@@ -25,8 +25,7 @@ canonical event, recording version and explicit body presence only. It is not a
 read authorization or retention/expiry policy; see
 [content admission identity](content-admission-identity.md).
 
-The following tables are **planned — not implemented; tracked for
-post-prerelease**:
+The following tables are **planned — not implemented**:
 
 | Planned Table          | One-line Purpose                                                                                                                 |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -35,10 +34,10 @@ post-prerelease**:
 | `actor_identity_links` | Persist links between canonical actors and their native identities.                                                              |
 | `actor_permissions`    | Persist per-actor capability grants for downstream authorization checks.                                                         |
 | `native_archive`       | Optional per-adapter raw-data archive (compressed BLOB) for post-hoc inspection — never embedded in events.                      |
-| `plugin_state`         | Schema-reserved key-value store for the future plugin subsystem.                                                                 |
 
-Do not assume any of these tables exist at runtime. Their DDL shapes are
-documented for planning only.
+Do not assume any of the planned tables exist at runtime. Their DDL shapes
+are documented for planning only. `plugin_state` **does exist** as a reserved
+SQLite table, but no plugin execution or permission-grant system is implemented.
 
 The initial and current backend is SQLite. The `StorageBackend` protocol (Section 3) abstracts over implementation so that future backends (PostgreSQL, NATS JetStream, Redis Streams, Kafka) MAY be substituted without changing callers.
 
@@ -1358,7 +1357,7 @@ that remains the delivery lifecycle's responsibility.
 This is a required prerelease table, not an additive-DDL exception. A previously
 stamped database missing it MUST be rejected before schema DDL, without mutation,
 under §10.2. The schema marker remains `1`. Operators MUST retain their original
-database and follow the explicit backup/reset procedure in §10.4 when choosing
+database and follow the explicit backup/reset procedure in §10.5 when choosing
 this development schema. Serialized MeshCore and Meshtastic integration is qualified separately from
 physical radio campaigns. Explicit tail continuation changes no SQLite table
 shape, schema marker or package version.
@@ -1688,7 +1687,9 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 ## 10. Pre-Release Database Policy
 
-MEDRE has not yet made its first release. The schema version is frozen at `1` and will not be bumped until storage compatibility becomes release-tracked. However, the column shape (which tables exist, which columns each table has) may still change between prerelease builds.
+MEDRE has not yet established a supported database baseline. The schema version is frozen at `1` while the unshipped development catalog can still change. Strict identity validation rejects unsupported
+development state. This does **not** prohibit forward-only additive migrations
+after a stable, explicitly supported schema baseline is declared.
 
 There is no automatic prerelease schema transformation. No code path rewrites
 old data into a new schema shape. The `initialize()` method **MUST** perform
@@ -1699,32 +1700,36 @@ prerelease databases:
 
 On a fresh database, the version row is inserted automatically into `_medre_schema_meta`. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` **MUST** be raised with guidance to resolve the mismatch manually (export data, delete the database file, and restart; or downgrade to match the database version).
 
-Because `_EXPECTED_SCHEMA_VERSION` remains `1` during the entire prerelease period, this check catches databases created by a significantly different version of MEDRE. It does not catch databases that report version `1` but were created by an older prerelease build with a different column shape (that is the job of Section 10.2).
+Because `_EXPECTED_SCHEMA_VERSION` remains `1` in the current development phase, this check catches databases with a different stamped version. It does not catch databases that report version `1` but were created by an older prerelease build with a different column shape (that is the job of Section 10.2).
 
 ### 10.2 Column-Shape Validation
 
 For an already-stamped MEDRE database, `initialize()` **MUST** inspect
-`PRAGMA table_info` for every required table **before schema DDL executes**, then
-repeat normal shape validation after opening. This prevents
-`CREATE TABLE IF NOT EXISTS` from silently filling in newly introduced
-prerelease tables. If any required table or column is missing,
+`PRAGMA table_info` for every required table **before schema DDL executes**.
+This prevents `CREATE TABLE IF NOT EXISTS` from silently filling in newly
+introduced prerelease tables. If any required table or column is missing,
 `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`)
 **MUST** be raised. The error message **MUST** identify the affected table, the
 missing columns, unexpected columns or metadata details as separate clauses,
 and the database file path. It **MUST NOT** suggest that
 automatic schema transformation is available.
 
+After the database opens, normal shape validation repeats with
+`PRAGMA table_xinfo` (including hidden and generated columns) and the complete
+catalog fingerprint described in §10.3, so an accepted database matches the
+declared layout exactly.
+
 This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against stale prerelease databases.
 
 This change adds the required `delivery_receipts.confirmation_level` column while
 the prerelease schema version remains `1`. A database created by an earlier
 prerelease build therefore fails required-column validation by design. Operators
-MUST back up/reset that prerelease database using §10.4; MEDRE does not
+MUST back up/reset that prerelease database using §10.5; MEDRE does not
 transform that database in place.
 
 ### 10.3 Structural-Constraint Validation
 
-Before schema DDL or journal-mode changes, `initialize()` and `open_readonly()`
+After the database opens, `initialize()` and `open_readonly()`
 **MUST** inspect foreign-key
 mappings, required UNIQUE keys, and the `sqlite_master` table definitions for required
 constraints. In particular, `delivery_outbox` MUST retain the event-scoped UNIQUE key
@@ -1751,7 +1756,18 @@ concurrent schema changes between preflight and use. A fresh database MUST creat
 tables, indexes, and its version stamp in the same transaction; a nonempty
 unstamped database MUST NOT be adopted.
 
-### 10.4 Pre-Release Stale Database Reset
+### 10.4 Future supported additive changes
+
+After a first supported schema baseline is declared, adding a table, index,
+or optional field MAY be handled by a **forward-only, explicitly versioned**
+migration if it preserves existing data and has tested upgrade, rollback-on-
+failure, and restart behavior. Breaking or ambiguous transformations require an
+explicit operator decision and are not implied by a version number alone.
+There is no promise to migrate abandoned, unpublished development layouts.
+The current exact-catalog check continues to reject all unrecognized layouts;
+this section does not enable automatic migration today.
+
+### 10.5 Pre-Release Stale Database Reset
 
 When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
 

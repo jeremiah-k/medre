@@ -98,7 +98,7 @@ that evidence. Native packet observations keep their protocol-specific meaning;
 these external receiver logs do not change delivery confirmation levels.
 
 The required radio storage table was introduced in core #342; old prerelease
-storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#104-pre-release-stale-database-reset).
+storage adoption follows [the explicit backup/reset procedure](../spec/storage.md#105-pre-release-stale-database-reset).
 This handoff change introduces no additional database shape change.
 
 For the internal continuation contract, see
