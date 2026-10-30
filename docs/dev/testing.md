@@ -364,7 +364,11 @@ Because the version is frozen, column-shape validation is the primary guard agai
 - A database that reports the correct version but is missing required columns (stale prerelease shape) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError` (tested in `test_prerelease_storage_reset.py`).
 - Column-shape validation reports the affected table and all missing columns in the error (tested in `test_prerelease_storage_reset.py`).
 
-Do not add schema version bump tests or migration tests during prerelease. The version stays at 1 and there is no migration code path to test.
+Before declaring a supported database baseline, keep schema version 1 and test
+strict catalog rejection rather than automatic repairs. Once a baseline is
+supported, each explicit forward-only additive migration must have tests for
+upgrade, interruption/rollback, and restart. No migration path is required
+for abandoned prerelease database shapes.
 
 ## Operator/CLI Tests
 
