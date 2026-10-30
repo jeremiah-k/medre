@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS canonical_events (
 CREATE TABLE IF NOT EXISTS event_body_identity (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     version INTEGER NOT NULL CHECK (version = 1),
-    availability TEXT NOT NULL CHECK (availability IN ('retained', 'unavailable')),
+    present_at_admission INTEGER NOT NULL CHECK (present_at_admission IN (0, 1)),
     recorded_at TEXT NOT NULL
 );
 
@@ -498,7 +498,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
     "event_body_identity": frozenset(
-        {"event_id", "version", "availability", "recorded_at"}
+        {"event_id", "version", "present_at_admission", "recorded_at"}
     ),
     "event_relations": frozenset(
         {
@@ -764,8 +764,8 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
             r"CHECK\s*\(\s*version\s*=\s*1\s*\)",
         ),
         (
-            "CHECK (availability IN ('retained', 'unavailable'))",
-            r"CHECK\s*\(\s*availability\s+IN\s*\(\s*'retained'\s*,\s*'unavailable'\s*\)\s*\)",
+            "CHECK (present_at_admission IN (0, 1))",
+            r"CHECK\s*\(\s*present_at_admission\s+IN\s*\(\s*0\s*,\s*1\s*\)\s*\)",
         ),
     ),
     "operator_delivery_decisions": (
