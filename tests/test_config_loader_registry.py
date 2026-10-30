@@ -24,6 +24,7 @@ from medre.config.model import GenericAdapterRuntimeConfig
 def _wrapper_free_matrix_spec() -> AdapterSpec:
     """Matrix spec stripped of its runtime-config wrapper reference."""
     return AdapterSpec(
+        api_version=1,
         transport="matrix",
         config=SymbolRef("medre.config.adapters.matrix", "MatrixConfig"),
         runtime_config=None,

@@ -38,13 +38,13 @@ TRANSPORT adapters typically ingest raw protocol data and produce canonical even
 
 ## 3. Adapter Protocol
 
-`medre.adapter_spec.ADAPTER_API_VERSION` identifies the major version of core's SDK-free
-adapter interface, initially `1`. `AdapterSpec.api_version` records the provider's
-literal declaration. An omitted declaration is `None` (unknown), not a matching
-version. Explicit declarations MUST be integers equal to the supported major
-version; booleans and incompatible declarations MUST fail SDK-free discovery.
-Omitted metadata remains accepted during coordinated provider adoption;
-mandatory explicit declarations follow that adoption.
+`medre.adapter_spec.ADAPTER_API_VERSION` identifies the major version of core's
+SDK-free adapter interface, initially `1`. Every provider MUST declare a literal
+integer `AdapterSpec.api_version` equal to the supported major version. Missing,
+boolean, non-integer, or incompatible declarations MUST be quarantined during
+SDK-free discovery before native modules are loaded. Healthy unrelated providers
+MUST remain discoverable. Package versions and SQLite schema versions are
+independent identities; an API match is not native feature qualification.
 
 The adapter interface is defined by the `AdapterContract` abstract base class. Every adapter **MUST** satisfy this interface.
 

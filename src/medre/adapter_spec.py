@@ -89,12 +89,16 @@ class NativeSetupField:
 class AdapterSpec:
     """Declarative assembly metadata for one installed adapter type.
 
+    ``api_version`` explicitly names the implemented major adapter API
+    generation. Missing or incompatible declarations fail SDK-free discovery.
+
     ``distribution`` and ``import_names`` describe an optional Python SDK when
     one exists. They may be empty for sidecar-backed adapters that use only a
     MEDRE-owned client.
     """
 
     transport: str
+    api_version: int
     config: SymbolRef
     runtime_config: SymbolRef | None
     adapter: SymbolRef
@@ -119,7 +123,6 @@ class AdapterSpec:
     native_setup_fields: tuple[NativeSetupField, ...] = ()
     logger_levels: tuple[tuple[str, str], ...] = ()
     stopped_state_declaration: SymbolRef | None = None
-    api_version: int | None = None
 
     @property
     def has_python_sdk(self) -> bool:

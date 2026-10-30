@@ -6,6 +6,7 @@ from medre.adapter_spec import AdapterSpec, SymbolRef
 def make_adapter_spec(transport: str) -> AdapterSpec:
     symbol = SymbolRef("builtins", "object")
     return AdapterSpec(
+        api_version=1,
         transport=transport,
         config=symbol,
         runtime_config=None,
