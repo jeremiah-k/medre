@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -298,7 +299,7 @@ def _apply_args(path, observed):
 
 @pytest.mark.parametrize("failure", ["initialize", "audit_write"])
 async def test_storage_failure_uses_cli_exit_and_preserves_decision_atomicity(
-    tmp_path, sample_event, capsys, failure
+    tmp_path, sample_event, capsys, failure, monkeypatch
 ):
     """Storage failures use exit 3; failed audit insertion cancels no target."""
     path = tmp_path / "state.sqlite"
@@ -309,17 +310,18 @@ async def test_storage_failure_uses_cli_exit_and_preserves_decision_atomicity(
     if failure == "initialize":
         path.write_bytes(b"not a SQLite database")
     else:
-        store = SQLiteStorage(str(path))
-        await store.initialize()
-        try:
-            await store._write(
+        initialize = SQLiteStorage.initialize
+
+        async def inject_after_validated_open(self):
+            await initialize(self)
+            await self._write(
                 "CREATE TRIGGER reject_decision BEFORE INSERT ON "
                 "operator_delivery_decisions "
                 "BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END",
                 (),
             )
-        finally:
-            await store.close()
+
+        monkeypatch.setattr(SQLiteStorage, "initialize", inject_after_validated_open)
     with pytest.raises(SystemExit) as exc:
         await _resolve_unstarted(_apply_args(str(path), observed))
     assert exc.value.code == 3
@@ -327,6 +329,13 @@ async def test_storage_failure_uses_cli_exit_and_preserves_decision_atomicity(
     assert not output.out
     assert "Storage error:" in output.err
     if failure == "audit_write":
+        # Remove only the test's runtime fault before validating persisted shape.
+        raw = sqlite3.connect(path)
+        try:
+            raw.execute("DROP TRIGGER reject_decision")
+            raw.commit()
+        finally:
+            raw.close()
         store = await SQLiteStorage.open_readonly(str(path))
         try:
             assert await store.list_operator_decisions(sample_event.event_id) == []

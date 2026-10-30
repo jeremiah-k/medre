@@ -19,9 +19,11 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from pathlib import Path
 from typing import Any
 
 from medre.core.ingress.types import AttachmentAdmissionFact
+from medre.core.storage.backend import PreReleaseSchemaMismatchError
 from medre.core.storage.sqlite.ingress_sql import (
     CLAIM_INGRESS_SELECT,
     CLAIM_INGRESS_UPDATE,
@@ -30,7 +32,11 @@ from medre.core.storage.sqlite.ingress_sql import (
     SELECT_NATIVE_EVENT_ID,
     claimed_ingress_row,
 )
-from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
+from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _INDEXES, _SCHEMA
+from medre.core.storage.sqlite.schema_validation import (
+    execute_ddl,
+    validate_schema_definition,
+)
 
 
 class AttachmentAdmissionPlan:
@@ -126,7 +132,15 @@ def sync_open(db_path: str) -> sqlite3.Connection:
         # force one journal cycle per CREATE, and a failed init must
         # leave no partial schema behind.
         db.execute("PRAGMA busy_timeout=5000")
-        db.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA + "\nCOMMIT;")
+        db.execute("BEGIN IMMEDIATE")
+        if not validate_schema_definition(db, db_path):
+            execute_ddl(db, _SCHEMA)
+            execute_ddl(db, _INDEXES)
+            db.execute(
+                "INSERT INTO _medre_schema_meta VALUES ('schema_version', ?)",
+                (str(_EXPECTED_SCHEMA_VERSION),),
+            )
+        db.commit()
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
         db.commit()
@@ -145,7 +159,7 @@ def sync_close(db: sqlite3.Connection, lock: threading.Lock) -> None:
 def sync_open_readonly(db_path: str) -> sqlite3.Connection:
     """Open a read-only SQLite connection."""
     db = sqlite3.connect(
-        f"file:{db_path}?mode=ro",
+        Path(db_path).absolute().as_uri() + "?mode=ro",
         uri=True,
         check_same_thread=False,
     )
@@ -210,28 +224,73 @@ def sync_write_rowcount(
 
 def sync_find_schema_shape_mismatch(
     db_path: str, required_columns: dict[str, frozenset[str]]
-) -> tuple[str, list[str]] | None:
-    """Inspect a stamped existing database before any schema DDL runs."""
+) -> PreReleaseSchemaMismatchError | None:
+    """Reject every nonempty stale prerelease table shape before any DDL.
+
+    A version-1 stamp cannot authorize additive table creation or columns.
+    Unstamped, nonempty databases cannot be silently adopted as fresh state.
+    All structural comparisons use a read-only handle, so mismatch does not
+    create schema artifacts or rewrite an operator's database.
+    """
     if db_path == ":memory:" or not os.path.exists(db_path):
         return None
-    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    db = sqlite3.connect(Path(db_path).absolute().as_uri() + "?mode=ro", uri=True)
     try:
-        meta = db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_medre_schema_meta'"
-        ).fetchone()
-        if meta is None:
+        names = {
+            str(row[0])
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT GLOB 'sqlite_*'"
+            )
+        }
+        if (
+            not names
+            and not db.execute(
+                "SELECT 1 FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' LIMIT 1"
+            ).fetchone()
+        ):
             return None
+        if "_medre_schema_meta" not in names:
+            return PreReleaseSchemaMismatchError(
+                db_path,
+                "_medre_schema_meta",
+                detail="unstamped database; missing schema_version metadata",
+            )
+        meta_columns = {
+            str(row[1]) for row in db.execute("PRAGMA table_info(_medre_schema_meta)")
+        }
+        if not {"key", "value"} <= meta_columns:
+            return PreReleaseSchemaMismatchError(
+                db_path, "_medre_schema_meta", sorted({"key", "value"} - meta_columns)
+            )
         version = db.execute(
             "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
         ).fetchone()
         if version is None:
+            return PreReleaseSchemaMismatchError(
+                db_path, "_medre_schema_meta", detail="schema_version stamp is missing"
+            )
+        # Don't relabel an explicit version mismatch as an old-shape error.
+        # validate_schema_definition provides its dedicated diagnostic.
+        if str(version[0]) != str(_EXPECTED_SCHEMA_VERSION):
             return None
         for table, required in required_columns.items():
             rows = db.execute(f"PRAGMA table_info({table})").fetchall()
             existing = {str(row[1]) for row in rows}
             missing = sorted(required - existing)
-            if missing:
-                return table, missing
+            extra = sorted(existing - required)
+            if missing or extra:
+                return PreReleaseSchemaMismatchError(
+                    db_path, table, missing, unexpected_columns=extra
+                )
+        # Reject new or abandoned tables rather than quietly accepting an
+        # otherwise compatible subset of the schema.
+        extra_tables = sorted(names - required_columns.keys())
+        if extra_tables:
+            return PreReleaseSchemaMismatchError(
+                db_path, extra_tables[0], detail="unexpected table"
+            )
+        validate_schema_definition(db, db_path)
         return None
     finally:
         db.close()

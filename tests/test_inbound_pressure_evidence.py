@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from medre.core.storage.backend import PreReleaseSchemaMismatchError
 from medre.core.storage.sqlite._pressure import (
     PRESSURE_WINDOW_SECONDS,
     pressure_window_start,
@@ -570,17 +571,12 @@ class TestReviewHardening:
                     await task
             await storage.close()
 
-    async def test_readonly_db_without_table_returns_empty_history(
+    async def test_readonly_db_without_pressure_table_is_rejected(
         self, tmp_path: Path
     ) -> None:
         import sqlite3
 
-        from medre.core.storage.sqlite.storage import SQLiteStorage as _S
-
-        db_path = tmp_path / "legacy.db"
-        # Simulate a schema-version-1 database: full current schema with
-        # the additive pressure table absent (test-local DROP; src never
-        # deletes).
+        db_path = tmp_path / "incompatible.db"
         seed = SQLiteStorage(str(db_path))
         await seed.initialize()
         await seed.close()
@@ -589,12 +585,8 @@ class TestReviewHardening:
         conn.commit()
         conn.close()
 
-        legacy = await _S.open_readonly(str(db_path))
-        try:
-            rows = await legacy.list_inbound_pressure_observations()
-            assert rows == []
-        finally:
-            await legacy.close()
+        with pytest.raises(PreReleaseSchemaMismatchError, match="inbound_pressure"):
+            await SQLiteStorage.open_readonly(str(db_path))
 
     def test_cli_limit_rejects_zero(self, tmp_path: Path) -> None:
         from tests.helpers.cli import _run_cli

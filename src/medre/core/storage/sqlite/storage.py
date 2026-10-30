@@ -69,7 +69,6 @@ from medre.core.storage.sqlite._recovery_query import _RecoveryQueryMixin
 from medre.core.storage.sqlite._relation import _RelationMixin
 from medre.core.storage.sqlite.connection import (
     sync_close,
-    sync_create_indexes,
     sync_find_schema_shape_mismatch,
     sync_open,
     sync_open_readonly,
@@ -86,6 +85,7 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
 )
+from medre.core.storage.sqlite.schema_validation import validate_schema_definition
 
 logger = logging.getLogger(__name__)
 
@@ -253,26 +253,11 @@ class _SQLiteStorageBase:
                 f"Storage database is unreadable or corrupt: {self._db_path}: {exc}"
             ) from exc
         if mismatch is not None:
-            table, missing = mismatch
-            raise PreReleaseSchemaMismatchError(
-                path=self._db_path, table=table, missing_columns=missing
-            )
+            raise mismatch
         try:
             await self._open_connection(sync_open)
-            # Verify schema version after DDL.
-            await self._verify_schema_version()
-
-            # Verify structural shape — catches old pre-release DBs that claim
-            # schema_version=1 but predate current columns or constraints.
-            await self._validate_schema_shape()
-            await self._validate_schema_foreign_keys()
-            await self._validate_schema_unique_constraints()
-            await self._validate_schema_checks()
-
-            # Create targeted indexes AFTER shape validation so that old-shape
-            # databases fail with a clear StorageInitializationError before
-            # index creation references missing columns.
-            await self._create_indexes()
+            # sync_open validates existing state under BEGIN IMMEDIATE and
+            # creates fresh tables, indexes and the version stamp atomically.
         except BaseException:
             try:
                 await self.close()
@@ -300,46 +285,6 @@ class _SQLiteStorageBase:
             raise cancelled from error
         if error is not None:
             raise error
-
-    async def _verify_schema_version(self) -> None:
-        """Check that the stored schema version matches the expected version.
-
-        On a fresh database the version row does not exist, so we insert it.
-        If it exists but mismatches, raise immediately.
-        """
-        row = await self._read_one(
-            "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
-        )
-        if row is None:
-            # Fresh database — stamp the current version.
-            await self._write(
-                "INSERT INTO _medre_schema_meta (key, value) VALUES ('schema_version', ?)",
-                (str(_EXPECTED_SCHEMA_VERSION),),
-            )
-            return
-
-        stored_version = row["value"]
-        try:
-            stored_int = int(stored_version)
-        except (ValueError, TypeError):
-            raise StorageInitializationError(
-                f"Storage schema version is not an integer: {stored_version!r}. "
-                f"Expected {_EXPECTED_SCHEMA_VERSION}. "
-                "Resolve the mismatch manually — no automatic schema "
-                "transformation is performed."
-            ) from None
-
-        if stored_int != _EXPECTED_SCHEMA_VERSION:
-            raise StorageInitializationError(
-                f"Storage schema version mismatch: database has version "
-                f"{stored_int}, but this version of medre expects version "
-                f"{_EXPECTED_SCHEMA_VERSION}. "
-                "Resolve the mismatch manually — no automatic schema transformation "
-                "or "
-                f"silent reset is performed.  Options: export data, delete "
-                f"the database file, and restart; or downgrade medre to "
-                f"match the database version."
-            )
 
     async def _validate_schema_shape(self) -> None:
         """Verify that every required table has all expected columns.
@@ -437,15 +382,6 @@ class _SQLiteStorageBase:
                     missing_constraints=missing,
                 )
 
-    async def _create_indexes(self) -> None:
-        """Create targeted indexes for current query patterns.
-
-        Called after :meth:`_validate_schema_shape` so that old-shape
-        databases raise :class:`StorageInitializationError` *before*
-        any index DDL references columns that may not exist.
-        """
-        await self._run_in_thread(sync_create_indexes, self._require_db())
-
     @classmethod
     async def open_readonly(cls, db_path: str) -> Self:
         """Open an existing database in strict read-only mode.
@@ -475,6 +411,9 @@ class _SQLiteStorageBase:
             await instance._validate_schema_foreign_keys()
             await instance._validate_schema_unique_constraints()
             await instance._validate_schema_checks()
+            await instance._run_in_thread(
+                validate_schema_definition, instance._require_db(), db_path
+            )
         except BaseException:
             try:
                 await instance.close()
@@ -490,9 +429,8 @@ class _SQLiteStorageBase:
     async def _verify_schema_version_readonly(self) -> None:
         """Check schema version without writing.
 
-        Unlike :meth:`_verify_schema_version`, this raises immediately when
-        the version row is absent (uninitialised database) rather than
-        inserting it.
+        An absent version row is uninitialised state and is refused without
+        inserting metadata.
         """
         try:
             row = await self._read_one(
