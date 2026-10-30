@@ -47,10 +47,14 @@ does not establish a MEDRE-verified peer identity.
 
 SDK contracts cover native group text, quote fields, process recovery and local
 storage. The provider's
-[native reply qualification](https://github.com/jeremiah-k/medre-adapter-chatmail/blob/8ff0ccfc3a3dd88f56df8b1f755700b2e8dd4435/docs/evidence/native-replies-2026-10-29.json)
+[native reply qualification](https://github.com/jeremiah-k/medre-adapter-chatmail/blob/86e2783bd6f754d02a5561233881866eb0be0a64/docs/evidence/native-replies-rpc-2.66.0-2026-10-29.json)
 records exact source hashes and core/provider revisions for a dedicated two-profile
-2.65.0 campaign. Its independent encrypted-group peer observes the native quote,
+2.66.0 campaign on fresh native profiles. Its independent encrypted-group peer
+observes the native quote,
 sender/origin presentation and SMTP handoff after reconnect and restart.
+Offline native contracts also cover profile exclusion and same-version
+stopped-state restoration. The separate 2.65.0 campaign remains historical
+evidence for that SDK pair.
 
 The local GreenMail SMTP/IMAP fixture does not qualify deployment of the official
 Chatmail Docker service. Attachments, additional relation features and sustained
