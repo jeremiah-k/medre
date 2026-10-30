@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -31,7 +32,11 @@ async def test_inspection_preserves_inflight_checkpoint_and_validates_report(
     path = tmp_path / "inspect.db"
     storage = SQLiteStorage(db_path=str(path))
     await storage.initialize()
-    item = replace(make_outbox_item(status="in_progress"), worker_id="owner")
+    item = replace(
+        make_outbox_item(status="in_progress"),
+        worker_id="pipeline:owner",
+        lease_until=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
     item = await create_outbox_item_with_parent(storage, item)
     claim = DeliveryAttemptProvenance(
         item.event_id,
@@ -43,9 +48,9 @@ async def test_inspection_preserves_inflight_checkpoint_and_validates_report(
         "live",
     )
     checkpoint = await storage.bind_radio_attempt(
-        claim, "owner", plan_radio_text("hello " * 15, max_text_bytes=40)
+        claim, "pipeline:owner", plan_radio_text("hello " * 15, max_text_bytes=40)
     )
-    await storage.begin_radio_part(checkpoint, "owner", 1)
+    await storage.begin_radio_part(checkpoint, "pipeline:owner", 1)
     await storage.close()
     before = hashlib.sha256(path.read_bytes()).hexdigest()
     await _inspect_radio_attempt(item.outbox_id, 1, storage_path=str(path))

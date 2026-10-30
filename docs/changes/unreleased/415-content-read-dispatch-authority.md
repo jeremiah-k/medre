@@ -11,10 +11,17 @@
   fallback.
 - Evidence bundles withhold free-form rendering, error and capability text;
   authoritative persisted recovery state remains unchanged.
+- Outbound native starts now require exact outbox worker, reserved attempt,
+  unexpired lease and no equal/newer competing generation. Initial pipeline
+  claims and separately reserved retry claims have distinct valid shapes.
 - No physical collection, database migration, release tag or adapter API
   version change is part of this prerelease slice.
 
 All full canonical projections now have admission dependencies, including
 opaque bodyless payload and metadata. Reply context has a dedicated typed read;
 replay rechecks each content-dependent stage. Operator evidence, receipt,
-native-ref, recovery and radio inspection withhold content in SQL. No owner backfill or automatic collection runs.
+native-ref, recovery and radio inspection withhold content in SQL. Radio packet
+grants recheck content/claim authority after pacing, and deadlines are rechecked
+after awaited authorization. Each packet-start checkpoint atomically rechecks
+content, claim and deadline; accepted native observations remain recordable after
+content expiry. No owner backfill or automatic collection runs.

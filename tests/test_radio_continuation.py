@@ -33,11 +33,13 @@ async def owned(tmp_path):
     await storage.initialize()
     item = await create_outbox_item_with_parent(
         storage,
-        replace(
-            make_outbox_item(status="in_progress", target_channel="0"),
-            worker_id="first",
-        ),
+        make_outbox_item(status="pending", attempt_number=0, target_channel="0"),
     )
+    rows = await storage.claim_due_outbox_items(
+        datetime.now(timezone.utc).isoformat(), "first"
+    )
+    assert any(row.outbox_id == item.outbox_id for row in rows)
+    assert await storage.reserve_outbox_attempt(item.outbox_id, "first", 0) == 1
     claim = DeliveryAttemptProvenance(
         item.event_id,
         item.delivery_plan_id,

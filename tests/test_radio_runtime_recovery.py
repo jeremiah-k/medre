@@ -316,7 +316,8 @@ async def test_reclaimed_native_uncertainty_stays_held_without_fresh_send(radio,
             target_channel="0",
             delivery_plan_id=plan.plan_id,
         ),
-        worker_id="interrupted-owner",
+        worker_id="pipeline:interrupted-owner",
+        lease_until=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
         metadata=dict(ROUTE_DECISION_METADATA),
     )
     item = await create_outbox_item_with_parent(radio, item)
@@ -343,6 +344,14 @@ async def test_reclaimed_native_uncertainty_stays_held_without_fresh_send(radio,
     checkpoint = await radio.begin_radio_part(checkpoint, item.worker_id, 2)
     if state == "unknown":
         checkpoint = await radio.observe_radio_part(checkpoint, item.worker_id, 2)
+    # A crashed worker becomes reclaimable only after its real lease expires.
+    await radio._write(
+        "UPDATE delivery_outbox SET lease_until=? WHERE outbox_id=?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            item.outbox_id,
+        ),
+    )
     await radio.close()
     await radio.initialize()
     adapter.failure = None

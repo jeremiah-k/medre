@@ -48,6 +48,16 @@ class _FakeStorage:
         self.receipts: list[DeliveryReceipt] = []
         self.native_refs: list[NativeMessageRef] = []
 
+    async def authorize_native_submission(
+        self, event_id, outbox_id, *, worker_id, attempt_number, now=None
+    ):
+        return (
+            event_id == "evt-001"
+            and outbox_id == "obox-prov-fail"
+            and worker_id == "test-worker"
+            and attempt_number == 1
+        )
+
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self.receipts.append(receipt)
 
@@ -293,6 +303,7 @@ class TestRenderingFailure:
                 plan,
                 outbox_id="obox-prov-fail",
                 reserved_attempt_number=1,
+                expected_outbox_worker_id="test-worker",
             )
 
         err = exc_info.value

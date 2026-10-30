@@ -928,9 +928,15 @@ class StorageBackend(Protocol):
         ...
 
     async def authorize_native_submission(
-        self, event_id: str, outbox_id: str, *, now: datetime
+        self,
+        event_id: str,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        now: datetime | None = None,
     ) -> bool:
-        """Check generation content authority before native submission."""
+        """Fence native start by the exact live worker, attempt and lease."""
         ...
 
     # -- Durable ingress -----------------------------------------------------
@@ -1848,8 +1854,10 @@ class StorageBackend(Protocol):
         expected: StoredRadioAttempt,
         worker_id: str | None,
         ordinal: int,
+        *,
+        deadline: datetime | None = None,
     ) -> StoredRadioAttempt | None:
-        """Persist a CAS submission grant before invoking the native sender."""
+        """Atomically fence content, claim and deadline before a CAS submission grant."""
         ...
 
     async def observe_radio_part(

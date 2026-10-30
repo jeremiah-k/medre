@@ -584,7 +584,7 @@ class TargetDeliveryService:
 
         # Check delivery plan deadline.
         now = datetime.now(tz=timezone.utc)
-        if plan.deadline is not None and now > plan.deadline:
+        if plan.deadline is not None and now >= plan.deadline:
             evidence = await self._persist_failure_evidence(
                 event=event,
                 route=route,
@@ -610,9 +610,18 @@ class TargetDeliveryService:
         # immediately before native submission. No new native operation may
         # start on an expired or missing target dependency. This does not
         # rewrite prior accepted or uncertain native-attempt evidence.
-        authorize_content = self._storage.authorize_native_submission
         if outbox_id is not None:
-            if not await authorize_content(event.event_id, outbox_id, now=now):
+            authorize_content = self._storage.authorize_native_submission
+            if (
+                not expected_outbox_worker_id
+                or reserved_attempt_number is None
+                or not await authorize_content(
+                    event.event_id,
+                    outbox_id,
+                    worker_id=expected_outbox_worker_id,
+                    attempt_number=reserved_attempt_number,
+                )
+            ):
                 evidence = await self._persist_failure_evidence(
                     event=event,
                     route=route,
@@ -938,6 +947,35 @@ class TargetDeliveryService:
                 evidence=evidence,
             ) from None
 
+        # Rendering and relation enrichment may cross the plan deadline.
+        # Recheck before native handoff; a pre-render deadline check alone
+        # cannot authorize a later native operation.
+        async def check_dispatch_deadline() -> None:
+            submission_time = datetime.now(timezone.utc)
+            if plan.deadline is not None and submission_time >= plan.deadline:
+                evidence = await self._persist_failure_evidence(
+                    event=event,
+                    route=route,
+                    plan=plan,
+                    adapter_id=adapter_id or "",
+                    receipt_id=receipt_id,
+                    error="Delivery deadline exceeded before native submission",
+                    failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                    attempt_number=attempt_number,
+                    parent_receipt_id=parent_receipt_id,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                    outbox_id=outbox_id,
+                    created_at=submission_time,
+                )
+                raise _AdapterDeliveryError(
+                    adapter_id or "",
+                    "Delivery deadline exceeded before native submission",
+                    evidence=evidence,
+                ) from None
+
+        await check_dispatch_deadline()
+
         # Deliver the rendered result via adapter.
         delivery_exc: Exception | None = None
         adapter_result: AdapterHandoffResult | None = None
@@ -968,10 +1006,19 @@ class TargetDeliveryService:
                     )
                 resume_from = predecessor
             if outbox_id is not None:
-                if not await authorize_content(
-                    event.event_id, outbox_id, now=datetime.now(timezone.utc)
+                if (
+                    not expected_outbox_worker_id
+                    or reserved_attempt_number is None
+                    or not await authorize_content(
+                        event.event_id,
+                        outbox_id,
+                        worker_id=expected_outbox_worker_id,
+                        attempt_number=reserved_attempt_number,
+                    )
                 ):
                     raise AdapterPermanentError("content_authority_denied")
+            # Authorization and retained-plan lookup can themselves wait.
+            await check_dispatch_deadline()
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(
@@ -1024,6 +1071,9 @@ class TargetDeliveryService:
                     "handoff": adapter_result.disposition,
                 },
             )
+        except _AdapterDeliveryError:
+            # Core dispatch refusals already carry their exact evidence.
+            raise
         except asyncio.CancelledError:
             # CancelledError must propagate directly - never caught and
             # classified as a delivery failure.

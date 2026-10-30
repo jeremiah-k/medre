@@ -118,16 +118,22 @@ class _Submission:
                 "radio native submission grant cannot be reused"
             )
         self.entered = True
-        if self.deadline is not None and datetime.now(timezone.utc) > self.deadline:
+        if not self.worker_id:
+            raise AdapterPermanentError("radio native start requires a worker")
+        if self.deadline is not None and datetime.now(timezone.utc) >= self.deadline:
             raise AdapterPermanentError(
                 "radio delivery deadline exceeded before native submission"
             )
         self.submitting = await self.storage.begin_radio_part(
-            self.checkpoint, self.worker_id, self.ordinal
+            self.checkpoint, self.worker_id, self.ordinal, deadline=self.deadline
         )
         if self.submitting is None:
             raise AdapterPermanentError(
-                "radio claim expired or checkpoint changed before send"
+                "radio native start denied by authority, deadline or checkpoint"
+            )
+        if self.deadline is not None and datetime.now(timezone.utc) >= self.deadline:
+            raise AdapterPermanentError(
+                "radio delivery deadline exceeded before native submission"
             )
 
 
