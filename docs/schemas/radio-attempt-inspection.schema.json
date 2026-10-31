@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/radio-attempt-inspection.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/radio-attempt-inspection.schema.json",
   "title": "Read-only exact radio attempt inspection",
   "description": "Current parent authority and metadata-only historical radio progress. Wire text is withheld; inspection grants no native submission or remote delivery authority.",
   "type": "object",

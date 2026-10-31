@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/stopped-state-inventory.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/stopped-state-inventory.schema.json",
   "title": "Selected stopped installation inventory",
   "description": "Operator-declared selection, not SDK discovery. Runtime validation additionally enforces unique paths, declared provider ownership, state for every provider, and exactly one core SQLite file owned by core. The loader limits input to 1 MiB and rejects duplicate JSON keys.",
   "type": "object",

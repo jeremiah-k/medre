@@ -64,5 +64,5 @@
   },
   "required": ["format", "version", "files"],
   "description": "Selected stopped state only. Runtime validation enforces one core database, unique paths, verified bytes and SQLite integrity. Configured capture additionally retains supported provider exclusion and refuses unresolved required host exports. Device-attached and server-side state remain outside the selected host files. Checksums do not authenticate the source or authorize replay.",
-  "$id": "https://medre.dev/schemas/stopped-state-snapshot.schema.json"
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/stopped-state-snapshot.schema.json"
 }

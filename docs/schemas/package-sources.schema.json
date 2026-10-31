@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/package-sources.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/package-sources.schema.json",
   "title": "MEDRE package sources",
   "description": "Explicit deployment aliases; independent of runtime transport discovery.",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/bridge-context.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/bridge-context.schema.json",
   "title": "MEDRE cross-platform relay context",
   "$ref": "#/$defs/BridgeContext",
   "$defs": {

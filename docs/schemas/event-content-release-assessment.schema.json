@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/event-content-release-assessment.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/event-content-release-assessment.schema.json",
   "title": "MEDRE read-only per-event content-release assessment",
   "type": "object",
   "additionalProperties": false,

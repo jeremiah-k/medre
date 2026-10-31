@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/radio-local-handoff.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/radio-local-handoff.schema.json",
   "title": "Synchronous radio local handoff reference",
   "description": "Decoded JSON from a guarded-dispatch accepted part handoff_id. Native scope is retained and null IDs remain null; this is not whole-message relation authority or proof of recipient delivery.",
   "type": "object",

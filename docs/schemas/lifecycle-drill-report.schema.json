@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/lifecycle-drill-report.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/lifecycle-drill-report.schema.json",
   "title": "Synthetic adapter instance drill report",
   "description": "Common evidence for the four programmatic configuration/startup drills. Adapter counts describe instances; the assignment map identifies their transport providers. Other drill-specific evidence is preserved as additional properties.",
   "type": "object",

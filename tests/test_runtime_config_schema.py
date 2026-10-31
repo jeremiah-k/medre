@@ -80,13 +80,13 @@ class TestRuntimeConfigSchemaIdentifiers:
         ), "runtime-config.schema.json: $schema must pin draft 2020-12"
 
     def test_schema_has_stable_id(self) -> None:
-        """``$id`` must be the stable medre.dev URL with matching basename."""
+        """``$id`` must be the stable repository URL with matching basename."""
         schema = _load_schema()
         id_ = schema.get("$id")
         assert isinstance(id_, str), f"$id must be a string, got {id_!r}"
         assert id_.startswith(
-            "https://medre.dev/schemas/"
-        ), f"$id must be under medre.dev/schemas/, got {id_!r}"
+            "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/"
+        ), f"$id must be under the repository docs/schemas URL, got {id_!r}"
         assert (
             id_.rsplit("/", 1)[-1] == _SCHEMA_PATH.name
         ), f"$id basename {id_!r} does not match filename {_SCHEMA_PATH.name!r}"

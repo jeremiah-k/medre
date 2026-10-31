@@ -107,12 +107,12 @@ raise `ConfigValidationError` before runtime construction. The top-level
 
 ### 2.5 RetryConfig
 
-| Field              | Default | Description                                    |
-| ------------------ | ------- | ---------------------------------------------- |
-| `enabled`          | `False` | Whether automatic retry dispatch is active     |
+| Field              | Default | Description                                        |
+| ------------------ | ------- | -------------------------------------------------- |
+| `enabled`          | `False` | Whether automatic retry dispatch is active         |
 | `interval_seconds` | `10.0`  | Retry scan interval and operational-deferral floor |
-| `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
-| `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
+| `batch_size`       | `20`    | Max due outbox items claimed per cycle             |
+| `max_attempts`     | `3`     | Max total delivery attempts before dead-letter     |
 
 `retry.enabled` **MUST** be a boolean, `retry.batch_size` and
 `retry.max_attempts` **MUST** be positive integers, and
@@ -484,8 +484,13 @@ for the formatter rules.
 
 ### 3.5 Editor Integration
 
-The JSON schemas in `docs/schemas/` carry stable `$id` URLs and can be
-wired into YAML language servers for real-time validation while editing.
+The JSON schemas in `docs/schemas/` carry stable `$id` URLs under the
+repository's `raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/`
+namespace and can be wired into YAML language servers for real-time
+validation while editing. The `$id` is an identifier, not a fetched page:
+language-server mappings bind the URL to the local file. Operators who
+wired mappings using the earlier `medre.dev` URLs MUST remap them to the
+repository URLs; the old namespace was never controlled by this project.
 
 There are two kinds of schema, and operators MUST map them to the right
 files to avoid false editor errors:

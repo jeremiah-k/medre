@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/exact-recovery-preview.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/exact-recovery-preview.schema.json",
   "title": "MEDRE read-only exact delivery preview",
   "type": "object",
   "additionalProperties": false,

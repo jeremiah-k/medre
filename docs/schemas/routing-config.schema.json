@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/routing-config.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/routing-config.schema.json",
   "title": "RoutingConfig",
   "description": "Route configuration shapes: RouteConfig, BridgePolicy, RouteRetryConfig, and RouteConfigSet. Derived from frozen dataclasses in config/routes.py.",
   "oneOf": [

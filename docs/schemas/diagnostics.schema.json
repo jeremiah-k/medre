@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/diagnostics.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/diagnostics.schema.json",
   "title": "DiagnosticsOutput",
   "description": "Shape of the diagnostics snapshot returned by capture_runtime_snapshot().to_dict(). Contains deterministic, sorted JSON-safe output.",
   "type": "object",

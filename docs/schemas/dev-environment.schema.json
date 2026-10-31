@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/dev-environment.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/dev-environment.schema.json",
   "title": "MEDRE checkout development preferences",
   "type": "object",
   "additionalProperties": false,

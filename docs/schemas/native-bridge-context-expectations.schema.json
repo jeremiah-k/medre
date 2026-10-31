@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/native-bridge-context-expectations.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/native-bridge-context-expectations.schema.json",
   "title": "Native campaign bridge-context destination expectations",
   "description": "The optional bridge_context_expectations report field maps selected destination adapter IDs to boolean requirements. Matrix context remains mandatory in baseline-v1. Missing maps preserve legacy baseline evidence.",
   "type": "object",

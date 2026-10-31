@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/content-availability-decision.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-availability-decision.schema.json",
   "title": "Content availability policy preview decision",
   "type": "object",
   "additionalProperties": false,
