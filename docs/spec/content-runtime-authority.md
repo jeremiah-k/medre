@@ -51,8 +51,22 @@ transaction, so executor/lock waits cannot reuse an earlier permission check.
 An explicit `now` is available to trusted controlled-clock qualification.
 An admitted body that is missing or has a non-text storage value is a storage
 error, never fabricated text or a silently empty event.
-Outbox reads authorize a generation through its own target-scoped dependency
-or, for replay generations, through the live admission dependency.
+Outbox reads authorize a normal generation through its own target-scoped
+dependency **without requiring an additional live source hold**, or, for
+replay generations, through the live admission dependency. Previously issued
+optional body grants are independently bounded by their explicit policy,
+expiry and revocation, even if ingress has completed. An optional grant's
+expiry is durably observed as `expired_at`, distinct from manual
+`revoked_at`; neither can be undone by a backward clock adjustment. Rejected
+grant replacement or policy mutation preserves expiry observations while
+rolling back the attempted mutation. Issuing a _new_ optional
+grant still requires an active source owner. Reply contexts borrow either the live source or a **previously issued**,
+explicitly bounded `reply_quotes` optional body grant. They never acquire
+a grant implicitly. A body-only quote grant authorizes canonical quote text
+and envelope identity, not opaque native/custom sender metadata; that metadata
+requires live source authority. Sender presentation falls back to recorded
+identity when source context is unavailable. Once both authorities end, native reply identity remains,
+but quote text is unavailable instead of being invented.
 `authorize_native_submission` additionally checks the in-progress outbox
 worker, exact attempt, unexpired lease, newer sibling generations and live
 content dependency just before adapter invocation. Initial pipeline-owned
@@ -89,9 +103,10 @@ without an admission dependency fail closed; duplicate admission and relation
 appends never backfill a missing owner or extend retention.
 
 `read_reply_context` returns typed retained, unavailable or denied results.
-It selects only canonical body/text and the authorized source metadata needed
-for provider-owned sender projection, excluding unrelated payload and the
-target's own relation excerpts. A non-string explicit body keeps the canonical
+It selects canonical body/text and, under live source authority, the sender
+metadata needed for provider-owned projection. A body-only quote grant returns
+text and envelope identity without opaque metadata. Both paths exclude unrelated
+payload and the target's own relation excerpts. A non-string explicit body keeps the canonical
 body absent even if a secondary text field was stored. Relation enrichment
 uses this dedicated source-held API; expired targets retain native relation
 identity through metadata-only reads and produce an honest missing-quote

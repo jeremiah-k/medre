@@ -49,7 +49,7 @@ async def test_outbox_body_read_denies_an_unknown_generation(temp_storage):
     assert (read.status, read.body) == ("denied", None)
 
 
-async def test_optional_body_read_denies_when_the_source_hold_is_released(
+async def test_preissued_optional_body_grant_survives_source_release(
     tmp_path,
 ):
     store = SQLiteStorage(str(tmp_path / "holds.db"))
@@ -68,16 +68,15 @@ async def test_optional_body_read_denies_when_the_source_hold_is_released(
             "reply_quotes", "body", _CLOCK + timedelta(minutes=10), issued_at=_CLOCK
         )
         await store.issue_optional_body_hold("present", hold, policy, now=_CLOCK)
-        # Out-of-band release of the admission hold: an optional consumer
-        # grant must not keep retained bytes readable once the source owner
-        # is gone.
+        # Source release never cancels a previously issued bounded grant.
+        # The grant remains separately governed by expiry and revocation.
         await store._write(
             "UPDATE event_content_dependencies SET released_at=? "
             "WHERE event_id='present' AND owner_kind IN ('ingress','append')",
             (_CLOCK.isoformat(timespec="microseconds"),),
         )
         read = await store.read_body_for_consumer("present", "reply_quotes", now=_CLOCK)
-        assert (read.status, read.body) == ("denied", None)
+        assert (read.status, read.body) == ("retained", "secret")
     finally:
         await store.close()
 

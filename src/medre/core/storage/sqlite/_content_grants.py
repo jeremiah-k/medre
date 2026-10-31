@@ -21,7 +21,7 @@ from medre.core.storage.read_contracts import (
     ContentBodyRead,
     ReplyContextRead,
 )
-from medre.core.storage.sqlite._projections import REPLY_COLUMNS
+from medre.core.storage.sqlite._projections import REPLY_BODY_COLUMNS, REPLY_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,7 +40,7 @@ def _utc(value: datetime) -> str:
 def _observe_mandatory_expiry(
     db: sqlite3.Connection, event_id: str, observed: str
 ) -> None:
-    """Permanently close an expired ingress/append dependency.
+    """Permanently close expired mandatory source and target dependencies.
 
     This is a logical permission transition, not content collection or erase.
     A later wall-clock rollback cannot resurrect the expired authority.
@@ -48,7 +48,7 @@ def _observe_mandatory_expiry(
     """
     db.execute(
         "UPDATE event_content_dependencies SET released_at=? "
-        "WHERE event_id=? AND owner_kind IN ('ingress','append') "
+        "WHERE event_id=? AND owner_kind IN ('ingress','append','outbox') "
         "AND released_at IS NULL AND deadline IS NOT NULL AND deadline<=?",
         (observed, event_id, observed),
     )
@@ -65,8 +65,43 @@ def _source_dependency_live(db: sqlite3.Connection, event_id: str) -> bool:
     )
 
 
+def _observe_optional_expiry(
+    db: sqlite3.Connection, event_id: str, observed: str
+) -> None:
+    """Close expired grants durably; a clock rollback cannot reopen a grant.
+
+    Revocation and observed expiry have separate immutable tombstones.
+    Neither condition may be undone by a backward clock adjustment.
+    """
+    db.execute(
+        "UPDATE event_content_access_grants SET expired_at=? "
+        "WHERE event_id=? AND scope='body' AND expired_at IS NULL "
+        "AND revoked_at IS NULL "
+        "AND expires_at<=?",
+        (observed, event_id, observed),
+    )
+
+
+def _reply_quote_grant_live(
+    db: sqlite3.Connection, event_id: str, observed: str
+) -> bool:
+    """Borrow a preissued bounded quote grant, never mint a new owner."""
+    return (
+        db.execute(
+            "SELECT 1 FROM event_content_access_grants g "
+            "JOIN event_content_access_policies p ON p.event_id=g.event_id "
+            "WHERE g.event_id=? AND g.scope='body' AND g.consumer='reply_quotes' "
+            "AND g.revoked_at IS NULL AND g.expired_at IS NULL "
+            "AND g.issued_at<=? AND g.expires_at>? "
+            "AND p.hard_ceiling>? LIMIT 1",
+            (event_id, observed, observed, observed),
+        ).fetchone()
+        is not None
+    )
+
+
 def _requires_content_authority(db: sqlite3.Connection, event_id: str) -> bool:
-    """Every admitted full projection requires a source owner.
+    """Every admitted full projection requires an authorized owner.
 
     Opaque payload, native/custom metadata and relation keys can carry bytes
     without a canonical body. No heuristic may pronounce them content-free.
@@ -157,51 +192,64 @@ def sync_issue_body_hold(
             if event is None:
                 raise ValueError("Content policy requires an admitted event")
             _observe_mandatory_expiry(db, event_id, observed)
-            owners = db.execute(
-                "SELECT COUNT(*) FROM event_content_dependencies "
-                "WHERE event_id=? AND owner_kind IN ('ingress','append')",
-                (event_id,),
-            ).fetchone()[0]
-            if (
-                owners or _requires_content_authority(db, event_id)
-            ) and not _source_dependency_live(db, event_id):
-                # Only expiry observations have changed so far. Persist them
-                # even though issuance is refused; rollback must not reopen a
-                # source when the wall clock subsequently moves backwards.
+            _observe_optional_expiry(db, event_id, observed)
+            # Expiry observations are durable even when the requested policy
+            # or grant mutation is refused. The savepoint isolates only those
+            # mutations, so rejection cannot resurrect an expired permission.
+            db.execute("SAVEPOINT content_hold_mutation")
+            try:
+                owners = db.execute(
+                    "SELECT COUNT(*) FROM event_content_dependencies "
+                    "WHERE event_id=? AND owner_kind IN ('ingress','append')",
+                    (event_id,),
+                ).fetchone()[0]
+                if (
+                    owners or _requires_content_authority(db, event_id)
+                ) and not _source_dependency_live(db, event_id):
+                    raise ValueError(
+                        "Expired mandatory content or a missing owner cannot gain new optional holds"
+                    )
+                current = db.execute(
+                    "SELECT hard_ceiling, allowed_consumers, max_optional_hold_microseconds "
+                    "FROM event_content_access_policies WHERE event_id=?",
+                    (event_id,),
+                ).fetchone()
+                if current is not None and tuple(current) != (
+                    ceiling,
+                    allowed,
+                    seconds,
+                ):
+                    raise ValueError("Content policy is immutable for this event")
+                if current is None:
+                    db.execute(
+                        "INSERT INTO event_content_access_policies "
+                        "(event_id, version, hard_ceiling, allowed_consumers, "
+                        "max_optional_hold_microseconds, created_at) VALUES (?, 1, ?, ?, ?, ?)",
+                        (event_id, ceiling, allowed, seconds, observed),
+                    )
+                old = db.execute(
+                    "SELECT issued_at, expires_at, revoked_at, expired_at "
+                    "FROM event_content_access_grants "
+                    "WHERE event_id=? AND scope='body' AND consumer=?",
+                    (event_id, hold.consumer),
+                ).fetchone()
+                if old is not None:
+                    if tuple(old) != (issue, expiry, None, None):
+                        raise ValueError(
+                            "Content hold cannot be replaced or resurrected"
+                        )
+                else:
+                    db.execute(
+                        "INSERT INTO event_content_access_grants "
+                        "(event_id, scope, consumer, issued_at, expires_at) "
+                        "VALUES (?, 'body', ?, ?, ?)",
+                        (event_id, hold.consumer, issue, expiry),
+                    )
+            except ValueError:
+                db.execute("ROLLBACK TO content_hold_mutation")
+                db.execute("RELEASE content_hold_mutation")
                 db.commit()
-                raise ValueError(
-                    "Expired mandatory content or a missing owner cannot gain new optional holds"
-                )
-            current = db.execute(
-                "SELECT hard_ceiling, allowed_consumers, max_optional_hold_microseconds "
-                "FROM event_content_access_policies WHERE event_id=?",
-                (event_id,),
-            ).fetchone()
-            if current is not None and tuple(current) != (ceiling, allowed, seconds):
-                raise ValueError("Content policy is immutable for this event")
-            if current is None:
-                db.execute(
-                    "INSERT INTO event_content_access_policies "
-                    "(event_id, version, hard_ceiling, allowed_consumers, "
-                    "max_optional_hold_microseconds, created_at) VALUES (?, 1, ?, ?, ?, ?)",
-                    (event_id, ceiling, allowed, seconds, observed),
-                )
-            old = db.execute(
-                "SELECT issued_at, expires_at, revoked_at "
-                "FROM event_content_access_grants "
-                "WHERE event_id=? AND scope='body' AND consumer=?",
-                (event_id, hold.consumer),
-            ).fetchone()
-            if old is not None:
-                if tuple(old) != (issue, expiry, None):
-                    raise ValueError("Content hold cannot be replaced or resurrected")
-            else:
-                db.execute(
-                    "INSERT INTO event_content_access_grants "
-                    "(event_id, scope, consumer, issued_at, expires_at) "
-                    "VALUES (?, 'body', ?, ?, ?)",
-                    (event_id, hold.consumer, issue, expiry),
-                )
+                raise
             db.commit()
         except BaseException:
             try:
@@ -222,7 +270,8 @@ def sync_revoke_body_hold(
         try:
             row = db.execute(
                 "UPDATE event_content_access_grants SET revoked_at=? "
-                "WHERE event_id=? AND scope='body' AND consumer=? AND revoked_at IS NULL",
+                "WHERE event_id=? AND scope='body' AND consumer=? "
+                "AND revoked_at IS NULL AND expired_at IS NULL",
                 (_utc(now), event_id, consumer),
             )
             db.commit()
@@ -250,10 +299,7 @@ def sync_read_authorized_body(
         if observed is None:
             observed = _utc(datetime.now(timezone.utc))
         _observe_mandatory_expiry(db, event_id, observed)
-        if _requires_content_authority(db, event_id) and not _source_dependency_live(
-            db, event_id
-        ):
-            return ContentBodyRead("denied")
+        _observe_optional_expiry(db, event_id, observed)
         row = db.execute(
             "SELECT (SELECT c.body FROM event_body_content c "
             "WHERE c.event_id=e.event_id ORDER BY c.field='body' DESC LIMIT 1), "
@@ -262,11 +308,9 @@ def sync_read_authorized_body(
             "JOIN event_content_access_policies p ON p.event_id=e.event_id "
             "JOIN event_content_access_grants g ON g.event_id=e.event_id "
             "WHERE e.event_id=? AND g.scope='body' AND g.consumer=? "
-            "AND g.revoked_at IS NULL AND g.issued_at<=? AND g.expires_at>? "
-            "AND p.hard_ceiling>? "
-            "AND NOT EXISTS (SELECT 1 FROM event_content_dependencies d "
-            "WHERE d.event_id=e.event_id AND d.owner_kind IN ('ingress','append') "
-            "AND d.released_at IS NOT NULL)",
+            "AND g.revoked_at IS NULL AND g.expired_at IS NULL "
+            "AND g.issued_at<=? AND g.expires_at>? "
+            "AND p.hard_ceiling>?",
             (event_id, consumer, observed, observed, observed),
         ).fetchone()
     if row is None:
@@ -320,11 +364,9 @@ def sync_read_outbox_body(
             (outbox_id, event_id),
         ).fetchone()
         # Replay generations carry no outbox dependency; they dispatch on the
-        # still-live admission hold, like every other owner-bound outbox read.
-        authorized = (
-            outbox is not None
-            and _outbox_content_authority(db, event_id, outbox_id, observed)
-            and _source_dependency_live(db, event_id)
+        # still-live admission hold; ordinary target holds are independent.
+        authorized = outbox is not None and _outbox_content_authority(
+            db, event_id, outbox_id, observed
         )
         row = (
             db.execute(
@@ -371,6 +413,8 @@ def sync_read_owned_event(
         if observed is None:
             observed = _utc(datetime.now(timezone.utc))
         _observe_mandatory_expiry(db, event_id, observed)
+        if owner_kind == "reply":
+            _observe_optional_expiry(db, event_id, observed)
         if owner_kind == "outbox":
             owner = db.execute(
                 "SELECT 1 FROM delivery_outbox WHERE outbox_id=? AND event_id=? "
@@ -384,17 +428,24 @@ def sync_read_owned_event(
                 (event_id,),
             ).fetchone()
         else:
-            # Explicit replay does not adopt an owner or extend retention.
-            # It can only borrow the still-live, already-admitted source hold.
+            # Replay and reply need an admitted identity. Their distinct
+            # source/grant permissions are checked before projecting content.
             owner = db.execute(
                 "SELECT 1 FROM canonical_events WHERE event_id=?", (event_id,)
             ).fetchone()
         if owner is None:
             return AuthorizedEventRead("denied")
+        quote_grant_only = False
         has_content = _requires_content_authority(db, event_id)
         if has_content:
-            if not _source_dependency_live(db, event_id):
+            if owner_kind == "replay" and not _source_dependency_live(db, event_id):
                 return AuthorizedEventRead("denied")
+            if owner_kind == "reply":
+                quote_grant_only = not _source_dependency_live(db, event_id)
+                if quote_grant_only and not _reply_quote_grant_live(
+                    db, event_id, observed
+                ):
+                    return AuthorizedEventRead("denied")
             if owner_kind == "outbox":
                 # Replay generations dispatch on the live admission hold; they
                 # never adopt a target-scoped dependency of their own.
@@ -409,12 +460,15 @@ def sync_read_owned_event(
                 ).fetchone()
                 if granted is None:
                     return AuthorizedEventRead("denied")
-            # Replay and reply context borrow the existing source dependency;
-            # neither creates retention or exempts opaque bodyless payloads.
-        # Reply hydration selects canonical text and source metadata only.
-        # Provider-owned sender projection needs native metadata, but unrelated
-        # payload fields and the target's own quoted relations are not a quote.
-        columns = REPLY_COLUMNS if owner_kind == "reply" else "*"
+            # Replay borrows source ownership; reply can also borrow a
+            # preissued body grant. Neither creates retention or exempts
+            # opaque bodyless payloads from authorization.
+        # Live-source reply reads may project sender metadata. A body-only
+        # grant cannot authorize opaque metadata; neither reply path selects
+        # unrelated payload fields or the target's own quoted relations.
+        columns = "*"
+        if owner_kind == "reply":
+            columns = REPLY_BODY_COLUMNS if quote_grant_only else REPLY_COLUMNS
         # Closed schema projections; event identities are bound parameters.
         row = db.execute(
             f"SELECT {columns} FROM canonical_events WHERE event_id=?",  # nosec B608
@@ -549,9 +603,7 @@ def _native_submission_authorized(
         return False
     if lease <= observed:
         return False
-    if not _requires_content_authority(db, event_id) or not _source_dependency_live(
-        db, event_id
-    ):
+    if not _requires_content_authority(db, event_id):
         return False
     return _outbox_content_authority(db, event_id, outbox_id, observed)
 

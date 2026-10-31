@@ -906,7 +906,7 @@ class StorageBackend(Protocol):
     async def read_reply_context(
         self, event_id: str, *, now: datetime | None = None
     ) -> ReplyContextRead:
-        """Authorize canonical quote and source sender context without retention."""
+        """Borrow canonical quote text; sender metadata requires live source authority."""
         ...
 
     async def read_event_for_replay(

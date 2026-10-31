@@ -53,10 +53,11 @@ async def test_optional_content_read_requires_live_grant(tmp_path, clock):
     await store.close()
     reopened = SQLiteStorage(path)
     await reopened.initialize()
+    # Once expiry is observed, a backwards clock adjustment cannot reopen it.
     assert (
         await reopened.read_body_for_consumer("present", "reply_quotes", now=clock)
-    ).body == ""
-    assert await reopened.revoke_optional_body_hold(
+    ).status == "denied"
+    assert not await reopened.revoke_optional_body_hold(
         "present", "reply_quotes", now=clock
     )
     assert not await reopened.revoke_optional_body_hold(
