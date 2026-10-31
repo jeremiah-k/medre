@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/event-content-release-assessment.schema.json",
+  "title": "MEDRE read-only per-event content-release assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "event_id",
+    "scope",
+    "status",
+    "core_subset_status",
+    "classified_core_candidate",
+    "deletion_authorized",
+    "retention_authorized",
+    "blockers",
+    "copies",
+    "unmeasured"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-event-content-release-assessment"
+    },
+    "version": {
+      "const": 1
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "scope": {
+      "const": "core_sqlite_event"
+    },
+    "status": {
+      "enum": ["blocked", "unmeasured"]
+    },
+    "core_subset_status": {
+      "enum": ["blocked", "eligible"]
+    },
+    "classified_core_candidate": {
+      "type": "boolean"
+    },
+    "deletion_authorized": {
+      "const": false
+    },
+    "retention_authorized": {
+      "const": false
+    },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "copies": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "rows", "classification"],
+        "properties": {
+          "surface": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "classification": {
+            "enum": [
+              "bounded_candidate",
+              "shared_reference",
+              "authority_or_state",
+              "requires_independent_policy"
+            ]
+          }
+        }
+      }
+    },
+    "unmeasured": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "core_subset_status": {
+            "const": "eligible"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "unmeasured"
+          },
+          "classified_core_candidate": {
+            "const": true
+          },
+          "blockers": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "core_subset_status": {
+            "const": "blocked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          },
+          "classified_core_candidate": {
+            "const": false
+          },
+          "blockers": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -31,7 +31,7 @@ completion only until its original explicit expiry, ceiling or revocation.
 A bounded `reply_quotes` grant can support quote text after ingress completes;
 reply enrichment MUST NOT create such grants implicitly.
 
-`SQLiteStorage.assess_event_content_release(event_id)` is a read-only,
+`SQLiteStorage.assess_event_content_release(event_id)` (schema: [event-content-release-assessment.schema.json](../schemas/event-content-release-assessment.schema.json)) is a read-only,
 metadata-only event-scoped assessment. It MUST classify candidate canonical
 body/excerpt rows separately from known opaque storage copies, active owners,
 shared attachment references, and unmeasured external/physical copies. An
