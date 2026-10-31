@@ -3,8 +3,8 @@
 ## Present storage contract
 
 Canonical events and delivery evidence remain retained under the storage
-ownership contract. No content expiry, deletion policy, or retention default is
-introduced by this specification. The storage owner MUST remain the sole
+ownership contract. No automatic expiry or collection default is introduced by this
+specification. Exact-event, operator-confirmed logical collection is optional. The storage owner MUST remain the sole
 mutation authority; inspection MUST NOT grant deletion, native submission,
 retry, or lifecycle promotion.
 
@@ -52,6 +52,16 @@ checkpoint cursors and metadata; and reserved plugin values. Empty JSON
 envelopes count as stored bytes. Shared attachment blobs count once. An event
 payload can contain attachment metadata, sender names, formatted bodies, reply
 quotes, or provider extensions; counting only its text field is insufficient.
+
+Structured relation identity rows MAY remain as non-text evidence while
+same-event excerpt text is removed, but any free-form relation key or metadata
+MUST block collection. Target IDs and correlation facts are deliberately retained.
+The first classified collection subset contains only separately persisted
+canonical `event_body_content` and `event_relation_excerpts` rows. Incoming
+relation excerpts belonging to other events are observed as blockers, not
+owned copies that a collector may remove. All unclassified core rows, shared
+attachments and active owners block this narrow subset. An empty blocker list
+MUST NOT be advertised as global erasure or external-copy clearance.
 
 A retention implementation MUST distinguish these requirements before granting
 any deletion:
@@ -106,3 +116,37 @@ persisted content availability or deletion.
 The [content availability policy preview](content-availability-authority.md)
 defines versioned decisions and hold trust boundaries independently of these
 counts. Neither preview changes runtime reads or authorizes content deletion.
+
+See [content-copy-classification.md](content-copy-classification.md) for
+the authoritative blocker/identity distinction, and
+[content-collection-guard.md](content-collection-guard.md) for atomic collection.
+
+## Narrow logical collection (operator initiated only)
+
+The storage backend MAY expose `collect_event_content(event_id, dry_run=True)`
+for an **exact event ID**, with a metadata-only result conforming to
+[event-content-collection.schema.json](../schemas/event-content-collection.schema.json).
+A dry-run MUST NOT change content or authority. Applying collection MUST first
+recheck all current core owners, optional grants, incoming excerpts and
+unclassified copies inside the same SQLite write transaction as deleting the
+**separate** canonical text/excerpt rows and recording an immutable collection
+receipt. Unclassified rows, shared attachments and undecidable states MUST
+refuse collection; optimistic assumptions are forbidden. Repeated calls MUST
+not resurrect content or authorize native sends. The receipt preserves the
+historical collection decision but does not record message bytes. No operation
+may delete durable delivery facts, native references, radio plans, receipts,
+attachments, provider state, WAL, backups or external copies. Logical removed
+byte counts MUST NOT be presented as disk savings or secure erasure.
+Automatic or periodic collection remains disabled.
+
+## Bounded operator workflow
+
+`medre storage collect --storage-path PATH` MUST default to `--mode retain`
+without mutation. `--mode relay-only` MUST preview at most `--limit` (1–100,
+default 25) lexicographically ordered events; `--after EVENT` MUST permit
+continuation. Applying changes MUST require `--mode relay-only --apply --yes`
+and MUST re-evaluate each event inside its write transaction, regardless of
+preview results. The bridge SHOULD be stopped before an apply campaign.
+The CLI MUST NOT install a timer, apply retention settings to future events,
+or claim to remove WAL, backups or provider copies. Its byte counters report
+only logical bytes removed from the classified core subset.
