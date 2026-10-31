@@ -4,7 +4,7 @@
 # Generated from source: src/medre/core/events/canonical.py, metadata.py
 
 $schema: https://json-schema.org/draft/2020-12/schema
-$id: https://medre.dev/schemas/canonical-event.schema.json
+$id: https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/canonical-event.schema.json
 title: CanonicalEvent
 description: >-
   The universal, immutable event envelope for the MEDRE pipeline.

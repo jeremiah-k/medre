@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/operator-decision-inspection.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/operator-decision-inspection.schema.json",
   "title": "Read-only event-scoped operator cancellation decisions",
   "type": "object",
   "additionalProperties": false,

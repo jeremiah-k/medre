@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/styled-text.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/styled-text.schema.json",
   "title": "Canonical styled text payload",
   "description": "Optional bounded presentation over authoritative body text. Body-relative ranges, nesting, line boundaries and allowed link schemes are validated by StyledText.",
   "type": "object",

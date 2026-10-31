@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/attachment.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/attachment.schema.json",
   "title": "AttachmentDescriptor",
   "description": "Canonical primary attachment metadata. Retained content references and unavailable reasons are mutually exclusive. Native locators, keys, and bytes are excluded.",
   "type": "object",

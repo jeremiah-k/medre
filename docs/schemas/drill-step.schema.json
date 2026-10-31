@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/drill-step.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/drill-step.schema.json",
   "title": "Failure drill evidence step",
   "type": "object",
   "required": ["step", "result"],

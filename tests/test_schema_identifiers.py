@@ -3,7 +3,8 @@
 Asserts every ``*.schema.json`` under ``docs/schemas/`` declares both:
 
   * ``$schema`` — pinned to JSON Schema draft 2020-12.
-  * ``$id``      — a stable ``https://medre.dev/schemas/<filename>`` URL.
+  * ``$id``      — a stable URL under the repository's
+    ``raw.githubusercontent.com`` docs/schemas namespace.
 
 These identifiers let YAML language servers and editor integrations resolve
 schemas by URL (see ``docs/spec/configuration.md`` §3.5). A schema missing
@@ -24,7 +25,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 _SCHEMAS_DIR = _ROOT / "docs" / "schemas"
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
-_ID_PREFIX = "https://medre.dev/schemas/"
+_ID_PREFIX = "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/"
 
 #: Schemas that intentionally omit ``$id``/``$schema`` (none currently).
 #: Add a stem here only with a justification in the docstring of the test.
@@ -48,7 +49,7 @@ def test_every_schema_has_draft_2020_12_schema_field() -> None:
 
 
 def test_every_schema_has_stable_id() -> None:
-    """Each ``*.schema.json`` declares a ``$id`` under medre.dev."""
+    """Each ``*.schema.json`` declares a repository-owned ``$id`` URL."""
     for path in _schema_files():
         if path.stem in _EXEMPT:
             continue

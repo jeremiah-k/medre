@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/delivery-receipt.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/delivery-receipt.schema.json",
   "title": "DeliveryReceipt",
   "description": "Per-adapter delivery status record for an outbound event. Tracks the lifecycle of an event as it travels through the delivery pipeline toward a target adapter. Derived from msgspec.Struct with frozen=True.",
   "type": "object",

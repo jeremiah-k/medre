@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/delivery-observation.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/delivery-observation.schema.json",
   "title": "DeliveryObservation",
   "description": "Append-only post-handoff transport evidence tied to one exact durable delivery attempt. Observations do not mutate receipt or outbox lifecycle state.",
   "type": "object",

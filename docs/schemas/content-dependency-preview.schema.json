@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/content-dependency-preview.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-dependency-preview.schema.json",
   "title": "MEDRE per-event advisory content-dependency preview",
   "type": "object",
   "additionalProperties": false,

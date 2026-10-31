@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/radio-attempt-metadata.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/radio-attempt-metadata.schema.json",
   "title": "Radio attempt metadata without wire content",
   "type": "object",
   "additionalProperties": false,

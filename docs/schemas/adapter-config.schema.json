@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/adapter-config.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/adapter-config.schema.json",
   "title": "AdapterConfig",
   "description": "Adapter configuration shapes for all supported transports. Each adapter has its own frozen config dataclass.",
   "oneOf": [

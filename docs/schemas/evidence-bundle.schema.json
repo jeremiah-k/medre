@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/evidence-bundle.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/evidence-bundle.schema.json",
   "title": "EvidenceBundle",
   "description": "JSON-safe evidence bundle returned by collect_evidence_bundle(). Contains schema_version, status, sections, errors, and limitations.",
   "type": "object",

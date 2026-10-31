@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/delivery-result.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/delivery-result.schema.json",
   "title": "AdapterHandoffResult",
   "description": "Immutable fact returned by an adapter after a successful synchronous hand-off. It describes how far MEDRE reached the transport boundary; it is not durable lifecycle authority and does not claim recipient delivery.",
   "type": "object",

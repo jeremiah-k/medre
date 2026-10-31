@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/radio-text-plan.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/radio-text-plan.schema.json",
   "title": "Immutable radio text wire plan",
   "description": "A planned wire snapshot, not delivery authority. Byte counts, digests, ordinal continuity and content reconstruction require semantic validation.",
   "type": "object",

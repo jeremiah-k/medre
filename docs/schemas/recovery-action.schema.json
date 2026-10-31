@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/recovery-action.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/recovery-action.schema.json",
   "title": "Current delivery recovery guidance",
   "type": "object",
   "additionalProperties": false,
