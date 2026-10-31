@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/storage-column-classification.schema.json",
+  "title": "Storage column classification registry export",
+  "description": "Versioned export of the declared column-level classification contract over every persistent storage table and column. The Python registry in src/medre/core/storage/classification.py is the authority; this schema describes one serialized snapshot of it, not an authorization document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "classes", "tables"],
+  "properties": {
+    "format": {
+      "const": "medre-storage-column-classification"
+    },
+    "version": {
+      "const": 1
+    },
+    "classes": {
+      "description": "The closed four-member class vocabulary.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "immutable_identity",
+          "operational_authority",
+          "independently_owned_content",
+          "unclassified"
+        ]
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true
+    },
+    "tables": {
+      "description": "Every persistent table with the class of every column. Views and SQLite-internal tables are excluded.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["table", "columns"],
+        "properties": {
+          "table": {
+            "type": "string",
+            "minLength": 1
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["column", "column_class"],
+              "properties": {
+                "column": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "column_class": {
+                  "enum": [
+                    "immutable_identity",
+                    "operational_authority",
+                    "independently_owned_content",
+                    "unclassified"
+                  ]
+                }
+              }
+            },
+            "minItems": 1
+          }
+        }
+      },
+      "minItems": 1
+    }
+  }
+}

@@ -1987,6 +1987,9 @@ class StorageConfig:
 ## 16. Storage Ownership Semantics
 
 This section states which code owns each table's rows, who may create/mutate/delete them, and what retention guarantees apply.
+The per-column ownership class of every persistent table and column is
+defined by the [column classification
+contract](storage-column-classification.md).
 
 ### 16.1 Ownership Summary
 
