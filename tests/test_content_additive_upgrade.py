@@ -85,11 +85,13 @@ async def test_explicit_additions_are_atomic_and_idempotent(
 
 
 async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
-    """A current predecessor lacking only the diagnostics surface is accepted.
+    """A current predecessor lacking the diagnostics surface is accepted.
 
-    The exact authoritative table and index DDL are created inside the same
-    BEGIN IMMEDIATE transaction that validates the rest of the shape; no
-    other object changes and no existing row is touched.
+    ``_old_database`` strips two tables: the collection log unconditionally
+    and the diagnostics surface for this test. The assertions below pin the
+    table set exactly — the upgrade adds those two tables and removes no
+    table. The created index and the untouched legacy row are asserted
+    separately in this test.
     """
     path = str(tmp_path / "upgrade-diagnostics.db")
     _old_database(path, missing_diagnostics=True)
@@ -140,7 +142,13 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
         after_tables = db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ).fetchall()
-    assert after_tables != before_tables
+    before_names = {name for (name,) in before_tables}
+    after_names = {name for (name,) in after_tables}
+    assert after_names - before_names == {
+        "delivery_evidence_diagnostics",
+        "event_content_collection_log",
+    }
+    assert before_names <= after_names
     again = SQLiteStorage(path)
     await again.initialize()
     await again.close()
