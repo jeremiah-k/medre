@@ -19,7 +19,9 @@ classified retained evidence: admitted through durable ingress, fanned out
 to ordinary delivery targets, with every mandatory owner released by guarded
 terminal transitions. An outbox `metadata.dispatch_context` route/plan
 snapshot is not automatically content-free: it may contain arbitrary
-origin, destination, or policy values. A non-empty snapshot MUST continue
+origin, destination, or policy values (the
+[accepted context ownership contract](accepted-context-ownership.md) fixes
+its ownership class and terminal disposition). A non-empty snapshot MUST continue
 to block collection until an explicitly reviewed independent ownership
 model accounts for those values. Terminal status alone is insufficient. An inconsistent admission identity (missing admission record, unexpected
 body rows, missing uncollected body or recreated collected content) MUST be
