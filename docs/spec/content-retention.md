@@ -18,6 +18,30 @@ health probe. Every inventoried table MUST be present. Incomplete storage MUST
 be refused without creating tables or reporting an absent surface as empty. Byte lengths include UTF-8 encoding and JSON structure; they
 are neither message counts nor physical database, WAL, or disk usage.
 
+## Terminal owner settlement and read-only release classification
+
+Normal outbox generations have independent content dependencies. Successful
+owned ingress completion and each guarded terminal target transition MUST
+settle their exact dependency in the **same transaction** as the lifecycle
+state. Deferred or failed ingress MUST retain the source dependency; pending,
+queued, and retry-wait targets MUST retain their target dependencies. Replay
+and quote-context reads MUST borrow the live source rather than create an
+implicit owner. An existing optional grant MAY remain valid after source
+completion only until its original explicit expiry, ceiling or revocation.
+A bounded `reply_quotes` grant can support quote text after ingress completes;
+reply enrichment MUST NOT create such grants implicitly.
+
+`SQLiteStorage.assess_event_content_release(event_id)` is a read-only,
+metadata-only event-scoped assessment. It MUST classify candidate canonical
+body/excerpt rows separately from known opaque storage copies, active owners,
+shared attachment references, and unmeasured external/physical copies. An
+unclassified copy or active holder MUST result in `blocked`; no local blocker
+with remaining external uncertainty MUST result in `unmeasured`. A narrow
+`core_subset_status=eligible` is advisory only; neither status nor counts
+MAY authorize deletion. The method MUST NOT select body, excerpt, metadata,
+receipt-error or packet bytes into application memory. Content collection
+remains disabled.
+
 ## Content surfaces and consumers
 
 The inventory covers canonical envelope JSON and metadata, separately stored
