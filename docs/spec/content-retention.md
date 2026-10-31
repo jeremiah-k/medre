@@ -4,8 +4,9 @@
 
 Canonical events and delivery evidence remain retained under the storage
 ownership contract. No automatic expiry or collection default is introduced by this
-specification. Exact-event, operator-confirmed logical collection is optional. The storage owner MUST remain the sole
-mutation authority; inspection MUST NOT grant deletion, native submission,
+specification. Exact-event, operator-confirmed logical collection is optional.
+The storage owner MUST remain the sole mutation authority; inspection MUST NOT
+grant deletion, native submission,
 retry, or lifecycle promotion.
 
 `medre inspect content --storage-path PATH` MUST open validated SQLite storage
@@ -149,4 +150,14 @@ and MUST re-evaluate each event inside its write transaction, regardless of
 preview results. The bridge SHOULD be stopped before an apply campaign.
 The CLI MUST NOT install a timer, apply retention settings to future events,
 or claim to remove WAL, backups or provider copies. Its byte counters report
-only logical bytes removed from the classified core subset.
+only logical bytes removed from the classified core subset. Every batch,
+including retain mode and empty pages, MUST list unmeasured copy scopes.
+Collection errors for an individual event MUST produce a content-free `refused`
+entry while preserving previous committed progress and allowing later events
+in the page to be processed. `events_refused` counts those entries; an apply
+batch is not an all-or-nothing transaction. `--after` MUST accept any persisted
+canonical event identifier, without a separate CLI-only length ceiling.
+A pre-existing non-SQLite file, including an empty file, MUST be refused by
+apply without initializing a new database. Read-only previews require the
+current validated schema; approved additive predecessors can be upgraded by
+normal writable initialization before a preview campaign.
