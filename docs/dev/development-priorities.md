@@ -28,8 +28,15 @@ read-only audit inspection through `medre inspect decisions`. A versioned
 content policy preview provides the decision model. Canonical content identity,
 transactional source/outbox dependencies, metadata-only event inspection,
 source-held reply/replay reads and exact dispatch fences are implemented.
-Terminal-owner settlement, complete retained-copy accounting and bounded
-collection remain the next core lifecycle work; collection stays disabled.
+Guarded ingress completion and every terminal outbox transition settle their
+content ownership in the same transaction
+([terminal owner settlement](../spec/content-runtime-authority.md#terminal-owner-settlement-and-release-assessment)),
+and the read-only release assessment classifies candidate copies, active
+owners and unmeasured scopes without selecting bytes. Exact-event
+isolated-content collection is available through the opt-in, relay-only
+`medre storage collect` workflow, which defaults to retain mode
+([guarded logical collection](../spec/content-collection-guard.md));
+automatic or periodic collection stays disabled.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
@@ -38,17 +45,23 @@ ownership and native-parent validation; its advertised reply capability remains
 `fallback` until independent recipient-side qualification. Keep that distinction
 in operator docs and machine-readable profiles. Privacy policy design and
 optional plugin retention share the
-[content lifecycle proposal](content-lifecycle.md); presentation alternatives
+[content lifecycle design](content-lifecycle.md); presentation alternatives
 and application-service scope are described in the
 [presentation guide](../ops/message-presentation.md).
 
 ## Prerelease development contract
 
 Develop against one current schema and API contract. Reject incompatible
-prerelease state and use fresh state. Provide no migrations or legacy readers.
-Provide no version aliases or compatibility shims. Version fields identify the
-supported format and allow strict refusal; they do not promise an upgrade path
-from earlier development formats.
+prerelease state and use fresh state. Initialization applies only explicitly
+allowlisted, structurally exact additive catalog changes in one SQLite write
+transaction after validating the predecessor catalog exactly;
+the allowlist is specified in
+[storage](../spec/storage.md#10-pre-release-database-policy). Renames, altered
+constraints, data backfills, version bumps and general legacy schema
+transformations stay refused, and no legacy readers, version aliases or
+compatibility shims are provided. Version fields identify the supported format
+and allow strict refusal; they do not promise an upgrade path from earlier
+development formats.
 
 ## Architecture decisions
 
