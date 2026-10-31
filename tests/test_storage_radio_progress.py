@@ -455,3 +455,80 @@ async def test_radio_lookup_is_scoped_before_attempt_and_read_only(storage):
         await storage.get_radio_attempt_snapshot(item.outbox_id, 1)
         == checkpoint.progress.to_data()
     )
+
+
+async def test_unparseable_lease_fails_closed_for_progress_writes(storage):
+    """A malformed lease string can never read as permission to checkpoint."""
+    item, provenance = await claim(storage)
+    wire = plan()
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", wire)
+    assert initial is not None
+    submitting = await storage.begin_radio_part(initial, "pipeline:sender-1", 1)
+    assert submitting is not None
+    # Deliberate fault injection on the disposable fixture database.
+    storage._db.execute(
+        "UPDATE delivery_outbox SET lease_until=? WHERE outbox_id=?",
+        ("not-a-timestamp", item.outbox_id),
+    )
+    storage._db.commit()
+    assert (
+        await storage.observe_radio_part(
+            submitting, "pipeline:sender-1", 1, handoff_id="radio:lease:1"
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    [
+        ("parts_json", '{"ordinal": 1}', "Invalid radio metadata"),
+        ("parts_json", '[{"state": "unsent"}]', "Invalid radio metadata"),
+        ("provenance_json", "null", "Invalid radio metadata"),
+    ],
+)
+async def test_inspection_reports_typed_metadata_or_fails_closed(
+    storage, column, value, message
+):
+    """Operator radio inspection never surfaces malformed retained evidence."""
+    item, provenance = await claim(storage)
+    await storage.bind_radio_attempt(provenance, "pipeline:sender-1", plan())
+    storage._db.execute(
+        f"UPDATE radio_attempt_progress SET {column}=? WHERE outbox_id=?",  # nosec B608 - deliberate fault injection; column comes from this test's cases
+        (value, item.outbox_id),
+    )
+    storage._db.commit()
+    with pytest.raises(StorageError, match=message):
+        await storage.inspect_radio_attempt(item.outbox_id, 1)
+
+
+async def test_null_lease_permits_progress_and_identity_mismatch_fails_inspection(
+    storage,
+):
+    """Non-native checkpoints tolerate a NULL lease; mismatched identity never reports."""
+    from dataclasses import replace as _dc_replace
+
+    item, provenance = await claim(storage)
+    wire = plan()
+    initial = await storage.bind_radio_attempt(provenance, "pipeline:sender-1", wire)
+    assert initial is not None
+    storage._db.execute(
+        "UPDATE delivery_outbox SET lease_until=NULL WHERE outbox_id=?",
+        (item.outbox_id,),
+    )
+    storage._db.commit()
+    # A NULL lease still identifies the claim for non-native recovery work;
+    # only native starts demand an unexpired lease instant.
+    recovered = await storage.recover_radio_attempt(provenance, "pipeline:sender-1")
+    assert recovered is not None
+
+    import msgspec as _msgspec
+
+    swapped = _dc_replace(provenance, outbox_id="obox-somewhere-else")
+    storage._db.execute(
+        "UPDATE radio_attempt_progress SET provenance_json=? WHERE outbox_id=?",
+        (_msgspec.json.encode(swapped).decode(), item.outbox_id),
+    )
+    storage._db.commit()
+    with pytest.raises(StorageError, match="identity mismatch"):
+        await storage.inspect_radio_attempt(item.outbox_id, 1)

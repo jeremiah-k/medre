@@ -385,3 +385,31 @@ async def test_native_submission_denies_an_orphaned_event(tmp_path):
         )
     finally:
         await storage.close()
+
+
+async def test_outbox_dispatch_without_exact_claim_is_denied_before_rendering():
+    """An outbox generation without its worker and attempt is not a claim."""
+    import pytest
+
+    from medre.core.engine.pipeline.target_delivery import _AdapterDeliveryError
+    from tests.helpers.target_delivery import (
+        _FakeAdapter,
+        _make_event,
+        _make_route_and_plan,
+        _make_service,
+    )
+
+    calls = []
+
+    class RecordingAdapter(_FakeAdapter):
+        async def deliver(self, rendering_result):
+            calls.append(rendering_result)
+            return await super().deliver(rendering_result)
+
+    service, _ = _make_service(adapters={"test_adapter": RecordingAdapter()})
+    route, plan = _make_route_and_plan()
+    with pytest.raises(_AdapterDeliveryError, match="content_authority_denied"):
+        await service.deliver_to_target(
+            _make_event(), route, plan, outbox_id="obox-unclaimed"
+        )
+    assert calls == []

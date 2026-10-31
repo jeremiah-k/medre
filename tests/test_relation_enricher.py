@@ -1426,3 +1426,12 @@ class TestRelationTargetFactAttachment:
         )
 
         assert result is event
+
+    async def test_enricher_without_storage_skips_target_lookups(self) -> None:
+        """A None storage leaves relations untouched instead of guessing."""
+        enricher = RelationEnricher(storage=None)
+        event = _make_event()
+
+        result = await enricher.enrich_for_target(event, target_adapter="mesh-1")
+
+        assert result is event

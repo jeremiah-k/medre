@@ -1252,3 +1252,81 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     assert failed_event.args[1]["error"] == (
         "RuntimeError: injected sent transition failure"
     )
+
+
+async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denied owner-bound read abandons the attempt without a native call."""
+    import medre.runtime.retry as retry_module
+    from medre.core.engine.pipeline.delivery_lifecycle import (
+        DeliveryLifecycleService,
+        RetryAttemptCommitRejected,
+    )
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-denied",
+        event_id="evt-denied",
+        route_id="route-denied",
+        delivery_plan_id="plan-denied",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker-denied",
+    )
+    storage = MagicMock()
+    storage.get_metadata = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="denied", event=None)
+    )
+    storage.delivery_status = AsyncMock(return_value=None)
+    storage.list_receipts_for_delivery = AsyncMock(return_value=[])
+    storage.reserve_outbox_attempt = AsyncMock(return_value=2)
+    storage.renew_outbox_lease = AsyncMock(return_value=True)
+    storage.mark_outbox_abandoned = AsyncMock(return_value=True)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock()
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: ReconstructedRetryPlan(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+    )
+    assert isinstance(worker._lifecycle, DeliveryLifecycleService)
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    pipeline.deliver_to_target.assert_not_awaited()
+    storage.mark_outbox_abandoned.assert_awaited_once()
+    abandon_call = storage.mark_outbox_abandoned.await_args
+    assert abandon_call.args == (item.outbox_id,)
+    assert abandon_call.kwargs["error_summary"] == "content_authority_denied"
+    assert abandon_call.kwargs["expected_worker_id"] == item.worker_id
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
+
+    storage.mark_outbox_abandoned.reset_mock()
+    abandon = AsyncMock(
+        side_effect=RetryAttemptCommitRejected("claim moved to a newer worker")
+    )
+    monkeypatch.setattr(worker._lifecycle, "abandon_retry_outbox", abandon)
+    await worker._retry_outbox_item(item)
+    abandon.assert_awaited_once()
+    assert worker.state.processed == 2
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 2
