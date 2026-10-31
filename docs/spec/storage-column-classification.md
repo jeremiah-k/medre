@@ -60,8 +60,12 @@ never authorizes any read, retention action, or collection.
    MAY remain `unclassified` only while that review is outstanding.
 
 Timestamp rule: timestamps on append-only or write-once rows are immutable
-identity; timestamps that guarded transitions compare or advance on mutable
-rows (`updated_at`, lease and freshness facts) are operational authority.
+identity, including write-once scheduling bounds on append-only rows such as
+`delivery_receipts.next_retry_at`, which is written once with its receipt row
+and advanced only by new receipt rows; timestamps that guarded transitions
+compare or advance on mutable rows (`updated_at`, lease and freshness facts,
+and aggregation anchors such as `inbound_pressure_observations.first_seen_at`)
+are operational authority.
 
 ## 3. Registry requirements
 
