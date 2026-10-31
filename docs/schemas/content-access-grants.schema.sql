@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS event_content_access_grants (
     issued_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     revoked_at TEXT,
+    expired_at TEXT,
     PRIMARY KEY(event_id, scope, consumer),
     CHECK (issued_at < expires_at)
 );

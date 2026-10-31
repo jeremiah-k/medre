@@ -16,12 +16,17 @@ EVENT_COLUMNS = (
     "json_object('routing', json_extract(metadata, '$.routing')) AS metadata, "
     f"{_CORRELATION_COLUMNS}"
 )
-# Only an authorized reply-context operation may select source sender metadata.
-REPLY_COLUMNS = (
+# The formatting marker selects canonical text without exposing its contents.
+_REPLY_IDENTITY_AND_TEXT = (
     f"{_IDENTITY_COLUMNS}, "
     "CASE WHEN json_type(payload, '$.formatting') IS NOT NULL "
-    "THEN '{\"formatting\":{}}' ELSE '{}' END AS payload, "
-    f"metadata, {_CORRELATION_COLUMNS}"
+    "THEN '{\"formatting\":{}}' ELSE '{}' END AS payload"
+)
+# A live source authorizes provider-owned sender projection. A body-only quote
+# grant does not authorize arbitrary native/custom metadata copies.
+REPLY_COLUMNS = f"{_REPLY_IDENTITY_AND_TEXT}, metadata, {_CORRELATION_COLUMNS}"
+REPLY_BODY_COLUMNS = (
+    f"{_REPLY_IDENTITY_AND_TEXT}, '{{}}' AS metadata, {_CORRELATION_COLUMNS}"
 )
 
 # Relation key may contain reaction or other user text. Return only identities.

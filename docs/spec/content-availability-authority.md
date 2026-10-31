@@ -24,7 +24,9 @@ per-event ceiling and one exact `(event_id, body, consumer)` grant are stored
 transactionally; no event receives an implicit grant. An optional hold MUST
 name an allowlisted consumer, be issued at or before the observation time,
 expire within the policy maximum and the event-level ceiling, and MUST NOT be
-reissued after revocation. Bounds MUST compare UTC instants and elapsed
+reissued after revocation or observed expiry. SQLite separately records
+`revoked_at` for explicit revocation and `expired_at` for a permanently
+observed deadline; clock rollback cannot restore either closed grant. Bounds MUST compare UTC instants and elapsed
 durations, including across daylight-saving transitions. Non-retained read
 results MUST carry no body value. Incompatible policy attempts fail closed.
 
