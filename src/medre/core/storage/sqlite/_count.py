@@ -23,7 +23,16 @@ _KNOWN_RELATION_TYPES_SQL = ", ".join(
 _EVENT_COPY_PROBES: dict[str, str] = {
     "canonical_text": "SELECT COUNT(*) FROM event_body_content c WHERE c.event_id=e.event_id",
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
-    "incoming_relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.target_event_id=e.event_id",
+    "incoming_relation_excerpts": (
+        "SELECT COUNT(*) FROM event_relation_excerpts x "
+        "JOIN event_relations r ON r.id=x.relation_id "
+        "WHERE r.event_id<>e.event_id AND (r.target_event_id=e.event_id "
+        "OR EXISTS (SELECT 1 FROM native_message_refs n "
+        "WHERE n.event_id=e.event_id "
+        "AND n.adapter=r.target_native_adapter "
+        "AND n.native_channel_id IS r.target_native_channel_id "
+        "AND n.native_message_id=r.target_native_message_id))"
+    ),
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
     "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",
     "opaque_relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id AND (r.key IS NOT NULL OR r.metadata<>'{}' OR r.relation_type NOT IN ("  # nosec B608 - closed core enum; quoted literals only, never user input
@@ -253,7 +262,7 @@ class _CountMixin:
         shared attachments and all external stores are not owned by this API.
         No SQL selects message content or provider metadata values.
         """
-        if not isinstance(event_id, str) or not event_id or len(event_id) > 512:
+        if not isinstance(event_id, str) or not event_id:
             raise ValueError("A bounded event ID is required")
         row = await self._read_one(_EVENT_COPY_SQL, (event_id,))
         if row is None:

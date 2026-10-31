@@ -225,3 +225,72 @@ async def test_incoming_quote_copy_blocks_retention_of_referenced_event(tmp_path
         assert "SECRET-QUOTE" not in json.dumps(report)
     finally:
         await store.close()
+
+
+async def test_self_targeting_quote_is_not_an_external_copy(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "self-quote.db"))
+    await store.initialize()
+    try:
+        event = msgspec.structs.replace(
+            make_storage_event(event_id="same"), payload={}, metadata={}
+        )
+        await store.append(event)
+        await store._write(
+            "UPDATE event_content_dependencies SET released_at='2026-10-31' "
+            "WHERE event_id='same'"
+        )
+        await store._write(
+            "INSERT INTO event_relations "
+            "(event_id,relation_type,target_event_id,metadata,created_at) "
+            "VALUES ('same','reply','same','{}','2026-10-31')"
+        )
+        await store._write(
+            "INSERT INTO event_relation_excerpts(relation_id,excerpt) "
+            "SELECT id,'SELF-QUOTE' FROM event_relations WHERE event_id='same'"
+        )
+        report = await store.assess_event_content_release("same")
+        copies = {copy["surface"]: copy for copy in report["copies"]}
+        assert copies["relation_excerpts"]["rows"] == 1
+        assert copies["incoming_relation_excerpts"]["rows"] == 0
+        assert copies["relation_records"]["classification"] == "identity_retained"
+        assert report["core_subset_status"] == "eligible"
+    finally:
+        await store.close()
+
+
+async def test_native_reference_only_incoming_excerpt_blocks_collection(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "native-quote.db"))
+    await store.initialize()
+    try:
+        for event_id in ("target", "quoting"):
+            event = msgspec.structs.replace(
+                make_storage_event(event_id=event_id), payload={}, metadata={}
+            )
+            await store.append(event)
+        await store._write(
+            "UPDATE event_content_dependencies SET released_at='2026-10-31' "
+            "WHERE event_id IN ('target','quoting')"
+        )
+        await store._write(
+            "INSERT INTO native_message_refs "
+            "(id,event_id,adapter,native_channel_id,native_message_id,"
+            "direction,created_at) "
+            "VALUES ('ref','target','matrix','chan','native-42','inbound','2026-10-31')"
+        )
+        await store._write(
+            "INSERT INTO event_relations "
+            "(event_id,relation_type,target_native_adapter,target_native_channel_id,"
+            "target_native_message_id,metadata,created_at) "
+            "VALUES ('quoting','reply','matrix','chan','native-42','{}','2026-10-31')"
+        )
+        await store._write(
+            "INSERT INTO event_relation_excerpts(relation_id,excerpt) "
+            "SELECT id,'COPIED-TEXT' FROM event_relations WHERE event_id='quoting'"
+        )
+        report = await store.assess_event_content_release("target")
+        copies = {copy["surface"]: copy["rows"] for copy in report["copies"]}
+        assert copies["incoming_relation_excerpts"] == 1
+        assert "incoming_relation_excerpts" in report["blockers"]
+        assert "COPIED-TEXT" not in json.dumps(report)
+    finally:
+        await store.close()

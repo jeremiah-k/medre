@@ -27,8 +27,7 @@
     },
     "event_id": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 512
+      "minLength": 1
     },
     "scope": {
       "const": "core_sqlite_event"
