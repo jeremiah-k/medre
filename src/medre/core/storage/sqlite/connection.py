@@ -408,6 +408,9 @@ def sync_finalize_deferred_handoff(
     db: sqlite3.Connection,
     lock: threading.Lock,
     *,
+    settle_outbox_id: str,
+    settle_event_id: str,
+    settled_at: str,
     native_identity: tuple[str, str | None, str] | None,
     native_event_id: str | None,
     native_insert_params: tuple[object, ...] | None,
@@ -450,10 +453,7 @@ def sync_finalize_deferred_handoff(
                 db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             _settle_outbox_content_dependency(
-                db,
-                str(outbox_update_params[3]),
-                str(outbox_update_params[4]),
-                str(outbox_update_params[0]),
+                db, settle_outbox_id, settle_event_id, settled_at
             )
             db.commit()
             return True, None
@@ -469,6 +469,9 @@ def sync_finalize_outbox_terminal(
     db: sqlite3.Connection,
     lock: threading.Lock,
     *,
+    settle_outbox_id: str,
+    settle_event_id: str,
+    settled_at: str,
     receipt_insert_params: tuple[object, ...],
     attempt_receipt_insert_params: tuple[object, ...] | None = None,
     outbox_update_params: tuple[object, ...],
@@ -497,10 +500,7 @@ def sync_finalize_outbox_terminal(
                 db.execute(_INSERT_RECEIPT, attempt_receipt_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             _settle_outbox_content_dependency(
-                db,
-                str(outbox_update_params[5]),
-                str(outbox_update_params[6]),
-                str(outbox_update_params[2]),
+                db, settle_outbox_id, settle_event_id, settled_at
             )
             db.commit()
             return True

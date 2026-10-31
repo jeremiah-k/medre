@@ -85,6 +85,9 @@ class _DeliveryFinalizationMixin:
                 sync_finalize_deferred_handoff,
                 db,
                 self._lock,
+                settle_outbox_id=command.outbox_id,
+                settle_event_id=identity.event_id,
+                settled_at=transition_time,
                 native_identity=native_identity,
                 native_event_id=(
                     native_ref.event_id if native_ref is not None else None
@@ -160,6 +163,9 @@ class _DeliveryFinalizationMixin:
                 sync_finalize_outbox_terminal,
                 db,
                 self._lock,
+                settle_outbox_id=command.outbox_id,
+                settle_event_id=identity.event_id,
+                settled_at=transition_time,
                 receipt_insert_params=receipt_params,
                 attempt_receipt_insert_params=attempt_receipt_params,
                 outbox_update_params=outbox_params,

@@ -198,6 +198,14 @@ async def test_finalize_deferred_handoff_guards_full_outbox_identity(
     assert row.receipt_id == queued.receipt_id
     receipts = await temp_storage.list_receipts_for_event(EVENT_ID)
     assert [receipt.receipt_id for receipt in receipts] == [queued.receipt_id]
+    target_owners = [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            EVENT_ID
+        )
+        if kind == "outbox" and owner == OUTBOX_ID
+    ]
+    assert target_owners == [False]
 
 
 @pytest.mark.asyncio
@@ -222,6 +230,60 @@ async def test_finalize_deferred_handoff_commits_all_evidence(
     assert outbox is not None
     assert outbox.status == "sent"
     assert outbox.receipt_id == sent.receipt_id
+    target_owners = [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            EVENT_ID
+        )
+        if kind == "outbox" and owner == OUTBOX_ID
+    ]
+    assert target_owners == [True]
+
+
+@pytest.mark.asyncio
+async def test_deferred_handoff_settlement_failure_rolls_back_receipt_and_status(
+    temp_storage: SQLiteStorage,
+) -> None:
+    queued = await _seed_queued_attempt(temp_storage)
+    native_ref, sent = _sent_evidence(native_id="pkt-rollback-content")
+    await temp_storage._write(
+        "CREATE TRIGGER reject_target_settlement "
+        "BEFORE UPDATE ON event_content_dependencies "
+        "BEGIN SELECT RAISE(ABORT, 'injected content settlement failure'); END"
+    )
+    with pytest.raises(StorageError, match="settlement failure"):
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
+        )
+    row = await temp_storage.get_outbox_item(OUTBOX_ID)
+    assert row is not None and row.status == "queued"
+    assert (
+        await temp_storage.resolve_native_ref(
+            ADAPTER, CHANNEL, native_ref.native_message_id
+        )
+        is None
+    )
+    assert [
+        r.receipt_id for r in await temp_storage.list_receipts_for_event(EVENT_ID)
+    ] == [queued.receipt_id]
+    assert [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            EVENT_ID
+        )
+        if kind == "outbox" and owner == OUTBOX_ID
+    ] == [False]
+    await temp_storage._write("DROP TRIGGER reject_target_settlement")
+    assert await temp_storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
+    )
+    assert [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            EVENT_ID
+        )
+        if kind == "outbox" and owner == OUTBOX_ID
+    ] == [True]
 
 
 @pytest.mark.asyncio
