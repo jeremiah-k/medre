@@ -154,6 +154,7 @@ async def test_release_assessment_eligible_subset_is_still_not_deletion_authorit
             "shared_reference",
             "authority_or_state",
             "requires_independent_policy",
+            "identity_retained",
         }
     finally:
         await store.close()
@@ -198,5 +199,29 @@ async def test_release_assessment_lists_each_active_owner_and_grant(tmp_path):
         } <= set(report["blockers"])
         assert report["core_subset_status"] == "blocked"
         assert report["deletion_authorized"] is False
+    finally:
+        await store.close()
+
+
+async def test_incoming_quote_copy_blocks_retention_of_referenced_event(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "incoming.db"))
+    await store.initialize()
+    try:
+        await store.append(make_storage_event(event_id="referenced"))
+        await store.append(make_storage_event(event_id="quoting"))
+        await store._write(
+            "INSERT INTO event_relations (event_id, relation_type, target_event_id, "
+            "created_at) VALUES (?, 'reply', ?, ?)",
+            ("quoting", "referenced", "2026-10-31T00:00:00+00:00"),
+        )
+        await store._write(
+            "INSERT INTO event_relation_excerpts (relation_id, excerpt) "
+            "SELECT id, ? FROM event_relations WHERE event_id=?",
+            ("SECRET-QUOTE", "quoting"),
+        )
+        report = await store.assess_event_content_release("referenced")
+        _validate_assessment(report)
+        assert "incoming_relation_excerpts" in report["blockers"]
+        assert "SECRET-QUOTE" not in json.dumps(report)
     finally:
         await store.close()

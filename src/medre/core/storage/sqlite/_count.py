@@ -8,16 +8,27 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from medre.core.events.schema import VALID_RELATION_TYPES
 from medre.core.storage.backend import StorageError
 from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
+
+# The relation type is a closed core enum; a corrupted/free-form value is
+# not assumed to be content-free structured identity.
+_KNOWN_RELATION_TYPES_SQL = ", ".join(
+    f"'{kind}'" for kind in sorted(VALID_RELATION_TYPES)
+)
 
 # Closed, event-correlated inventory. All probes return counts, never values.
 # No guess that an arbitrary JSON/metadata field is free of message content.
 _EVENT_COPY_PROBES: dict[str, str] = {
     "canonical_text": "SELECT COUNT(*) FROM event_body_content c WHERE c.event_id=e.event_id",
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
+    "incoming_relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.target_event_id=e.event_id",
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
     "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",
+    "opaque_relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id AND (r.key IS NOT NULL OR r.metadata<>'{}' OR r.relation_type NOT IN ("  # nosec B608 - closed core enum; quoted literals only, never user input
+    + _KNOWN_RELATION_TYPES_SQL
+    + "))",
     "native_references": "SELECT COUNT(*) FROM native_message_refs n WHERE n.event_id=e.event_id",
     "delivery_receipts": "SELECT COUNT(*) FROM delivery_receipts r WHERE r.event_id=e.event_id",
     "delivery_observations": "SELECT COUNT(*) FROM delivery_observations o WHERE o.event_id=e.event_id",
@@ -38,7 +49,8 @@ _EVENT_COPY_PROBES: dict[str, str] = {
 _UNCLASSIFIED_EVENT_COPIES = frozenset(
     {
         "opaque_envelope",
-        "relation_records",
+        "opaque_relation_records",
+        "incoming_relation_excerpts",
         "native_references",
         "delivery_receipts",
         "delivery_observations",
@@ -57,6 +69,9 @@ _LIVE_BLOCKER_PROBES = (
     "unrevoked_optional_grants",
 )
 _BOUNDED_CANDIDATE_PROBES = frozenset({"canonical_text", "relation_excerpts"})
+# Only these content-bearing rows are candidates for the first collector.
+# Other surfaces are never rewritten as a side effect of collection.
+COLLECTIBLE_CORE_SURFACES = ("canonical_text", "relation_excerpts")
 
 
 def _classify_copy(name: str) -> str:
@@ -64,6 +79,8 @@ def _classify_copy(name: str) -> str:
         return "bounded_candidate"
     if name == "shared_attachment_references":
         return "shared_reference"
+    if name == "relation_records":
+        return "identity_retained"
     if name in _LIVE_BLOCKER_PROBES:
         return "authority_or_state"
     return "requires_independent_policy"
