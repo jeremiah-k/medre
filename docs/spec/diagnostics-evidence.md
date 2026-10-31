@@ -667,8 +667,14 @@ Diagnostics and evidence consumers observe the coalesced view and MUST NOT
 depend on which physical column carries the text: a non-empty legacy inline
 value — historical rows — takes precedence for immutable evidence; on a
 mutable outbox a current-attempt side-table value overrides old inline text.
-A superseded outbox failure never surfaces on a later settled attempt. Historical inline values are never rewritten,
-backfilled, or erased, so previously collected evidence reads unchanged.
+A superseded outbox failure never surfaces on a later settled attempt.
+Historical inline values are never rewritten, backfilled, or erased on
+immutable evidence rows (receipts and observations) or on any
+`delivery_evidence_diagnostics` side-table row, so previously collected
+evidence reads unchanged. Mutable outbox rows are the exception: a
+transition to `queued`, `sent`, or a terminal status clears the inline
+failure columns, including historical inline text, so settled rows read
+clean while the append-only side-table rows preserve that history.
 Structured provider/adapter metadata (the `metadata` columns) is NOT part of
 this separation: it stays inline, content-classified, and conservative, and
 operator reporting continues to treat it as unreviewed provider-owned data.
