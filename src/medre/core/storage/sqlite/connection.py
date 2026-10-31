@@ -323,6 +323,87 @@ def sync_write_batch(
             raise
 
 
+def _settle_outbox_content_dependency(
+    db: sqlite3.Connection, outbox_id: str, event_id: str, at: str
+) -> None:
+    """Retire only the exact target owner after its terminal CAS succeeds.
+
+    Never remove evidence, native references, attempts, or message bytes here.
+    A replay generation has no target dependency and is deliberately a no-op.
+    """
+    db.execute(
+        "UPDATE event_content_dependencies SET released_at=? "
+        "WHERE event_id=? AND owner_kind='outbox' AND owner_id=? "
+        "AND released_at IS NULL",
+        (at, event_id, outbox_id),
+    )
+
+
+def sync_transition_outbox_and_settle(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    sql: str,
+    params: tuple[Any, ...],
+    outbox_id: str,
+    settled_at: str,
+) -> int:
+    """Commit a guarded terminal status and its hold release in one transaction."""
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(sql, params)
+            if cursor.rowcount == 1:
+                row = db.execute(
+                    "SELECT event_id FROM delivery_outbox WHERE outbox_id=?",
+                    (outbox_id,),
+                ).fetchone()
+                if row is None:
+                    raise sqlite3.IntegrityError("Terminal outbox disappeared")
+                _settle_outbox_content_dependency(
+                    db, outbox_id, str(row[0]), settled_at
+                )
+            db.commit()
+            return int(cursor.rowcount)
+        except BaseException:
+            db.rollback()
+            raise
+
+
+def sync_complete_ingress_and_settle(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    event_id: str,
+    worker_id: str,
+    at: str,
+) -> bool:
+    """Atomic source completion after the caller's durable fanout planning.
+
+    A stale claimant cannot settle someone else's source. Every adopted outbox
+    already owns a separate target dependency before this CAS is possible.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE durable_ingress_work SET status='completed', updated_at=?, "
+                "locked_at=NULL, lease_until=NULL, worker_id=NULL, last_error=NULL "
+                "WHERE event_id=? AND status='processing' AND worker_id=?",
+                (at, event_id, worker_id),
+            )
+            if cursor.rowcount == 1:
+                db.execute(
+                    "UPDATE event_content_dependencies SET released_at=? "
+                    "WHERE event_id=? AND owner_kind='ingress' AND owner_id=? "
+                    "AND released_at IS NULL",
+                    (at, event_id, event_id),
+                )
+            db.commit()
+            return cursor.rowcount == 1
+        except BaseException:
+            db.rollback()
+            raise
+
+
 def sync_finalize_deferred_handoff(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -368,6 +449,12 @@ def sync_finalize_deferred_handoff(
                 assert native_insert_params is not None
                 db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            _settle_outbox_content_dependency(
+                db,
+                str(outbox_update_params[3]),
+                str(outbox_update_params[4]),
+                str(outbox_update_params[0]),
+            )
             db.commit()
             return True, None
         except BaseException:
@@ -409,6 +496,12 @@ def sync_finalize_outbox_terminal(
             if attempt_receipt_insert_params is not None:
                 db.execute(_INSERT_RECEIPT, attempt_receipt_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            _settle_outbox_content_dependency(
+                db,
+                str(outbox_update_params[5]),
+                str(outbox_update_params[6]),
+                str(outbox_update_params[2]),
+            )
             db.commit()
             return True
         except BaseException:

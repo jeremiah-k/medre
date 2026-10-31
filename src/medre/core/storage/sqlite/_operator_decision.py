@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.storage.backend import StorageError
+from medre.core.storage.sqlite.connection import _settle_outbox_content_dependency
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -185,6 +186,12 @@ def _sync_cancel_unstarted(
                 raise OperatorDecisionRefused(
                     "Concurrent attempt changed; nothing cancelled"
                 )
+            # The guarded cancellation is a terminal transition: retire the
+            # exact target owner here, in the same transaction, like every
+            # other terminal path. Siblings and evidence stay untouched.
+            _settle_outbox_content_dependency(
+                db, decision.outbox_id, identity.event_id, now
+            )
             db.execute(
                 "INSERT INTO operator_delivery_decisions "
                 "(decision_id,actor_id,event_id,delivery_plan_id,target_adapter,"

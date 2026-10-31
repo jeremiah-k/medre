@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -377,10 +376,11 @@ async def test_content_release_between_packets_preserves_accepted_prefix(storage
         if len(calls) == 1:
             await storage._write(
                 "UPDATE event_content_dependencies SET released_at=? "
-                "WHERE event_id=? AND owner_kind IN ('ingress','append')",
+                "WHERE event_id=? AND owner_kind='outbox' AND owner_id=?",
                 (
                     datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                     result.event_id,
+                    result.outbox_id,
                 ),
             )
         return AdapterHandoffResult()

@@ -17,7 +17,7 @@ async def test_expiry_observed_during_render_prevents_adapter_submission(
         result = await render(*args, **kwargs)
         await temp_storage._write(
             "UPDATE event_content_dependencies SET released_at=? "
-            "WHERE event_id='event' AND owner_kind IN ('ingress', 'append')",
+            "WHERE event_id='event' AND owner_kind='outbox'",
             (datetime.now(timezone.utc).isoformat(timespec="microseconds"),),
         )
         return result

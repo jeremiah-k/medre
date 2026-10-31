@@ -601,6 +601,14 @@ async def test_storage_guard_rejects_stale_attempt_number(
     assert outbox.status == "queued"
     assert outbox.attempt_number == 2
     assert outbox.receipt_id is None
+    target_owners = [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            "evt-late"
+        )
+        if kind == "outbox" and owner == "obox-late"
+    ]
+    assert target_owners == [False]
 
 
 # ===================================================================
@@ -753,6 +761,14 @@ async def test_duplicate_exhausted_notifications_commit_once(
     assert outbox is not None
     assert outbox.status == "dead_lettered"
     assert outbox.receipt_id == terminal[0].receipt_id
+    target_owners = [
+        released
+        for kind, owner, _, released in await temp_storage.list_mandatory_content_dependencies(
+            "evt-dup"
+        )
+        if kind == "outbox" and owner == "obox-dup"
+    ]
+    assert target_owners == [True]
 
     assert "already terminal" in caplog.text
 

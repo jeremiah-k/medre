@@ -876,20 +876,20 @@ class TestSynapseEncryptedAttachmentSmoke:
             assert (
                 stored.data == _MEDIA_BYTES
             ), "decrypted attachment bytes must equal the original"
-            await harness.runner.process_admitted_event(result.event_id)
-            relayed = await harness.wait_for_relay()
-            content = relayed["content"]
-            assert "url" in content, "plaintext destination carries a plain url"
-            downloaded = _download_media(env, env.test_access_token, content["url"])
-            assert downloaded == _MEDIA_BYTES
             # No file key material in any persisted canonical evidence.
-            read = await storage.read_event_for_replay(result.event_id)
+            read = await storage.read_event_for_ingress(result.event_id)
             assert read.status == "retained" and read.event is not None
             canonical = read.event
             canonical_payload = json.dumps(canonical.payload)
             assert keys["key"]["k"] not in canonical_payload
             assert keys["iv"] not in canonical_payload
             assert keys["hashes"]["sha256"] not in canonical_payload
+            await harness.runner.process_admitted_event(result.event_id)
+            relayed = await harness.wait_for_relay()
+            content = relayed["content"]
+            assert "url" in content, "plaintext destination carries a plain url"
+            downloaded = _download_media(env, env.test_access_token, content["url"])
+            assert downloaded == _MEDIA_BYTES
             report = {
                 "transport": "matrix",
                 "evidence_level": "docker_synapse_e2ee_source_media",

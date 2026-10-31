@@ -63,6 +63,12 @@ async def test_cancel_one_room_without_touching_sibling_or_reopening(
     assert await temp_storage.cancel_unstarted_delivery(requested) is False
     assert (await temp_storage.get_outbox_item("obox-left")).status == "cancelled"
     assert (await temp_storage.get_outbox_item("obox-right")).status == "pending"
+    # The guarded cancellation settles exactly the cancelled target owner;
+    # the sibling keeps its independently valid hold.
+    deps = await temp_storage.list_mandatory_content_dependencies(sample_event.event_id)
+    state = {(kind, owner): released for kind, owner, _, released in deps}
+    assert state[("outbox", "obox-left")] is True
+    assert state[("outbox", "obox-right")] is False
     evidence = await temp_storage.list_operator_decisions(sample_event.event_id)
     assert len(evidence) == 1
     assert evidence[0]["actor_id"] == "operator-test"
