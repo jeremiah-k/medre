@@ -920,3 +920,66 @@ class TestCacheDoesNotChangeSemantics:
 
         is_reaction = await runner._is_reaction_to_reaction(event)
         assert is_reaction is False
+
+
+async def test_live_reply_context_cannot_truncate_conversation_ancestry(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Root and projection lookups must see relations on held ancestors.
+
+    Reply-context reads intentionally omit relations. A→B→C therefore
+    fails if the same cached reply projection is used for graph traversal.
+    """
+    root = _make_event("chain-root", payload={"body": "root secret"})
+    middle = _make_event(
+        "chain-middle",
+        relations=(EventRelation("reply", "chain-root", None, None, None),),
+        payload={"body": "middle secret"},
+    )
+    child = _make_event(
+        "chain-child",
+        relations=(EventRelation("reply", "chain-middle", None, None, None),),
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(temp_storage, Router(routes=[]))
+    )
+    await runner.handle_ingress(root)
+    await runner.handle_ingress(middle)
+    # The middle admission hold is live: the reply-context read is retained
+    # but its relation tuple is deliberately empty.
+    borrowed = await temp_storage.read_reply_context("chain-middle")
+    assert borrowed.status == "retained" and borrowed.event is not None
+    assert borrowed.event.relations == ()
+    await runner.handle_ingress(child)
+    membership = await temp_storage.get_conversation_membership("chain-child")
+    middle_membership = await temp_storage.get_conversation_membership("chain-middle")
+    assert membership is not None and middle_membership is not None
+    assert membership.root_event_id == "chain-root"
+    assert middle_membership.root_event_id == "chain-root"
+
+
+async def test_reaction_target_relation_survives_live_reply_hold(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A reaction relation on a message must remain visible to suppression."""
+    target = _make_event(
+        "reaction-target",
+        relations=(EventRelation("reaction", "other", None, "thumb", None),),
+    )
+    await temp_storage.append(target)
+    borrower = await temp_storage.read_reply_context("reaction-target")
+    assert borrower.status == "retained" and borrower.event is not None
+    assert borrower.event.relations == ()
+
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(temp_storage, Router(routes=[]))
+    )
+    reaction = _make_event(
+        "reaction-child",
+        event_kind=EventKind.MESSAGE_REACTED,
+        relations=(EventRelation("reaction", "reaction-target", None, "thumb", None),),
+    )
+    from medre.core.engine.pipeline.runner import PipelinePhase
+
+    await runner.handle_ingress(reaction)
+    assert runner._current_phase == PipelinePhase.STORE

@@ -522,6 +522,7 @@ class PipelineRunner:
         # calls on the same PipelineRunner instance cannot share, clear,
         # or contaminate each other's caches.
         _event_cache: dict[str, CanonicalEvent | None] = {}
+        _metadata_cache: dict[str, CanonicalEvent] = {}
         _refs_cache: dict[str, list[NativeMessageRef]] = {}
         # In-flight dedup: prevents duplicate concurrent storage calls when
         # fan-out delivery resolves the same event_id from multiple targets.
@@ -558,6 +559,22 @@ class PipelineRunner:
                 return result
             finally:
                 _event_inflight.pop(event_id, None)
+
+        async def _cached_metadata(event_id: str) -> CanonicalEvent | None:
+            """Relation-complete, content-free lookup for graph decisions.
+
+            Reply-context reads deliberately strip relations. Never serve those
+            projections to ancestry, reaction checks, or membership repair.
+            Do not cache misses: concurrent ingress may admit the parent before
+            the post-store reconciliation in this same call.
+            """
+            cached = _metadata_cache.get(event_id)
+            if cached is not None:
+                return cached
+            event_metadata = await self._config.storage.get_metadata(event_id)
+            if event_metadata is not None:
+                _metadata_cache[event_id] = event_metadata
+            return event_metadata
 
         async def _cached_list_native_refs(
             event_id: str,
@@ -656,7 +673,7 @@ class PipelineRunner:
 
         # Stage 2.5 – assign conversation identity (root_event_id,
         # conversation_id) based on resolved relation targets.
-        event = await self._assign_conversation_identity(event, get_fn=_cached_get)
+        event = await self._assign_conversation_identity(event, get_fn=_cached_metadata)
 
         # ── Phase: STORE ────────────────────────────────────────────────
         self._current_phase = PipelinePhase.STORE
@@ -668,6 +685,7 @@ class PipelineRunner:
         # written above for later pipeline stages.  Projection repair below
         # deliberately bypasses pre-store lookups for every other event ID.
         _event_cache[event.event_id] = event
+        _metadata_cache[event.event_id] = event
 
         # Stage 4 – persist inbound native ref
         await self._persist_inbound_native_ref(event)
@@ -685,14 +703,12 @@ class PipelineRunner:
         # but a cached miss may have become stale if another ingress stored that
         # parent concurrently between Stage 2.5 and this post-store repair.
         _event_cache[event.event_id] = event
+        _metadata_cache[event.event_id] = event
 
         async def _projection_get(candidate_id: str) -> CanonicalEvent | None:
-            cached = _event_cache.get(candidate_id)
-            if cached is not None:
-                return cached
-            result = await self._config.storage.get_metadata(candidate_id)
-            _event_cache[candidate_id] = result
-            return result
+            if candidate_id == event.event_id:
+                return event
+            return await _cached_metadata(candidate_id)
 
         await self._repair_conversation_after_event_available(
             event.event_id, get_fn=_projection_get
@@ -700,7 +716,7 @@ class PipelineRunner:
         event = await self._conversation_projection.project_event(event)
 
         # Stage 4.5 – suppress reaction-to-reaction
-        if await self._is_reaction_to_reaction(event, get_fn=_cached_get):
+        if await self._is_reaction_to_reaction(event, get_fn=_cached_metadata):
             self._log.info(
                 "Reaction-to-reaction suppressed: event_id=%s targets another reaction",
                 event.event_id,
