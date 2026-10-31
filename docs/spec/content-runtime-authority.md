@@ -97,6 +97,12 @@ uses this dedicated source-held API; expired targets retain native relation
 identity through metadata-only reads and produce an honest missing-quote
 fallback. Missing authority methods never fall back to unrestricted reads.
 
+Conversation-root traversal, derived membership repair and reaction-to-reaction
+classification MUST use relation-complete `get_metadata()` reads, not
+`read_reply_context`, whose event intentionally has no relations. An ingress
+may cache these views independently; a quote projection MUST NOT seed a graph
+lookup cache or projection repair.
+
 Timeline, operator inspection and evidence collectors use metadata views.
 Receipt, outbox, observation and native-ref inspection explicitly request
 `metadata_only=True`; SQL withholds opaque fields before Python receives rows.

@@ -77,9 +77,10 @@ sending through the existing paced adapter. The CLI opens storage read-only,
 including when retained evidence is malformed; it does not claim work, recover
 submitting packets, or send anything.
 
-The JSON contains the exact planned wire text, per-packet state and scoped local
-handoff references, alongside current parent identity/status. Inspection does
-not start adapters, mutate progress, recover submissions or authorize another
+The JSON contains the plan fingerprint, per-packet state and a
+`handoff_recorded` presence flag, alongside current parent identity/status.
+The planned wire text and scoped handoff references are withheld. Inspection
+does not start adapters, mutate progress, recover submissions or authorize another
 send. A submitting packet remains submitting in the report; after explicit
 owned recovery it becomes unknown. Neither state is proof of RF delivery.
 The configured retry worker can continue a proven-unsent suffix under a fresh

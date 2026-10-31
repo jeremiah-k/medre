@@ -245,7 +245,7 @@ async def test_duplicate_id_does_not_replace_content_or_duplicate_hold(tmp_path)
         await store.close()
 
 
-async def test_post_admission_excerpt_gets_atomic_append_owner(tmp_path):
+async def test_post_admission_excerpt_never_creates_a_new_owner(tmp_path):
     store = SQLiteStorage(str(tmp_path / "state.db"))
     await store.initialize()
     try:
