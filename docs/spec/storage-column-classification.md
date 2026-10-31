@@ -43,7 +43,8 @@ never authorizes any read, retention action, or collection.
    (`worker_id`, `lease_until`, `locked_at`), attempt generations, guarded
    state pointers (`receipt_id` on the outbox), duplicate-prevention
    authority (`payload_hash`), settlement and expiry bounds (`released_at`,
-   `revoked_at`, `expired_at`, ceilings), confirmation levels, and rebuildable conversation membership fields
+   `revoked_at`, `expired_at`, ceilings), confirmation levels, and
+   rebuildable conversation membership fields
    (root, conversation, resolved target, relation type and depth). Authority
    columns decide lifecycle outcomes; a collector MUST NOT remove them as
    content.

@@ -404,10 +404,12 @@ def columns_for_table(table: str) -> tuple[str, ...]:
 
 
 def column_class(table: str, column: str) -> ColumnClass | None:
-    """Return the class of one column, or ``None`` when unclassified.
+    """Return the class of one column, or ``None`` when it has no entry.
 
-    ``None`` means the registry does not cover the column; callers MUST
-    treat an uncovered persistent column as conservatively blocked.
+    ``None`` means the registry has no entry for the column;
+    ``ColumnClass.UNCLASSIFIED`` means the registry has an entry that is not
+    yet reviewed.  Callers MUST treat both results as potentially
+    content-bearing and conservatively blocked.
     """
     return _ENTRIES.get((table, column))
 
