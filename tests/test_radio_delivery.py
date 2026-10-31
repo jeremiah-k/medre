@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
@@ -487,3 +489,47 @@ async def test_radio_start_compares_offset_lease_as_an_instant(storage):
     )
     assert bound is not None
     assert await storage.begin_radio_part(bound, "radio-owner", 1) is not None
+
+
+async def test_native_grant_refuses_blank_worker_and_expired_deadline(
+    storage, monkeypatch
+):
+    """The one-use native grant never starts without a worker or live deadline."""
+    from medre.core.engine.pipeline import radio_delivery as module
+
+    result = await rendering(storage)
+    claim = result.attempt_provenance
+    bound = await storage.bind_radio_attempt(claim, "radio-owner", result.radio_plan)
+    assert bound is not None
+
+    blank = module._Submission(
+        storage=storage, checkpoint=bound, worker_id="", ordinal=1
+    )
+    with pytest.raises(AdapterPermanentError, match="requires a worker"):
+        await blank.begin()
+
+    deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+    ticking = iter(
+        [
+            deadline - timedelta(seconds=1),
+            deadline + timedelta(seconds=1),
+        ]
+    )
+
+    class _AdvancingDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(ticking)
+
+    grant = module._Submission(
+        storage=storage,
+        checkpoint=bound,
+        worker_id="radio-owner",
+        ordinal=1,
+        deadline=deadline,
+    )
+    monkeypatch.setattr(module, "datetime", _AdvancingDatetime)
+    with pytest.raises(
+        AdapterPermanentError, match="deadline exceeded before native submission"
+    ):
+        await grant.begin()
