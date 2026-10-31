@@ -1,0 +1,340 @@
+# medre-test-tier: compatibility
+"""Guards for the accepted context ownership contract.
+
+Pins the persisted JSON inventories of ``canonical_events.metadata`` and
+``delivery_outbox.metadata`` against
+``docs/spec/accepted-context-ownership.md``, asserts the
+classification-registry equivalence that contract states, and reproduces the
+production-path blocker baseline for a staged routed text event.
+
+The blocker-baseline tests name the current persisted gap exactly. Later
+changes in the ownership stack update those current-gap expectations
+case-by-case; the permanently conservative opaque-content cases (arbitrary
+``custom`` and ``native`` metadata, incoming excerpts, radio plans,
+attachments, operator decisions) must never flip.
+"""
+
+from __future__ import annotations
+
+import json
+
+import msgspec
+
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.outbox_manager import OutboxManager
+from medre.core.events import EventMetadata
+from medre.core.events.metadata import (
+    NativeMetadata,
+    RadioMetadata,
+    RoutingMetadata,
+    TelemetryMetadata,
+    TransportMetadata,
+)
+from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
+from medre.core.routing.models import (
+    Route,
+    RouteDestination,
+    RouteSource,
+    RouteTarget,
+)
+from medre.core.storage.classification import STORAGE_COLUMN_CLASSES, ColumnClass
+from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage import make_storage_event
+
+# docs/spec/accepted-context-ownership.md section 4.2: the exact
+# ``delivery_outbox.metadata`` key inventory for a destination-addressed
+# staged target, and the reduced inventory for a channel-addressed one.
+DESTINATION_OUTBOX_METADATA_KEYS = frozenset(
+    {
+        "destination_kind",
+        "destination_hash",
+        "destination_name",
+        "destination_metadata",
+        "capability_level",
+        "delivery_strategy",
+        "capability_field",
+        "capability_reason",
+        "deadline",
+        "dispatch_context",
+    }
+)
+CHANNEL_OUTBOX_METADATA_KEYS = frozenset(
+    {
+        "capability_level",
+        "delivery_strategy",
+        "capability_field",
+        "capability_reason",
+        "deadline",
+        "dispatch_context",
+    }
+)
+
+# docs/spec/accepted-context-ownership.md section 4.1: the serialized
+# EventMetadata top-level namespace inventory; section 4.3: the snapshot
+# members of the dispatch_context payload.
+EVENT_METADATA_NAMESPACES = frozenset(
+    {"transport", "routing", "radio", "telemetry", "native", "custom"}
+)
+DISPATCH_CONTEXT_MEMBERS = frozenset({"route", "plan", "routing"})
+
+_BODY = "secret"
+_NOW = "2026-10-31T00:00:00+00:00"
+
+
+def _routed_text_event(event_id="staged-context", metadata=None):
+    if metadata is None:
+        metadata = EventMetadata(routing=RoutingMetadata(matched_routes=("r1",)))
+    return msgspec.structs.replace(
+        make_storage_event(event_id=event_id, payload={"body": _BODY}),
+        metadata=metadata,
+    )
+
+
+def _channel_target():
+    return RouteTarget(adapter="fake_presentation", channel="destination")
+
+
+def _destination_target():
+    return RouteTarget(
+        adapter="fake_presentation",
+        channel=None,
+        destination=RouteDestination(
+            kind="mesh",
+            destination_hash="hash-1",
+            destination_name="Room One",
+            metadata={"room_id": "!room:example.org"},
+        ),
+    )
+
+
+def _route_and_plan(event_id, target):
+    route = Route(
+        id="r1",
+        source=RouteSource(
+            adapter="fake_transport",
+            event_kinds=("message.created",),
+            channel="ch-0",
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-1",
+        event_id=event_id,
+        route_id=route.id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+        capability_level="native",
+    )
+    return route, plan
+
+
+async def _stage_pending(store, event, target):
+    route, plan = _route_and_plan(event.event_id, target)
+    manager = OutboxManager(store, DeliveryLifecycleService())
+    context = await manager.create_for_delivery(
+        event, route, plan, target, target.adapter, pending=True
+    )
+    assert context.outbox_id is not None
+    return context
+
+
+async def _complete_ingress(store, event_id):
+    claims = await store.claim_ingress_work(worker_id="worker")
+    assert [claim.event_id for claim in claims] == [event_id]
+    assert await store.complete_ingress_work(event_id, worker_id="worker")
+
+
+async def _settle_outbox_sent(store, outbox_id):
+    claimed = await store.claim_due_outbox_items(_NOW, "delivery")
+    assert [item.outbox_id for item in claimed] == [outbox_id]
+    assert await store.mark_outbox_sent(outbox_id)
+
+
+# ---------------------------------------------------------------------------
+# Inventory-pinning guards
+# ---------------------------------------------------------------------------
+
+
+async def test_staged_outbox_metadata_key_set_matches_the_contract_inventory(
+    tmp_path,
+):
+    """The persisted outbox metadata key set equals the spec inventory.
+
+    Any key a future producer adds fails this guard until the spec inventory
+    gains a reviewed row for it.
+    """
+    store = SQLiteStorage(str(tmp_path / "outbox-keys.db"))
+    await store.initialize()
+    try:
+        event = _routed_text_event()
+        await store.admit_ingress(event, None, "live")
+        staged = await _stage_pending(store, event, _channel_target())
+        stored = await store.get_outbox_item(staged.outbox_id)
+        assert stored is not None and stored.metadata is not None
+        assert set(stored.metadata) == CHANNEL_OUTBOX_METADATA_KEYS
+        # Section 4.3: the snapshot members are exactly route, plan, routing.
+        assert set(stored.metadata["dispatch_context"]) == DISPATCH_CONTEXT_MEMBERS
+    finally:
+        await store.close()
+
+
+async def test_destination_staged_outbox_metadata_keys_match_the_inventory(
+    tmp_path,
+):
+    """Destination-addressed staging carries the full inventoried key set."""
+    store = SQLiteStorage(str(tmp_path / "destination-keys.db"))
+    await store.initialize()
+    try:
+        event = _routed_text_event(event_id="dest-context")
+        await store.admit_ingress(event, None, "live")
+        staged = await _stage_pending(store, event, _destination_target())
+        stored = await store.get_outbox_item(staged.outbox_id)
+        assert stored is not None and stored.metadata is not None
+        assert set(stored.metadata) == DESTINATION_OUTBOX_METADATA_KEYS
+    finally:
+        await store.close()
+
+
+async def test_persisted_event_metadata_key_set_matches_the_contract_inventory(
+    tmp_path,
+):
+    """The admission path serializes exactly the spec's namespace key set."""
+    store = SQLiteStorage(str(tmp_path / "event-keys.db"))
+    await store.initialize()
+    try:
+        metadata = EventMetadata(
+            transport=TransportMetadata(protocol="mqtt", substrate="wifi"),
+            routing=RoutingMetadata(matched_routes=("r1",), route_trace=("r1",)),
+            radio=RadioMetadata(snr=7.5, rssi=-90.0),
+            telemetry=TelemetryMetadata(metrics={"temperature_c": 21.5}),
+            native=NativeMetadata(data={"provider_field": "value"}),
+            custom={"extension.note": "operator-private"},
+        )
+        event = _routed_text_event(event_id="full-metadata", metadata=metadata)
+        await store.admit_ingress(event, None, "live")
+        row = await store._read_one(
+            "SELECT metadata FROM canonical_events WHERE event_id=?",
+            (event.event_id,),
+        )
+        assert row is not None
+        persisted = json.loads(row["metadata"])
+        assert set(persisted) == EVENT_METADATA_NAMESPACES
+    finally:
+        await store.close()
+
+
+def test_registry_designation_matches_the_contract_inventory():
+    """Both metadata columns are independently owned content in the registry.
+
+    The spec's opaque-content designation and the classification registry
+    cannot drift apart: this equivalence is the contract's own guard.
+    """
+    assert (
+        STORAGE_COLUMN_CLASSES["delivery_outbox"]["metadata"]
+        is ColumnClass.INDEPENDENTLY_OWNED_CONTENT
+    )
+    assert (
+        STORAGE_COLUMN_CLASSES["canonical_events"]["metadata"]
+        is ColumnClass.INDEPENDENTLY_OWNED_CONTENT
+    )
+
+
+# ---------------------------------------------------------------------------
+# Production-path blocker baseline (the pinned current gap)
+# ---------------------------------------------------------------------------
+
+
+async def test_staged_routed_text_event_blockers_match_the_current_gap(tmp_path):
+    """At staged time the blocker set is exactly the pinned baseline.
+
+    Current-gap baseline: the ownership stack updates this expectation
+    case-by-case as it separates facts, frozen work snapshots, and opaque
+    content.
+    """
+    store = SQLiteStorage(str(tmp_path / "staged-baseline.db"))
+    await store.initialize()
+    try:
+        event = _routed_text_event(event_id="staged-baseline")
+        await store.admit_ingress(event, None, "live")
+        staged = await _stage_pending(store, event, _channel_target())
+        assessment = await store.assess_event_content_release(event.event_id)
+        assert assessment["blockers"] == [
+            "active_ingress",
+            "active_outbox",
+            "unsettled_mandatory_owners",
+            "opaque_envelope",
+            "outbox_records",
+        ]
+        # The outbox blocker names real persisted opaque bytes: the staged
+        # row carries the full inventory, dispatch_context included.
+        stored = await store.get_outbox_item(staged.outbox_id)
+        assert stored is not None and stored.metadata is not None
+        assert "dispatch_context" in stored.metadata
+    finally:
+        await store.close()
+
+
+async def test_settled_routed_text_event_residual_blockers_match_the_gap(tmp_path):
+    """After real ingress completion and terminal settlement the residual
+    blocker set is exactly the pinned baseline.
+
+    Current-gap baseline: the ownership stack updates this expectation
+    case-by-case. The two residual names identify the persisted opaque
+    surfaces — the canonical envelope and the non-empty outbox metadata —
+    not a desired end state.
+    """
+    store = SQLiteStorage(str(tmp_path / "settled-baseline.db"))
+    await store.initialize()
+    try:
+        event = _routed_text_event(event_id="settled-baseline")
+        await store.admit_ingress(event, None, "live")
+        staged = await _stage_pending(store, event, _channel_target())
+        await _complete_ingress(store, event.event_id)
+        await _settle_outbox_sent(store, staged.outbox_id)
+        assessment = await store.assess_event_content_release(event.event_id)
+        assert assessment["blockers"] == ["opaque_envelope", "outbox_records"]
+        # Each residual name traces to real persisted opaque content.
+        outbox_row = await store.get_outbox_item(staged.outbox_id)
+        assert outbox_row is not None and outbox_row.metadata not in (None, {})
+        raw_event = await store._read_one(
+            "SELECT metadata FROM canonical_events WHERE event_id=?",
+            (event.event_id,),
+        )
+        assert raw_event is not None
+        persisted = json.loads(raw_event["metadata"])
+        assert persisted["routing"]["matched_routes"] == ["r1"]
+    finally:
+        await store.close()
+
+
+async def test_arbitrary_custom_and_native_metadata_stay_opaque_blockers(tmp_path):
+    """Arbitrary custom/native metadata blocks collection after settlement.
+
+    Permanently conservative: no change in the ownership stack may exempt
+    free-form ``custom`` or ``native`` values; the same holds for incoming
+    excerpts, radio plans, attachments, and operator decisions, which the
+    collection guard pins as wholesale policy blockers.
+    """
+    store = SQLiteStorage(str(tmp_path / "opaque-namespaces.db"))
+    await store.initialize()
+    try:
+        metadata = EventMetadata(
+            routing=RoutingMetadata(matched_routes=("r1",)),
+            native=NativeMetadata(data={"raw": "provider-blob"}),
+            custom={"extension.note": "operator-private"},
+        )
+        event = _routed_text_event(event_id="opaque-namespaces", metadata=metadata)
+        await store.admit_ingress(event, None, "live")
+        staged = await _stage_pending(store, event, _channel_target())
+        await _complete_ingress(store, event.event_id)
+        await _settle_outbox_sent(store, staged.outbox_id)
+        assessment = await store.assess_event_content_release(event.event_id)
+        assert assessment["blockers"] == ["opaque_envelope", "outbox_records"]
+        envelope = next(
+            copy
+            for copy in assessment["copies"]
+            if copy["surface"] == "opaque_envelope"
+        )
+        assert envelope["classification"] == "requires_independent_policy"
+    finally:
+        await store.close()

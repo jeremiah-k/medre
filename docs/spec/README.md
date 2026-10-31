@@ -29,6 +29,7 @@ in a document under this tree.
 | [storage.md](storage.md)                                             | SQLite schema, append-only guarantees, replay semantics             |
 | [content-retention.md](content-retention.md)                         | Content surfaces, consumers, and read-only logical-byte accounting  |
 | [storage-column-classification.md](storage-column-classification.md) | Column-level ownership classes over every persistent storage column |
+| [accepted-context-ownership.md](accepted-context-ownership.md)       | Ownership boundary for persisted accepted-event context             |
 | [state-machines.md](state-machines.md)                               | Receipt and outbox transition graphs                                |
 | [delivery-lifecycle.md](delivery-lifecycle.md)                       | Delivery lifecycle authority hierarchy and vocabulary tables        |
 | [durable-ingress.md](durable-ingress.md)                             | Durable admission boundary, checkpoint ownership, drain handoff     |

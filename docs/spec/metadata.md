@@ -3,7 +3,9 @@
 Metadata boundaries, embedding modes, privacy modes, and the never-embed list.
 
 See also: [event-model.md](event-model.md), [identity-addressing.md](identity-addressing.md),
-[security-privacy.md](security-privacy.md).
+[security-privacy.md](security-privacy.md), and
+[accepted-context-ownership.md](accepted-context-ownership.md) for the
+ownership class of each namespace's persisted form.
 
 ---
 
