@@ -76,7 +76,8 @@
               "bounded_candidate",
               "shared_reference",
               "authority_or_state",
-              "requires_independent_policy"
+              "requires_independent_policy",
+              "identity_retained"
             ]
           }
         }
