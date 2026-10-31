@@ -10,15 +10,36 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
-def _old_database(path, *, missing_expired_at):
+def _strip_section(ddl: str, start: str, end: str) -> str:
+    """Remove one authored DDL section, from its comment to the next object."""
+    begin = ddl.index(start)
+    stop = ddl.index(end, begin)
+    return ddl[:begin] + ddl[stop:]
+
+
+def _old_database(path, *, missing_expired_at=False, missing_diagnostics=False):
     ddl = _SCHEMA
-    begin = ddl.index("-- Immutable logical-collection receipt.")
-    end = ddl.index("CREATE TABLE IF NOT EXISTS event_relations (", begin)
-    ddl = ddl[:begin] + ddl[end:]
+    indexes = _INDEXES
+    ddl = _strip_section(
+        ddl,
+        "-- Immutable logical-collection receipt.",
+        "CREATE TABLE IF NOT EXISTS event_relations (",
+    )
+    if missing_diagnostics:
+        ddl = _strip_section(
+            ddl,
+            "-- Free-form delivery diagnostic text",
+            "CREATE TABLE IF NOT EXISTS radio_attempt_progress (",
+        )
+        indexes = _strip_section(
+            indexes,
+            "-- Diagnostic coalescing reads",
+            "CREATE INDEX IF NOT EXISTS idx_ingress_work_claim",
+        )
     if missing_expired_at:
         ddl = ddl.replace("    expired_at TEXT,\n", "")
     with closing(sqlite3.connect(path)) as db, db:
-        db.executescript(ddl + _INDEXES)
+        db.executescript(ddl + indexes)
         db.execute("INSERT INTO _medre_schema_meta VALUES ('schema_version','1')")
         db.execute(
             "INSERT INTO canonical_events "
@@ -63,9 +84,71 @@ async def test_explicit_additions_are_atomic_and_idempotent(
     await again.close()
 
 
+async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
+    """A current predecessor lacking only the diagnostics surface is accepted.
+
+    The exact authoritative table and index DDL are created inside the same
+    BEGIN IMMEDIATE transaction that validates the rest of the shape; no
+    other object changes and no existing row is touched.
+    """
+    path = str(tmp_path / "upgrade-diagnostics.db")
+    _old_database(path, missing_diagnostics=True)
+    with closing(sqlite3.connect(path)) as db, db:
+        before_tables = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+        db.execute(
+            "INSERT INTO delivery_receipts "
+            "(receipt_id, event_id, delivery_plan_id, target_adapter, status, "
+            "receipt_kind, error, created_at) "
+            "VALUES ('legacy', 'preserve', 'plan', 'fake', 'failed', "
+            "'attempt', 'HISTORICAL-INLINE', '2026-10-31')"
+        )
+    store = SQLiteStorage(path)
+    await store.initialize()
+    try:
+        columns = {
+            r["name"]
+            for r in await store._read_all(
+                "PRAGMA table_info(delivery_evidence_diagnostics)"
+            )
+        }
+        assert columns == {
+            "diag_id",
+            "family",
+            "row_id",
+            "attempt",
+            "field",
+            "diagnostic",
+            "created_at",
+        }
+        assert (
+            await store._read_one(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_diagnostics_identity'"
+            )
+        ) is not None
+        # The upgraded shape matches a fresh database exactly; the pre-existing
+        # evidence row is untouched and its inline value is never rewritten.
+        legacy = await store._read_one(
+            "SELECT error FROM delivery_receipts WHERE receipt_id='legacy'"
+        )
+        assert legacy["error"] == "HISTORICAL-INLINE"
+    finally:
+        await store.close()
+    with closing(sqlite3.connect(path)) as db:
+        after_tables = db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+    assert after_tables != before_tables
+    again = SQLiteStorage(path)
+    await again.initialize()
+    await again.close()
+
+
 async def test_additive_upgrade_rejects_unrelated_shape_drift_without_writes(tmp_path):
     path = str(tmp_path / "tampered.db")
-    _old_database(path, missing_expired_at=True)
+    _old_database(path, missing_expired_at=True, missing_diagnostics=True)
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("CREATE TABLE unexpected_stale_state (value TEXT)")
     store = SQLiteStorage(path)
@@ -79,6 +162,13 @@ async def test_additive_upgrade_rejects_unrelated_shape_drift_without_writes(tmp
         assert (
             db.execute(
                 "SELECT name FROM sqlite_master WHERE name='event_content_collection_log'"
+            ).fetchone()
+            is None
+        )
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE name='delivery_evidence_diagnostics'"
             ).fetchone()
             is None
         )

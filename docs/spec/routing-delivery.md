@@ -860,6 +860,30 @@ When inspecting a receipt, operators can determine:
 
 For the full rendering evidence semantics, payload vs evidence distinction, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
 
+### 8.3.2 Separated Diagnostic Text
+
+Free-form diagnostic wording on delivery evidence — the receipt `error`,
+`capability_reason`, and `rendering_evidence` fields, the outbox
+`failure_kind_detail` and `error_summary` fields, the observation `error`
+field, and the ingress-work `last_error` field — has a content lifetime, not a
+delivery-fact lifetime. Storage separates that text from the durable delivery
+facts at write time: every new evidence write keeps the legacy inline column
+`NULL` and stores the text in the append-only
+`delivery_evidence_diagnostics` side table (storage specification § 4.10.1),
+keyed by the evidence family, the parent row's own identity, the parent's
+attempt generation, and the field name, in the parent row's transaction.
+
+Reads coalesce instead of rewriting: historical inline values take precedence
+for immutable evidence; a current-attempt side-table value takes precedence
+over old inline outbox wording. Outbox lookups scope to the row's current
+attempt generation so a
+superseded failure never presents itself as a settled attempt's outcome. The
+attempt number, failure kind, confirmation level, and status remain inline
+durable facts. Structured provider/adapter metadata stays inline,
+content-classified, and conservative; this separation moves free-form wording
+only. See [diagnostics-evidence.md](diagnostics-evidence.md) for how operator
+reporting consumes the coalesced fields.
+
 ### 8.4 Receipt Lineage
 
 `DeliveryReceipt` carries two fields for receipt chain ordering:

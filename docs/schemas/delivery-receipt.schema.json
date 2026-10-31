@@ -63,7 +63,7 @@
     "error": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Error message if the delivery failed."
+      "description": "Free-form error text for a failed delivery. Separated diagnostic content: new receipts store the text in delivery_evidence_diagnostics and keep this column NULL; reads coalesce the historical inline value with the side-table value (see routing-delivery.md section 8.3.2)."
     },
     "failure_kind": {
       "type": ["string", "null"],
@@ -84,7 +84,7 @@
     "capability_reason": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Human-readable capability decision reason. Display text only; consumers must not parse it for structure."
+      "description": "Human-readable capability decision reason. Display text only; consumers must not parse it for structure. Separated diagnostic content: new receipts store the text in delivery_evidence_diagnostics (inline NULL) and reads coalesce with historical inline values."
     },
     "delivery_strategy": {
       "type": ["string", "null"],
@@ -164,7 +164,7 @@
     "rendering_evidence": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Serialized rendering evidence (JSON string) attached only on sent or queued deliveries. None for suppressed, rendering-failure, and adapter-failure receipts. Pre-outbox skip paths produce no receipt."
+      "description": "Serialized rendering evidence (JSON string) attached only on sent or queued deliveries. None for suppressed, rendering-failure, and adapter-failure receipts. Pre-outbox skip paths produce no receipt. Separated diagnostic content: new receipts store the text in delivery_evidence_diagnostics (inline NULL) and reads coalesce with historical inline values."
     },
     "outbox_id": {
       "type": ["string", "null"],

@@ -35,9 +35,14 @@ def test_lineage_index_matches_current_outcome_grouping() -> None:
 
 
 def _candidate_where_clause(sql: str) -> str:
-    """Return the bounded candidate WHERE clause or fail structurally."""
+    """Return the bounded candidate WHERE clause or fail structurally.
+
+    The anchor is the candidate CTE's own ``WHERE dr.status IN`` predicate:
+    the projection carries a correlated coalescing subquery for the separated
+    receipt error text whose inner WHERE is not a candidate predicate.
+    """
     match = re.search(
-        r"\bWHERE\b(?P<where>.*?)\bORDER BY dr\.sequence ASC LIMIT \?",
+        r"\bWHERE dr\.status IN\b(?P<where>.*?)\bORDER BY dr\.sequence ASC LIMIT \?",
         sql,
         flags=re.IGNORECASE | re.DOTALL,
     )

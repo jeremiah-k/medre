@@ -16,6 +16,10 @@ from medre.core.storage.sqlite.schema import _SCHEMA
             "content-access-grants.schema.sql",
             {"event_content_access_policies", "event_content_access_grants"},
         ),
+        (
+            "delivery-evidence-diagnostics.schema.sql",
+            {"delivery_evidence_diagnostics"},
+        ),
     ],
 )
 def test_content_schema_fragment_matches_authoritative_ddl(filename, tables):
@@ -28,7 +32,8 @@ def test_content_schema_fragment_matches_authoritative_ddl(filename, tables):
         documented.executescript(path.read_text(encoding="utf-8"))
         actual = dict(
             documented.execute(
-                "SELECT name, sql FROM sqlite_master WHERE type='table' AND name != 'canonical_events'"
+                "SELECT name, sql FROM sqlite_master WHERE type='table' "
+                "AND name != 'canonical_events' AND name NOT GLOB 'sqlite_*'"
             )
         )
         assert actual.keys() == tables

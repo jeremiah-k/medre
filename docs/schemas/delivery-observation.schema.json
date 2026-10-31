@@ -76,7 +76,7 @@
     "error": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Human-readable terminal error context when applicable."
+      "description": "Human-readable terminal error context when applicable. Separated diagnostic content: new observations store the text in delivery_evidence_diagnostics and keep this column NULL; reads coalesce with historical inline values."
     },
     "metadata": {
       "type": "object",

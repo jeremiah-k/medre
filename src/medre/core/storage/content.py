@@ -45,14 +45,17 @@ CONTENT_SURFACES = (
     ),
     ContentSurface(
         "delivery_outbox",
-        (
-            "target_channel",
-            "target_address",
-            "failure_kind_detail",
-            "error_summary",
-            "metadata",
-        ),
+        ("failure_kind_detail", "error_summary", "metadata"),
         ("delivery", "recovery"),
+    ),
+    # Write-time separated free-form diagnostics for the delivery-evidence
+    # families (receipts, observations, outbox records, ingress work).  A
+    # diagnostic row never exists without its parent, but separate diagnostic
+    # text is retained independently and never blocks logical collection.
+    ContentSurface(
+        "delivery_evidence_diagnostics",
+        ("diagnostic",),
+        ("delivery_evidence", "delivery", "recovery", "ingress_recovery"),
     ),
     ContentSurface(
         "radio_attempt_progress",

@@ -60,7 +60,10 @@ _COLLECTOR_OWNED_TABLES = frozenset({"event_body_content", "event_relation_excer
 #: for.  Blocker probes count whole row families, so the accounting covers
 #: the family's classified content columns, not only the columns the probe
 #: SQL names (``native_references`` counts rows that may carry
-#: ``native_message_refs.metadata`` without selecting it).
+#: ``native_message_refs.metadata`` without selecting it).  The four
+#: delivery-evidence family probes also cover the write-time separated
+#: ``delivery_evidence_diagnostics.diagnostic`` surface: a diagnostic row
+#: never exists without its parent evidence row, so the same probe blocks.
 _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
     "canonical_text": frozenset({("event_body_content", "body")}),
     "relation_excerpts": frozenset({("event_relation_excerpts", "excerpt")}),
@@ -77,18 +80,22 @@ _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
             ("delivery_receipts", "error"),
             ("delivery_receipts", "capability_reason"),
             ("delivery_receipts", "rendering_evidence"),
+            ("delivery_evidence_diagnostics", "diagnostic"),
         }
     ),
     "delivery_observations": frozenset(
-        {("delivery_observations", "error"), ("delivery_observations", "metadata")}
+        {
+            ("delivery_observations", "error"),
+            ("delivery_observations", "metadata"),
+            ("delivery_evidence_diagnostics", "diagnostic"),
+        }
     ),
     "outbox_records": frozenset(
         {
-            ("delivery_outbox", "target_channel"),
-            ("delivery_outbox", "target_address"),
             ("delivery_outbox", "failure_kind_detail"),
             ("delivery_outbox", "error_summary"),
             ("delivery_outbox", "metadata"),
+            ("delivery_evidence_diagnostics", "diagnostic"),
         }
     ),
     "radio_plans": frozenset(
@@ -105,7 +112,11 @@ _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
         {("operator_delivery_decisions", "target_channel")}
     ),
     "ingress_work": frozenset(
-        {("durable_ingress_work", "provenance"), ("durable_ingress_work", "last_error")}
+        {
+            ("durable_ingress_work", "provenance"),
+            ("durable_ingress_work", "last_error"),
+            ("delivery_evidence_diagnostics", "diagnostic"),
+        }
     ),
 }
 
@@ -277,6 +288,20 @@ async def _introspect(store: SQLiteStorage) -> tuple[set[str], set[str]]:
         ("canonical_events", "event_id", ColumnClass.IMMUTABLE_IDENTITY),
         ("canonical_events", "payload", ColumnClass.INDEPENDENTLY_OWNED_CONTENT),
         ("delivery_outbox", "status", ColumnClass.OPERATIONAL_AUTHORITY),
+        # Route-target text is structured correlation, not free-form
+        # content: the outbox mirrors the receipt family's standing.
+        ("delivery_outbox", "target_channel", ColumnClass.IMMUTABLE_IDENTITY),
+        ("delivery_outbox", "target_address", ColumnClass.IMMUTABLE_IDENTITY),
+        (
+            "delivery_evidence_diagnostics",
+            "diagnostic",
+            ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
+        ),
+        (
+            "delivery_evidence_diagnostics",
+            "row_id",
+            ColumnClass.IMMUTABLE_IDENTITY,
+        ),
     ],
 )
 def test_lookup_examples(table: str, column: str, expected: ColumnClass) -> None:

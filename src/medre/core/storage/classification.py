@@ -232,8 +232,12 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "route_id": ColumnClass.IMMUTABLE_IDENTITY,
         "delivery_plan_id": ColumnClass.IMMUTABLE_IDENTITY,
         "target_adapter": ColumnClass.IMMUTABLE_IDENTITY,
-        "target_channel": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
-        "target_address": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
+        # Structured route correlation within the durable work family; the
+        # same standing as the receipt family's route columns.  Delivery,
+        # retries, audit, and recovery need this text for as long as the row
+        # exists, so the inventory does not review it as free-form content.
+        "target_channel": ColumnClass.IMMUTABLE_IDENTITY,
+        "target_address": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.OPERATIONAL_AUTHORITY,
         "active_attempt": ColumnClass.OPERATIONAL_AUTHORITY,
         "status": ColumnClass.OPERATIONAL_AUTHORITY,
@@ -270,6 +274,21 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "error": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "metadata": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "observed_at": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    # Append-only side table holding delivery-evidence diagnostic text that
+    # was separated from its parent row at write time.  ``row_id`` is the
+    # parent row's own immutable identity (receipt ID, observation ID, outbox
+    # ID, or ingress event ID per ``family``); ``attempt`` is the parent's
+    # attempt generation at write time. Diagnostic text is retained after
+    # collection; neither it nor the parent's existence blocks by itself.
+    "delivery_evidence_diagnostics": {
+        "diag_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "family": ColumnClass.IMMUTABLE_IDENTITY,
+        "row_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt": ColumnClass.IMMUTABLE_IDENTITY,
+        "field": ColumnClass.IMMUTABLE_IDENTITY,
+        "diagnostic": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
+        "created_at": ColumnClass.IMMUTABLE_IDENTITY,
     },
     "radio_attempt_progress": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,

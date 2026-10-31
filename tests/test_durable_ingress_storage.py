@@ -335,16 +335,25 @@ async def test_work_lifecycle_renews_releases_reclaims_and_completes(tmp_path) -
         assert await storage.release_ingress_work(
             event.event_id, worker_id="worker-1", error=error
         )
+        # Free-form error text is separated at write time: the legacy inline
+        # column stays NULL and the bounded text lands in the side table.
         row = await storage._read_one(
             "SELECT status, last_error FROM durable_ingress_work WHERE event_id=?",
             (event.event_id,),
         )
-        assert row == {"status": "pending", "last_error": "x" * 1000}
+        assert row == {"status": "pending", "last_error": None}
+        diagnostic = await storage._read_one(
+            "SELECT diagnostic FROM delivery_evidence_diagnostics "
+            "WHERE family='ingress' AND row_id=? AND field='last_error'",
+            (event.event_id,),
+        )
+        assert diagnostic == {"diagnostic": "x" * 1000}
 
         [second] = await storage.claim_ingress_work(
             worker_id="worker-2", limit=1, lease_seconds=30
         )
         assert second.attempts == 2
+        assert second.last_error == "x" * 1000
         assert await storage.complete_ingress_work(event.event_id, worker_id="worker-2")
         assert await storage.count_ingress_work_by_status() == {"completed": 1}
     finally:
@@ -368,16 +377,18 @@ async def test_operational_deferral_rolls_back_claim_attempt(tmp_path) -> None:
         assert await storage.defer_ingress_work(
             event.event_id, worker_id="worker-1", error="capacity"
         )
+        # The deferral reason is separated diagnostic content at write time.
         row = await storage._read_one(
             "SELECT status, attempts, last_error FROM durable_ingress_work WHERE event_id=?",
             (event.event_id,),
         )
-        assert row == {"status": "pending", "attempts": 0, "last_error": "capacity"}
+        assert row == {"status": "pending", "attempts": 0, "last_error": None}
 
         [second] = await storage.claim_ingress_work(
             worker_id="worker-2", limit=1, lease_seconds=30
         )
         assert second.attempts == 1
+        assert second.last_error == "capacity"
         assert await storage.defer_ingress_work(
             event.event_id, worker_id="worker-2", error="shutdown"
         )

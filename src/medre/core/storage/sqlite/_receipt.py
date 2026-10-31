@@ -29,6 +29,10 @@ from medre.core.events import (
     normalize_delivery_provenance,
     normalize_replay_run_id,
 )
+from medre.core.storage.sqlite._evidence_diagnostics import (
+    _EvidenceDiagnosticsReadMixin,
+    diagnostic_write_ops,
+)
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
@@ -42,8 +46,36 @@ from medre.core.storage.sqlite.statements import (
 )
 
 
+def _receipt_diagnostic_ops(
+    receipt: DeliveryReceipt,
+) -> list[tuple[str, tuple[object, ...]]]:
+    """Side-table ops for the receipt's free-form diagnostic text.
+
+    Written in the same transaction as the receipt row itself; empty values
+    produce no diagnostic row at all.
+    """
+    return diagnostic_write_ops(
+        "receipt",
+        receipt.receipt_id,
+        receipt.attempt_number,
+        {
+            "error": receipt.error,
+            "capability_reason": receipt.capability_reason,
+            "rendering_evidence": receipt.rendering_evidence,
+        },
+        receipt.created_at.isoformat(),
+    )
+
+
 def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
-    """Validate and serialize one immutable receipt row."""
+    """Validate and serialize one immutable receipt row.
+
+    The free-form diagnostic columns (``error``, ``capability_reason``,
+    ``rendering_evidence``) are separated at write time: new rows keep them
+    ``NULL`` inline and their text lands in
+    ``delivery_evidence_diagnostics`` through :func:`_receipt_diagnostic_ops`
+    in the same transaction.  Historical rows keep their inline values.
+    """
     if receipt.status not in RECEIPT_STATUSES:
         raise ValueError(
             f"Unknown receipt status {receipt.status!r}; "
@@ -75,11 +107,11 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
         receipt.route_id,
         receipt.status,
         receipt.receipt_kind,
-        receipt.error,
+        None,
         receipt.failure_kind,
         receipt.capability_level,
         receipt.capability_field,
-        receipt.capability_reason,
+        None,
         receipt.delivery_strategy,
         receipt.adapter_message_id,
         receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
@@ -95,14 +127,14 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
             if receipt.retry_jitter is True
             else (0 if receipt.retry_jitter is False else None)
         ),
-        receipt.rendering_evidence,
+        None,
         receipt.outbox_id,
         receipt.confirmation_level,
         receipt.created_at.isoformat(),
     )
 
 
-class _ReceiptMixin:
+class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
     """Delivery receipt methods for SQLiteStorage.
 
     Accesses ``self._read_one``, ``self._read_all``, and ``self._write``
@@ -112,6 +144,13 @@ class _ReceiptMixin:
     if TYPE_CHECKING:
 
         async def _write(self, sql: str, params: tuple[Any, ...] = ()) -> None: ...
+
+        async def _write_rowcount_with_followups(
+            self,
+            sql: str,
+            params: tuple[Any, ...],
+            follow_ups: list[tuple[str, tuple[Any, ...]]],
+        ) -> int: ...
 
         async def _read_one(
             self, sql: str, params: tuple[Any, ...] = ()
@@ -137,10 +176,20 @@ class _ReceiptMixin:
         ``COALESCE(target_channel, '')`` so that NULL and empty-string
         channels are treated identically in grouping.
 
+        Free-form diagnostic text (``error``, ``capability_reason``,
+        ``rendering_evidence``) is separated at write time: the receipt row
+        keeps those columns ``NULL`` and the text lands in
+        ``delivery_evidence_diagnostics`` in the same transaction, so a
+        receipt never commits without its diagnostics or vice versa.
+
         Raises :class:`ValueError` if ``receipt.status`` is not a known
         receipt status (not in ``RECEIPT_STATUSES``).
         """
-        await self._write(_INSERT_RECEIPT, _receipt_insert_params(receipt))
+        await self._write_rowcount_with_followups(
+            _INSERT_RECEIPT,
+            _receipt_insert_params(receipt),
+            _receipt_diagnostic_ops(receipt),
+        )
 
     async def delivery_status(
         self,
@@ -169,7 +218,12 @@ class _ReceiptMixin:
             identity.target_channel or None,
         )
         row = await self._read_one(sql, params)
-        return _row_to_receipt(row) if row else None
+        if row is None:
+            return None
+        await self._coalesce_evidence_diagnostics(
+            "receipt", [row], identity_column="receipt_id"
+        )
+        return _row_to_receipt(row)
 
     async def list_receipts_for_delivery(
         self,
@@ -193,6 +247,9 @@ class _ReceiptMixin:
                 identity.target_channel or None,
             ),
         )
+        rows = await self._coalesce_evidence_diagnostics(
+            "receipt", rows, identity_column="receipt_id"
+        )
         return [_row_to_receipt(row) for row in rows]
 
     async def list_receipts_for_outbox(
@@ -211,6 +268,9 @@ class _ReceiptMixin:
         if not isinstance(outbox_id, str) or not outbox_id.strip():
             raise ValueError("receipt outbox history requires a non-empty outbox_id")
         rows = await self._read_all(_SELECT_RECEIPTS_FOR_OUTBOX, (outbox_id,))
+        rows = await self._coalesce_evidence_diagnostics(
+            "receipt", rows, identity_column="receipt_id"
+        )
         return [_row_to_receipt(row) for row in rows]
 
     async def list_receipts_by_replay_run(
@@ -234,6 +294,10 @@ class _ReceiptMixin:
             ),
             (normalized_run_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "receipt", rows, identity_column="receipt_id"
+            )
         return [_row_to_receipt(r) for r in rows]
 
     async def list_receipts_for_event(
@@ -254,6 +318,10 @@ class _ReceiptMixin:
             ),
             (event_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "receipt", rows, identity_column="receipt_id"
+            )
         return [_row_to_receipt(r) for r in rows]
 
     async def list_all_receipts(
@@ -277,6 +345,10 @@ class _ReceiptMixin:
             ),  # nosec B608 - _SELECT_ALL_RECEIPTS is a module-level constant, values parameterized
             (limit, offset),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "receipt", rows, identity_column="receipt_id"
+            )
         return [_row_to_receipt(r) for r in rows]
 
     async def list_due_retry_receipts(
@@ -311,6 +383,9 @@ class _ReceiptMixin:
              ORDER BY r.next_retry_at ASC, r.sequence ASC
              LIMIT ?""",
             (now.isoformat(), max_attempts, limit),
+        )
+        rows = await self._coalesce_evidence_diagnostics(
+            "receipt", rows, identity_column="receipt_id"
         )
         return [_row_to_receipt(r) for r in rows]
 

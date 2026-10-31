@@ -35,8 +35,10 @@ never authorizes any read, retention action, or collection.
 | `unclassified`                | Not yet reviewed; treated as potentially content-bearing.    |
 
 1. **Immutable identity** — event IDs, native message IDs, relation targets,
-   attempt fingerprints, plan and receipt identifiers, closed structural
-   descriptors of what a row is, and write-once recorded timestamps.
+   attempt fingerprints, plan and receipt identifiers, route-target text
+   (`delivery_outbox.target_channel`/`target_address`, mirroring the receipt
+   family's route correlation), closed structural descriptors of what a row
+   is, and write-once recorded timestamps.
    Identity columns MAY remain while owned content around them is collected;
    they are deliberately retained correlation facts.
 2. **Operational authority** — statuses, ownership and lease facts
@@ -49,11 +51,13 @@ never authorizes any read, retention action, or collection.
    columns decide lifecycle outcomes; a collector MUST NOT remove them as
    content.
 3. **Independently owned content** — rendered text, opaque envelope JSON,
-   free-form error and provider diagnostic text, retained blobs, radio plan
-   JSON, and adapter cursor state: data whose lifetime is content ownership
-   rather than any delivery fact. This class mirrors the enforced
-   `CONTENT_SURFACES` inventory in `src/medre/core/storage/content.py`
-   exactly; the guard test asserts set equality in both directions.
+   free-form error and provider diagnostic text (including the write-time
+   separated `delivery_evidence_diagnostics.diagnostic` surface), retained
+   blobs, radio plan JSON, and adapter cursor state: data whose lifetime is
+   content ownership rather than any delivery fact. This class mirrors the
+   enforced `CONTENT_SURFACES` inventory in
+   `src/medre/core/storage/content.py` exactly; the guard test asserts set
+   equality in both directions.
 4. **Unclassified** — anything without a reviewed classification. Consumers
    MUST treat an `unclassified` column as potentially content-bearing, and
    the collector's conservative family blocking applies with full force.

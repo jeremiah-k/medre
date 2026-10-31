@@ -227,6 +227,38 @@ def sync_write_rowcount(
             raise
 
 
+def sync_write_with_followups(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    sql: str,
+    params: tuple[Any, ...],
+    follow_ups: list[tuple[str, tuple[Any, ...]]],
+) -> int:
+    """Run a primary write plus conditional follow-ups in one transaction.
+
+    The follow-up statements execute only when the primary statement matched
+    at least one row, inside the same ``BEGIN IMMEDIATE`` transaction: the
+    whole batch commits or rolls back together.  Returns the primary
+    statement's rowcount.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(sql, params)
+            rowcount = int(cursor.rowcount)
+            if rowcount > 0:
+                for follow_sql, follow_params in follow_ups:
+                    db.execute(follow_sql, follow_params)
+            db.commit()
+            return rowcount
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
 def sync_find_schema_shape_mismatch(
     db_path: str, required_columns: dict[str, frozenset[str]]
 ) -> PreReleaseSchemaMismatchError | None:
@@ -353,6 +385,7 @@ def sync_transition_outbox_and_settle(
     params: tuple[Any, ...],
     outbox_id: str,
     settled_at: str,
+    follow_ups: list[tuple[str, tuple[Any, ...]]] | None = None,
 ) -> int:
     """Commit a guarded terminal status and its hold release in one transaction."""
     with lock:
@@ -360,6 +393,8 @@ def sync_transition_outbox_and_settle(
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(sql, params)
             if cursor.rowcount == 1:
+                for follow_sql, follow_params in follow_ups or []:
+                    db.execute(follow_sql, follow_params)
                 row = db.execute(
                     "SELECT event_id FROM delivery_outbox WHERE outbox_id=?",
                     (outbox_id,),
@@ -422,6 +457,7 @@ def sync_finalize_deferred_handoff(
     native_event_id: str | None,
     native_insert_params: tuple[object, ...] | None,
     receipt_insert_params: tuple[object, ...],
+    receipt_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     outbox_update_params: tuple[object, ...],
 ) -> tuple[bool, str | None]:
     """Atomically finalize one queue-backed delivery attempt.
@@ -459,6 +495,8 @@ def sync_finalize_deferred_handoff(
                 assert native_insert_params is not None
                 db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            for diagnostic_sql, diagnostic_params in receipt_diagnostic_ops or []:
+                db.execute(diagnostic_sql, diagnostic_params)
             _settle_outbox_content_dependency(
                 db, settle_outbox_id, settle_event_id, settled_at
             )
@@ -480,10 +518,13 @@ def sync_finalize_outbox_terminal(
     settle_event_id: str,
     settled_at: str,
     receipt_insert_params: tuple[object, ...],
+    receipt_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     attempt_receipt_insert_params: tuple[object, ...] | None = None,
+    attempt_receipt_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
+    outbox_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     outbox_update_params: tuple[object, ...],
 ) -> bool:
-    """Atomically commit one terminal queue outcome.
+    """Atomically commit one terminal delivery outcome.
 
     Returns ``True`` only when the guarded outbox attempt still allowed the
     terminal transition and the receipt committed in the same transaction.
@@ -503,9 +544,17 @@ def sync_finalize_outbox_terminal(
             if int(cursor.rowcount) != 1:
                 db.rollback()
                 return False
+            for diagnostic_sql, diagnostic_params in outbox_diagnostic_ops or []:
+                db.execute(diagnostic_sql, diagnostic_params)
             if attempt_receipt_insert_params is not None:
                 db.execute(_INSERT_RECEIPT, attempt_receipt_insert_params)
+                for diagnostic_sql, diagnostic_params in (
+                    attempt_receipt_diagnostic_ops or []
+                ):
+                    db.execute(diagnostic_sql, diagnostic_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            for diagnostic_sql, diagnostic_params in receipt_diagnostic_ops or []:
+                db.execute(diagnostic_sql, diagnostic_params)
             _settle_outbox_content_dependency(
                 db, settle_outbox_id, settle_event_id, settled_at
             )

@@ -47,7 +47,9 @@ remains disabled.
 
 The inventory covers canonical envelope JSON and metadata, separately stored
 `event_body_content` text; relation keys, separately stored excerpts and metadata; native-reference metadata; receipt and observation diagnostic
-fields; outbox destinations, error summaries and metadata; immutable radio plans
+fields; outbox error summaries and metadata; the write-time separated
+`delivery_evidence_diagnostics` side table for delivery-evidence diagnostic
+text; immutable radio plans
 and packet progress; ingress provenance and errors; attachment bytes;
 checkpoint cursors and metadata; and reserved plugin values. Empty JSON
 envelopes count as stored bytes. Shared attachment blobs count once. An event

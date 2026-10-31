@@ -11,11 +11,15 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from medre.core.storage.sqlite._evidence_diagnostics import outbox_diagnostic_ops
 from medre.core.storage.sqlite._native_ref import (
     _native_ref_identity,
     _native_ref_insert_params,
 )
-from medre.core.storage.sqlite._receipt import _receipt_insert_params
+from medre.core.storage.sqlite._receipt import (
+    _receipt_diagnostic_ops,
+    _receipt_insert_params,
+)
 from medre.core.storage.sqlite.connection import (
     sync_finalize_deferred_handoff,
     sync_finalize_outbox_terminal,
@@ -54,12 +58,14 @@ class _DeliveryFinalizationMixin:
         status no longer matches. A native identity already mapped to another
         canonical event raises ``StorageError``; SQLite errors are also raised
         as ``StorageError`` after rollback. Invalid receipt fields raise
-        ``ValueError`` before the transaction starts.
+        ``ValueError`` before the transaction starts. The receipt's separated
+        diagnostic text commits in the same transaction.
         """
         native_ref = command.native_ref
         receipt = command.receipt
         identity = command.identity
         receipt_params = _receipt_insert_params(receipt)
+        receipt_diagnostics = _receipt_diagnostic_ops(receipt)
         native_identity = (
             _native_ref_identity(native_ref) if native_ref is not None else None
         )
@@ -94,6 +100,7 @@ class _DeliveryFinalizationMixin:
                 ),
                 native_insert_params=native_params,
                 receipt_insert_params=receipt_params,
+                receipt_diagnostic_ops=receipt_diagnostics,
                 outbox_update_params=outbox_params,
             )
             if conflict_event_id is not None:
@@ -129,14 +136,24 @@ class _DeliveryFinalizationMixin:
         The outbox row is linked back to its evidence receipt via
         ``receipt_id``; stale retry metadata (``failure_kind``,
         ``failure_kind_detail``, ``next_attempt_at``, lease columns) is
-        cleared in the same transition.
+        cleared in the same transition.  Free-form diagnostic text (receipt
+        ``error``/``capability_reason``/``rendering_evidence`` and the
+        outbox ``error_summary``) is separated at write time: the inline
+        columns stay ``NULL`` and the text lands in
+        ``delivery_evidence_diagnostics`` inside the same transaction.
         """
         receipt = command.lifecycle_receipt
         attempt_receipt = command.attempt_receipt
         identity = command.identity
         receipt_params = _receipt_insert_params(receipt)
+        receipt_diagnostics = _receipt_diagnostic_ops(receipt)
         attempt_receipt_params = (
             _receipt_insert_params(attempt_receipt)
+            if attempt_receipt is not None
+            else None
+        )
+        attempt_receipt_diagnostics = (
+            _receipt_diagnostic_ops(attempt_receipt)
             if attempt_receipt is not None
             else None
         )
@@ -146,7 +163,6 @@ class _DeliveryFinalizationMixin:
             command.failure_kind,
             transition_time,
             receipt.receipt_id,
-            command.error_summary,
             command.outbox_id,
             identity.event_id,
             identity.delivery_plan_id,
@@ -155,6 +171,14 @@ class _DeliveryFinalizationMixin:
             command.attempt_number,
             command.expected_worker_id,
             command.expected_worker_id,
+        )
+        outbox_diagnostics = outbox_diagnostic_ops(
+            {
+                "error_summary": command.error_summary or "",
+                "failure_kind_detail": "",
+            },
+            transition_time,
+            command.outbox_id,
         )
 
         db = self._require_db()
@@ -167,7 +191,10 @@ class _DeliveryFinalizationMixin:
                 settle_event_id=identity.event_id,
                 settled_at=transition_time,
                 receipt_insert_params=receipt_params,
+                receipt_diagnostic_ops=receipt_diagnostics,
                 attempt_receipt_insert_params=attempt_receipt_params,
+                attempt_receipt_diagnostic_ops=attempt_receipt_diagnostics,
+                outbox_diagnostic_ops=outbox_diagnostics,
                 outbox_update_params=outbox_params,
             )
 

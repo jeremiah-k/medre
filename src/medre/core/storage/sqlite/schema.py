@@ -332,6 +332,22 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
+-- Free-form delivery diagnostic text, separated at write time from the durable
+-- delivery facts that remain inline in the evidence rows.  One append-only row
+-- per written field; the legacy inline columns keep historical values and are
+-- never rewritten.  A diagnostic row is written in the same transaction as its
+-- parent evidence row, so it never exists without that parent.  Structured
+-- provider metadata stays inline and content-classified in its family table.
+CREATE TABLE IF NOT EXISTS delivery_evidence_diagnostics (
+    diag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    family TEXT NOT NULL CHECK (family IN ('receipt', 'observation', 'outbox', 'ingress')),
+    row_id TEXT NOT NULL CHECK (length(row_id) > 0),
+    attempt INTEGER NOT NULL CHECK (attempt >= 0),
+    field TEXT NOT NULL CHECK (field IN ('error', 'capability_reason', 'rendering_evidence', 'failure_kind_detail', 'error_summary', 'last_error')),
+    diagnostic TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS radio_attempt_progress (
     outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
@@ -507,6 +523,10 @@ CREATE INDEX IF NOT EXISTS idx_observations_event
     ON delivery_observations(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_observations_outbox
     ON delivery_observations(outbox_id, attempt_number, sequence);
+-- Diagnostic coalescing reads resolve one evidence row's separated fields by
+-- family and row identity; diag_id breaks recency ties in append order.
+CREATE INDEX IF NOT EXISTS idx_diagnostics_identity
+    ON delivery_evidence_diagnostics(family, row_id, field, diag_id);
 CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
     ON durable_ingress_work(status, lease_until, created_at);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
@@ -739,6 +759,17 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "locked_at",
             "lease_until",
             "worker_id",
+        }
+    ),
+    "delivery_evidence_diagnostics": frozenset(
+        {
+            "diag_id",
+            "family",
+            "row_id",
+            "attempt",
+            "field",
+            "diagnostic",
+            "created_at",
         }
     ),
     "adapter_checkpoints": frozenset(
@@ -1087,5 +1118,17 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
 _COLLECTION_LOG_DDL = _SCHEMA[
     _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS event_relations ("
+    )
+]
+
+_DIAGNOSTICS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Free-form delivery diagnostic text") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS radio_attempt_progress ("
+    )
+]
+
+_DIAGNOSTICS_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- Diagnostic coalescing reads") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_ingress_work_claim"
     )
 ]

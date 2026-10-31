@@ -651,6 +651,28 @@ it. See Delivery Lifecycle Specification §3.4.
 
 The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reaction"`, `"relation_edit"`, `"relation_delete"`, `"relation_thread"`, `"strategy_fallback_text"`) provides a closed set of fallback reasons.
 
+### 14.4.1 Separated Diagnostic Text Ownership
+
+Free-form diagnostic wording on delivery evidence — receipt `error`,
+`capability_reason`, and `rendering_evidence`, outbox `failure_kind_detail`
+and `error_summary`, observation `error`, and ingress-work `last_error` — is
+display and debugging content with a content lifetime. It is separated from
+the durable delivery facts at write time: new evidence rows keep those inline
+columns `NULL` and storage writes the text to the append-only
+`delivery_evidence_diagnostics` side table in the parent row's transaction
+(storage specification § 4.10.1; see Routing and Delivery Specification § 8.3.2
+for the delivery-family contract).
+
+Diagnostics and evidence consumers observe the coalesced view and MUST NOT
+depend on which physical column carries the text: a non-empty legacy inline
+value — historical rows — takes precedence for immutable evidence; on a
+mutable outbox a current-attempt side-table value overrides old inline text.
+A superseded outbox failure never surfaces on a later settled attempt. Historical inline values are never rewritten,
+backfilled, or erased, so previously collected evidence reads unchanged.
+Structured provider/adapter metadata (the `metadata` columns) is NOT part of
+this separation: it stays inline, content-classified, and conservative, and
+operator reporting continues to treat it as unreviewed provider-owned data.
+
 ### 14.5 Replay-Readiness
 
 Rendering evidence is structured to support replay inspection. The frozen, deterministic nature of `RenderingContext` and `RenderingResult` means the same inputs produce the same outputs.
