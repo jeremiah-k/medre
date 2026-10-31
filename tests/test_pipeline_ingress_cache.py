@@ -688,16 +688,20 @@ class TestConcurrentIngressCacheIsolation:
         )
 
         try:
+            # Deadlock-guard budgets only: the Events below make the
+            # interleaving deterministic, so these timeouts never pace the
+            # test — they just fail a true hang. Size them for the slowest
+            # CI runners (Windows file I/O), not for local hardware.
             # -- Act: launch task_a, wait for it to enter the blocked get --
             task_a = asyncio.create_task(runner.handle_ingress(event_a))
 
             # Wait until task_a is suspended inside storage.get("prior-a").
-            await asyncio.wait_for(entered_event.wait(), timeout=2.0)
+            await asyncio.wait_for(entered_event.wait(), timeout=30.0)
             assert not task_a.done()
 
             # task_b completes immediately (no blocking on "prior-b").
             task_b = asyncio.create_task(runner.handle_ingress(event_b))
-            outcomes_b = await asyncio.wait_for(task_b, timeout=2.0)
+            outcomes_b = await asyncio.wait_for(task_b, timeout=30.0)
             assert len(outcomes_b) == 1
 
             # task_a is still suspended — task_b finished independently.
@@ -705,7 +709,7 @@ class TestConcurrentIngressCacheIsolation:
 
             # Release the block so task_a can proceed.
             block_event.set()
-            outcomes_a = await asyncio.wait_for(task_a, timeout=2.0)
+            outcomes_a = await asyncio.wait_for(task_a, timeout=30.0)
             assert len(outcomes_a) == 1
         finally:
             await runner.stop()
