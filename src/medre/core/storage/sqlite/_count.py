@@ -11,6 +11,60 @@ from typing import TYPE_CHECKING, Any
 from medre.core.storage.backend import StorageError
 from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
 
+# Closed, event-correlated inventory. All probes return counts, never values.
+# No guess that an arbitrary JSON/metadata field is free of message content.
+_EVENT_COPY_PROBES: dict[str, str] = {
+    "canonical_text": "SELECT COUNT(*) FROM event_body_content c WHERE c.event_id=e.event_id",
+    "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
+    "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
+    "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",
+    "native_references": "SELECT COUNT(*) FROM native_message_refs n WHERE n.event_id=e.event_id",
+    "delivery_receipts": "SELECT COUNT(*) FROM delivery_receipts r WHERE r.event_id=e.event_id",
+    "delivery_observations": "SELECT COUNT(*) FROM delivery_observations o WHERE o.event_id=e.event_id",
+    "outbox_records": "SELECT COUNT(*) FROM delivery_outbox o WHERE o.event_id=e.event_id",
+    "radio_plans": "SELECT COUNT(*) FROM radio_attempt_progress r JOIN delivery_outbox o ON o.outbox_id=r.outbox_id WHERE o.event_id=e.event_id",
+    "attachment_associations": "SELECT COUNT(*) FROM event_attachment_associations a WHERE a.event_id=e.event_id",
+    "shared_attachment_references": "SELECT COUNT(*) FROM event_attachment_associations a WHERE a.event_id=e.event_id AND EXISTS (SELECT 1 FROM event_attachment_associations other WHERE other.content_ref=a.content_ref AND other.event_id<>e.event_id)",
+    "operator_decisions": "SELECT COUNT(*) FROM operator_delivery_decisions d WHERE d.event_id=e.event_id",
+    "ingress_work": "SELECT COUNT(*) FROM durable_ingress_work w WHERE w.event_id=e.event_id",
+    "active_ingress": "SELECT COUNT(*) FROM durable_ingress_work w WHERE w.event_id=e.event_id AND w.status NOT IN ('completed', 'failed')",
+    "active_outbox": "SELECT COUNT(*) FROM delivery_outbox o WHERE o.event_id=e.event_id AND o.status NOT IN ('sent', 'cancelled', 'dead_lettered', 'abandoned')",
+    "unsettled_mandatory_owners": "SELECT COUNT(*) FROM event_content_dependencies d WHERE d.event_id=e.event_id AND d.released_at IS NULL",
+    "unrevoked_optional_grants": "SELECT COUNT(*) FROM event_content_access_grants g WHERE g.event_id=e.event_id AND g.revoked_at IS NULL AND g.expired_at IS NULL",
+}
+
+# These rows can contain free-form data even when delivery is terminal.
+# Their lifetime requires a separate policy before any collector can act.
+_UNCLASSIFIED_EVENT_COPIES = frozenset(
+    {
+        "opaque_envelope",
+        "relation_records",
+        "native_references",
+        "delivery_receipts",
+        "delivery_observations",
+        "outbox_records",
+        "radio_plans",
+        "attachment_associations",
+        "operator_decisions",
+        "ingress_work",
+    }
+)
+
+_UNMEASURED_CONTENT_SCOPES = (
+    "provider_native_queues_histories_and_peers",
+    "plugin_state_and_adapter_checkpoints",
+    "sqlite_free_pages_and_wal",
+    "backups_exports_and_snapshots",
+    "application_and_provider_logs",
+    "copies_embedded_in_other_events",
+)
+
+_EVENT_COPY_SQL = (
+    "SELECT "  # nosec B608 - probe names and SQL are module constants; the event ID is a bound parameter
+    + ", ".join(f"({probe}) AS {name}" for name, probe in _EVENT_COPY_PROBES.items())
+    + " FROM canonical_events e WHERE e.event_id=?"
+)
+
 
 class _CountMixin:
     """Count methods for SQLiteStorage.
@@ -153,6 +207,74 @@ class _CountMixin:
                 "sqlite_free_pages_and_wal",
             ],
             "note": "Advisory counts only; no content read or retention decision made.",
+        }
+
+    async def assess_event_content_release(self, event_id: str) -> dict[str, Any]:
+        """Classify one event's retained copies without content or write access.
+
+        This is a conservative snapshot, **not** collection permission.
+        Nonempty opaque surfaces remain blockers until explicitly classified;
+        shared attachments and all external stores are not owned by this API.
+        No SQL selects message content or provider metadata values.
+        """
+        if not isinstance(event_id, str) or not event_id or len(event_id) > 512:
+            raise ValueError("A bounded event ID is required")
+        row = await self._read_one(_EVENT_COPY_SQL, (event_id,))
+        if row is None:
+            raise StorageError("Content release assessment requires an admitted event")
+        counts = {name: int(row[name]) for name in _EVENT_COPY_PROBES}
+        live_blockers = tuple(
+            name
+            for name in (
+                "active_ingress",
+                "active_outbox",
+                "unsettled_mandatory_owners",
+                "unrevoked_optional_grants",
+            )
+            if counts[name]
+        )
+        opaque_blockers = tuple(
+            sorted(name for name in _UNCLASSIFIED_EVENT_COPIES if counts[name])
+        )
+        local_blockers = (*live_blockers, *opaque_blockers)
+        return {
+            "format": "medre-event-content-release-assessment",
+            "version": 1,
+            "event_id": event_id,
+            "scope": "core_sqlite_event",
+            "status": "blocked" if local_blockers else "unmeasured",
+            "core_subset_status": "blocked" if local_blockers else "eligible",
+            "classified_core_candidate": not bool(local_blockers),
+            "deletion_authorized": False,
+            "retention_authorized": False,
+            "blockers": list(local_blockers),
+            "copies": [
+                {
+                    "surface": name,
+                    "rows": counts[name],
+                    "classification": (
+                        "bounded_candidate"
+                        if name in {"canonical_text", "relation_excerpts"}
+                        else (
+                            "shared_reference"
+                            if name == "shared_attachment_references"
+                            else (
+                                "authority_or_state"
+                                if name
+                                in {
+                                    "active_ingress",
+                                    "active_outbox",
+                                    "unsettled_mandatory_owners",
+                                    "unrevoked_optional_grants",
+                                }
+                                else "requires_independent_policy"
+                            )
+                        )
+                    ),
+                }
+                for name in _EVENT_COPY_PROBES
+            ],
+            "unmeasured": list(_UNMEASURED_CONTENT_SCOPES),
         }
 
     async def count_events(self) -> int:
