@@ -268,11 +268,16 @@ def sync_revoke_body_hold(
 ) -> bool:
     with lock:
         try:
+            observed = _utc(now)
+            # Observe expiry before revoking so a lapsed grant keeps its
+            # expired_at tombstone regardless of which call observes it first;
+            # revocation stays reserved for grants still inside their window.
+            _observe_optional_expiry(db, event_id, observed)
             row = db.execute(
                 "UPDATE event_content_access_grants SET revoked_at=? "
                 "WHERE event_id=? AND scope='body' AND consumer=? "
                 "AND revoked_at IS NULL AND expired_at IS NULL",
-                (_utc(now), event_id, consumer),
+                (observed, event_id, consumer),
             )
             db.commit()
             return row.rowcount == 1

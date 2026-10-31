@@ -71,6 +71,41 @@ async def test_optional_content_read_requires_live_grant(tmp_path, clock):
     await reopened.close()
 
 
+async def test_revocation_after_unobserved_expiry_keeps_the_expired_tombstone(
+    tmp_path, clock
+):
+    store = SQLiteStorage(str(tmp_path / "state.db"))
+    await store.initialize()
+    event = msgspec.structs.replace(
+        make_storage_event(event_id="lapsed"), payload={"body": ""}
+    )
+    await store.append(event)
+    policy = AvailabilityPolicy(
+        hard_ceiling=clock + timedelta(hours=1),
+        max_optional_hold=timedelta(minutes=20),
+        allowed_optional_consumers=frozenset({"reply_quotes"}),
+    )
+    hold = ContentHold(
+        "reply_quotes", "body", clock + timedelta(minutes=10), issued_at=clock
+    )
+    await store.issue_optional_body_hold("lapsed", hold, policy, now=clock)
+    # No read or issue call observes the deadline first: revocation must not
+    # convert the lapsed grant into a revoked one regardless of call order.
+    late = clock + timedelta(minutes=11)
+    assert not await store.revoke_optional_body_hold("lapsed", "reply_quotes", now=late)
+    row = await store._read_one(
+        "SELECT revoked_at, expired_at FROM event_content_access_grants "
+        "WHERE event_id='lapsed' AND scope='body' AND consumer='reply_quotes'"
+    )
+    assert row is not None
+    assert row["revoked_at"] is None
+    assert row["expired_at"] is not None
+    assert (
+        await store.read_body_for_consumer("lapsed", "reply_quotes", now=clock)
+    ).status == "denied"
+    await store.close()
+
+
 async def test_immutable_ceiling_and_denied_unknown_event(tmp_path, clock):
     store = SQLiteStorage(str(tmp_path / "state.db"))
     await store.initialize()
