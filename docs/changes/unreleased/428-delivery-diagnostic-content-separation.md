@@ -14,10 +14,14 @@ Reads coalesce without rewriting: historical inline values win for immutable
 receipt and observation rows. Mutable ingress claims prefer the latest
 transition diagnostic; mutable outboxes prefer the current attempt. Explicit
 clears suppress earlier wording without erasing history. Historical inline
-values remain stored, never backfilled or erased. An outbox whose status is `sent` or `queued`
-does not resurrect a cleared same-attempt failure from the retained diagnostic
-rows. Successful handoffs write no new failure diagnostics; prior diagnostic
-rows remain historical evidence even when the outbox later succeeds. Structured provider
+values on immutable evidence rows and every side-table row remain stored,
+never backfilled or erased; mutable outbox transitions to `sent`, `queued`,
+or a terminal status clear the inline failure columns, including historical
+inline text, leaving the append-only side-table rows as the retained
+history. An outbox whose status is `sent` or `queued` does not resurrect a
+cleared same-attempt failure from the retained diagnostic rows. Successful
+handoffs write no new failure diagnostics; prior diagnostic rows remain
+historical evidence even when the outbox later succeeds. Structured provider
 metadata stays inline, content-classified, and conservative. Outbox
 route-target text (`target_channel`, `target_address`) is classified as
 immutable identity, matching the receipt family's route correlation, and

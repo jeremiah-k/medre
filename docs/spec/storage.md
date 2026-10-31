@@ -1173,9 +1173,13 @@ Mutable outboxes use the current-attempt diagnostic before inline fallback.
 Outbox lookups scope to the row's current attempt generation. When the
 parent status is `sent` or `queued`, the transition has explicitly cleared
 transient failure fields: a side-table value from the same attempt MUST NOT
-resurrect that failure. Historical non-empty inline values remain unchanged.
-Explicit clears on mutable work MUST suppress earlier diagnostics, including
-those from the same attempt, without deleting historical evidence. Empty
+resurrect that failure. Transitions to `sent` or `queued`, and terminal
+finalization, clear the mutable outbox inline columns — including
+historical inline text — while the append-only side-table rows remain as
+the preserved history; immutable receipt and observation inline values
+remain unchanged. Explicit clears on mutable work MUST suppress earlier
+diagnostics, including those from the same attempt, without deleting
+historical evidence. Empty
 side-table strings record these clears and typed reads return no error. A clear
 marker is unnecessary when no value exists to supersede. Structured
 provider/adapter metadata (`metadata` columns) is deliberately NOT separated:
