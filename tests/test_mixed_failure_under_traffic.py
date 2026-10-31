@@ -318,28 +318,32 @@ class TestReceiptConsistency:
             for outcome in outcomes:
                 if outcome.status == "permanent_failure":
                     # Failed receipt must exist in storage.
-                    rows = await temp_storage._read_all(
-                        "SELECT * FROM delivery_receipts "
-                        "WHERE event_id = ? AND target_adapter = ?",
-                        (outcome.event_id, outcome.target_adapter),
-                    )
+                    rows = [
+                        receipt
+                        for receipt in await temp_storage.list_receipts_for_event(
+                            outcome.event_id
+                        )
+                        if receipt.target_adapter == outcome.target_adapter
+                    ]
                     assert (
                         len(rows) >= 1
                     ), f"Expected failed receipt for {outcome.target_adapter}"
-                    assert rows[0]["status"] == "failed"
-                    assert rows[0]["error"] is not None
+                    assert rows[0].status == "failed"
+                    assert rows[0].error is not None
 
                 elif outcome.status == "success":
                     # Successful receipt with status='sent'.
-                    rows = await temp_storage._read_all(
-                        "SELECT * FROM delivery_receipts "
-                        "WHERE event_id = ? AND target_adapter = ?",
-                        (outcome.event_id, outcome.target_adapter),
-                    )
+                    rows = [
+                        receipt
+                        for receipt in await temp_storage.list_receipts_for_event(
+                            outcome.event_id
+                        )
+                        if receipt.target_adapter == outcome.target_adapter
+                    ]
                     assert (
                         len(rows) >= 1
                     ), f"Expected sent receipt for {outcome.target_adapter}"
-                    assert rows[0]["status"] == "sent"
+                    assert rows[0].status == "sent"
         finally:
             await runner.stop()
 

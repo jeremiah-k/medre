@@ -84,6 +84,9 @@ WHERE outbox_id = ?
   AND status IN ('queued', 'in_progress')
 """
 
+# error_summary is separated diagnostic content: the terminal transition
+# clears the legacy inline column and its text lands in
+# delivery_evidence_diagnostics inside the same transaction.
 _FINALIZE_OUTBOX_TERMINAL = """
 UPDATE delivery_outbox
 SET status = ?,
@@ -97,7 +100,7 @@ SET status = ?,
     lease_until = NULL,
     worker_id = NULL,
     receipt_id = ?,
-    error_summary = ?
+    error_summary = NULL
 WHERE outbox_id = ?
   AND event_id = ?
   AND delivery_plan_id = ?

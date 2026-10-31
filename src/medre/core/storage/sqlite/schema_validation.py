@@ -12,6 +12,8 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.sqlite.schema import (
     _COLLECTION_LOG_DDL,
+    _DIAGNOSTICS_DDL,
+    _DIAGNOSTICS_INDEX_DDL,
     _EXPECTED_SCHEMA_VERSION,
     _INDEXES,
     _REQUIRED_COLUMNS,
@@ -63,8 +65,20 @@ def _known_grant_table_forms() -> tuple[str, str]:
         reference.close()
 
 
+#: Catalog objects an approved additive predecessor may lack entirely.  They
+#: are created atomically by :func:`apply_safe_additions` from the same
+#: authoritative DDL; every other object must already match byte for byte.
+_ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("table", "event_content_collection_log"),
+        ("table", "delivery_evidence_diagnostics"),
+        ("index", "idx_diagnostics_identity"),
+    }
+)
+
+
 def safe_additive_state(db: sqlite3.Connection) -> bool:
-    """Accept only the exact old grant table and missing collection log.
+    """Accept only the exact old grant table and allowlisted missing objects.
 
     Every unrelated table, index, view and trigger must already match. Called
     read-only at preflight and again after acquiring BEGIN IMMEDIATE.
@@ -81,7 +95,7 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
     if actual.keys() - expected.keys():
         return False
     missing = expected.keys() - actual.keys()
-    if missing - {("table", "event_content_collection_log")}:
+    if missing - _ADDITIVE_OBJECTS:
         return False
     old, altered = _known_grant_table_forms()
     for key, definition in actual.items():
@@ -104,6 +118,10 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
     current = _definitions(db)
     if ("table", "event_content_collection_log") not in current:
         execute_ddl(db, _COLLECTION_LOG_DDL)
+    if ("table", "delivery_evidence_diagnostics") not in current:
+        execute_ddl(db, _DIAGNOSTICS_DDL)
+    if ("index", "idx_diagnostics_identity") not in current:
+        execute_ddl(db, _DIAGNOSTICS_INDEX_DDL)
     if (
         current[("table", "event_content_access_grants")]
         == _known_grant_table_forms()[0]

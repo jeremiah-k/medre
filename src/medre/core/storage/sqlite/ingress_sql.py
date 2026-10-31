@@ -23,12 +23,19 @@ VALUES (?, ?, ?, 0, ?, ?)
 """
 
 CLAIM_INGRESS_SELECT = """
-SELECT event_id, provenance, status, attempts, last_error,
-       created_at, updated_at, locked_at, lease_until, worker_id
-FROM durable_ingress_work
-WHERE status = 'pending'
-   OR (status = 'processing' AND lease_until IS NOT NULL AND lease_until <= ?)
-ORDER BY created_at, event_id
+SELECT w.event_id, w.provenance, w.status, w.attempts,
+       NULLIF(COALESCE((
+           SELECT d.diagnostic
+           FROM delivery_evidence_diagnostics d
+           WHERE d.family = 'ingress' AND d.row_id = w.event_id
+             AND d.field = 'last_error'
+           ORDER BY d.diag_id DESC LIMIT 1
+       ), NULLIF(w.last_error, '')), '') AS last_error,
+       w.created_at, w.updated_at, w.locked_at, w.lease_until, w.worker_id
+FROM durable_ingress_work w
+WHERE w.status = 'pending'
+   OR (w.status = 'processing' AND w.lease_until IS NOT NULL AND w.lease_until <= ?)
+ORDER BY w.created_at, w.event_id
 LIMIT ?
 """
 

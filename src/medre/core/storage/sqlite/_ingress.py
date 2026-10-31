@@ -36,6 +36,7 @@ from medre.core.storage.sqlite._content_identity import (
     envelope_payload,
     ingress_dependency_op,
 )
+from medre.core.storage.sqlite._evidence_diagnostics import ingress_diagnostic_ops
 from medre.core.storage.sqlite.connection import (
     AttachmentAdmissionPlan,
     sync_admit_ingress,
@@ -89,6 +90,13 @@ class _IngressMixin:
 
         async def _write_rowcount(
             self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _write_rowcount_with_followups(
+            self,
+            sql: str,
+            params: tuple[Any, ...],
+            follow_ups: list[tuple[str, tuple[Any, ...]]],
         ) -> int: ...
 
     def _event_admission_ops(
@@ -530,15 +538,23 @@ class _IngressMixin:
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:
-        """Return owned ingress work to pending after a processing failure."""
-        changed = await self._write_rowcount(
+        """Return owned ingress work to pending after a processing failure.
+
+        The free-form ``error`` text is separated at write time: the legacy
+        ``last_error`` column stays ``NULL`` and the text lands in
+        ``delivery_evidence_diagnostics`` in the same transaction, keyed by
+        the committed attempt count.
+        """
+        now = _now_iso()
+        changed = await self._write_rowcount_with_followups(
             """
             UPDATE durable_ingress_work
             SET status='pending', updated_at=?, locked_at=NULL, lease_until=NULL,
-                worker_id=NULL, last_error=?
+                worker_id=NULL
             WHERE event_id=? AND status='processing' AND worker_id=?
             """,
-            (_now_iso(), error[:1000], event_id, worker_id),
+            (now, event_id, worker_id),
+            ingress_diagnostic_ops(error[:1000], now, event_id),
         )
         return changed == 1
 
@@ -546,15 +562,16 @@ class _IngressMixin:
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:
         """Return owned operationally deferred work without spending an attempt."""
-        changed = await self._write_rowcount(
+        now = _now_iso()
+        changed = await self._write_rowcount_with_followups(
             """
             UPDATE durable_ingress_work
             SET status='pending', attempts=CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
-                updated_at=?, locked_at=NULL, lease_until=NULL, worker_id=NULL,
-                last_error=?
+                updated_at=?, locked_at=NULL, lease_until=NULL, worker_id=NULL
             WHERE event_id=? AND status='processing' AND worker_id=?
             """,
-            (_now_iso(), error[:1000], event_id, worker_id),
+            (now, event_id, worker_id),
+            ingress_diagnostic_ops(error[:1000], now, event_id),
         )
         return changed == 1
 
@@ -562,14 +579,16 @@ class _IngressMixin:
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:
         """Move owned ingress work to terminal ``failed`` state."""
-        changed = await self._write_rowcount(
+        now = _now_iso()
+        changed = await self._write_rowcount_with_followups(
             """
             UPDATE durable_ingress_work
             SET status='failed', updated_at=?, locked_at=NULL, lease_until=NULL,
-                worker_id=NULL, last_error=?
+                worker_id=NULL
             WHERE event_id=? AND status='processing' AND worker_id=?
             """,
-            (_now_iso(), error[:1000], event_id, worker_id),
+            (now, event_id, worker_id),
+            ingress_diagnostic_ops(error[:1000], now, event_id),
         )
         return changed == 1
 

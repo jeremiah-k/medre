@@ -27,6 +27,10 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._evidence_diagnostics import (
+    _EvidenceDiagnosticsReadMixin,
+    diagnostic_write_ops,
+)
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation
@@ -68,7 +72,12 @@ ORDER BY sequence ASC
 
 
 def _observation_insert_params(observation: DeliveryObservation) -> tuple[object, ...]:
-    """Validate and serialize one immutable delivery observation."""
+    """Validate and serialize one immutable delivery observation.
+
+    The free-form ``error`` column is separated at write time: new rows keep
+    it ``NULL`` inline and the text lands in
+    ``delivery_evidence_diagnostics`` in the same transaction.
+    """
     if observation.state not in DELIVERY_OBSERVATION_STATE_VALUES:
         raise ValueError(
             f"Unknown observation state {observation.state!r}; "
@@ -87,7 +96,7 @@ def _observation_insert_params(observation: DeliveryObservation) -> tuple[object
         observation.adapter_message_id,
         observation.state,
         observation.confirmation_level,
-        observation.error,
+        None,
         _encode_json(dict(observation.metadata)),
         observation.observed_at.isoformat(),
         observation.outbox_id,
@@ -98,13 +107,20 @@ def _observation_insert_params(observation: DeliveryObservation) -> tuple[object
     )
 
 
-class _ObservationMixin:
+class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     """Post-handoff delivery observation methods for SQLiteStorage."""
 
     if TYPE_CHECKING:
 
         async def _write_rowcount(
             self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _write_rowcount_with_followups(
+            self,
+            sql: str,
+            params: tuple[Any, ...],
+            follow_ups: list[tuple[str, tuple[Any, ...]]],
         ) -> int: ...
 
         async def _read_all(
@@ -125,10 +141,21 @@ class _ObservationMixin:
         the read-then-insert race with retry/dead-letter/cancel transitions.
         Returns ``True`` when a new row was inserted and ``False`` for either a
         duplicate observation ID or an attempt that is no longer admissible.
+
+        The observation's free-form ``error`` text is separated at write time:
+        the row keeps the column ``NULL`` and the text lands in
+        ``delivery_evidence_diagnostics`` in the same transaction.
         """
-        rowcount = await self._write_rowcount(
+        rowcount = await self._write_rowcount_with_followups(
             _INSERT_OBSERVATION,
             _observation_insert_params(observation),
+            diagnostic_write_ops(
+                "observation",
+                observation.observation_id,
+                observation.attempt_number,
+                {"error": observation.error},
+                observation.observed_at.isoformat(),
+            ),
         )
         return rowcount == 1
 
@@ -219,7 +246,7 @@ class _ObservationMixin:
                     target_channel, native_channel_id, outbox_id, attempt_number,
                     adapter_message_id, state, confirmation_level, error,
                     metadata, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 ON CONFLICT(observation_id) DO NOTHING""",
                 (
                     observation.observation_id,
@@ -233,12 +260,23 @@ class _ObservationMixin:
                     observation.adapter_message_id,
                     observation.state,
                     observation.confirmation_level,
-                    observation.error,
                     _encode_json(dict(observation.metadata)),
                     observation.observed_at.isoformat(),
                 ),
             )
-            return int(db.execute("SELECT changes()").fetchone()[0]) == 1
+            inserted = int(db.execute("SELECT changes()").fetchone()[0])
+            if inserted == 1:
+                # Same transaction: the separated diagnostic text lands only
+                # with its committed parent observation row.
+                for diagnostic_sql, diagnostic_params in diagnostic_write_ops(
+                    "observation",
+                    observation.observation_id,
+                    provenance.attempt_number,
+                    {"error": observation.error},
+                    observation.observed_at.isoformat(),
+                ):
+                    db.execute(diagnostic_sql, diagnostic_params)
+            return inserted == 1
 
         return await self._radio_transaction(insert)
 
@@ -252,6 +290,10 @@ class _ObservationMixin:
             ),
             (event_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "observation", rows, identity_column="observation_id"
+            )
         return [_row_to_delivery_observation(row) for row in rows]
 
     async def list_delivery_observations_for_outbox(
@@ -264,4 +306,8 @@ class _ObservationMixin:
             ),
             (outbox_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "observation", rows, identity_column="observation_id"
+            )
         return [_row_to_delivery_observation(row) for row in rows]

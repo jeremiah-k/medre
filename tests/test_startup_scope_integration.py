@@ -458,8 +458,17 @@ def test_due_retry_work_held_until_target_adapter_ready(
             start_task.result()  # startup must not have failed
             assert app.state is RuntimeState.RUNNING
 
-            await wait_until(lambda: len(target.delivered_payloads) == 1, timeout=5.0)
+            assert await wait_until(
+                lambda: len(target.delivered_payloads) == 1, timeout=5.0
+            )
 
+            # Native acceptance precedes durable outcome persistence. Wait for
+            # the terminal commit before asserting the recovered row's state.
+            async def _sent() -> bool:
+                row = await _row()
+                return row is not None and row.status == "sent"
+
+            assert await wait_until(_sent, timeout=5.0)
             final_row = await _row()
             assert final_row is not None
             assert (

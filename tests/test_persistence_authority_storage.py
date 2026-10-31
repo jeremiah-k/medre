@@ -33,12 +33,16 @@ from medre.core.storage.sqlite.schema import (
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
-#: Tables present in the DDL but deliberately absent from _REQUIRED_COLUMNS:
-#: they are created additively on pre-existing schema-version-1 databases,
-#: so the pre-release shape guard must not demand their columns there.
+#: Tables present in the DDL but absent from _REQUIRED_COLUMNS on their
+#: introduction: they are created additively on pre-existing schema-version-1
+#: databases, so the pre-release shape guard must not demand their columns
+#: from those predecessors before their own DDL runs.  Once registered in
+#: _REQUIRED_COLUMNS (as these are), writable initialization upgrades an
+#: approved additive predecessor and read-only opens demand the columns.
 _ADDITIVE_DDL_TABLES = frozenset(
     {
         "attachment_blobs",
+        "delivery_evidence_diagnostics",
         "event_attachment_associations",
         "inbound_pressure_observations",
     }

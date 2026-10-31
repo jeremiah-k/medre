@@ -79,6 +79,7 @@ from medre.core.storage.sqlite.connection import (
     sync_write,
     sync_write_batch,
     sync_write_rowcount,
+    sync_write_with_followups,
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
@@ -574,6 +575,26 @@ class _SQLiteStorageBase:
         try:
             return await self._run_in_thread(
                 sync_write_rowcount, db, self._lock, sql, params
+            )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Database write failed: {exc}") from exc
+
+    async def _write_rowcount_with_followups(
+        self,
+        sql: str,
+        params: tuple[Any, ...],
+        follow_ups: list[tuple[str, tuple[Any, ...]]],
+    ) -> int:
+        """Run a primary write plus conditional follow-ups in one transaction.
+
+        Follow-up statements execute only when the primary statement matched
+        at least one row; the whole batch commits or rolls back together and
+        the primary statement's rowcount is returned.
+        """
+        db = self._require_db()
+        try:
+            return await self._run_in_thread(
+                sync_write_with_followups, db, self._lock, sql, params, follow_ups
             )
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc

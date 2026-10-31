@@ -44,6 +44,10 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
+from medre.core.storage.sqlite._evidence_diagnostics import (
+    _EvidenceDiagnosticsReadMixin,
+    outbox_diagnostic_ops,
+)
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.connection import sync_transition_outbox_and_settle
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
@@ -64,7 +68,7 @@ if TYPE_CHECKING:
     _T = TypeVar("_T")
 
 
-class _OutboxMixin:
+class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
     """Delivery outbox methods for SQLiteStorage.
 
     Accesses ``self._read_one``, ``self._read_all``, ``self._write``,
@@ -86,6 +90,13 @@ class _OutboxMixin:
 
         async def _write_rowcount(
             self, sql: str, params: tuple[Any, ...] = ()
+        ) -> int: ...
+
+        async def _write_rowcount_with_followups(
+            self,
+            sql: str,
+            params: tuple[Any, ...],
+            follow_ups: list[tuple[str, tuple[Any, ...]]],
         ) -> int: ...
 
         async def _read_one(
@@ -211,7 +222,7 @@ class _OutboxMixin:
             item.active_attempt,
             effective_status,
             item.failure_kind,
-            item.failure_kind_detail,
+            None,
             _ensure_iso(item.next_attempt_at),
             _ensure_iso(item.created_at) or now,
             _ensure_iso(item.updated_at) or now,
@@ -222,10 +233,21 @@ class _OutboxMixin:
             item.payload_hash,
             item.receipt_id,
             item.parent_receipt_id,
-            item.error_summary,
+            None,
             dispatch_source,
             item.replay_run_id or None,
             meta_json,
+        )
+        # Free-form diagnostic text is separated at write time: the inline
+        # columns stay NULL and the text lands in the append-only side table
+        # inside the creation transaction, keyed by the committed attempt.
+        diagnostic_ops = outbox_diagnostic_ops(
+            {
+                "failure_kind_detail": item.failure_kind_detail,
+                "error_summary": item.error_summary,
+            },
+            now,
+            item.outbox_id,
         )
 
         generation_select_sql = (
@@ -270,6 +292,7 @@ class _OutboxMixin:
                     now,
                     replay_run_select_sql if item.replay_run_id else None,
                     replay_run_select_params if item.replay_run_id else None,
+                    diagnostic_ops,
                 )
                 if existing_id is not None:
                     existing = await self.get_outbox_item(existing_id)
@@ -292,6 +315,7 @@ class _OutboxMixin:
                 insert_sql,
                 insert_params,
                 now,
+                diagnostic_ops,
             )
             if existing_id is not None:
                 existing = await self.get_outbox_item(existing_id)
@@ -329,6 +353,7 @@ class _OutboxMixin:
         observed_at: str,
         replay_run_select_sql: str | None = None,
         replay_run_select_params: tuple[Any, ...] | None = None,
+        diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     ) -> str | None:
         """Atomically allocate and insert a fresh outbox generation.
 
@@ -371,6 +396,8 @@ class _OutboxMixin:
                     insert_outbox_dependency(
                         db, str(params[0]), str(params[1]), observed_at
                     )
+                for diagnostic_sql, diagnostic_params in diagnostic_ops or []:
+                    db.execute(diagnostic_sql, diagnostic_params)
                 db.execute("COMMIT")
                 return None
             except BaseException:
@@ -388,6 +415,7 @@ class _OutboxMixin:
         insert_sql: str,
         insert_params: tuple[Any, ...],
         observed_at: str,
+        diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     ) -> str | None:
         """Atomically adopt existing work or insert a row without reclaiming."""
         with self._lock:
@@ -401,6 +429,8 @@ class _OutboxMixin:
                 insert_outbox_dependency(
                     db, str(insert_params[0]), str(insert_params[1]), observed_at
                 )
+                for diagnostic_sql, diagnostic_params in diagnostic_ops or []:
+                    db.execute(diagnostic_sql, diagnostic_params)
                 db.execute("COMMIT")
                 return None
             except BaseException:
@@ -427,6 +457,10 @@ class _OutboxMixin:
         )
         if row is None:
             return None
+        if not metadata_only:
+            await self._coalesce_evidence_diagnostics(
+                "outbox", [row], identity_column="outbox_id"
+            )
         return _row_to_outbox_item(row)
 
     async def list_outbox_items_for_delivery(
@@ -452,6 +486,9 @@ class _OutboxMixin:
                 identity.target_adapter,
                 identity.target_channel or None,
             ),
+        )
+        rows = await self._coalesce_evidence_diagnostics(
+            "outbox", rows, identity_column="outbox_id"
         )
         return [_row_to_outbox_item(row) for row in rows]
 
@@ -484,6 +521,9 @@ class _OutboxMixin:
         params.append(offset)
 
         rows = await self._read_all(sql, tuple(params))
+        rows = await self._coalesce_evidence_diagnostics(
+            "outbox", rows, identity_column="outbox_id"
+        )
         return [_row_to_outbox_item(r) for r in rows]
 
     async def list_all_outbox_items(
@@ -506,6 +546,10 @@ class _OutboxMixin:
             ),
             (limit, offset),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "outbox", rows, identity_column="outbox_id"
+            )
         return [_row_to_outbox_item(r) for r in rows]
 
     async def list_outbox_items_for_event(
@@ -528,6 +572,10 @@ class _OutboxMixin:
             ),
             (event_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "outbox", rows, identity_column="outbox_id"
+            )
         return [_row_to_outbox_item(r) for r in rows]
 
     async def list_outbox_items_by_replay_run(
@@ -549,6 +597,10 @@ class _OutboxMixin:
             ),
             (run_id,),
         )
+        if not metadata_only:
+            rows = await self._coalesce_evidence_diagnostics(
+                "outbox", rows, identity_column="outbox_id"
+            )
         return [_row_to_outbox_item(r) for r in rows]
 
     async def claim_due_outbox_items(
@@ -718,6 +770,9 @@ class _OutboxMixin:
             f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress' AND {_no_newer_generation}",  # nosec: interpolated fragments are static SQL or ? placeholders
             (*outbox_ids, worker_id),
         )
+        final_rows = await self._coalesce_evidence_diagnostics(
+            "outbox", final_rows, identity_column="outbox_id"
+        )
         return [_row_to_outbox_item(r) for r in final_rows]
 
     async def reserve_outbox_attempt(
@@ -799,6 +854,11 @@ class _OutboxMixin:
         the finalized attempt number.  *expected_worker_id* optionally
         fences a transition to the current claim owner.
 
+        Free-form diagnostic text (*failure_kind_detail*, *error_summary*)
+        is separated at write time: the legacy inline columns stay ``NULL``
+        and the text lands in ``delivery_evidence_diagnostics`` inside the
+        transition's transaction, keyed by the finalized attempt.
+
         Returns ``True`` only if the transition committed. Returns ``False``
         for a terminal row, a disallowed source status, or a mismatched
         attempt or owner. A terminal transition without an explicit attempt
@@ -816,6 +876,7 @@ class _OutboxMixin:
         now = _now_iso()
         sets = ["status = ?", "updated_at = ?"]
         params: list[Any] = [new_status, now]
+        diagnostics: dict[str, str | None] = {}
 
         if receipt_id is not None:
             sets.append("receipt_id = ?")
@@ -837,11 +898,9 @@ class _OutboxMixin:
             sets.append("failure_kind = ?")
             params.append(failure_kind)
         if failure_kind_detail is not None:
-            sets.append("failure_kind_detail = ?")
-            params.append(failure_kind_detail)
+            diagnostics["failure_kind_detail"] = failure_kind_detail
         if error_summary is not None:
-            sets.append("error_summary = ?")
-            params.append(error_summary)
+            diagnostics["error_summary"] = error_summary
         if next_attempt_at is not None:
             sets.append("next_attempt_at = ?")
             params.append(next_attempt_at)
@@ -864,8 +923,8 @@ class _OutboxMixin:
         elif new_status in (TERMINAL_OUTBOX_STATUSES - {"sent"}):
             # "sent" is terminal but happy-path; clear failure metadata
             # only for error terminals (dead_lettered, cancelled, abandoned).
-            if failure_kind_detail is None:
-                sets.append("failure_kind_detail = NULL")
+            sets.append("failure_kind_detail = NULL")
+            diagnostics.setdefault("failure_kind_detail", "")
         if new_status in ("queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")
             params.append(now)
@@ -901,6 +960,10 @@ class _OutboxMixin:
         set_clause = ", ".join(sets)
         where_sql = " AND ".join(where_clauses)
         sql = f"UPDATE delivery_outbox SET {set_clause} WHERE {where_sql}"  # nosec B608
+        # The side-table key reads the row's committed attempt inside the
+        # transition's transaction, so the diagnostic lands on the exact
+        # generation the failure text describes.
+        follow_ups = outbox_diagnostic_ops(diagnostics, now, outbox_id)
         if new_status in TERMINAL_OUTBOX_STATUSES:
             try:
                 rowcount = await self._run_in_thread(
@@ -911,11 +974,14 @@ class _OutboxMixin:
                     tuple(params),
                     outbox_id,
                     now,
+                    follow_ups,
                 )
             except sqlite3.Error as exc:
                 raise StorageError(f"Database write failed: {exc}") from exc
         else:
-            rowcount = await self._write_rowcount(sql, tuple(params))
+            rowcount = await self._write_rowcount_with_followups(
+                sql, tuple(params), follow_ups
+            )
         return rowcount == 1
 
     async def mark_outbox_sent(

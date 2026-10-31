@@ -333,19 +333,21 @@ class TestTargetScopedFailures:
             assert outcome.error == "Adapter has no deliver() method"
 
             # A failed receipt was persisted (not "sent").
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ? "
-                "AND target_adapter = ?",
-                ("no-deliver-001", "no-deliver"),
-            )
+            rows = [
+                receipt
+                for receipt in await temp_storage.list_receipts_for_event(
+                    "no-deliver-001"
+                )
+                if receipt.target_adapter == "no-deliver"
+            ]
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert rows[0]["error"] == "Adapter has no deliver() method"
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
-            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert rows[0].error == "Adapter has no deliver() method"
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
+            assert rows[1].attempt_number == rows[0].attempt_number
         finally:
             await runner.stop()
 
@@ -402,18 +404,20 @@ class TestTargetScopedFailures:
             assert outcome.error == "Adapter has no deliver() method"
 
             # Failed receipt persisted.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ? "
-                "AND target_adapter = ?",
-                ("shadowed-001", "shadowed"),
-            )
+            rows = [
+                receipt
+                for receipt in await temp_storage.list_receipts_for_event(
+                    "shadowed-001"
+                )
+                if receipt.target_adapter == "shadowed"
+            ]
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert rows[0]["error"] == "Adapter has no deliver() method"
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert rows[0].error == "Adapter has no deliver() method"
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
         finally:
             await runner.stop()
 
@@ -470,16 +474,13 @@ class TestTargetScopedFailures:
             assert snap["adapter_failures"] == {}
 
             # A failed receipt was persisted.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("render-fail-001",),
-            )
+            rows = await temp_storage.list_receipts_for_event("render-fail-001")
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
         finally:
             await runner.stop()
 
@@ -717,17 +718,14 @@ class TestDeliveryFailureClassification:
             assert "not registered" in (outcomes[0].error or "")
 
             # Failed receipt persisted in storage.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("missing-001",),
-            )
+            rows = await temp_storage.list_receipts_for_event("missing-001")
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert "not registered" in (rows[0]["error"] or "")
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert "not registered" in (rows[0].error or "")
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
         finally:
             await runner.stop()
 
@@ -800,17 +798,14 @@ class TestDeliveryFailureClassification:
             assert len(adapter.delivered_payloads) == 0
 
             # Failed receipt persisted in storage.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("deadline-001",),
-            )
+            rows = await temp_storage.list_receipts_for_event("deadline-001")
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert "deadline" in (rows[0]["error"] or "").lower()
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert "deadline" in (rows[0].error or "").lower()
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
         finally:
             await runner.stop()
 
@@ -886,17 +881,14 @@ class TestDeadLetter:
             assert outcomes[0].status == "transient_failure"
 
             # Check receipts: should have failed + dead_lettered.
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence ASC",
-                ("dead-001",),
-            )
+            rows = await temp_storage.list_receipts_for_event("dead-001")
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].attempt_number == rows[0].attempt_number
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
 
             current = await temp_storage.delivery_status(
                 DeliveryIdentity(
@@ -905,7 +897,7 @@ class TestDeadLetter:
             )
             assert current is not None
             assert current.status == "dead_lettered"
-            assert current.receipt_id == rows[1]["receipt_id"]
+            assert current.receipt_id == rows[1].receipt_id
 
             outbox_items = await temp_storage.list_outbox_items_for_event(
                 event.event_id
@@ -967,20 +959,17 @@ class TestDeadLetter:
             assert len(outcomes) == 1
             assert outcomes[0].status == "permanent_failure"
 
-            rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
-                ("no-retry-001",),
-            )
+            rows = await temp_storage.list_receipts_for_event("no-retry-001")
             # Permanent failure terminalizes through the lifecycle-owned
             # path: failed attempt evidence plus a linked dead-letter
             # lifecycle receipt at the SAME attempt (no phantom attempt).
             assert len(rows) == 2
-            assert rows[0]["receipt_kind"] == "attempt"
-            assert rows[0]["status"] == "failed"
-            assert rows[1]["receipt_kind"] == "lifecycle"
-            assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
-            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[0].receipt_kind == "attempt"
+            assert rows[0].status == "failed"
+            assert rows[1].receipt_kind == "lifecycle"
+            assert rows[1].status == "dead_lettered"
+            assert rows[1].attempt_number == rows[0].attempt_number
+            assert rows[1].parent_receipt_id == rows[0].receipt_id
         finally:
             await runner.stop()
 
