@@ -104,8 +104,7 @@ async def run(plan: Plan, directory: Path, *, presentation: bool = False) -> dic
                 != topology[name]["bot_identity"]
             ), "Native witness is not the independent configured peer"
         bridge = await start()
-        storage = SQLiteStorage(str(directory / "medre.sqlite3"))
-        await storage.initialize()
+        storage = await SQLiteStorage.open_readonly(str(directory / "medre.sqlite3"))
         parents = {}
         for name, transport, parent_name in cases:
             if name == "matrix_after_restart":

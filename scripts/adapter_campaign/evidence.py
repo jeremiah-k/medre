@@ -6,19 +6,56 @@ import asyncio
 
 import msgspec
 
+_EVENT_WINDOW = 1000
+
 
 async def snapshots(storage, prefix: str) -> list[dict]:
-    ids = await storage.list_event_ids_page(after_event_id=None, limit=1000)
-    if len(ids) == 1000:
+    """Read privileged campaign evidence without writing to the live database.
+
+    Campaigns own their temporary fixture database and explicitly inspect its
+    complete native/canonical evidence. This is *not* a production content-read
+    API: use a strict read-only SQLite connection, never the replay borrow that
+    observes expiry through ``BEGIN IMMEDIATE`` and updates owner state.
+    """
+    from medre.core.storage.sqlite.serde import _row_to_event, _row_to_relation
+
+    # Bound enumeration and prefix selection in the same read. A separate
+    # count followed by an unbounded match query races concurrent admission.
+    # Explicit non-string body values also suppress a secondary text alias.
+    candidates = await storage._read_all(
+        "SELECT e.event_id, EXISTS (SELECT 1 FROM event_body_content b "
+        "WHERE b.event_id=e.event_id AND instr(b.body, ?) > 0 "
+        "AND (b.field='body' OR (b.field='text' "
+        "AND json_type(e.payload, '$.body') IS NULL AND NOT EXISTS ("
+        "SELECT 1 FROM event_body_content primary_body "
+        "WHERE primary_body.event_id=e.event_id AND primary_body.field='body')))) "
+        "AS prefix_matches FROM canonical_events e ORDER BY e.event_id LIMIT ?",
+        (prefix, _EVENT_WINDOW),
+    )
+    if len(candidates) == _EVENT_WINDOW:
         raise AssertionError("Campaign evidence exceeds the bounded event window")
+    matches = [row for row in candidates if row["prefix_matches"]]
     results = []
-    for event_id in ids:
-        read = await storage.read_event_for_replay(event_id)
-        event = read.event if read.status == "retained" else None
-        if event is None or prefix not in str(
-            event.payload.get("body", event.payload.get("text", ""))
-        ):
-            continue
+    for match in matches:
+        event_id = match["event_id"]
+        row = await storage._read_one(
+            "SELECT * FROM canonical_events WHERE event_id=?", (event_id,)
+        )
+        if row is None:
+            raise AssertionError("Campaign event disappeared during inspection")
+        relations = await storage._read_all(
+            "SELECT r.*, x.excerpt AS resolved_fallback_text "
+            "FROM event_relations r LEFT JOIN event_relation_excerpts x "
+            "ON x.relation_id=r.id WHERE r.event_id=? ORDER BY r.id ASC",
+            (event_id,),
+        )
+        bodies = await storage._read_all(
+            "SELECT field, body FROM event_body_content WHERE event_id=?",
+            (event_id,),
+        )
+        event = _row_to_event(row, [_row_to_relation(rel) for rel in relations])
+        payload = {**event.payload, **{body["field"]: body["body"] for body in bodies}}
+        event = msgspec.structs.replace(event, payload=payload)
         result = {"event": msgspec.to_builtins(event)}
         for name, method in (
             ("receipts", storage.list_receipts_for_event),
