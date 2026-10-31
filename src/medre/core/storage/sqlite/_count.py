@@ -50,6 +50,25 @@ _UNCLASSIFIED_EVENT_COPIES = frozenset(
     }
 )
 
+_LIVE_BLOCKER_PROBES = (
+    "active_ingress",
+    "active_outbox",
+    "unsettled_mandatory_owners",
+    "unrevoked_optional_grants",
+)
+_BOUNDED_CANDIDATE_PROBES = frozenset({"canonical_text", "relation_excerpts"})
+
+
+def _classify_copy(name: str) -> str:
+    if name in _BOUNDED_CANDIDATE_PROBES:
+        return "bounded_candidate"
+    if name == "shared_attachment_references":
+        return "shared_reference"
+    if name in _LIVE_BLOCKER_PROBES:
+        return "authority_or_state"
+    return "requires_independent_policy"
+
+
 _UNMEASURED_CONTENT_SCOPES = (
     "provider_native_queues_histories_and_peers",
     "plugin_state_and_adapter_checkpoints",
@@ -223,16 +242,7 @@ class _CountMixin:
         if row is None:
             raise StorageError("Content release assessment requires an admitted event")
         counts = {name: int(row[name]) for name in _EVENT_COPY_PROBES}
-        live_blockers = tuple(
-            name
-            for name in (
-                "active_ingress",
-                "active_outbox",
-                "unsettled_mandatory_owners",
-                "unrevoked_optional_grants",
-            )
-            if counts[name]
-        )
+        live_blockers = tuple(name for name in _LIVE_BLOCKER_PROBES if counts[name])
         opaque_blockers = tuple(
             sorted(name for name in _UNCLASSIFIED_EVENT_COPIES if counts[name])
         )
@@ -252,25 +262,7 @@ class _CountMixin:
                 {
                     "surface": name,
                     "rows": counts[name],
-                    "classification": (
-                        "bounded_candidate"
-                        if name in {"canonical_text", "relation_excerpts"}
-                        else (
-                            "shared_reference"
-                            if name == "shared_attachment_references"
-                            else (
-                                "authority_or_state"
-                                if name
-                                in {
-                                    "active_ingress",
-                                    "active_outbox",
-                                    "unsettled_mandatory_owners",
-                                    "unrevoked_optional_grants",
-                                }
-                                else "requires_independent_policy"
-                            )
-                        )
-                    ),
+                    "classification": _classify_copy(name),
                 }
                 for name in _EVENT_COPY_PROBES
             ],

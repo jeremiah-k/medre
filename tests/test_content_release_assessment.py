@@ -1,11 +1,15 @@
 """Read-only content collection eligibility is never a deletion capability."""
 
 import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import msgspec
 import pytest
+from jsonschema import Draft202012Validator
 
-from medre.core.storage.backend import StorageError
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
@@ -20,6 +24,7 @@ async def test_event_release_assessment_is_metadata_only_and_fail_closed(tmp_pat
         )
         await store.admit_ingress(event, None, "live")
         before = await store.assess_event_content_release("secret-event")
+        _validate_assessment(before)
         assert before["status"] == "blocked"
         assert "unsettled_mandatory_owners" in before["blockers"]
         assert "opaque_envelope" in before["blockers"]
@@ -105,5 +110,93 @@ async def test_shared_attachment_is_reported_but_never_projected(tmp_path):
         assert assessment["deletion_authorized"] is False
         assert data.decode() not in json.dumps(assessment)
         assert ref not in json.dumps(assessment)
+    finally:
+        await store.close()
+
+
+def _validate_assessment(report):
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "docs/schemas/event-content-release-assessment.schema.json"
+    )
+    schema = json.loads(schema_path.read_text())
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(report)
+
+
+async def test_release_assessment_eligible_subset_is_still_not_deletion_authority(
+    tmp_path,
+):
+    store = SQLiteStorage(str(tmp_path / "eligible.db"))
+    await store.initialize()
+    try:
+        event = msgspec.structs.replace(
+            make_storage_event(event_id="metadata-only"), payload={}, metadata={}
+        )
+        await store.append(event)
+        # Explicitly settle the append dependency in this controlled shape test.
+        # There is no automatic append-owner lifecycle in prerelease MEDRE.
+        await store._write(
+            "UPDATE event_content_dependencies SET released_at=? "
+            "WHERE event_id=? AND owner_kind='append'",
+            ("2026-10-31T00:00:00+00:00", "metadata-only"),
+        )
+        report = await store.assess_event_content_release("metadata-only")
+        _validate_assessment(report)
+        assert report["status"] == "unmeasured"
+        assert report["core_subset_status"] == "eligible"
+        assert report["classified_core_candidate"] is True
+        assert report["blockers"] == []
+        assert report["deletion_authorized"] is False
+        assert report["retention_authorized"] is False
+        assert {copy["classification"] for copy in report["copies"]} == {
+            "bounded_candidate",
+            "shared_reference",
+            "authority_or_state",
+            "requires_independent_policy",
+        }
+    finally:
+        await store.close()
+
+
+async def test_release_assessment_lists_each_active_owner_and_grant(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "blocked.db"))
+    await store.initialize()
+    try:
+        event = msgspec.structs.replace(
+            make_storage_event(event_id="in-flight"), payload={}, metadata={}
+        )
+        await store.admit_ingress(event, None, "live")
+        item = DeliveryOutboxItem(
+            outbox_id="in-flight-outbox",
+            event_id="in-flight",
+            route_id="r",
+            delivery_plan_id="plan",
+            target_adapter="fake_presentation",
+            target_channel="c",
+        )
+        await store.create_outbox_item(item)
+        now = datetime.now(timezone.utc)
+        policy = AvailabilityPolicy(
+            hard_ceiling=now + timedelta(hours=2),
+            max_optional_hold=timedelta(hours=1),
+            allowed_optional_consumers=frozenset({"history"}),
+        )
+        await store.issue_optional_body_hold(
+            "in-flight",
+            ContentHold("history", "body", now + timedelta(minutes=10), issued_at=now),
+            policy,
+            now=now,
+        )
+        report = await store.assess_event_content_release("in-flight")
+        _validate_assessment(report)
+        assert {
+            "active_ingress",
+            "active_outbox",
+            "unsettled_mandatory_owners",
+            "unrevoked_optional_grants",
+        } <= set(report["blockers"])
+        assert report["core_subset_status"] == "blocked"
+        assert report["deletion_authorized"] is False
     finally:
         await store.close()

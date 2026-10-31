@@ -40,7 +40,7 @@ An optional UTC `content_deadline` may be given to SQLite ingress admission.
 The deadline is not a default retention rule. Observing expiration releases
 expired source **and target** dependencies **logically and durably**, including when attempting to
 stage a late outbox, and a subsequent backward clock adjustment cannot
-reactivate it, even if optional-hold issuance is refused after observing expiry.
+reactivate them, even if optional-hold issuance is refused after observing expiry.
 Missing dependency rows never authorize retained content. No row deletion or physical content collection is performed.
 
 ## Restricted trusted core reads
