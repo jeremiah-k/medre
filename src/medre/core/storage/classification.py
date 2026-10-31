@@ -303,7 +303,11 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
     },
     "durable_ingress_work": {
         "event_id": ColumnClass.IMMUTABLE_IDENTITY,
-        "provenance": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
+        # Closed three-value admission marker (live/recovered/history),
+        # validated against ``INGRESS_PROVENANCE_VALUES`` at admission and
+        # never rewritten — the ingress family's counterpart of the receipt
+        # family's closed ``source`` provenance, not free-form content.
+        "provenance": ColumnClass.IMMUTABLE_IDENTITY,
         "status": ColumnClass.OPERATIONAL_AUTHORITY,
         "attempts": ColumnClass.OPERATIONAL_AUTHORITY,
         "last_error": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,

@@ -50,7 +50,7 @@ The inventory covers canonical envelope JSON and metadata, separately stored
 fields; outbox error summaries and metadata; the write-time separated
 `delivery_evidence_diagnostics` side table for delivery-evidence diagnostic
 text; immutable radio plans
-and packet progress; ingress provenance and errors; attachment bytes;
+and packet progress; ingress last-error text; attachment bytes;
 checkpoint cursors and metadata; and reserved plugin values. Empty JSON
 envelopes count as stored bytes. Shared attachment blobs count once. An event
 payload can contain attachment metadata, sender names, formatted bodies, reply
@@ -59,11 +59,17 @@ quotes, or provider extensions; counting only its text field is insufficient.
 Structured relation identity rows MAY remain as non-text evidence while
 same-event excerpt text is removed, but any free-form relation key or metadata
 MUST block collection. Target IDs and correlation facts are deliberately retained.
-The first classified collection subset contains only separately persisted
-canonical `event_body_content` and `event_relation_excerpts` rows. Incoming
-relation excerpts belonging to other events are observed as blockers, not
-owned copies that a collector may remove. All unclassified core rows, shared
-attachments and active owners block this narrow subset. An empty blocker list
+The collected bytes remain exactly the separately persisted canonical
+`event_body_content` rows and same-event `event_relation_excerpts` rows.
+Incoming relation excerpts belonging to other events are observed as blockers, not
+owned copies that a collector may remove. The collectable event set is the
+settled ordinary routed event: retained delivery evidence families (delivery
+receipts, observations, outbox records, native references, ingress work)
+block only while one of their registry-classified content columns carries a
+value on the event's rows, and the write-time separated
+`delivery_evidence_diagnostics` side table is retained durable evidence that
+survives collection. Unclassified core rows, opaque copies, shared
+attachments, radio plans, and active owners still block. An empty blocker list
 MUST NOT be advertised as global erasure or external-copy clearance.
 
 The column-level ownership class of every persistent storage column is
@@ -76,6 +82,9 @@ any deletion:
 
 - Unfinished ingress, queued delivery, retries and recovery require their exact
   content until the owning lifecycle establishes a terminal outcome.
+- Delivery diagnostic text separated into `delivery_evidence_diagnostics` is
+  retained durable evidence: it remains valid recovery evidence after content
+  release, and collection never removes it.
 - Radio plan fingerprints and packet contents participate in exact-attempt
   recovery and observation validation. Removing text alone MUST NOT silently
   invalidate those contracts or authorize replay.
@@ -135,15 +144,17 @@ The storage backend MAY expose `collect_event_content(event_id, dry_run=True)`
 for an **exact event ID**, with a metadata-only result conforming to
 [event-content-collection.schema.json](../schemas/event-content-collection.schema.json).
 A dry-run MUST NOT change content or authority. Applying collection MUST first
-recheck all current core owners, optional grants, incoming excerpts and
-unclassified copies inside the same SQLite write transaction as deleting the
-**separate** canonical text/excerpt rows and recording an immutable collection
+recheck all current core owners, optional grants, incoming excerpts, unclassified
+copies, and retained-evidence family content values inside the same SQLite
+write transaction as deleting the **separate** canonical text/excerpt rows and
+recording an immutable collection
 receipt. Unclassified rows, shared attachments and undecidable states MUST
 refuse collection; optimistic assumptions are forbidden. Repeated calls MUST
 not resurrect content or authorize native sends. The receipt preserves the
 historical collection decision but does not record message bytes. No operation
 may delete durable delivery facts, native references, radio plans, receipts,
-attachments, provider state, WAL, backups or external copies. Logical removed
+delivery observations, the separated diagnostics side table, attachments,
+provider state, WAL, backups or external copies. Logical removed
 byte counts MUST NOT be presented as disk savings or secure erasure.
 Automatic or periodic collection remains disabled.
 

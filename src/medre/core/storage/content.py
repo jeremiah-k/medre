@@ -62,9 +62,7 @@ CONTENT_SURFACES = (
         ("plan_json", "provenance_json", "parts_json"),
         ("exact_packet_recovery", "packet_evidence"),
     ),
-    ContentSurface(
-        "durable_ingress_work", ("provenance", "last_error"), ("ingress_recovery",)
-    ),
+    ContentSurface("durable_ingress_work", ("last_error",), ("ingress_recovery",)),
     ContentSurface("attachment_blobs", ("data",), ("attachment_delivery",)),
     ContentSurface("adapter_checkpoints", ("cursor", "metadata"), ("native_recovery",)),
     ContentSurface("plugin_state", ("value",), ("reserved_plugin_state",)),

@@ -2,8 +2,11 @@
 
 Authority is decided inside BEGIN IMMEDIATE, never from a prior assessment.
 No free-form content values leave the database as part of a report. This API
-removes only canonical body and same-event excerpt rows when every other
-content-bearing surface is proven absent. It does not claim physical erasure.
+removes only canonical body and same-event excerpt rows when every retained
+evidence family carries no content-potential values and every live owner,
+wholesale policy blocker and opaque copy is absent. Retained durable evidence
+(surviving rows, including the separated delivery diagnostics) is never
+deleted. It does not claim physical erasure.
 """
 
 from __future__ import annotations
@@ -15,11 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._count import (
-    _EVENT_COPY_PROBES,
+    _ALL_EVENT_COPY_PROBES,
     _EVENT_COPY_SQL,
-    _LIVE_BLOCKER_PROBES,
-    _UNCLASSIFIED_EVENT_COPIES,
     _UNMEASURED_CONTENT_SCOPES,
+    _release_blockers,
 )
 
 COLLECTION_UNMEASURED_SCOPES = _UNMEASURED_CONTENT_SCOPES
@@ -50,12 +52,8 @@ def sync_collect_event_content(
             row = db.execute(_EVENT_COPY_SQL, (event_id,)).fetchone()
             if row is None:
                 raise StorageError("Content collection requires an admitted event")
-            counts = dict(zip(_EVENT_COPY_PROBES, row, strict=True))
-            blockers = [
-                name
-                for name in (*_LIVE_BLOCKER_PROBES, *sorted(_UNCLASSIFIED_EVENT_COPIES))
-                if counts[name]
-            ]
+            counts = dict(zip(_ALL_EVENT_COPY_PROBES, row, strict=True))
+            blockers = _release_blockers(counts)
             previous = db.execute(
                 "SELECT rows_removed, logical_bytes_removed FROM "
                 "event_content_collection_log WHERE event_id=?",
@@ -101,8 +99,9 @@ def sync_collect_event_content(
             elif dry_run:
                 state = "dry_run"
             else:
-                # No active claims or unclassified copies were observed inside
-                # this transaction. Both deletes and the audit receipt commit
+                # No live owner, wholesale policy blocker, opaque copy, or
+                # content-bearing evidence row was observed inside this
+                # transaction. Both deletes and the audit receipt commit
                 # together; a crash cannot publish a partial collection.
                 db.execute(
                     "DELETE FROM event_relation_excerpts WHERE relation_id IN "

@@ -12,6 +12,49 @@ and restarts. It MUST NOT delete immutable delivery, native reference, radio,
 attachment, or provider state. A successful logical delete is not physical
 erasure; WAL, backup, logs and remote copies are outside this API.
 
+## Collectable events and column-aware family blockers
+
+The collectable event set is the settled routed event with independently
+classified retained evidence: admitted through durable ingress, fanned out
+to ordinary delivery targets, with every mandatory owner released by guarded
+terminal transitions. An outbox `metadata.dispatch_context` route/plan
+snapshot is not automatically content-free: it may contain arbitrary
+origin, destination, or policy values. A non-empty snapshot MUST continue
+to block collection until an explicitly reviewed independent ownership
+model accounts for those values. Terminal status alone is insufficient. An inconsistent admission identity (missing admission record, unexpected
+body rows, missing uncollected body or recreated collected content) MUST be
+reported as a blocker by the read-only release assessment; the mutation guard
+MUST still refuse inconsistent state. Live-ownership
+gates (active ingress work, active outbox claims, unsettled mandatory owners,
+unrevoked optional grants) MUST block collection with their row counts, and
+the operator-facing refusal MUST name each live owner.
+
+Delivery evidence, native references, and durable ingress work are retained
+durable evidence: their rows survive collection and MUST NOT block merely by
+existing. A retained-evidence family MUST block collection when any of its
+registry-classified content-potential columns
+([storage column classification contract](storage-column-classification.md))
+carries a value on the event's own rows — historical inline diagnostic text
+or non-empty provider metadata JSON. Only SQL NULL represents absent
+diagnostic text; literal `'{}'` and empty strings remain conservatively content-bearing. Reviewed JSON metadata
+columns additionally recognize the empty object `'{}'` as content-free. The
+column set is derived from the declared classification registry, never
+hand-written per column, and the read-only release assessment shares this
+blocker decision.
+
+The `delivery_evidence_diagnostics` side table is retained durable evidence:
+diagnostic rows survive collection, are never deleted by it, and never block
+it. Recovery evidence remains valid after content release. A diagnostic row never exists without its parent evidence row. Its
+separated text survives collection and never participates in the parent
+family's column-aware blocker evaluation.
+
+Opaque envelope and relation records, incoming excerpts owned by other
+events, radio plans, attachment associations, and operator decisions REMAIN
+wholesale blockers under independent policy. Collection MUST NOT expand its
+delete set to any of them, and no scheduler MAY invoke collection
+automatically.
+
 Pre-release initialize MAY automatically apply only exactly recognized additive
 catalog states: the nullable `expired_at` grant field and the independent
-collection-receipt table. All other schema changes MUST fail before DDL.
+collection-receipt table, and the delivery diagnostics table and its identity
+index. All other schema changes MUST fail before DDL.

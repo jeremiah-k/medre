@@ -38,7 +38,9 @@ never authorizes any read, retention action, or collection.
    attempt fingerprints, plan and receipt identifiers, route-target text
    (`delivery_outbox.target_channel`/`target_address`, mirroring the receipt
    family's route correlation), closed structural descriptors of what a row
-   is, and write-once recorded timestamps.
+   is (including the durable ingress `provenance` admission marker and the
+   receipt family's closed `source` provenance), and write-once recorded
+   timestamps.
    Identity columns MAY remain while owned content around them is collected;
    they are deliberately retained correlation facts.
 2. **Operational authority** — statuses, ownership and lease facts
@@ -99,10 +101,17 @@ conservatism of the collector:
   `unclassified` columns outside the assessed event's own rows in the
   collector-owned candidate tables
   (`event_body_content`, `event_relation_excerpts`) blocks collection, as
-  does a probe gating on live ownership authority. The equivalence guard
-  test derives the collector's exact blocker set from the registry plus the
-  declared probe accounting and asserts set equality with
-  `_UNCLASSIFIED_EVENT_COPIES` and `_LIVE_BLOCKER_PROBES`.
+  does a probe gating on live ownership authority. The exception is the five
+  retained delivery-evidence families — `delivery_receipts`,
+  `delivery_observations`, `delivery_outbox` (probed as `outbox_records`),
+  `native_message_refs` (probed as `native_references`), and
+  `durable_ingress_work` (probed as `ingress_work`): their rows survive
+  collection, and the family blocks only while one of its registry
+  content-potential columns carries a value on the event's own rows. The
+  equivalence guard test derives the collector's blocker families from the
+  registry plus the declared probe accounting and asserts set equality with
+  `_WHOLESALE_BLOCKER_PROBES`, `_LIVE_BLOCKER_PROBES`, and the declared
+  evidence-family mapping.
 - Some families block even though none of their columns is classified as
   content or unclassified today (for example `shared_attachment_references`
   reaches `attachment_blobs.data` through a load-authority reference).
@@ -110,8 +119,11 @@ conservatism of the collector:
   NOT make any family collector-safe.
 - The per-probe assessment labels
   (`bounded_candidate`, `shared_reference`, `identity_retained`,
-  `authority_or_state`, `requires_independent_policy`) emitted by
-  `assess_event_content_release` remain probe-level vocabulary. The guard
+  `authority_or_state`, `requires_independent_policy`, `retained_evidence`)
+  emitted by `assess_event_content_release` remain probe-level vocabulary.
+  `retained_evidence` marks a family whose rows survive collection and
+  which blocks only on content-bearing values; it includes the
+  `delivery_evidence_diagnostics` side table, which never blocks. The guard
   test pins their registry-derived equivalents exactly.
 
 ## 5. Relation to other contracts
