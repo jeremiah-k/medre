@@ -13,3 +13,7 @@ through native message references rather than canonical event IDs, are separate
 copies and MUST block a claimed event-scoped release. Unknown or shared copies
 MUST remain blockers; an empty local blocker list is not a global erasure claim.
 This classification alone authorizes no deletion and no retention scheduler.
+The column-level ownership classes behind these probe classifications are
+defined by the [storage column classification
+contract](storage-column-classification.md), which this page's probe-level
+distinctions remain authoritative for.

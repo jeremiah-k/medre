@@ -64,6 +64,11 @@ owned copies that a collector may remove. All unclassified core rows, shared
 attachments and active owners block this narrow subset. An empty blocker list
 MUST NOT be advertised as global erasure or external-copy clearance.
 
+The column-level ownership class of every persistent storage column is
+defined by the [storage column classification
+contract](storage-column-classification.md); the inventoried surfaces above
+are its reviewed content-bearing columns.
+
 A retention implementation MUST distinguish these requirements before granting
 any deletion:
 
