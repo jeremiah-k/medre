@@ -206,9 +206,12 @@ def test_registry_entries_are_unique_and_complete() -> None:
 #: advance, lease and freshness bounds (`locked_at`, `next_attempt_at`,
 #: `last_seen_at`), settlement and expiry bounds (`released_at`,
 #: `revoked_at`, `expired_at`, `expires_at`), and the MIN-bound aggregation
-#: anchor `first_seen_at`.  A new `*_at` column classified
-#: operational_authority MUST consciously extend this allowlist and keep
-#: the rule text consistent in the same change.
+#: anchor `first_seen_at`.  Recorded CAS guard snapshots (for example
+#: `operator_delivery_decisions.observed_updated_at`) are written once with
+#: their row and classified immutable identity, so they never belong here.
+#: A new `*_at` column classified operational_authority MUST consciously
+#: extend this allowlist and keep the rule text consistent in the same
+#: change.
 _AUTHORITY_TIMESTAMP_COLUMNS: frozenset[tuple[str, str]] = frozenset(
     {
         ("adapter_checkpoints", "updated_at"),
@@ -226,7 +229,6 @@ _AUTHORITY_TIMESTAMP_COLUMNS: frozenset[tuple[str, str]] = frozenset(
         ("event_content_dependencies", "released_at"),
         ("inbound_pressure_observations", "first_seen_at"),
         ("inbound_pressure_observations", "last_seen_at"),
-        ("operator_delivery_decisions", "observed_updated_at"),
         ("plugin_state", "updated_at"),
         ("radio_attempt_progress", "updated_at"),
     }

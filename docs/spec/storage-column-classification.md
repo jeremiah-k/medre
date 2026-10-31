@@ -63,9 +63,11 @@ never authorizes any read, retention action, or collection.
 Timestamp rule: timestamps on append-only or write-once rows are immutable
 identity, including write-once scheduling bounds on append-only rows such as
 `delivery_receipts.next_retry_at`, which is written once with its receipt row
-and advanced only by new receipt rows; timestamps that guarded transitions
-compare or advance on mutable rows (`updated_at`, lease and freshness facts,
-and aggregation anchors such as `inbound_pressure_observations.first_seen_at`)
+and advanced only by new receipt rows, and recorded CAS guard snapshots such
+as `operator_delivery_decisions.observed_updated_at`, which is written once
+with its decision row; timestamps that guarded transitions compare or
+advance on mutable rows (`updated_at`, lease and freshness facts, and
+aggregation anchors such as `inbound_pressure_observations.first_seen_at`)
 are operational authority.
 
 ## 3. Registry requirements

@@ -344,7 +344,10 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "target_channel": ColumnClass.UNCLASSIFIED,
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
         "observed_generation": ColumnClass.OPERATIONAL_AUTHORITY,
-        "observed_updated_at": ColumnClass.OPERATIONAL_AUTHORITY,
+        # Recorded CAS snapshot, written once with its decision row; the
+        # guarded transition compares it against the owner's mutable
+        # updated_at and never updates the decision row.
+        "observed_updated_at": ColumnClass.IMMUTABLE_IDENTITY,
         "observed_status": ColumnClass.OPERATIONAL_AUTHORITY,
         "action": ColumnClass.OPERATIONAL_AUTHORITY,
         "recorded_at": ColumnClass.IMMUTABLE_IDENTITY,
