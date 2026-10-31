@@ -1,8 +1,17 @@
 # Content lifecycle and consumer retention
 
-This is a proposed design, not an implemented expiry configuration. Core stores
-canonical payloads inline, relations can copy quote text, and providers own
-separate native stores and journals. The implemented
+Retention profiles, optional plugin holds and automatic expiry remain a
+proposed design, not an implemented configuration. The storage model they
+extend is implemented: canonical body text and relation excerpts are stored
+separately from the immutable event envelope, mandatory content dependencies
+settle transactionally with admission, outbox staging and terminal lifecycle
+transitions, runtime content reads are owner-scoped, and exact-event
+isolated-content collection runs as a guarded, opt-in relay-only operator
+workflow with automatic and periodic collection disabled. The implemented read
+and settlement boundary is
+[content runtime authority](../spec/content-runtime-authority.md); the
+collection contract is
+[guarded logical collection](../spec/content-collection-guard.md). The implemented
 [content inventory](../schemas/content-inventory.schema.json) measures logical
 core surfaces; it grants no deletion authority. The implemented privacy boundary
 remains [security and privacy](../spec/security-privacy.md#35-message-content-at-the-relay-boundary).
@@ -18,7 +27,7 @@ remains [security and privacy](../spec/security-privacy.md#35-message-content-at
 | Native binding       | Destination-scoped mapping from a canonical event to a native message.                     | Native reply selection and loop prevention.             |
 | Ownership record     | Accepted/uncertain attempt identity, generation and minimal duplicate-prevention evidence. | Retry and native recovery.                              |
 | Consumer hold        | A bounded grant to retain a specified part of content for a named purpose.                 | Delivery, reply context, history or an opted-in plugin. |
-| Content availability | An explicit retained, expired, unavailable or policy-denied result.                        | Every consumer reading content.                         |
+| Content availability | An explicit retained, unavailable or denied result.                                        | Every consumer reading content.                         |
 
 Content expiry does not mean an event never existed, and it does not authorize
 another send. Native bindings remain private metadata even after text expires.
@@ -32,7 +41,7 @@ content dependency without permitting deletion of that queue's own content.
 Offer a small set of understandable profiles before exposing individual durations:
 
 - **Relay only:** retain content needed for admitted delivery, then release full
-  bodies. Reply excerpts may live in a bounded process-local cache. Retain only
+  bodies. Reply excerpts can live in a bounded process-local cache. Retain only
   the necessary correlation and ownership records on disk after handoff.
 - **Recent context:** release archive bodies after delivery; retain a bounded
   excerpt window, with separately selected memory or durable context storage.
@@ -41,8 +50,13 @@ Offer a small set of understandable profiles before exposing individual duration
   History and reply-context limits remain independent of delivery deadlines.
 
 Retention profiles require completed runtime integration and qualification
-before activation. Prerelease schema changes use fresh development state,
-without upgrade paths or alternate readers for earlier layouts. Recent context
+before activation. The implemented step in the relay-only direction is
+bounded, operator-initiated collection of isolated canonical text and
+same-event excerpt rows through `medre storage collect --mode relay-only`;
+it is a collection workflow, not a selectable profile. Prerelease schema
+changes use fresh development state, and existing databases accept only the
+explicitly allowlisted additive catalog additions, without alternate readers
+or data transformations for earlier layouts. Recent context
 is a proposed first-release default once implemented and qualified. An unbounded
 archive is not a requirement for reliable bridging.
 
@@ -58,9 +72,12 @@ requested expiry and granted expiry. It carries no credentials or complete
 message body. Optional consumer namespaces are operator-approved, for example
 `plugin:search` rather than an arbitrary plugin-supplied path.
 
-In this design, a lifecycle module owns grants, release, expiry and availability.
-Consumers use that interface instead of independent TTL tables or direct database
-reads. An envelope-only consumer does not need a body-retention grant; excerpts,
+In the implemented core storage authority, the storage backend owns optional
+grant issuance, revocation, durable expiry observation and read mediation
+through `issue_optional_body_hold`, `revoke_optional_body_hold` and
+`read_body_for_consumer`; consumers use that interface instead of independent
+TTL tables or direct database reads. An envelope-only consumer does not need a
+body-retention grant; excerpts,
 full text and attachments have separately approved scopes.
 Delivery and reply enrichment are the first real consumers; a plugin loader is
 not a prerequisite for implementing their contract.
@@ -73,13 +90,14 @@ not a prerequisite for implementing their contract.
 4. Make grants idempotent by consumer and content identity. Renewal cannot move
    a hard privacy deadline or restore expired content.
 5. Persist durable grants with their content transaction. Memory-only grants
-   disappear on restart. Recovery must not resurrect them from stale plugin state.
+   disappear on restart. Recovery cannot resurrect them from stale plugin state.
 6. Expose the consumers retaining content and their deadlines through metadata-only
    inspection. Do not include message text in a policy explanation.
 
-A plugin must handle unavailable content explicitly; granting read access does
-not grant indefinite retention. Disabling a plugin releases its optional holds
-without removing another consumer's content. The existing plugin package is
+A plugin is expected to handle unavailable content explicitly; granting read
+access does not grant indefinite retention. Disabling a plugin releases its
+optional holds without removing another consumer's content. The existing
+plugin package is
 protocol scaffolding without a loader or enforced capability grants. Implement
 permission enforcement and lifecycle ownership together before exposing this
 service to plugins. Installed Python code is trusted code, not a sandbox; a
@@ -101,35 +119,44 @@ that target's expired outcome, and release its content dependency transactionall
 Already submitted or accepted operations retain their ownership fences. Do not
 relabel them as unsent or reissue them because content or a lease expired.
 
-Soft retention windows may defer release while admitted work still needs content.
+Soft retention windows can defer release while admitted work still needs content.
 A hard privacy ceiling cannot be extended indefinitely by a retry, failed plugin,
-new replay or unresolved handoff. Policy must either prevent incompatible work
-at admission or explicitly expire unsent work at that ceiling. Uncertain native
+new replay or unresolved handoff. Policy either prevents incompatible work
+at admission or explicitly expires unsent work at that ceiling. Uncertain native
 acceptance can retain minimal fences without retaining an entire body forever;
-content removal must not erase those fences. No worker purges content across an
+content removal does not erase those fences. No worker purges content across an
 in-flight native call without a coordinated, persisted state transition.
 
 ## Content availability and storage changes
 
-Inline canonical JSON and copied relation text prevent a safe implementation
-based on clearing `payload.body` after a callback. Preserve immutable envelope
-identity and ownership evidence while separating content storage and its
-availability projection. Define one envelope/content-reference contract and
-its validated stored representation. Use fresh state when that prerelease
-contract changes; do not add alternate legacy read paths.
+Canonical body text and relation excerpts are stored in separate rows, so
+release operates on those rows rather than clearing `payload.body` after a
+callback; the immutable envelope keeps its identity and ownership evidence.
+One envelope/content-reference contract and its validated stored
+representation are implemented in the v1 core SQLite authority boundary
+described by [content runtime authority](../spec/content-runtime-authority.md).
+Incompatible prerelease layouts are refused and replaced with fresh
+development state; existing databases accept only explicitly allowlisted
+additive catalog additions, and no alternate legacy read paths exist.
 
-Consumers receive content plus availability metadata, or a typed unavailable
-result. Reply enrichment can then choose, in order: an authorized native target,
-a permitted retained excerpt, or an honest reply marker. It cannot infer the
-original text from an identifier. Replay previews report unavailable content
-instead of producing a misleading empty send.
+Consumers receive content plus availability metadata, or a typed retained,
+unavailable or denied result. Reply enrichment can then choose, in order: an
+authorized native target, a permitted retained excerpt, or an honest reply
+marker. It cannot infer the original text from an identifier. Replay
+content-dependent stages fail closed once source authority is released and
+report a named denied skip outcome instead of producing a misleading empty
+send.
 
-A purge plan covers content copies in canonical payloads, relation fallback and
-`original_text`, receipt/rendering evidence, outbox/native handoff journals,
-radio packet plans and attachment references. Shared blobs remain retained while
-any authorized consumer needs them. Provider declarations identify native stores
-and their deletion limitations; core cannot promise to erase remote recipients,
-third-party histories or backups.
+The read-only release assessment classifies candidate canonical text and
+excerpt rows separately from opaque envelope, relation, receipt, outbox,
+native, radio and evidence copies, active owners and shared attachment
+references. Arbitrary relation keys or metadata, and incoming excerpts stored
+by other events, block collection, and unmeasured external or physical copies
+stay reported as unmeasured. The first classified collection subset contains
+only separately persisted canonical text and same-event excerpt rows. Shared
+blobs remain retained while any authorized consumer needs them. Provider
+declarations identify native stores and their deletion limitations; core
+cannot promise to erase remote recipients, third-party histories or backups.
 
 Logical release, removal from live SQLite rows and physical reclamation are
 separate operations. Report each scope honestly. File encryption, key disposal,
@@ -147,21 +174,31 @@ semantics in addition to execution identity.
 
 ## Implementation and qualification order
 
-1. Keep the inventory and add a metadata-only dependency projection and policy
-   preview. A preview lists holds, expiry and unknown/provider-owned copies;
-   it never treats a byte count as permission to delete.
-2. Introduce one content-reference/availability representation and validate it
-   on fresh state. Preserve immutable envelope and attempt identity throughout
-   runtime processing; reject incompatible stored layouts.
-3. Wire delivery and reply-context holds, including durable ingress before fanout,
-   partial fanout, queued feedback, restart and unavailable-quote fallback.
-4. Add opt-in release and bounded collection with race tests against dispatch,
-   reader leases, attachment sharing and repeated expiry/restart.
-5. Integrate optional plugin holds only with the actual plugin permission and
-   ownership system. Define cooperative external-copy disclosure separately.
+The first four steps of this order are implemented:
+
+1. The inventory, the metadata-only dependency projection and the versioned
+   availability policy preview are in place. A preview lists holds, expiry and
+   unknown/provider-owned copies; it never treats a byte count as permission to
+   delete.
+2. One content-reference/availability representation is validated on fresh
+   state. Immutable envelope and attempt identity are preserved throughout
+   runtime processing; incompatible stored layouts are refused, with only
+   explicitly allowlisted additive catalog additions applied to existing
+   databases.
+3. Delivery and reply-context holds are wired through owner-scoped reads,
+   including durable ingress before fanout, partial fanout, queued feedback,
+   restart and unavailable-quote fallback.
+4. Opt-in release and bounded collection are implemented: an apply request
+   acquires the SQLite write reservation before rechecking every owner, grant,
+   record and copy blocker, and repeated collection stays idempotent across
+   concurrent writers and restarts.
+5. Optional plugin holds still require the actual plugin permission and
+   ownership system. Cooperative external-copy disclosure is defined
+   separately.
 
 Acceptance includes a completed target beside a pending target, an uncertain
 native handoff at the privacy ceiling, a plugin renewal beyond its grant, plugin
 removal while a reply still needs the excerpt, a crash during release, a shared
 attachment, an expired replay and a restart with an empty memory cache. Expiry
-must reduce content while preserving correct refusal to resend uncertain work.
+reduces retained content while preserving correct refusal to resend uncertain
+work.
