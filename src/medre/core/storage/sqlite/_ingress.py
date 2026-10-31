@@ -40,6 +40,7 @@ from medre.core.storage.sqlite.connection import (
     AttachmentAdmissionPlan,
     sync_admit_ingress,
     sync_claim_ingress_work,
+    sync_complete_ingress_and_settle,
     sync_upsert_checkpoint,
 )
 from medre.core.storage.sqlite.ingress_sql import SELECT_INGRESS_WORK_STATE
@@ -509,17 +510,22 @@ class _IngressMixin:
             raise StorageError(f"Ingress work claim failed: {exc}") from exc
 
     async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> bool:
-        """Mark owned ingress work complete after durable delivery planning."""
-        changed = await self._write_rowcount(
-            """
-            UPDATE durable_ingress_work
-            SET status='completed', updated_at=?, locked_at=NULL,
-                lease_until=NULL, worker_id=NULL, last_error=NULL
-            WHERE event_id=? AND status='processing' AND worker_id=?
-            """,
-            (_now_iso(), event_id, worker_id),
-        )
-        return changed == 1
+        """Commit a guarded ingress completion and release its source owner.
+
+        The caller must have durably adopted all intended target generations
+        before declaring ingress complete; zero targets is a valid decision.
+        """
+        try:
+            return await self._run_in_thread(
+                sync_complete_ingress_and_settle,
+                self._require_db(),
+                self._lock,
+                event_id,
+                worker_id,
+                _now_iso(),
+            )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Ingress completion failed: {exc}") from exc
 
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str

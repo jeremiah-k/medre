@@ -29,12 +29,16 @@ Duplicate admission cannot replace the original
 bytes or recreate an owner. A new **replay** generation adopts no dependency of
 its own and never inherits a live outbox hold; its dispatch authority is the
 still-live admission dependency, observed in the same snapshot as the read, so
-replay fails closed once that hold is released or expired. The source is never
-released merely because one of several targets becomes terminal.
+replay fails closed once that hold is released or expired. Source ownership ends atomically with guarded durable ingress completion,
+**after** the ingress worker has durably adopted its intended fanout (possibly
+zero targets). Ordinary targets then remain independently authorized by their
+own exact generation dependencies. Completing one target cannot settle another.
+An `append` source has no durable ingress completion marker and remains held
+until an explicit later lifecycle is defined; it is never guessed terminal.
 
 An optional UTC `content_deadline` may be given to SQLite ingress admission.
 The deadline is not a default retention rule. Observing expiration releases
-its source dependency **logically and durably**, including when attempting to
+expired source **and target** dependencies **logically and durably**, including when attempting to
 stage a late outbox, and a subsequent backward clock adjustment cannot
 reactivate it, even if optional-hold issuance is refused after observing expiry.
 Missing dependency rows never authorize retained content. No row deletion or physical content collection is performed.
@@ -131,6 +135,33 @@ Persisted recovery records retain their original contents and remain sensitive. 
 still consume complete events, while metadata-only reply inspection can
 preserve native reply identity without manufacturing expired text.
 
+## Terminal owner settlement and release assessment
+
+A successful guarded `complete_ingress_work` and its source dependency release
+commit in **one SQLite transaction**. The caller completes work only after
+its target fanout is durably adopted. Deferred, pending or failed ingress does
+not release its source. Every ordinary outbox terminal status (`sent`,
+`dead_lettered`, `cancelled`, `abandoned`) settles **only its own target hold**
+inside the same guarded status transaction. Receipt-backed and deferred-native
+finalizers settle the same target inside their receipt/native-ref transactions.
+Stale workers and already-terminal rows cannot settle another generation's
+hold. `queued` and `retry_wait` are not terminal. Duplicate prevention,
+accepted packet prefixes, native references, and receipts remain persisted.
+`sent` is local handoff, not recipient confirmation.
+
+`SQLiteStorage.assess_event_content_release(event_id)` is a strictly read-only,
+metadata-only event-scoped snapshot: it counts candidate text/excerpt copies,
+active work and grants, and content-bearing opaque native, provider, outbox,
+relation, attachment, radio and evidence surfaces. `core_subset_status=eligible`
+only means no **identified local** blockers for the narrow classified subset.
+`status=unmeasured` reports external/physical copies the snapshot cannot prove
+absent. Any active owner or unclassified core copy yields `status=blocked`.
+Neither status authorizes deleting even one byte: `deletion_authorized=false`
+and `retention_authorized=false` are unconditional. The inspection never
+selects content values, shares no caller-supplied SQL and performs no expiry
+observation or write. Physical WAL, backups, logs, plugin and provider stores
+remain unmeasured.
+
 ## Remaining content and release boundaries
 
 This change is **logical read mediation and dispatch-start fencing**, not
@@ -144,9 +175,10 @@ accepted, partially accepted or uncertain native operation. Logical expiry
 must never erase attempt evidence or imply an uncertain operation did not
 happen.
 
-Before automatic collection: inventory all content-bearing copies, define
-terminal-owner settlement and shared attachment release, test outbox/retry
-and reply fallbacks, and qualify provider-native retention, WAL and backups.
+Before automatic collection: classify unmeasured and opaque copies, define
+shared attachment release, qualify optional/reply windows and provider-native
+retention, and test outbox/retry/packet acceptance against the actual collector,
+WAL and backups.
 No automatic deletion or physical erasure is enabled.
 
 No storage migrations are provided for superseded, unsupported prerelease

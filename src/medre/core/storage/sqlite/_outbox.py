@@ -45,6 +45,7 @@ from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
 from medre.core.storage.sqlite._projections import inspection_sql
+from medre.core.storage.sqlite.connection import sync_transition_outbox_and_settle
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
@@ -899,10 +900,22 @@ class _OutboxMixin:
 
         set_clause = ", ".join(sets)
         where_sql = " AND ".join(where_clauses)
-        rowcount = await self._write_rowcount(
-            f"UPDATE delivery_outbox SET {set_clause} WHERE {where_sql}",  # nosec: set_clause contains only hardcoded column names, values via ? params
-            tuple(params),
-        )
+        sql = f"UPDATE delivery_outbox SET {set_clause} WHERE {where_sql}"  # nosec B608
+        if new_status in TERMINAL_OUTBOX_STATUSES:
+            try:
+                rowcount = await self._run_in_thread(
+                    sync_transition_outbox_and_settle,
+                    self._require_db(),
+                    self._lock,
+                    sql,
+                    tuple(params),
+                    outbox_id,
+                    now,
+                )
+            except sqlite3.Error as exc:
+                raise StorageError(f"Database write failed: {exc}") from exc
+        else:
+            rowcount = await self._write_rowcount(sql, tuple(params))
         return rowcount == 1
 
     async def mark_outbox_sent(
