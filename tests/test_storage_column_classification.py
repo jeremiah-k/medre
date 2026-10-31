@@ -198,6 +198,55 @@ def test_registry_entries_are_unique_and_complete() -> None:
     assert len(keys) == len(all_entries) == declared
 
 
+#: The registry's operational-authority timestamps, pinned so the declared
+#: set and the spec contract's timestamp rule
+#: (docs/spec/storage-column-classification.md) cannot drift apart.  The
+#: allowlist entries are exactly the rule's mutable-row categories:
+#: `updated_at`-style transition timestamps that guarded transitions
+#: advance, lease and freshness bounds (`locked_at`, `next_attempt_at`,
+#: `last_seen_at`), settlement and expiry bounds (`released_at`,
+#: `revoked_at`, `expired_at`, `expires_at`), and the MIN-bound aggregation
+#: anchor `first_seen_at`.  A new `*_at` column classified
+#: operational_authority MUST consciously extend this allowlist and keep
+#: the rule text consistent in the same change.
+_AUTHORITY_TIMESTAMP_COLUMNS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("adapter_checkpoints", "updated_at"),
+        ("conversation_membership", "updated_at"),
+        ("conversation_projection_state", "updated_at"),
+        ("delivery_outbox", "last_attempt_at"),
+        ("delivery_outbox", "locked_at"),
+        ("delivery_outbox", "next_attempt_at"),
+        ("delivery_outbox", "updated_at"),
+        ("durable_ingress_work", "locked_at"),
+        ("durable_ingress_work", "updated_at"),
+        ("event_content_access_grants", "expired_at"),
+        ("event_content_access_grants", "expires_at"),
+        ("event_content_access_grants", "revoked_at"),
+        ("event_content_dependencies", "released_at"),
+        ("inbound_pressure_observations", "first_seen_at"),
+        ("inbound_pressure_observations", "last_seen_at"),
+        ("operator_delivery_decisions", "observed_updated_at"),
+        ("plugin_state", "updated_at"),
+        ("radio_attempt_progress", "updated_at"),
+    }
+)
+
+
+def test_authority_timestamps_match_the_rule_allowlist() -> None:
+    """The timestamp rule's authority set is exactly the pinned allowlist."""
+    derived = {
+        (entry.table, entry.column)
+        for entry in entries_of_class(ColumnClass.OPERATIONAL_AUTHORITY)
+        if entry.column.endswith("_at")
+    }
+    assert derived == _AUTHORITY_TIMESTAMP_COLUMNS, (
+        "Authority-timestamp registry set and allowlist disagree: "
+        f"registry-only={sorted(derived - _AUTHORITY_TIMESTAMP_COLUMNS)} "
+        f"allowlist-only={sorted(_AUTHORITY_TIMESTAMP_COLUMNS - derived)}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2. Schema walk over a fresh storage instance
 # ---------------------------------------------------------------------------

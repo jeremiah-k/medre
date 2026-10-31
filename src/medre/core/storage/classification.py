@@ -209,7 +209,10 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "capability_reason": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "delivery_strategy": ColumnClass.OPERATIONAL_AUTHORITY,
         "adapter_message_id": ColumnClass.IMMUTABLE_IDENTITY,
-        "next_retry_at": ColumnClass.OPERATIONAL_AUTHORITY,
+        # Durable per-receipt scheduling bound: written once with its receipt
+        # row and advanced only by new receipt rows on this append-only
+        # evidence family, so the timestamp rule keeps it immutable identity.
+        "next_retry_at": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
         "parent_receipt_id": ColumnClass.IMMUTABLE_IDENTITY,
         "source": ColumnClass.IMMUTABLE_IDENTITY,
@@ -314,7 +317,8 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
     },
     # Counters-only aggregate; the (window_start, source, outcome) key never
-    # changes per row while count and freshness timestamps mutate.
+    # changes per row while count, the MIN-bound aggregation anchor
+    # first_seen_at, and the freshness bound last_seen_at mutate.
     "inbound_pressure_observations": {
         "window_start": ColumnClass.IMMUTABLE_IDENTITY,
         "source": ColumnClass.IMMUTABLE_IDENTITY,
