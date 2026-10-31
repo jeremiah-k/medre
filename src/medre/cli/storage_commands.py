@@ -182,6 +182,7 @@ async def _storage_collect(
     transaction, never authorizing from preview output.
     """
     from medre.core.storage.backend import StorageError
+    from medre.core.storage.sqlite._collection import COLLECTION_UNMEASURED_SCOPES
     from medre.core.storage.sqlite.storage import SQLiteStorage
 
     from .json import to_json
@@ -190,8 +191,8 @@ async def _storage_collect(
     if mode not in {"retain", "relay-only"} or not 1 <= limit <= 100:
         print("Error: choose a valid mode and limit 1–100", file=sys.stderr)
         raise SystemExit(EXIT_CONFIG)
-    if after is not None and (not after or len(after) > 512):
-        print("Error: --after needs a bounded event ID", file=sys.stderr)
+    if after is not None and not after:
+        print("Error: --after needs a nonempty event ID", file=sys.stderr)
         raise SystemExit(EXIT_CONFIG)
     if apply and (mode != "relay-only" or not yes):
         print(
@@ -207,6 +208,14 @@ async def _storage_collect(
         print("Error: existing SQLite database required", file=sys.stderr)
         raise SystemExit(EXIT_BUILD)
     if apply:
+        try:
+            with open(storage_path, "rb") as source:
+                valid_header = source.read(16) == _SQLITE_MAGIC
+        except OSError:
+            valid_header = False
+        if not valid_header:
+            print("Error: existing SQLite database required", file=sys.stderr)
+            raise SystemExit(EXIT_BUILD)
         storage = SQLiteStorage(storage_path)
         try:
             await storage.initialize()
@@ -222,15 +231,21 @@ async def _storage_collect(
             if mode == "retain":
                 reports.append({"event_id": event_id, "status": "retained_by_policy"})
             else:
-                reports.append(
-                    await storage.collect_event_content(event_id, dry_run=not apply)
-                )
+                try:
+                    reports.append(
+                        await storage.collect_event_content(event_id, dry_run=not apply)
+                    )
+                except (StorageError, ValueError):
+                    # Previous events may already be committed. Report the
+                    # failure without exposing storage errors or losing progress.
+                    reports.append({"event_id": event_id, "status": "refused"})
         result = {
             "format": "medre-content-collection-batch",
             "version": 1,
             "mode": mode,
             "dry_run": not apply,
             "events_examined": len(event_ids),
+            "events_refused": sum(r["status"] == "refused" for r in reports),
             "limit": limit,
             "next_after": event_ids[-1] if event_ids else None,
             "rows_removed": sum(r.get("rows_removed", 0) for r in reports),
@@ -238,6 +253,7 @@ async def _storage_collect(
                 r.get("logical_bytes_removed", 0) for r in reports
             ),
             "physical_erasure_claimed": False,
+            "unmeasured": list(COLLECTION_UNMEASURED_SCOPES),
             "results": reports,
         }
         print(to_json(result))
