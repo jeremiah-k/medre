@@ -57,11 +57,10 @@ allowlisted, structurally exact additive catalog changes in one SQLite write
 transaction after validating the predecessor catalog exactly;
 the allowlist is specified in
 [storage](../spec/storage.md#10-pre-release-database-policy). Renames, altered
-constraints, data backfills, version bumps and general legacy schema
-transformations stay refused, and no legacy readers, version aliases or
-compatibility shims are provided. Version fields identify the supported format
-and allow strict refusal; they do not promise an upgrade path from earlier
-development formats.
+constraints, data backfills, version bumps and general legacy schema transformations
+stay refused. Provide no legacy readers, version aliases or compatibility shims.
+Version fields identify the supported format and allow strict refusal; they do
+not promise an upgrade path from earlier development formats.
 
 ## Architecture decisions
 
