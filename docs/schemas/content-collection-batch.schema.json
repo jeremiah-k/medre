@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-collection-batch.schema.json",
+  "title": "MEDRE bounded content collection batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "mode",
+    "dry_run",
+    "events_examined",
+    "limit",
+    "next_after",
+    "rows_removed",
+    "logical_bytes_removed",
+    "physical_erasure_claimed",
+    "results"
+  ],
+  "properties": {
+    "format": { "const": "medre-content-collection-batch" },
+    "version": { "const": 1 },
+    "mode": { "enum": ["retain", "relay-only"] },
+    "dry_run": { "type": "boolean" },
+    "events_examined": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "next_after": { "type": ["string", "null"] },
+    "rows_removed": { "type": "integer", "minimum": 0 },
+    "logical_bytes_removed": { "type": "integer", "minimum": 0 },
+    "physical_erasure_claimed": { "const": false },
+    "results": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "type": "object" }
+    }
+  }
+}

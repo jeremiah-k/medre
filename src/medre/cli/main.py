@@ -902,6 +902,34 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Confirm destructive reset",
     )
 
+    storage_collect_p = storage_sub.add_parser(
+        "collect",
+        help="Preview or explicitly collect isolated core text (no automatic policy)",
+    )
+    storage_collect_p.add_argument("--storage-path", default=None, metavar="PATH")
+    storage_collect_p.add_argument(
+        "--mode",
+        choices=("retain", "relay-only"),
+        default="retain",
+        help="Retention policy (default: retain; relay-only is explicit opt-in)",
+    )
+    storage_collect_p.add_argument(
+        "--limit", type=int, default=25, help="Bounded event batch size (1–100)"
+    )
+    storage_collect_p.add_argument(
+        "--after", default=None, help="Resume after this event ID"
+    )
+    storage_collect_p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Mutate storage (requires --mode relay-only --yes)",
+    )
+    storage_collect_p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm logical collection on stopped bridge storage",
+    )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     parser.set_defaults(_adapter_cli_failures=())
     if include_adapter_cli:
@@ -1291,11 +1319,23 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "storage":
         from medre.config.paths import resolve as resolve_paths
 
-        from .storage_commands import _storage_reset, _storage_status
+        from .storage_commands import _storage_collect, _storage_reset, _storage_status
 
         if args.storage_command == "status":
             path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(_storage_status(path))
+        elif args.storage_command == "collect":
+            path = args.storage_path or str(resolve_paths().database_path)
+            asyncio.run(
+                _storage_collect(
+                    path,
+                    mode=args.mode,
+                    limit=args.limit,
+                    after=args.after,
+                    apply=args.apply,
+                    yes=args.yes,
+                )
+            )
         elif args.storage_command == "reset":
             path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(

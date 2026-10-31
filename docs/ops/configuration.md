@@ -1451,6 +1451,11 @@ medre resolve --storage-path PATH --event ID --plan-id PLAN --target-adapter ADA
 medre storage status [--storage-path PATH]
     Storage management (read-only). Reports schema health.
 
+medre storage collect [--storage-path PATH] [--mode retain|relay-only] [--limit N] [--after EVENT] [--apply] [--yes]
+    Storage management (opt-in content collection). Defaults to retain with
+    a read-only preview; relay-only applying additionally requires --yes on
+    stopped bridge storage. No scheduler.
+
 medre storage reset [--storage-path PATH]
     Storage management (destructive). Deletes the database; accepts
     --backup and --yes.

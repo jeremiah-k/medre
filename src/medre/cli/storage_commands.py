@@ -1,4 +1,4 @@
-"""Storage CLI commands: status inspection and prerelease reset.
+"""Storage CLI commands: inspection, explicit content collection, and reset.
 
 ``medre storage status``  — read-only schema health check.
 ``medre storage reset``   — destructive reset with optional backup.
@@ -11,6 +11,7 @@ import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG
 
@@ -163,3 +164,87 @@ async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
     except OSError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_BUILD)
+
+
+async def _storage_collect(
+    storage_path: str,
+    *,
+    mode: str = "retain",
+    limit: int = 25,
+    after: str | None = None,
+    apply: bool = False,
+    yes: bool = False,
+) -> None:
+    """Run an explicit, bounded content policy batch without a scheduler.
+
+    Dry runs use a strict read-only SQLite handle. Apply requires two
+    independent declarations and rechecks each event inside its mutation
+    transaction, never authorizing from preview output.
+    """
+    from medre.core.storage.backend import StorageError
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    from .json import to_json
+    from .storage_helpers import _open_readonly_storage
+
+    if mode not in {"retain", "relay-only"} or not 1 <= limit <= 100:
+        print("Error: choose a valid mode and limit 1–100", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    if after is not None and (not after or len(after) > 512):
+        print("Error: --after needs a bounded event ID", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    if apply and (mode != "relay-only" or not yes):
+        print(
+            "Error: --apply requires --mode relay-only and --yes; "
+            "stop running bridges before applying collection",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
+    if yes and not apply:
+        print("Error: --yes requires --apply", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    if not Path(storage_path).is_file():
+        print("Error: existing SQLite database required", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD)
+    if apply:
+        storage = SQLiteStorage(storage_path)
+        try:
+            await storage.initialize()
+        except Exception as exc:
+            print(f"Storage error: {exc}", file=sys.stderr)
+            raise SystemExit(EXIT_BUILD) from None
+    else:
+        storage = await _open_readonly_storage(storage_path)
+    try:
+        event_ids = await storage.list_event_ids_page(after_event_id=after, limit=limit)
+        reports: list[dict[str, Any]] = []
+        for event_id in event_ids:
+            if mode == "retain":
+                reports.append({"event_id": event_id, "status": "retained_by_policy"})
+            else:
+                reports.append(
+                    await storage.collect_event_content(event_id, dry_run=not apply)
+                )
+        result = {
+            "format": "medre-content-collection-batch",
+            "version": 1,
+            "mode": mode,
+            "dry_run": not apply,
+            "events_examined": len(event_ids),
+            "limit": limit,
+            "next_after": event_ids[-1] if event_ids else None,
+            "rows_removed": sum(r.get("rows_removed", 0) for r in reports),
+            "logical_bytes_removed": sum(
+                r.get("logical_bytes_removed", 0) for r in reports
+            ),
+            "physical_erasure_claimed": False,
+            "results": reports,
+        }
+        print(to_json(result))
+    except (StorageError, ValueError):
+        print(
+            "Collection refused: storage state is not safe to assess", file=sys.stderr
+        )
+        raise SystemExit(EXIT_BUILD) from None
+    finally:
+        await storage.close()
