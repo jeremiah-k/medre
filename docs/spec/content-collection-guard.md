@@ -5,7 +5,8 @@ preview. The exact event ID MUST be bounded. An apply request MUST acquire the
 SQLite write reservation before checking any owner, grant, record or copy
 blocker. If safe, it MAY delete **only** separate canonical text and same-event
 relation excerpt rows, in the same transaction that writes its immutable,
-non-content collection receipt. Inconsistent admission facts MUST fail closed;
+non-content collection receipt. Inconsistent admission facts, including a body row whose admission identity says
+no body was present, MUST fail closed;
 repeated collection MUST be idempotent, including across concurrent writers
 and restarts. It MUST NOT delete immutable delivery, native reference, radio,
 attachment, or provider state. A successful logical delete is not physical

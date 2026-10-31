@@ -19,7 +19,11 @@ from medre.core.storage.sqlite._count import (
     _EVENT_COPY_SQL,
     _LIVE_BLOCKER_PROBES,
     _UNCLASSIFIED_EVENT_COPIES,
+    _UNMEASURED_CONTENT_SCOPES,
 )
+
+COLLECTION_UNMEASURED_SCOPES = _UNMEASURED_CONTENT_SCOPES
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -82,6 +86,8 @@ def sync_collect_event_content(
                 raise StorageError("Collection requires a valid admission identity")
             if previous is not None and rows:
                 raise StorageError("Collected content was unexpectedly recreated")
+            if previous is None and identity[0] == 0 and measure[0]:
+                raise StorageError("Body row exists but admission recorded no body")
             if previous is None and identity[0] and not measure[0]:
                 raise StorageError(
                     "Admission body is missing without collection record"
@@ -130,13 +136,7 @@ def sync_collect_event_content(
                 "candidate_logical_bytes": logical_bytes,
                 "rows_removed": rows if state == "collected" else 0,
                 "logical_bytes_removed": logical_bytes if state == "collected" else 0,
-                "unmeasured": [
-                    "provider_native_queues_histories_and_peers",
-                    "sqlite_free_pages_and_wal",
-                    "backups_exports_and_snapshots",
-                    "application_and_provider_logs",
-                    "copies_embedded_in_other_events",
-                ],
+                "unmeasured": list(COLLECTION_UNMEASURED_SCOPES),
                 "physical_erasure_claimed": False,
             }
             if dry_run:
@@ -164,7 +164,7 @@ class _CollectionMixin:
     async def collect_event_content(
         self, event_id: str, *, dry_run: bool = True
     ) -> dict[str, Any]:
-        if not isinstance(event_id, str) or not event_id or len(event_id) > 512:
+        if not isinstance(event_id, str) or not event_id:
             raise ValueError("A bounded event ID is required")
         try:
             return await self._run_in_thread(
