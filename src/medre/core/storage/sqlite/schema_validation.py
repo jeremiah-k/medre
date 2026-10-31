@@ -11,6 +11,7 @@ from medre.core.storage.backend import (
     StorageInitializationError,
 )
 from medre.core.storage.sqlite.schema import (
+    _COLLECTION_LOG_DDL,
     _EXPECTED_SCHEMA_VERSION,
     _INDEXES,
     _REQUIRED_COLUMNS,
@@ -40,6 +41,76 @@ def _expected_definitions() -> dict[tuple[str, str], str]:
         reference.close()
 
 
+@lru_cache(maxsize=1)
+def _known_grant_table_forms() -> tuple[str, str]:
+    """Exact old and ALTER-generated spellings of one safe nullable addition.
+
+    The old form is derived from the authoritative DDL, not a permissive
+    set-of-columns approximation. Constraints must match byte for byte.
+    """
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(
+            _SCHEMA.replace("    expired_at TEXT,\n", "") + _INDEXES
+        )
+        old = _definitions(reference)[("table", "event_content_access_grants")]
+        reference.execute(
+            "ALTER TABLE event_content_access_grants ADD COLUMN expired_at TEXT"
+        )
+        altered = _definitions(reference)[("table", "event_content_access_grants")]
+        return old, altered
+    finally:
+        reference.close()
+
+
+def safe_additive_state(db: sqlite3.Connection) -> bool:
+    """Accept only the exact old grant table and missing collection log.
+
+    Every unrelated table, index, view and trigger must already match. Called
+    read-only at preflight and again after acquiring BEGIN IMMEDIATE.
+    """
+    actual = _definitions(db)
+    expected = _expected_definitions()
+    if ("table", "_medre_schema_meta") not in actual:
+        return False
+    version = db.execute(
+        "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
+    ).fetchone()
+    if version is None or str(version[0]) != str(_EXPECTED_SCHEMA_VERSION):
+        return False
+    if actual.keys() - expected.keys():
+        return False
+    missing = expected.keys() - actual.keys()
+    if missing - {("table", "event_content_collection_log")}:
+        return False
+    old, altered = _known_grant_table_forms()
+    for key, definition in actual.items():
+        if key == ("table", "event_content_access_grants"):
+            if definition not in {
+                expected[key],
+                old,
+                altered,
+            }:
+                return False
+        elif definition != expected[key]:
+            return False
+    return True
+
+
+def apply_safe_additions(db: sqlite3.Connection) -> None:
+    """Apply allowlisted additive DDL inside the caller's IMMEDIATE transaction."""
+    if not safe_additive_state(db):
+        raise ValueError("Schema is not an approved additive predecessor")
+    current = _definitions(db)
+    if ("table", "event_content_collection_log") not in current:
+        execute_ddl(db, _COLLECTION_LOG_DDL)
+    if (
+        current[("table", "event_content_access_grants")]
+        == _known_grant_table_forms()[0]
+    ):
+        db.execute("ALTER TABLE event_content_access_grants ADD COLUMN expired_at TEXT")
+
+
 def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     """Validate without writes; return False only for an empty database.
 
@@ -50,6 +121,11 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     the prerelease contract; no independent fingerprint inventory can drift.
     """
     actual = _definitions(db)
+    # SQLite writes an ALTER-added nullable column at the end of the stored
+    # CREATE TABLE text. That exact known variant has the same constraints.
+    grant_key = ("table", "event_content_access_grants")
+    if actual.get(grant_key) == _known_grant_table_forms()[1]:
+        actual[grant_key] = _expected_definitions()[grant_key]
     if not actual:
         return False
     if ("table", "_medre_schema_meta") not in actual:

@@ -1711,10 +1711,14 @@ MEDRE has not yet established a supported database baseline. The schema version 
 development state. This does **not** prohibit forward-only additive migrations
 after a stable, explicitly supported schema baseline is declared.
 
-There is no automatic prerelease schema transformation. No code path rewrites
-old data into a new schema shape. The `initialize()` method **MUST** perform
-version, column-shape, and structural-constraint validation that rejects stale
-prerelease databases:
+Only explicitly allowlisted, structurally exact additive changes MAY be applied
+within one `BEGIN IMMEDIATE` transaction. For this slice those additions are
+the nullable `event_content_access_grants.expired_at` field and the independent
+`event_content_collection_log` table. This does not authorize renames, altered
+constraints, data backfills, or general legacy schema transformations. The
+`initialize()` method **MUST** validate the old catalog against one exact
+allowlisted predecessor before any DDL and validate the complete resulting
+catalog before commit. All other stale prerelease layouts MUST be rejected:
 
 ### 10.1 Schema Version Check
 
@@ -1727,12 +1731,12 @@ Because `_EXPECTED_SCHEMA_VERSION` remains `1` in the current development phase,
 For an already-stamped MEDRE database, `initialize()` **MUST** inspect
 `PRAGMA table_info` for every required table **before schema DDL executes**.
 This prevents `CREATE TABLE IF NOT EXISTS` from silently filling in newly
-introduced prerelease tables. If any required table or column is missing,
-`PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`)
-**MUST** be raised. The error message **MUST** identify the affected table, the
+introduced prerelease tables. Missing fields and tables not covered by an
+explicitly verified additive predecessor MUST raise
+`PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`). The error message **MUST** identify the affected table, the
 missing columns, unexpected columns or metadata details as separate clauses,
-and the database file path. It **MUST NOT** suggest that
-automatic schema transformation is available.
+and the database file path. It MUST NOT suggest support for an arbitrary
+legacy schema transformation.
 
 After the database opens, normal shape validation repeats with
 `PRAGMA table_xinfo` (including hidden and generated columns) and the complete

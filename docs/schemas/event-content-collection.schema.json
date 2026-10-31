@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/event-content-collection.schema.json",
+  "title": "MEDRE bounded event content collection result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "event_id",
+    "mode",
+    "status",
+    "dry_run",
+    "blockers",
+    "candidate_rows",
+    "candidate_logical_bytes",
+    "rows_removed",
+    "logical_bytes_removed",
+    "unmeasured",
+    "physical_erasure_claimed"
+  ],
+  "properties": {
+    "format": { "const": "medre-content-collection" },
+    "version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "mode": { "const": "relay-only" },
+    "status": {
+      "enum": ["blocked", "dry_run", "collected", "already_collected", "empty"]
+    },
+    "dry_run": { "type": "boolean" },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "candidate_rows": { "type": "integer", "minimum": 0 },
+    "candidate_logical_bytes": { "type": "integer", "minimum": 0 },
+    "rows_removed": { "type": "integer", "minimum": 0 },
+    "logical_bytes_removed": { "type": "integer", "minimum": 0 },
+    "unmeasured": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "physical_erasure_claimed": { "const": false }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "collected" } } },
+      "then": { "properties": { "dry_run": { "const": false } } }
+    },
+    {
+      "if": { "properties": { "dry_run": { "const": true } } },
+      "then": {
+        "properties": {
+          "rows_removed": { "const": 0 },
+          "logical_bytes_removed": { "const": 0 }
+        }
+      }
+    }
+  ]
+}

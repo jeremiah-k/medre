@@ -510,32 +510,33 @@ class TestDDLRequiredColumnsParity:
 
 
 class TestNoDeleteInStorageModule:
-    """The storage module must not contain any DELETE SQL statements.
+    """Only the guarded content collector may delete isolated content rows.
 
-    No runtime code path deletes historical data.  This structural test
-    ensures no DELETE statement is accidentally introduced.
+    Native refs, delivery evidence, radio progress, outbox records and other
+    historical authority must remain append-only.  This is a source-level
+    allowlist; transactional authority is tested separately.
     """
 
-    def test_no_delete_statements_in_source(self) -> None:
-        """No .py file in the sqlite storage module contains DELETE FROM."""
+    def test_only_classified_content_rows_are_deleted(self) -> None:
         delete_pattern = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
+        permitted = {"event_body_content", "event_relation_excerpts"}
+        found: set[str] = set()
         violations: list[str] = []
-
         for py_file in _sqlite_source_files():
-            content = py_file.read_text()
-            for line_no, line in enumerate(content.split("\n"), 1):
-                # Skip comments
+            for line_no, line in enumerate(py_file.read_text().split("\n"), 1):
                 stripped = line.lstrip()
-                if stripped.startswith("#"):
+                if stripped.startswith("#") or not delete_pattern.search(line):
                     continue
-                # Check for DELETE FROM
-                if delete_pattern.search(line):
-                    violations.append(f"{py_file.name}:{line_no}: {line.strip()}")
-
-        assert violations == [], (
-            "DELETE FROM statements found in storage module "  # nosec B608
-            "(violates append-only invariant):\n" + "\n".join(violations)
+                if py_file.name == "_collection.py":
+                    matches = {table for table in permitted if table in line}
+                    if len(matches) == 1:
+                        found.update(matches)
+                        continue
+                violations.append(f"{py_file.name}:{line_no}: {line.strip()}")
+        assert not violations, "Unexpected storage DELETE operations: " + repr(
+            violations
         )
+        assert found == permitted
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.

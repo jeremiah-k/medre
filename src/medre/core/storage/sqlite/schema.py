@@ -2,8 +2,8 @@
 
 This module owns all database-shape definitions used by the SQLite storage
 backend.  During pre-release development the schema version remains frozen at
-``1`` while the required shape evolves; old shapes are rejected rather than
-migrated.  Once a release compatibility boundary is declared, DDL changes must
+``1`` while the required shape evolves; incompatible old shapes are rejected.
+Only explicitly allowlisted exact additive predecessor layouts can be upgraded.  Once a release compatibility boundary is declared, DDL changes must
 advance :data:`_EXPECTED_SCHEMA_VERSION`.
 """
 
@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS event_content_access_grants (
     expired_at TEXT,
     PRIMARY KEY(event_id, scope, consumer),
     CHECK (issued_at < expires_at)
+);
+
+-- Immutable logical-collection receipt. Does not claim physical erasure or
+-- removal of provider/native/backup copies. Retains dedup and admission facts.
+CREATE TABLE IF NOT EXISTS event_content_collection_log (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    collected_at TEXT NOT NULL,
+    policy TEXT NOT NULL CHECK (policy = 'relay-only'),
+    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
+    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS event_relations (
@@ -559,6 +569,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "event_body_content": frozenset({"event_id", "body", "field", "created_at"}),
     "event_content_dependencies": frozenset(
         {"event_id", "owner_kind", "owner_id", "acquired_at", "deadline", "released_at"}
+    ),
+    "event_content_collection_log": frozenset(
+        {"event_id", "collected_at", "policy", "rows_removed", "logical_bytes_removed"}
     ),
     "event_relations": frozenset(
         {
@@ -1068,3 +1081,18 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
         ),
     ),
 }
+
+# The only approved prerelease additive collection table. Its DDL is derived
+# from the same authoritative schema used by strict initialization.
+_COLLECTION_LOG_DDL = """
+-- Immutable logical-collection receipt. Does not claim physical erasure or
+-- removal of provider/native/backup copies. Retains dedup and admission facts.
+CREATE TABLE IF NOT EXISTS event_content_collection_log (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    collected_at TEXT NOT NULL,
+    policy TEXT NOT NULL CHECK (policy = 'relay-only'),
+    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
+    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
+);
+
+"""

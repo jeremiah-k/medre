@@ -17,8 +17,8 @@ Storage authority summary:
     never updated or deleted by runtime code).
   - delivery_outbox: mutable operational state until terminal, then immutable
     operational history.  Terminal rows are never deleted or replaced.
-  - No DELETE statements exist in the storage layer.  No runtime code path
-    deletes historical data.
+  - Operator-invoked collection may remove only isolated canonical text/excerpt
+    bytes. Immutable delivery history, outbox records, and native refs remain.
   - ``open_readonly`` opens a strict read-only connection — suitable for
     ``medre inspect`` commands that must never mutate storage.
 """
@@ -49,6 +49,7 @@ from medre.core.storage.sqlite._attachments import (  # noqa: F401  -- public re
     StorageAttachmentAccess,
     _AttachmentsMixin,
 )
+from medre.core.storage.sqlite._collection import _CollectionMixin
 from medre.core.storage.sqlite._content_grants import _ContentGrantsMixin
 from medre.core.storage.sqlite._content_identity import _ContentIdentityMixin
 from medre.core.storage.sqlite._conversation import _ConversationMixin
@@ -242,7 +243,7 @@ class _SQLiteStorageBase:
         StorageInitializationError
             If the database schema version does not match the expected
             version.  The operator must resolve the mismatch manually
-            (no silent schema transformation or reset).
+            (except strictly allowlisted, atomic additive schema updates).
         """
         self._closed = False
         try:
@@ -619,6 +620,7 @@ class _SQLiteStorageBase:
 
 
 class SQLiteStorage(
+    _CollectionMixin,
     _ContentIdentityMixin,
     _ContentGrantsMixin,
     _EventMixin,
