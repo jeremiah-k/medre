@@ -1131,6 +1131,13 @@ class TestNonDictTargetPayload:
             async def get(self, event_id: str) -> object:
                 return target if event_id == "target-str" else None
 
+            async def read_reply_context(self, event_id: str, *, now=None):
+                from medre.core.storage.read_contracts import ReplyContextRead
+
+                if event_id == "target-str":
+                    return ReplyContextRead("retained", target)
+                return ReplyContextRead("denied")
+
             async def list_native_refs_for_event(
                 self, event_id: str, *, metadata_only=False
             ) -> list[NativeMessageRef]:
