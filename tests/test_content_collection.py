@@ -234,3 +234,42 @@ async def test_unknown_relation_type_is_not_treated_as_safe_identity(tmp_path):
         assert "UNTRUSTED-CONTENT" not in json.dumps(result)
     finally:
         await store.close()
+
+
+async def test_collection_rejects_unexplained_body_when_admission_says_absent(tmp_path):
+    store = SQLiteStorage(str(tmp_path / "absent-with-copy.db"))
+    await store.initialize()
+    try:
+        event = msgspec.structs.replace(
+            make_storage_event(event_id="absent"), payload={}, metadata={}
+        )
+        await store.append(event)
+        await store._write(
+            "UPDATE event_content_dependencies SET released_at='2026-10-31' "
+            "WHERE event_id='absent'"
+        )
+        await store._write(
+            "INSERT INTO event_body_content(event_id,field,body,created_at) "
+            "VALUES ('absent','body','UNEXPLAINED','2026-10-31')"
+        )
+        with pytest.raises(StorageError, match="admission recorded no body"):
+            await store.collect_event_content("absent", dry_run=False)
+        with pytest.raises(StorageError, match="admission recorded no body"):
+            await store.collect_event_content("absent", dry_run=True)
+        body = await store._read_one(
+            "SELECT body FROM event_body_content WHERE event_id='absent'"
+        )
+        assert body["body"] == "UNEXPLAINED"
+        assert not await store._read_one(
+            "SELECT 1 FROM event_content_collection_log WHERE event_id='absent'"
+        )
+    finally:
+        await store.close()
+
+
+def test_collection_ddl_has_one_authoritative_definition():
+    from medre.core.storage.sqlite.schema import _COLLECTION_LOG_DDL, _SCHEMA
+
+    assert _SCHEMA.count("CREATE TABLE IF NOT EXISTS event_content_collection_log") == 1
+    assert _COLLECTION_LOG_DDL in _SCHEMA
+    assert "CHECK (policy = 'relay-only')" in _COLLECTION_LOG_DDL

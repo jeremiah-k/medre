@@ -22,7 +22,7 @@
   "properties": {
     "format": { "const": "medre-content-collection" },
     "version": { "const": 1 },
-    "event_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "event_id": { "type": "string", "minLength": 1 },
     "mode": { "const": "relay-only" },
     "status": {
       "enum": ["blocked", "dry_run", "collected", "already_collected", "empty"]

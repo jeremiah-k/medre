@@ -1082,17 +1082,10 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
-# The only approved prerelease additive collection table. Its DDL is derived
-# from the same authoritative schema used by strict initialization.
-_COLLECTION_LOG_DDL = """
--- Immutable logical-collection receipt. Does not claim physical erasure or
--- removal of provider/native/backup copies. Retains dedup and admission facts.
-CREATE TABLE IF NOT EXISTS event_content_collection_log (
-    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
-    collected_at TEXT NOT NULL,
-    policy TEXT NOT NULL CHECK (policy = 'relay-only'),
-    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
-    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
-);
-
-"""
+# Derive the approved additive table verbatim from the authoritative schema.
+# This prevents fresh and additive-upgraded databases from diverging.
+_COLLECTION_LOG_DDL = _SCHEMA[
+    _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS event_relations ("
+    )
+]

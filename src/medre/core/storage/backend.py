@@ -939,6 +939,18 @@ class StorageBackend(Protocol):
         """Fence native start by the exact live worker, attempt and lease."""
         ...
 
+    # -- Content lifecycle --------------------------------------------------
+
+    async def collect_event_content(
+        self, event_id: str, *, dry_run: bool = True
+    ) -> dict[str, Any]:
+        """Preview or atomically collect a classified, owner-free core subset.
+
+        This never deletes immutable delivery facts, native state or external
+        copies. A dry-run is a snapshot, not permission for a later mutation.
+        """
+        ...
+
     # -- Durable ingress -----------------------------------------------------
 
     async def admit_ingress(
@@ -1021,16 +1033,6 @@ class StorageBackend(Protocol):
 
         Authority: **mark** (status transition). Returns whether ownership
         still matched and the transition applied.
-        """
-        ...
-
-    async def collect_event_content(
-        self, event_id: str, *, dry_run: bool = True
-    ) -> dict[str, Any]:
-        """Preview or atomically collect a classified, owner-free core subset.
-
-        This never deletes immutable delivery facts, native state or external
-        copies. A dry-run is a snapshot, not permission for a later mutation.
         """
         ...
 
