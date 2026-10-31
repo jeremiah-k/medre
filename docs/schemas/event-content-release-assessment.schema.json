@@ -76,7 +76,8 @@
               "shared_reference",
               "authority_or_state",
               "requires_independent_policy",
-              "identity_retained"
+              "identity_retained",
+              "retained_evidence"
             ]
           }
         }

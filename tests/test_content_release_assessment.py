@@ -155,6 +155,7 @@ async def test_release_assessment_eligible_subset_is_still_not_deletion_authorit
             "authority_or_state",
             "requires_independent_policy",
             "identity_retained",
+            "retained_evidence",
         }
     finally:
         await store.close()

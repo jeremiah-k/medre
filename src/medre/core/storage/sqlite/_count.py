@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING, Any
 
 from medre.core.events.schema import VALID_RELATION_TYPES
 from medre.core.storage.backend import StorageError
+from medre.core.storage.classification import (
+    CONTENT_POTENTIAL_CLASSES,
+    STORAGE_COLUMN_CLASSES,
+)
 from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
 
 # The relation type is a closed core enum; a corrupted/free-form value is
@@ -22,6 +26,28 @@ _KNOWN_RELATION_TYPES_SQL = ", ".join(
 # No guess that an arbitrary JSON/metadata field is free of message content.
 _EVENT_COPY_PROBES: dict[str, str] = {
     "canonical_text": "SELECT COUNT(*) FROM event_body_content c WHERE c.event_id=e.event_id",
+    # The advisory assessment must not call a broken admission identity
+    # collectable.  Evaluate the same row-presence rules as the guarded
+    # collector without reading content or acquiring any new authority.
+    "inconsistent_admission_identity": (
+        "SELECT CASE WHEN NOT EXISTS ("
+        "SELECT 1 FROM event_body_identity i WHERE i.event_id=e.event_id "
+        "AND i.present_at_admission IN (0,1)) "
+        "OR EXISTS (SELECT 1 FROM event_body_identity i "
+        "WHERE i.event_id=e.event_id AND ("
+        "(i.present_at_admission=0 AND EXISTS ("
+        "SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id)) "
+        "OR (i.present_at_admission=1 AND NOT EXISTS ("
+        "SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
+        "AND NOT EXISTS (SELECT 1 FROM event_content_collection_log l "
+        "WHERE l.event_id=e.event_id)))) "
+        "OR (EXISTS (SELECT 1 FROM event_content_collection_log l "
+        "WHERE l.event_id=e.event_id) AND ("
+        "EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
+        "OR EXISTS (SELECT 1 FROM event_relation_excerpts x "
+        "JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id))) "
+        "THEN 1 ELSE 0 END"
+    ),
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
     "incoming_relation_excerpts": (
         "SELECT COUNT(*) FROM event_relation_excerpts x "
@@ -47,29 +73,42 @@ _EVENT_COPY_PROBES: dict[str, str] = {
     "shared_attachment_references": "SELECT COUNT(*) FROM event_attachment_associations a WHERE a.event_id=e.event_id AND EXISTS (SELECT 1 FROM event_attachment_associations other WHERE other.content_ref=a.content_ref AND other.event_id<>e.event_id)",
     "operator_decisions": "SELECT COUNT(*) FROM operator_delivery_decisions d WHERE d.event_id=e.event_id",
     "ingress_work": "SELECT COUNT(*) FROM durable_ingress_work w WHERE w.event_id=e.event_id",
+    # Retained durable delivery evidence (docs/spec/content-collection-guard):
+    # diagnostic rows are counted through their parent evidence row so the
+    # release assessment reports them without ever selecting their text.
+    "retained_diagnostics": (
+        "SELECT COUNT(*) FROM delivery_evidence_diagnostics d WHERE "
+        "(d.family='receipt' AND d.row_id IN (SELECT r.receipt_id "
+        "FROM delivery_receipts r WHERE r.event_id=e.event_id)) "
+        "OR (d.family='observation' AND d.row_id IN (SELECT o.observation_id "
+        "FROM delivery_observations o WHERE o.event_id=e.event_id)) "
+        "OR (d.family='outbox' AND d.row_id IN (SELECT b.outbox_id "
+        "FROM delivery_outbox b WHERE b.event_id=e.event_id)) "
+        "OR (d.family='ingress' AND d.row_id=e.event_id)"
+    ),
     "active_ingress": "SELECT COUNT(*) FROM durable_ingress_work w WHERE w.event_id=e.event_id AND w.status NOT IN ('completed', 'failed')",
     "active_outbox": "SELECT COUNT(*) FROM delivery_outbox o WHERE o.event_id=e.event_id AND o.status NOT IN ('sent', 'cancelled', 'dead_lettered', 'abandoned')",
     "unsettled_mandatory_owners": "SELECT COUNT(*) FROM event_content_dependencies d WHERE d.event_id=e.event_id AND d.released_at IS NULL",
     "unrevoked_optional_grants": "SELECT COUNT(*) FROM event_content_access_grants g WHERE g.event_id=e.event_id AND g.revoked_at IS NULL AND g.expired_at IS NULL",
 }
 
-# These rows can contain free-form data even when delivery is terminal.
-# Their lifetime requires a separate policy before any collector can act.
-_UNCLASSIFIED_EVENT_COPIES = frozenset(
+# These row families block collection wholesale under an independent policy
+# decision: opaque free-form values, incoming copies owned by other events,
+# radio recovery plans, attachment copies, and the unreviewed operator
+# decision copy family. Their lifetime requires a separate policy before any
+# collector can act.
+_WHOLESALE_BLOCKER_PROBES = frozenset(
     {
         "opaque_envelope",
         "opaque_relation_records",
         "incoming_relation_excerpts",
-        "native_references",
-        "delivery_receipts",
-        "delivery_observations",
-        "outbox_records",
         "radio_plans",
         "attachment_associations",
         "operator_decisions",
-        "ingress_work",
     }
 )
+
+_INTEGRITY_BLOCKER_PROBES = ("inconsistent_admission_identity",)
 
 _LIVE_BLOCKER_PROBES = (
     "active_ingress",
@@ -77,6 +116,60 @@ _LIVE_BLOCKER_PROBES = (
     "unsettled_mandatory_owners",
     "unrevoked_optional_grants",
 )
+
+# Retained durable delivery/native/ingress evidence families. Their rows are
+# evidence that survives collection, so they never block as rows; a family
+# blocks only while a registry content-potential column still carries a value
+# on the event's own rows (historical inline diagnostics, non-empty provider
+# metadata). The column-aware probe is derived from the declared
+# classification registry, never hand-written per column.
+_EVIDENCE_FAMILY_TABLES: dict[str, str] = {
+    "delivery_receipts": "delivery_receipts",
+    "delivery_observations": "delivery_observations",
+    "outbox_records": "delivery_outbox",
+    "native_references": "native_message_refs",
+    "ingress_work": "durable_ingress_work",
+}
+
+# Only reviewed JSON metadata columns use '{}' as their empty representation.
+# Plain diagnostic text can literally be "{}" and must remain a blocker.
+_EVIDENCE_JSON_COLUMNS = frozenset(
+    {
+        ("delivery_observations", "metadata"),
+        ("delivery_outbox", "metadata"),
+        ("native_message_refs", "metadata"),
+    }
+)
+
+
+def _content_potential_columns(table: str) -> tuple[str, ...]:
+    """Registry content-potential columns of *table* in declaration order."""
+    return tuple(
+        column
+        for column, column_class in STORAGE_COLUMN_CLASSES[table].items()
+        if column_class in CONTENT_POTENTIAL_CLASSES
+    )
+
+
+def _evidence_content_probe(table: str) -> str:
+    """Count the event's rows in *table* that still carry content potential."""
+    predicate = " OR ".join(
+        (
+            f"t.{column} IS NOT NULL AND t.{column}<>'{{}}'"
+            if (table, column) in _EVIDENCE_JSON_COLUMNS
+            else f"t.{column} IS NOT NULL"
+        )
+        for column in _content_potential_columns(table)
+    )
+    if not predicate:
+        # A family the registry declares content-free never blocks on rows.
+        return "SELECT 0"
+    return (
+        f"SELECT COUNT(*) FROM {table} t WHERE t.event_id=e.event_id "  # nosec B608 - probe SQL is built only from module constants; the event ID is a bound parameter
+        f"AND ({predicate})"
+    )
+
+
 _BOUNDED_CANDIDATE_PROBES = frozenset({"canonical_text", "relation_excerpts"})
 # Only these content-bearing rows are candidates for the first collector.
 # Other surfaces are never rewritten as a side effect of collection.
@@ -90,9 +183,33 @@ def _classify_copy(name: str) -> str:
         return "shared_reference"
     if name == "relation_records":
         return "identity_retained"
-    if name in _LIVE_BLOCKER_PROBES:
+    if name in _LIVE_BLOCKER_PROBES or name in _INTEGRITY_BLOCKER_PROBES:
         return "authority_or_state"
+    if name in _EVIDENCE_FAMILY_TABLES or name == "retained_diagnostics":
+        return "retained_evidence"
     return "requires_independent_policy"
+
+
+def _release_blockers(counts: dict[str, int]) -> list[str]:
+    """Column-aware blocker decision shared by collector and assessment.
+
+    Live-ownership gates and wholesale policy blockers decide on their own
+    row counts. Each retained-evidence family blocks only when its
+    registry-derived content probe (``<family>_content``) observes a
+    content-bearing value on the event's rows inside the caller's snapshot.
+    """
+    blockers = [
+        name
+        for name in (*_LIVE_BLOCKER_PROBES, *_INTEGRITY_BLOCKER_PROBES)
+        if counts[name]
+    ]
+    blockers.extend(sorted(name for name in _WHOLESALE_BLOCKER_PROBES if counts[name]))
+    blockers.extend(
+        sorted(
+            family for family in _EVIDENCE_FAMILY_TABLES if counts[f"{family}_content"]
+        )
+    )
+    return blockers
 
 
 _UNMEASURED_CONTENT_SCOPES = (
@@ -104,9 +221,22 @@ _UNMEASURED_CONTENT_SCOPES = (
     "copies_embedded_in_other_events",
 )
 
+# One compound projection serves the collector and the read-only release
+# assessment: the report probes plus each evidence family's registry-derived
+# content probe, all in a single read snapshot.
+_ALL_EVENT_COPY_PROBES: dict[str, str] = {
+    **_EVENT_COPY_PROBES,
+    **{
+        f"{family}_content": _evidence_content_probe(table)
+        for family, table in _EVIDENCE_FAMILY_TABLES.items()
+    },
+}
+
 _EVENT_COPY_SQL = (
     "SELECT "  # nosec B608 - probe names and SQL are module constants; the event ID is a bound parameter
-    + ", ".join(f"({probe}) AS {name}" for name, probe in _EVENT_COPY_PROBES.items())
+    + ", ".join(
+        f"({probe}) AS {name}" for name, probe in _ALL_EVENT_COPY_PROBES.items()
+    )
     + " FROM canonical_events e WHERE e.event_id=?"
 )
 
@@ -259,31 +389,29 @@ class _CountMixin:
 
         This is a conservative snapshot, **not** collection permission.
         Nonempty opaque surfaces remain blockers until explicitly classified;
-        shared attachments and all external stores are not owned by this API.
-        No SQL selects message content or provider metadata values.
+        retained evidence families block only while their registry
+        content-potential columns carry values; shared attachments and all
+        external stores are not owned by this API. No SQL selects message
+        content or provider metadata values.
         """
         if not isinstance(event_id, str) or not event_id:
             raise ValueError("A bounded event ID is required")
         row = await self._read_one(_EVENT_COPY_SQL, (event_id,))
         if row is None:
             raise StorageError("Content release assessment requires an admitted event")
-        counts = {name: int(row[name]) for name in _EVENT_COPY_PROBES}
-        live_blockers = tuple(name for name in _LIVE_BLOCKER_PROBES if counts[name])
-        opaque_blockers = tuple(
-            sorted(name for name in _UNCLASSIFIED_EVENT_COPIES if counts[name])
-        )
-        local_blockers = (*live_blockers, *opaque_blockers)
+        counts = {name: int(row[name]) for name in _ALL_EVENT_COPY_PROBES}
+        blockers = _release_blockers(counts)
         return {
             "format": "medre-event-content-release-assessment",
             "version": 1,
             "event_id": event_id,
             "scope": "core_sqlite_event",
-            "status": "blocked" if local_blockers else "unmeasured",
-            "core_subset_status": "blocked" if local_blockers else "eligible",
-            "classified_core_candidate": not bool(local_blockers),
+            "status": "blocked" if blockers else "unmeasured",
+            "core_subset_status": "blocked" if blockers else "eligible",
+            "classified_core_candidate": not blockers,
             "deletion_authorized": False,
             "retention_authorized": False,
-            "blockers": list(local_blockers),
+            "blockers": blockers,
             "copies": [
                 {
                     "surface": name,

@@ -11,8 +11,9 @@ Three guarantees over the declared registry in
    set equals the enforced ``CONTENT_SURFACES`` inventory exactly, so no
    column becomes collector-safe merely because the registry says so.
 3. **Collector equivalence**: the registry reproduces the collector's
-   conservative decisions exactly — blocker set, collectible candidate set,
-   and the per-probe assessment labels emitted by ``_classify_copy``.
+   conservative decisions exactly — wholesale and column-aware blocker
+   families, the collectible candidate set, and the per-probe assessment
+   labels emitted by ``_classify_copy``.
 """
 
 from __future__ import annotations
@@ -38,11 +39,16 @@ from medre.core.storage.classification import (
 )
 from medre.core.storage.content import CONTENT_SURFACES
 from medre.core.storage.sqlite._count import (
+    _ALL_EVENT_COPY_PROBES,
     _EVENT_COPY_PROBES,
+    _EVIDENCE_FAMILY_TABLES,
+    _INTEGRITY_BLOCKER_PROBES,
     _LIVE_BLOCKER_PROBES,
-    _UNCLASSIFIED_EVENT_COPIES,
+    _WHOLESALE_BLOCKER_PROBES,
     COLLECTIBLE_CORE_SURFACES,
     _classify_copy,
+    _content_potential_columns,
+    _release_blockers,
 )
 from medre.core.storage.sqlite.schema import _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -56,14 +62,10 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 #: the storage module's DELETE allowlist).
 _COLLECTOR_OWNED_TABLES = frozenset({"event_body_content", "event_relation_excerpts"})
 
-#: Columns whose content potential each blocker probe's decision accounts
-#: for.  Blocker probes count whole row families, so the accounting covers
-#: the family's classified content columns, not only the columns the probe
-#: SQL names (``native_references`` counts rows that may carry
-#: ``native_message_refs.metadata`` without selecting it).  The four
-#: delivery-evidence family probes also cover the write-time separated
-#: ``delivery_evidence_diagnostics.diagnostic`` surface: a diagnostic row
-#: never exists without its parent evidence row, so the same probe blocks.
+#: Columns whose content potential each wholesale blocker probe's decision
+#: accounts for.  Blocker probes count whole row families, so the accounting
+#: covers the family's classified content columns, not only the columns the
+#: probe SQL names.
 _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
     "canonical_text": frozenset({("event_body_content", "body")}),
     "relation_excerpts": frozenset({("event_relation_excerpts", "excerpt")}),
@@ -73,30 +75,6 @@ _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
     ),
     "opaque_relation_records": frozenset(
         {("event_relations", "key"), ("event_relations", "metadata")}
-    ),
-    "native_references": frozenset({("native_message_refs", "metadata")}),
-    "delivery_receipts": frozenset(
-        {
-            ("delivery_receipts", "error"),
-            ("delivery_receipts", "capability_reason"),
-            ("delivery_receipts", "rendering_evidence"),
-            ("delivery_evidence_diagnostics", "diagnostic"),
-        }
-    ),
-    "delivery_observations": frozenset(
-        {
-            ("delivery_observations", "error"),
-            ("delivery_observations", "metadata"),
-            ("delivery_evidence_diagnostics", "diagnostic"),
-        }
-    ),
-    "outbox_records": frozenset(
-        {
-            ("delivery_outbox", "failure_kind_detail"),
-            ("delivery_outbox", "error_summary"),
-            ("delivery_outbox", "metadata"),
-            ("delivery_evidence_diagnostics", "diagnostic"),
-        }
     ),
     "radio_plans": frozenset(
         {
@@ -111,19 +89,15 @@ _PROBE_CONTENT_ACCOUNTING: dict[str, frozenset[tuple[str, str]]] = {
     "operator_decisions": frozenset(
         {("operator_delivery_decisions", "target_channel")}
     ),
-    "ingress_work": frozenset(
-        {
-            ("durable_ingress_work", "provenance"),
-            ("durable_ingress_work", "last_error"),
-            ("delivery_evidence_diagnostics", "diagnostic"),
-        }
-    ),
 }
 
 #: Live-ownership gate probes: they block on operational-authority columns
 #: whose nonterminal state means a live lifecycle still holds content.
 _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
     "active_ingress": frozenset({("durable_ingress_work", "status")}),
+    "inconsistent_admission_identity": frozenset(
+        {("event_body_identity", "present_at_admission")}
+    ),
     "active_outbox": frozenset({("delivery_outbox", "status")}),
     "unsettled_mandatory_owners": frozenset(
         {("event_content_dependencies", "released_at")}
@@ -133,6 +107,41 @@ _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
             ("event_content_access_grants", "revoked_at"),
             ("event_content_access_grants", "expired_at"),
         }
+    ),
+}
+
+#: Retained durable delivery/native/ingress evidence probes.  Their row
+#: families survive collection; a family blocks only while its mapped
+#: table's registry content-potential columns still carry a value on the
+#: event's rows (historical inline diagnostics, non-empty provider
+#: metadata).  The write-time separated ``delivery_evidence_diagnostics``
+#: side table is retained durable evidence too: its rows exist only under a
+#: parent evidence row, survive collection, and never block.
+_PROBE_RETAINED_EVIDENCE: dict[str, frozenset[tuple[str, str]]] = {
+    "delivery_receipts": frozenset(
+        {
+            ("delivery_receipts", "error"),
+            ("delivery_receipts", "capability_reason"),
+            ("delivery_receipts", "rendering_evidence"),
+        }
+    ),
+    "delivery_observations": frozenset(
+        {
+            ("delivery_observations", "error"),
+            ("delivery_observations", "metadata"),
+        }
+    ),
+    "outbox_records": frozenset(
+        {
+            ("delivery_outbox", "failure_kind_detail"),
+            ("delivery_outbox", "error_summary"),
+            ("delivery_outbox", "metadata"),
+        }
+    ),
+    "native_references": frozenset({("native_message_refs", "metadata")}),
+    "ingress_work": frozenset({("durable_ingress_work", "last_error")}),
+    "retained_diagnostics": frozenset(
+        {("delivery_evidence_diagnostics", "diagnostic")}
     ),
 }
 
@@ -172,9 +181,13 @@ def _is_own_scope_candidate(probe: str) -> bool:
 
 
 def _derived_category(probe: str) -> str:
-    """Derive the assessment label for *probe* from the registry."""
+    """Derive the structural category for *probe* from the declared tables."""
     if probe in _PROBE_AUTHORITY_GATES:
         return "authority_or_state"
+    if probe in _PROBE_RETAINED_EVIDENCE:
+        if probe in _EVIDENCE_FAMILY_TABLES:
+            return "retained_evidence_family"
+        return "retained_evidence"
     if _PROBE_CONTENT_ACCOUNTING.get(probe):
         if _is_own_scope_candidate(probe):
             return "bounded_candidate"
@@ -186,6 +199,25 @@ def _derived_category(probe: str) -> str:
     ):
         return "shared_reference"
     return "identity_retained"
+
+
+#: Structural category → emitted assessment label.  Both retained-evidence
+#: categories report the same ``retained_evidence`` label; only the family
+#: variant can appear in the blocker list (column-aware).
+_DERIVED_LABELS: dict[str, str] = {
+    "authority_or_state": "authority_or_state",
+    "retained_evidence_family": "retained_evidence",
+    "retained_evidence": "retained_evidence",
+    "bounded_candidate": "bounded_candidate",
+    "requires_independent_policy": "requires_independent_policy",
+    "shared_reference": "shared_reference",
+    "identity_retained": "identity_retained",
+}
+
+
+def _derived_label(probe: str) -> str:
+    """Derive the assessment label for *probe* from the registry."""
+    return _DERIVED_LABELS[_derived_category(probe)]
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +455,7 @@ def _all_declared_probes() -> set[str]:
     return (
         set(_PROBE_CONTENT_ACCOUNTING)
         | set(_PROBE_AUTHORITY_GATES)
+        | set(_PROBE_RETAINED_EVIDENCE)
         | set(_IDENTITY_READ_PROBES)
     )
 
@@ -432,14 +465,26 @@ def test_every_probe_is_declared() -> None:
     assert set(_EVENT_COPY_PROBES) == _all_declared_probes()
 
 
+def test_decision_probes_are_report_probes_plus_family_content() -> None:
+    """The compound decision SQL extends the report probes exactly once."""
+    expected = set(_EVENT_COPY_PROBES) | {
+        f"{family}_content" for family in _EVIDENCE_FAMILY_TABLES
+    }
+    assert set(_ALL_EVENT_COPY_PROBES) == expected
+
+
 def test_accounted_columns_have_content_potential() -> None:
-    for probe, accounted in _PROBE_CONTENT_ACCOUNTING.items():
-        for table, column in sorted(accounted):
-            resolved = _resolve_class(table, column)
-            assert resolved in CONTENT_POTENTIAL_CLASSES, (
-                f"{probe} accounts {table}.{column} but the registry "
-                f"classifies it {resolved.value}"
-            )
+    for accounting in (
+        _PROBE_CONTENT_ACCOUNTING,
+        _PROBE_RETAINED_EVIDENCE,
+    ):
+        for probe, accounted in accounting.items():
+            for table, column in sorted(accounted):
+                resolved = _resolve_class(table, column)
+                assert resolved in CONTENT_POTENTIAL_CLASSES, (
+                    f"{probe} accounts {table}.{column} but the registry "
+                    f"classifies it {resolved.value}"
+                )
 
 
 def test_gate_columns_are_operational_authority() -> None:
@@ -452,14 +497,50 @@ def test_gate_columns_are_operational_authority() -> None:
             )
 
 
+def test_evidence_families_derive_from_registry_content_columns() -> None:
+    """Each family's content probe predicates on its registry columns."""
+    for family, table in _EVIDENCE_FAMILY_TABLES.items():
+        accounted = _PROBE_RETAINED_EVIDENCE[family]
+        accounted_tables = {t for t, _ in accounted}
+        assert accounted_tables == {table}, (
+            f"{family} declares accounting over {sorted(accounted_tables)} "
+            f"but the collector maps it to {table}"
+        )
+        registry_columns = frozenset(_content_potential_columns(table))
+        assert registry_columns == {c for _, c in accounted}, (
+            f"{family}: registry content columns {sorted(registry_columns)} "
+            f"disagree with the declared accounting {sorted(accounted)}"
+        )
+        probe_sql = _ALL_EVENT_COPY_PROBES[f"{family}_content"]
+        predicate_columns = set(re.findall(r"t\.(\w+) IS NOT NULL", probe_sql))
+        assert predicate_columns == set(
+            registry_columns
+        ), f"{family} probe predicates on {sorted(predicate_columns)}"
+        for column in sorted(registry_columns):
+            assert f"t.{column} IS NOT NULL" in probe_sql
+            if column == "metadata":
+                assert f"t.{column}<>" + "'{}'" in probe_sql
+            else:
+                assert f"t.{column}<>" + "'{}'" not in probe_sql
+
+
 def test_derived_blocker_set_matches_collector_exactly() -> None:
     derived_blockers = {
         probe
         for probe in _all_declared_probes()
         if _derived_category(probe)
-        in {"authority_or_state", "requires_independent_policy"}
+        in {
+            "authority_or_state",
+            "requires_independent_policy",
+            "retained_evidence_family",
+        }
     }
-    actual_blockers = set(_UNCLASSIFIED_EVENT_COPIES) | set(_LIVE_BLOCKER_PROBES)
+    actual_blockers = (
+        set(_LIVE_BLOCKER_PROBES)
+        | set(_INTEGRITY_BLOCKER_PROBES)
+        | set(_WHOLESALE_BLOCKER_PROBES)
+        | set(_EVIDENCE_FAMILY_TABLES)
+    )
     assert derived_blockers == actual_blockers, (
         "Registry-derived blockers and collector blockers disagree: "
         f"registry-only={sorted(derived_blockers - actual_blockers)} "
@@ -476,13 +557,13 @@ def test_derived_candidates_match_collectible_core_exactly() -> None:
     assert derived_candidates == set(COLLECTIBLE_CORE_SURFACES)
 
 
-def test_derived_policy_blockers_match_unclassified_copies_exactly() -> None:
+def test_derived_policy_blockers_match_wholesale_blockers_exactly() -> None:
     derived = {
         probe
         for probe in _all_declared_probes()
         if _derived_category(probe) == "requires_independent_policy"
     }
-    assert derived == set(_UNCLASSIFIED_EVENT_COPIES)
+    assert derived == set(_WHOLESALE_BLOCKER_PROBES)
 
 
 def test_derived_gates_match_live_blockers_exactly() -> None:
@@ -491,7 +572,51 @@ def test_derived_gates_match_live_blockers_exactly() -> None:
         for probe in _all_declared_probes()
         if _derived_category(probe) == "authority_or_state"
     }
-    assert derived == set(_LIVE_BLOCKER_PROBES)
+    assert derived == set(_LIVE_BLOCKER_PROBES) | {"inconsistent_admission_identity"}
+
+
+def test_derived_retained_evidence_split_matches_collector_exactly() -> None:
+    """The five column-aware families and the never-blocking side table."""
+    families = {
+        probe
+        for probe in _all_declared_probes()
+        if _derived_category(probe) == "retained_evidence_family"
+    }
+    assert families == set(_EVIDENCE_FAMILY_TABLES)
+    never_blocking = {
+        probe
+        for probe in _all_declared_probes()
+        if _derived_category(probe) == "retained_evidence"
+    }
+    assert never_blocking == {"retained_diagnostics"}
+
+
+def test_release_blocker_decision_is_column_aware() -> None:
+    """The shared decision blocks on content values, never family rows."""
+    empty = dict.fromkeys(_ALL_EVENT_COPY_PROBES, 0)
+    assert _release_blockers(empty) == []
+    live = {**empty, "active_outbox": 1, "unsettled_mandatory_owners": 2}
+    assert _release_blockers(live) == [
+        "active_outbox",
+        "unsettled_mandatory_owners",
+    ]
+    wholesale = {**empty, "opaque_envelope": 1, "radio_plans": 3}
+    assert _release_blockers(wholesale) == ["opaque_envelope", "radio_plans"]
+    # Family rows without content values never block.
+    settled = {
+        **empty,
+        "delivery_receipts": 2,
+        "outbox_records": 1,
+        "ingress_work": 1,
+        "retained_diagnostics": 1,
+        "delivery_receipts_content": 0,
+        "outbox_records_content": 0,
+        "ingress_work_content": 0,
+    }
+    assert _release_blockers(settled) == []
+    # Any content-bearing value in one family blocks exactly that family.
+    holding = {**settled, "outbox_records_content": 1}
+    assert _release_blockers(holding) == ["outbox_records"]
 
 
 def test_derived_identity_probes_are_exactly_the_remainder() -> None:
@@ -506,9 +631,9 @@ def test_derived_identity_probes_are_exactly_the_remainder() -> None:
 def test_derived_labels_match_assessment_classification_exactly() -> None:
     """Every probe's registry-derived label equals ``_classify_copy``."""
     mismatches = {
-        probe: (_derived_category(probe), _classify_copy(probe))
+        probe: (_derived_label(probe), _classify_copy(probe))
         for probe in _EVENT_COPY_PROBES
-        if _derived_category(probe) != _classify_copy(probe)
+        if _derived_label(probe) != _classify_copy(probe)
     }
     assert mismatches == {}
 
@@ -517,6 +642,8 @@ def test_content_columns_are_accounted_or_outside_event_scope() -> None:
     """Bridge completeness for event-scoped content-potential columns."""
     accounted: set[tuple[str, str]] = set()
     for columns in _PROBE_CONTENT_ACCOUNTING.values():
+        accounted |= columns
+    for columns in _PROBE_RETAINED_EVIDENCE.values():
         accounted |= columns
     unaccounted = []
     for entry in entries():
