@@ -1024,6 +1024,16 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def collect_event_content(
+        self, event_id: str, *, dry_run: bool = True
+    ) -> dict[str, Any]:
+        """Preview or atomically collect a classified, owner-free core subset.
+
+        This never deletes immutable delivery facts, native state or external
+        copies. A dry-run is a snapshot, not permission for a later mutation.
+        """
+        ...
+
     async def release_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:
