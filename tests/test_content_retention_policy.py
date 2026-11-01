@@ -880,6 +880,38 @@ async def test_preview_is_read_only(tmp_path) -> None:
         await store.close()
 
 
+# ---------------------------------------------------------------------------
+# Collected-receipt aggregate — the one read-only count for operator status
+# ---------------------------------------------------------------------------
+
+
+async def test_count_collected_events_aggregates_durable_receipts_only(
+    tmp_path,
+) -> None:
+    store = SQLiteStorage(str(tmp_path / "count.db"))
+    await store.initialize()
+    try:
+        assert await store.count_collected_events() == 0
+        await store.open_retention_epoch(activated_by="operator", now=_utc(2026, 11, 1))
+        await _seed_eligible_at(store, "count-1", "2026-11-02T10:00:00+00:00")
+        await _seed_eligible_at(store, "count-2", "2026-11-02T11:00:00+00:00")
+        assert (await store.collect_event_content("count-1", dry_run=False))[
+            "status"
+        ] == "collected"
+        assert await store.count_collected_events() == 1
+        # Re-collection adds no receipt: the count tracks the durable rows.
+        assert (await store.collect_event_content("count-1", dry_run=False))[
+            "status"
+        ] == "already_collected"
+        assert await store.count_collected_events() == 1
+        assert (await store.collect_event_content("count-2", dry_run=False))[
+            "status"
+        ] == "collected"
+        assert await store.count_collected_events() == 2
+    finally:
+        await store.close()
+
+
 # Sample config parity — the generated sample declares the disabled default
 # ---------------------------------------------------------------------------
 

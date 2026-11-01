@@ -278,6 +278,32 @@ def sync_preview_content_retention(
             db.rollback()
 
 
+def sync_read_content_retention_status(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+) -> tuple[RetentionEpoch | None, int, dict[str, Any]]:
+    """Observe epoch, receipt count and its preview in one read snapshot."""
+    with lock:
+        try:
+            db.execute("BEGIN")
+            row = db.execute(
+                f"SELECT {_EPOCH_COLUMNS} FROM content_retention_epochs "  # nosec B608 - closed module-owned columns
+                "ORDER BY epoch DESC LIMIT 1"
+            ).fetchone()
+            epoch = _epoch_from_row(row) if row is not None else None
+            count = int(
+                db.execute(
+                    "SELECT COUNT(*) FROM event_content_collection_log"
+                ).fetchone()[0]
+            )
+            preview = _preview_content_retention_in_snapshot(
+                db, limit=RETENTION_BATCH_MAX
+            )
+            return epoch, count, preview
+        finally:
+            db.rollback()
+
+
 _CANDIDATE_SELECT_SQL = "SELECT event_id, created_at FROM canonical_events"
 _CANDIDATE_ORDER_SQL = " ORDER BY created_at ASC, event_id ASC LIMIT ?"
 _CANDIDATE_WATERMARK_SQL = " WHERE created_at > ?"
@@ -382,6 +408,30 @@ def sync_page_collection_candidates(
 
 class _RetentionMixin:
     """Durable activation epochs and bounded candidate discovery; no scheduler."""
+
+    async def read_content_retention_status(
+        self,
+    ) -> tuple[RetentionEpoch | None, int, dict[str, Any]]:
+        """Read aggregate operator status with one coherent activation epoch."""
+        try:
+            return await self._run_in_thread(
+                sync_read_content_retention_status, self._require_db(), self._lock
+            )
+        except sqlite3.Error as exc:
+            raise StorageError("Reading retention status failed") from exc
+
+    async def count_collected_events(self) -> int:
+        """Count the immutable logical-collection receipts in the store.
+
+        Read-only aggregate over ``event_content_collection_log`` for
+        operator-facing retention status: one integer, no event identifiers
+        and no content. The receipts are the guarded collector's durable
+        evidence; no second deletion journal exists.
+        """
+        row = await self._read_one(
+            "SELECT COUNT(*) AS cnt FROM event_content_collection_log"
+        )
+        return int(row["cnt"]) if row is not None else 0
 
     if TYPE_CHECKING:
         _lock: threading.Lock

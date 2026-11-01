@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-retention-status.schema.json",
+  "title": "Content retention status",
+  "description": "Read-only, content-free aggregate retention status reported by `medre storage retention status`. Carries no message text, no event identifiers, and no native identifiers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "scope",
+    "policy",
+    "heartbeat_observation",
+    "heartbeat_stale",
+    "heartbeat_grace_seconds",
+    "heartbeat_assumed_interval_seconds",
+    "collected_events",
+    "preview",
+    "retention_authorized",
+    "deletion_authorized",
+    "physical_erasure_claimed",
+    "unmeasured"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-content-retention-status"
+    },
+    "version": {
+      "const": 1
+    },
+    "scope": {
+      "const": "core_sqlite"
+    },
+    "policy": {
+      "description": "The latest durable activation epoch, or the explicit no-active-epoch status when the policy was never activated on this store.",
+      "oneOf": [
+        { "$ref": "#/$defs/activeEpoch" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "const": "no_active_epoch"
+            }
+          }
+        }
+      ]
+    },
+    "heartbeat_observation": {
+      "enum": ["fresh", "stale", "unknown"],
+      "description": "Honest freshness observation of the durable last_observed_active_at heartbeat, falling back to activated_at only when no heartbeat is recorded (null). `unknown` is reported whenever freshness cannot be assessed: no active epoch, an unparseable timestamp, or a non-timezone-aware timestamp. Freshness is never fabricated."
+    },
+    "heartbeat_stale": {
+      "type": ["boolean", "null"],
+      "description": "True when the observation is stale, false when fresh, and null exactly when heartbeat_observation is unknown."
+    },
+    "heartbeat_grace_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The freshness grace window in seconds: max(3600, 10 * assumed interval)."
+    },
+    "heartbeat_assumed_interval_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The default retention interval the observation assumes, because the operator's configured interval is not stored in the database. Stated openly instead of hidden."
+    },
+    "collected_events": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Aggregate count of immutable collection receipts. No identifiers."
+    },
+    "preview": {
+      "$ref": "#/$defs/previewRollup"
+    },
+    "retention_authorized": {
+      "const": false
+    },
+    "deletion_authorized": {
+      "const": false
+    },
+    "physical_erasure_claimed": {
+      "const": false
+    },
+    "unmeasured": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "activeEpoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "epoch",
+        "mode",
+        "activated_at",
+        "admission_watermark",
+        "last_observed_active_at",
+        "activated_by"
+      ],
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "const": "relay-only"
+        },
+        "activated_at": {
+          "type": "string"
+        },
+        "admission_watermark": {
+          "type": ["string", "null"],
+          "description": "The epoch's admission watermark; null records an empty store at activation."
+        },
+        "last_observed_active_at": {
+          "type": ["string", "null"],
+          "description": "The forward-only worker heartbeat; null until the first sweep observes the epoch."
+        },
+        "activated_by": {
+          "enum": ["runtime-first-start", "operator"]
+        }
+      }
+    },
+    "previewRollup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events_examined",
+        "eligible",
+        "blocked",
+        "empty",
+        "already_collected",
+        "inconsistent",
+        "has_more",
+        "retention_authorized",
+        "deletion_authorized",
+        "physical_erasure_claimed",
+        "unmeasured"
+      ],
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The examined activation epoch. Present only when an epoch is active."
+        },
+        "status": {
+          "const": "no_active_epoch",
+          "description": "Present only on the no-active-epoch rollup: collection cannot safely be assessed. Absent when an epoch is active."
+        },
+        "events_examined": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "eligible": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "empty": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "already_collected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inconsistent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "retention_authorized": {
+          "const": false
+        },
+        "deletion_authorized": {
+          "const": false
+        },
+        "physical_erasure_claimed": {
+          "const": false
+        },
+        "unmeasured": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}

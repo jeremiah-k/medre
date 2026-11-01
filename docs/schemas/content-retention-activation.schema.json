@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-retention-activation.schema.json",
+  "title": "Content retention activation",
+  "description": "Content-free result of `medre storage retention activate`: one newly opened operator activation epoch. The activation performs no collection and claims no physical erasure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "epoch",
+    "mode",
+    "activated_at",
+    "admission_watermark",
+    "activated_by",
+    "physical_erasure_claimed"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-content-retention-activation"
+    },
+    "version": {
+      "const": 1
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The newly assigned epoch number. Repeating the command appends a new epoch each time; numbers are never reused."
+    },
+    "mode": {
+      "const": "relay-only"
+    },
+    "activated_at": {
+      "type": "string",
+      "description": "Activation timestamp of the new epoch."
+    },
+    "admission_watermark": {
+      "type": ["string", "null"],
+      "description": "The admission high-water pinned inside the activation transaction; null records an empty store. Pre-activation history is never swept."
+    },
+    "activated_by": {
+      "const": "operator"
+    },
+    "physical_erasure_claimed": {
+      "const": false
+    }
+  }
+}

@@ -930,6 +930,51 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Confirm logical collection on stopped bridge storage",
     )
 
+    storage_retention_p = storage_sub.add_parser(
+        "retention",
+        help="Inspect or activate the durable content-retention policy boundary",
+    )
+    retention_sub = storage_retention_p.add_subparsers(
+        dest="retention_command", required=True
+    )
+
+    retention_status_p = retention_sub.add_parser(
+        "status",
+        help=(
+            "Report retention policy status, heartbeat, and preview "
+            "(read-only, content-free)"
+        ),
+    )
+    retention_status_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+
+    retention_activate_p = retention_sub.add_parser(
+        "activate",
+        help=(
+            "Open a new relay-only retention epoch (requires --yes); "
+            "storage collect --apply remains the stopped-storage "
+            "maintenance path"
+        ),
+    )
+    retention_activate_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+    retention_activate_p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Confirm opening a new retention epoch",
+    )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     parser.set_defaults(_adapter_cli_failures=())
     if include_adapter_cli:
@@ -1319,7 +1364,13 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "storage":
         from medre.config.paths import resolve as resolve_paths
 
-        from .storage_commands import _storage_collect, _storage_reset, _storage_status
+        from .storage_commands import (
+            _storage_collect,
+            _storage_reset,
+            _storage_retention_activate,
+            _storage_retention_status,
+            _storage_status,
+        )
 
         if args.storage_command == "status":
             path = args.storage_path or str(resolve_paths().database_path)
@@ -1336,6 +1387,12 @@ def main(argv: list[str] | None = None) -> None:
                     yes=args.yes,
                 )
             )
+        elif args.storage_command == "retention":
+            path = args.storage_path or str(resolve_paths().database_path)
+            if args.retention_command == "status":
+                asyncio.run(_storage_retention_status(path))
+            elif args.retention_command == "activate":
+                asyncio.run(_storage_retention_activate(path, yes=args.yes))
         elif args.storage_command == "reset":
             path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(
