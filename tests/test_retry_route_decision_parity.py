@@ -149,8 +149,9 @@ def test_destination_only_metadata_is_rejected() -> None:
 
 
 def test_empty_metadata() -> None:
+    """An empty inline row without a snapshot fails closed, never re-plans."""
     item = _make_outbox(metadata={}, include_route_metadata=False)
-    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+    with pytest.raises(ValueError, match="no frozen dispatch context"):
         reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,
@@ -159,8 +160,9 @@ def test_empty_metadata() -> None:
 
 
 def test_none_metadata() -> None:
+    """An empty inline row without a snapshot fails closed, never re-plans."""
     item = _make_outbox(metadata=None, include_route_metadata=False)
-    with pytest.raises(ValueError, match="missing metadata"):
+    with pytest.raises(ValueError, match="no frozen dispatch context"):
         reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,

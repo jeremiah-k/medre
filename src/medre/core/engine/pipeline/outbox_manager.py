@@ -32,7 +32,10 @@ from medre.core.engine.pipeline.receipt_factory import (
     build_delivery_receipt,
     capability_receipt_fields,
 )
-from medre.core.engine.pipeline.retry_plan import OutboxDispatchContext
+from medre.core.engine.pipeline.retry_plan import (
+    OutboxDispatchContext,
+    resolve_capability_fallback,
+)
 from medre.core.events import (
     normalize_delivery_provenance,
 )
@@ -44,6 +47,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
+    OutboxDispatchSnapshotWrite,
     StorageBackend,
     TerminalOutboxFinalization,
 )
@@ -139,19 +143,13 @@ class OutboxManager:
             _lease_until = (
                 _now + timedelta(seconds=_OUTBOX_RENEWAL_DURATION_SECONDS)
             ).isoformat()
-            _dest_meta: dict[str, object] | None = None
-            if target.destination is not None:
-                _dest_meta = {
-                    "destination_kind": target.destination.kind,
-                    "destination_hash": target.destination.destination_hash,
-                    "destination_name": target.destination.destination_name,
-                    "destination_metadata": target.destination.metadata,
-                }
 
-            # Persist route-decision metadata so retry reconstruction
-            # recovers the original capability and strategy decisions
-            # instead of defaulting to capability_level=None / strategy="direct".
-            _route_decision_meta: dict[str, object] = {
+            # The accepted work context freezes into the privately owned
+            # snapshot written atomically with the outbox row; the row's own
+            # metadata stays empty. Historical rows created before the
+            # snapshot table keep their inline metadata bytes as their frozen
+            # context; they are never transformed.
+            _reduced_context: dict[str, object] = {
                 "capability_level": route_plan.capability_level,
                 "delivery_strategy": route_plan.primary_strategy.method,
                 "capability_field": route_plan.capability_field,
@@ -162,10 +160,14 @@ class OutboxManager:
                     else None
                 ),
             }
-            if _dest_meta is not None:
-                _dest_meta.update(_route_decision_meta)
-            else:
-                _dest_meta = _route_decision_meta
+            if target.destination is not None:
+                _reduced_context = {
+                    "destination_kind": target.destination.kind,
+                    "destination_hash": target.destination.destination_hash,
+                    "destination_name": target.destination.destination_name,
+                    "destination_metadata": target.destination.metadata,
+                    **_reduced_context,
+                }
 
             # Replay requires a fresh durable generation. The storage backend
             # allocates it atomically with insertion; the placeholder value is
@@ -179,10 +181,20 @@ class OutboxManager:
                     raise ValueError(
                         "initial staging requires the accepted routing decision"
                     )
-                _dest_meta["dispatch_context"] = msgspec.to_builtins(
-                    OutboxDispatchContext(
-                        route=route, plan=route_plan, routing=event.metadata.routing
-                    )
+                dispatch_snapshot = OutboxDispatchSnapshotWrite(
+                    kind="staged",
+                    context=msgspec.to_builtins(
+                        OutboxDispatchContext(
+                            route=route,
+                            plan=route_plan,
+                            routing=event.metadata.routing,
+                        )
+                    ),
+                )
+            else:
+                dispatch_snapshot = OutboxDispatchSnapshotWrite(
+                    kind="direct",
+                    context=_reduced_context,
                 )
 
             outbox_item = DeliveryOutboxItem(
@@ -204,11 +216,12 @@ class OutboxManager:
                 replay_run_id=(
                     replay_run_id if source == "replay" and replay_run_id else None
                 ),
-                metadata=_dest_meta,
+                metadata={},
             )
             created = await self._storage.create_outbox_item(
                 outbox_item,
                 allocate_new_generation=(source == "replay"),
+                dispatch_snapshot=dispatch_snapshot,
             )
             outbox_id = created.outbox_id
             outbox_created = True
@@ -461,6 +474,15 @@ class OutboxManager:
                 )
                 return
 
+            # Receipt capability fallback: durable inline metadata is the
+            # historical source when no attempt receipt exists yet. Post-change
+            # rows keep those frozen decision facts in the owned work snapshot;
+            # a failed snapshot read leaves the fallback empty rather than
+            # blocking persistence of an outcome that already happened.
+            capability_fallback = await resolve_capability_fallback(
+                self._storage, existing_item, self._log
+            )
+
             queued_receipt: DeliveryReceipt | None = None
             try:
                 all_receipts = await self._storage.list_receipts_for_outbox(
@@ -527,7 +549,7 @@ class OutboxManager:
                     failure_kind=failure_kind,
                     **capability_receipt_fields(
                         receipt=queued_receipt,
-                        metadata=existing_item.metadata,
+                        metadata=capability_fallback,
                     ),
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,
@@ -578,7 +600,7 @@ class OutboxManager:
                     failure_kind=failure_kind,
                     **capability_receipt_fields(
                         receipt=queued_receipt,
-                        metadata=existing_item.metadata,
+                        metadata=capability_fallback,
                     ),
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,

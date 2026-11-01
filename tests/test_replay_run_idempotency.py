@@ -473,6 +473,7 @@ async def test_retry_preserves_originating_replay_run_provenance(
         replay_run_id=item.replay_run_id,
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     stored = object()
     storage.get = AsyncMock(return_value=stored)
     storage.get_metadata = AsyncMock(return_value=stored)

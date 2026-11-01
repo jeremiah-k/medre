@@ -14,9 +14,11 @@ The production serde serializes only the opaque namespaces
 column, omitting absent namespaces and the empty `custom` mapping, so an
 event without opaque metadata serializes to `{}`. A plain routed text event
 therefore no longer carries the `opaque_envelope` wholesale collection
-blocker: after ingress completion and terminal settlement its only residual
-blocker is `outbox_records`. Arbitrary `native`/`custom` values block
-exactly as before.
+blocker. In this layer alone, historical inline outbox context remains an
+`outbox_records` blocker. After the owned work snapshots of fragment 432
+retire on terminal settlement, a newly admitted plain routed text event has
+no residual blockers. Arbitrary `native`/`custom` values block exactly as
+before.
 
 Production reads compose `EventMetadata` from the typed facts row plus the
 opaque metadata object: the metadata-only projections (`get_metadata`,

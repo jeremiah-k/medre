@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.connection import _settle_outbox_content_dependency
+from medre.core.storage.sqlite.statements import _RETIRE_OUTBOX_SNAPSHOT
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -192,6 +193,9 @@ def _sync_cancel_unstarted(
             _settle_outbox_content_dependency(
                 db, decision.outbox_id, identity.event_id, now
             )
+            # Operator cancellation is terminal too. Retire private retry
+            # context inside this exact guarded transaction, not afterward.
+            db.execute(_RETIRE_OUTBOX_SNAPSHOT, (decision.outbox_id,))
             db.execute(
                 "INSERT INTO operator_delivery_decisions "
                 "(decision_id,actor_id,event_id,delivery_plan_id,target_adapter,"

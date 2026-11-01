@@ -99,6 +99,11 @@ _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
         {("event_body_identity", "present_at_admission")}
     ),
     "active_outbox": frozenset({("delivery_outbox", "status")}),
+    # The frozen work snapshot has no mutable status column of its own: its
+    # lifetime is the guarded terminal settlement that deletes it. The probe
+    # resolves each snapshot through its delivery_outbox owner, so the gate
+    # is that owner family's lifecycle status.
+    "unretired_outbox_snapshots": frozenset({("delivery_outbox", "status")}),
     "unsettled_mandatory_owners": frozenset(
         {("event_content_dependencies", "released_at")}
     ),

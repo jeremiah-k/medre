@@ -470,6 +470,7 @@ def sync_finalize_deferred_handoff(
         _INSERT_NATIVE_REF_STRICT,
         _INSERT_RECEIPT,
         _RESOLVE_NATIVE_REF,
+        _RETIRE_OUTBOX_SNAPSHOT,
     )
 
     with lock:
@@ -500,6 +501,10 @@ def sync_finalize_deferred_handoff(
             _settle_outbox_content_dependency(
                 db, settle_outbox_id, settle_event_id, settled_at
             )
+            # Guarded terminal settlement retires the frozen dispatch context
+            # in the same transaction; a rollback (for example the native
+            # identity conflict above) preserves it.
+            db.execute(_RETIRE_OUTBOX_SNAPSHOT, (settle_outbox_id,))
             db.commit()
             return True, None
         except BaseException:
@@ -535,6 +540,7 @@ def sync_finalize_outbox_terminal(
     from medre.core.storage.sqlite.statements import (
         _FINALIZE_OUTBOX_TERMINAL,
         _INSERT_RECEIPT,
+        _RETIRE_OUTBOX_SNAPSHOT,
     )
 
     with lock:
@@ -558,6 +564,10 @@ def sync_finalize_outbox_terminal(
             _settle_outbox_content_dependency(
                 db, settle_outbox_id, settle_event_id, settled_at
             )
+            # Guarded terminal settlement retires the frozen dispatch context
+            # in the same transaction as the receipt-backed status change; a
+            # failed receipt insert or lost guard rolls the retirement back.
+            db.execute(_RETIRE_OUTBOX_SNAPSHOT, (settle_outbox_id,))
             db.commit()
             return True
         except BaseException:

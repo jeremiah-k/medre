@@ -27,6 +27,7 @@ appropriate ``mark_outbox_*`` transition method.
 from __future__ import annotations
 
 import uuid
+from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -38,6 +39,9 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
+    OutboxDispatchSnapshot,
+    OutboxDispatchSnapshotWrite,
+    OUTBOX_DISPATCH_SNAPSHOT_VERSION,
     StorageBackend,
     TerminalOutboxFinalization,
 )
@@ -416,3 +420,78 @@ def release_guarded_outbox_claim(
     object.__setattr__(item, "locked_at", None)
     object.__setattr__(item, "lease_until", None)
     object.__setattr__(item, "status", release_status)
+
+
+class FrozenOutboxSnapshotFakeMixin:
+    """Production-shaped frozen snapshot ownership for in-memory test stores.
+
+    Creation owns snapshot bytes; only successfully committed terminal
+    transitions retire them. An identity-mismatched or terminal read never
+    exposes a sibling generation's frozen content.
+    """
+
+    _outbox: dict[str, DeliveryOutboxItem]
+    _dispatch_snapshots: dict[str, OutboxDispatchSnapshot]
+
+    def _save_outbox_snapshot(
+        self,
+        item: DeliveryOutboxItem,
+        dispatch_snapshot: OutboxDispatchSnapshotWrite | None,
+    ) -> None:
+        if dispatch_snapshot is None:
+            return
+        if item.metadata:
+            raise ValueError("outbox context cannot be both inline and snapshotted")
+        self._dispatch_snapshots[item.outbox_id] = OutboxDispatchSnapshot(
+            outbox_id=item.outbox_id,
+            attempt_number=item.attempt_number,
+            snapshot_version=OUTBOX_DISPATCH_SNAPSHOT_VERSION,
+            kind=dispatch_snapshot.kind,
+            context=deepcopy(dispatch_snapshot.context),
+        )
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status not in {"pending", "in_progress", "retry_wait", "queued"}
+            or item.event_id != event_id
+            or item.delivery_plan_id != delivery_plan_id
+            or item.target_adapter != target_adapter
+            or (item.target_channel or None) != (target_channel or None)
+        ):
+            return None
+        snapshot = self._dispatch_snapshots.get(outbox_id)
+        return deepcopy(snapshot) if snapshot else None
+
+    def _transition_outbox(
+        self, item: DeliveryOutboxItem, new_status: str, **kwargs
+    ) -> bool:
+        committed = apply_guarded_outbox_transition(item, new_status, **kwargs)
+        if committed and new_status in {
+            "sent",
+            "cancelled",
+            "dead_lettered",
+            "abandoned",
+        }:
+            self._dispatch_snapshots.pop(item.outbox_id, None)
+        return committed
+
+    def _finalize_outbox_terminal(
+        self,
+        item: DeliveryOutboxItem | None,
+        receipts: list[DeliveryReceipt],
+        command: TerminalOutboxFinalization,
+    ) -> bool:
+        committed = apply_guarded_outbox_terminal(item, receipts, command)
+        if committed:
+            self._dispatch_snapshots.pop(command.outbox_id, None)
+        return committed

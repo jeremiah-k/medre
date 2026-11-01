@@ -59,6 +59,8 @@ from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
     StorageError,
+    OutboxDispatchSnapshot,
+    OutboxDispatchSnapshotWrite,
     TerminalOutboxFinalization,
 )
 from tests.helpers.content_reads import inspection_rows
@@ -68,8 +70,7 @@ from tests.helpers.delivery_callbacks import (
 )
 from tests.helpers.storage_outbox import (
     allocate_new_outbox_generation,
-    apply_guarded_outbox_terminal,
-    apply_guarded_outbox_transition,
+    FrozenOutboxSnapshotFakeMixin,
     find_existing_outbox_generation,
     find_existing_replay_run_claim,
     release_guarded_outbox_claim,
@@ -88,7 +89,7 @@ def _effective_attempt(item: DeliveryOutboxItem) -> int:
     )
 
 
-class _MemoryStorage:
+class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
     """Minimal in-memory storage for delivery lifecycle conformance tests."""
 
     def __init__(self) -> None:
@@ -96,6 +97,7 @@ class _MemoryStorage:
         self._observations: list[DeliveryObservation] = []
         self._native_refs: list[NativeMessageRef] = []
         self._outbox: dict[str, DeliveryOutboxItem] = {}
+        self._dispatch_snapshots: dict[str, OutboxDispatchSnapshot] = {}
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
@@ -168,43 +170,48 @@ class _MemoryStorage:
         ):
             return False
 
-        identity = (
-            native_ref.adapter,
-            native_ref.native_channel_id or "",
-            native_ref.native_message_id,
-        )
-        existing_ref = next(
-            (
-                ref
-                for ref in self._native_refs
-                if (
-                    ref.adapter,
-                    ref.native_channel_id or "",
-                    ref.native_message_id,
-                )
-                == identity
-            ),
-            None,
-        )
-        if existing_ref is not None and existing_ref.event_id != native_ref.event_id:
-            raise StorageError(
-                "Native identity already maps to a different canonical event: "
-                f"{existing_ref.event_id}"
+        if native_ref is not None:
+            identity = (
+                native_ref.adapter,
+                native_ref.native_channel_id or "",
+                native_ref.native_message_id,
             )
-        if existing_ref is None:
-            self._native_refs.append(native_ref)
+            existing_ref = next(
+                (
+                    ref
+                    for ref in self._native_refs
+                    if (
+                        ref.adapter,
+                        ref.native_channel_id or "",
+                        ref.native_message_id,
+                    )
+                    == identity
+                ),
+                None,
+            )
+            if (
+                existing_ref is not None
+                and existing_ref.event_id != native_ref.event_id
+            ):
+                raise StorageError(
+                    "Native identity already maps to a different canonical event: "
+                    f"{existing_ref.event_id}"
+                )
+            if existing_ref is None:
+                self._native_refs.append(native_ref)
         self._receipts.append(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
         object.__setattr__(item, "attempt_number", command.attempt_number)
         object.__setattr__(item, "active_attempt", None)
+        self._dispatch_snapshots.pop(item.outbox_id, None)
         return True
 
     async def finalize_outbox_terminal(
         self,
         command: TerminalOutboxFinalization,
     ) -> bool:
-        return apply_guarded_outbox_terminal(
+        return self._finalize_outbox_terminal(
             self._outbox.get(command.outbox_id),
             self._receipts,
             command,
@@ -215,6 +222,7 @@ class _MemoryStorage:
         item: DeliveryOutboxItem,
         *,
         allocate_new_generation: bool = False,
+        dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
     ) -> DeliveryOutboxItem:
         dispatch_source = item.dispatch_source or (
             "replay" if allocate_new_generation else "live"
@@ -237,6 +245,7 @@ class _MemoryStorage:
             existing = find_existing_outbox_generation(self._outbox, item)
             if existing is not None:
                 return existing
+        self._save_outbox_snapshot(item, dispatch_snapshot)
         self._outbox[item.outbox_id] = item
         return item
 
@@ -293,7 +302,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "queued",
             allowed_from=("in_progress",),
@@ -312,7 +321,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "sent",
             allowed_from=("in_progress", "queued"),
@@ -335,7 +344,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "retry_wait",
             allowed_from=("in_progress",),
@@ -361,7 +370,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "dead_lettered",
             allowed_from=("in_progress", "retry_wait"),
@@ -385,7 +394,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "cancelled",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
@@ -408,7 +417,7 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        return apply_guarded_outbox_transition(
+        return self._transition_outbox(
             item,
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
@@ -1049,3 +1058,51 @@ class TestServicePathDeliveryConformance:
 
         # No native ref for queued (no native_message_id).
         assert await storage.count_native_refs() == 0
+
+
+async def test_in_memory_storage_keeps_owned_snapshot_until_terminal_settlement() -> (
+    None
+):
+    """Mirror SQLite owner-scoped snapshot read, atomic creation and retirement."""
+    storage = _MemoryStorage()
+    item = DeliveryOutboxItem(
+        outbox_id="owned-context",
+        event_id="evt-owned",
+        route_id="r1",
+        delivery_plan_id="p1",
+        target_adapter="fake_presentation",
+        target_channel="room",
+        attempt_number=1,
+        status="in_progress",
+    )
+    write = OutboxDispatchSnapshotWrite(
+        kind="direct", context={"capability_level": "native"}
+    )
+    with pytest.raises(ValueError, match="both inline and snapshotted"):
+        await storage.create_outbox_item(
+            replace(item, outbox_id="invalid", metadata={"legacy": True}),
+            dispatch_snapshot=write,
+        )
+    assert await storage.get_outbox_item("invalid") is None
+    created = await storage.create_outbox_item(item, dispatch_snapshot=write)
+    read_kwargs = dict(
+        event_id=created.event_id,
+        delivery_plan_id=created.delivery_plan_id,
+        target_adapter=created.target_adapter,
+        target_channel=created.target_channel,
+    )
+    snap = await storage.get_outbox_dispatch_context(item.outbox_id, **read_kwargs)
+    assert snap is not None
+    assert snap.context == {"capability_level": "native"}
+    assert snap.attempt_number == 1
+    assert (
+        await storage.get_outbox_dispatch_context(
+            item.outbox_id, **{**read_kwargs, "event_id": "different"}
+        )
+        is None
+    )
+    assert await storage.mark_outbox_sent(item.outbox_id)
+    assert (
+        await storage.get_outbox_dispatch_context(item.outbox_id, **read_kwargs) is None
+    )
+    assert item.outbox_id not in storage._dispatch_snapshots

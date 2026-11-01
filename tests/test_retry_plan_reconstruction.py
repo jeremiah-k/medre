@@ -23,6 +23,10 @@ from medre.core.planning.delivery_plan import (
     delivery_target_identity,
 )
 from medre.core.routing.models import Route, RouteTarget
+from medre.core.storage.backend import (
+    OUTBOX_DISPATCH_SNAPSHOT_VERSION,
+    OutboxDispatchSnapshot,
+)
 from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
 
 # ---------------------------------------------------------------------------
@@ -380,8 +384,9 @@ class TestCapabilityFieldsRoundtrip:
 
 
 def test_missing_route_decision_metadata_is_rejected() -> None:
+    """An empty inline row without a snapshot fails closed, never re-plans."""
     item = _make_outbox(metadata=None, include_route_metadata=False)
-    with pytest.raises(ValueError, match="missing metadata"):
+    with pytest.raises(ValueError, match="no frozen dispatch context"):
         reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,
@@ -390,12 +395,32 @@ def test_missing_route_decision_metadata_is_rejected() -> None:
 
 
 def test_empty_route_decision_metadata_is_rejected() -> None:
+    """An empty inline row without a snapshot fails closed, never re-plans."""
     item = _make_outbox(metadata={}, include_route_metadata=False)
+    with pytest.raises(ValueError, match="no frozen dispatch context"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_snapshot_without_route_decision_keys_is_rejected() -> None:
+    """A frozen snapshot missing required decision keys fails closed."""
+    item = _make_outbox(metadata=None, include_route_metadata=False)
+    snapshot = OutboxDispatchSnapshot(
+        outbox_id=item.outbox_id,
+        attempt_number=1,
+        snapshot_version=OUTBOX_DISPATCH_SNAPSHOT_VERSION,
+        kind="direct",
+        context={"delivery_strategy": "direct"},
+    )
     with pytest.raises(ValueError, match="missing route-decision metadata keys"):
         reconstruct_retry_delivery_plan(
             item=item,
             previous_receipt=None,
             default_max_attempts=3,
+            dispatch_snapshot=snapshot,
         )
 
 

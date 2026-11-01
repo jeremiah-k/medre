@@ -30,6 +30,16 @@ def _old_database(path, *, missing_expired_at=False, missing_diagnostics=False):
         "-- Typed admission routing facts",
         "-- One current, immutable admission fact per canonical body.",
     )
+    ddl = _strip_section(
+        ddl,
+        "-- Frozen outbox dispatch work snapshot",
+        "CREATE TABLE IF NOT EXISTS durable_ingress_work (",
+    )
+    indexes = _strip_section(
+        indexes,
+        "-- A frozen work snapshot has one owner:",
+        "CREATE INDEX IF NOT EXISTS idx_outbox_event_created",
+    )
     if missing_diagnostics:
         ddl = _strip_section(
             ddl,
@@ -85,6 +95,11 @@ async def test_explicit_additions_are_atomic_and_idempotent(
         assert (await store._read_one("SELECT COUNT(*) AS n FROM event_routing_facts"))[
             "n"
         ] == 0
+        owner_index = await store._read_one(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name='idx_outbox_snapshot_owner_unique'"
+        )
+        assert owner_index is not None
     finally:
         await store.close()
     again = SQLiteStorage(path)
@@ -95,11 +110,11 @@ async def test_explicit_additions_are_atomic_and_idempotent(
 async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     """A current predecessor lacking the diagnostics surface is accepted.
 
-    ``_old_database`` strips three tables: the collection log and the
-    routing facts unconditionally, and the diagnostics surface for this
-    test. The assertions below pin the table set exactly — the upgrade adds
-    those three tables and removes no table. The created index and the
-    untouched legacy row are asserted separately in this test.
+    ``_old_database`` strips four tables: the collection log, the routing
+    facts and the outbox work snapshot unconditionally, and the diagnostics
+    surface for this test. The assertions below pin the table set exactly —
+    the upgrade adds those four tables and removes no table. The created
+    index and the untouched legacy row are asserted separately in this test.
     """
     path = str(tmp_path / "upgrade-diagnostics.db")
     _old_database(path, missing_diagnostics=True)
@@ -154,6 +169,7 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     after_names = {name for (name,) in after_tables}
     assert after_names - before_names == {
         "delivery_evidence_diagnostics",
+        "delivery_outbox_snapshots",
         "event_content_collection_log",
         "event_routing_facts",
     }

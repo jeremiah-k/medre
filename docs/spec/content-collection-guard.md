@@ -17,18 +17,25 @@ erasure; WAL, backup, logs and remote copies are outside this API.
 The collectable event set is the settled routed event with independently
 classified retained evidence: admitted through durable ingress, fanned out
 to ordinary delivery targets, with every mandatory owner released by guarded
-terminal transitions. An outbox `metadata.dispatch_context` route/plan
-snapshot is not automatically content-free: it may contain arbitrary
-origin, destination, or policy values (the
+terminal transitions. The frozen outbox work snapshot
+(`delivery_outbox_snapshots.context_json`) is not automatically content-free:
+it may contain arbitrary origin, destination, or policy values (the
 [accepted context ownership contract](accepted-context-ownership.md) fixes
-its ownership class and terminal disposition). A non-empty snapshot MUST continue
-to block collection until an explicitly reviewed independent ownership
-model accounts for those values. Terminal status alone is insufficient. An inconsistent admission identity (missing admission record, unexpected
+its ownership class and terminal disposition). An unretired snapshot MUST
+continue to block collection: its row exists exactly until the guarded
+terminal settlement deletes it, and the `unretired_outbox_snapshots`
+live-ownership gate reports it with its row count. Terminal status alone is
+insufficient. Guarded operator cancellation MUST retire the same work snapshot
+inside the cancellation/owner-settlement transaction; an audit failure or
+stale decision MUST leave the original snapshot untouched. The historical inline dispatch metadata of rows created before
+the snapshot table keeps blocking through the outbox family's content probe.
+An inconsistent admission identity (missing admission record, unexpected
 body rows, missing uncollected body or recreated collected content) MUST be
 reported as a blocker by the read-only release assessment; the mutation guard
 MUST still refuse inconsistent state. Live-ownership
 gates (active ingress work, active outbox claims, unsettled mandatory owners,
-unrevoked optional grants) MUST block collection with their row counts, and
+unretired outbox snapshots, unrevoked optional grants) MUST block collection
+with their row counts, and
 the operator-facing refusal MUST name each live owner.
 
 Delivery evidence, native references, and durable ingress work are retained
@@ -57,6 +64,8 @@ delete set to any of them, and no scheduler MAY invoke collection
 automatically.
 
 Pre-release initialize MAY automatically apply only exactly recognized additive
-catalog states: the nullable `expired_at` grant field and the independent
-collection-receipt table, and the delivery diagnostics table and its identity
-index. All other schema changes MUST fail before DDL.
+catalog states: the nullable `expired_at` grant field, the independent
+collection-receipt table, the delivery diagnostics table and its identity
+index, the `event_routing_facts` table, and the `delivery_outbox_snapshots`
+table with its `idx_outbox_snapshot_owner_unique` index. All other schema
+changes MUST fail before DDL.

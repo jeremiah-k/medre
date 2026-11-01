@@ -536,6 +536,15 @@ class TestNoDeleteInStorageModule:
                     if len(matches) == 1:
                         found.update(matches)
                         continue
+                # Frozen work context is an owned, transient projection, not
+                # durable delivery evidence. Its one exact-table DELETE is
+                # guarded by a terminal transition in the same transaction.
+                if (
+                    py_file.name == "statements.py"
+                    and line.strip()
+                    == "DELETE FROM delivery_outbox_snapshots WHERE outbox_id = ?"
+                ):
+                    continue
                 violations.append(f"{py_file.name}:{line_no}: {line.strip()}")
         assert not violations, "Unexpected storage DELETE operations: " + repr(
             violations

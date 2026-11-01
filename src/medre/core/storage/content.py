@@ -62,6 +62,16 @@ CONTENT_SURFACES = (
         ("plan_json", "provenance_json", "parts_json"),
         ("exact_packet_recovery", "packet_evidence"),
     ),
+    # Privately owned frozen dispatch context for one outbox generation. The
+    # document may carry arbitrary origin, destination, and policy values; the
+    # row exists only while retry or uncompleted native work requires it and is
+    # deleted by guarded terminal settlement (an unretired row blocks release
+    # through the unretired_outbox_snapshots live-ownership probe).
+    ContentSurface(
+        "delivery_outbox_snapshots",
+        ("context_json",),
+        ("delivery", "recovery"),
+    ),
     ContentSurface("durable_ingress_work", ("last_error",), ("ingress_recovery",)),
     ContentSurface("attachment_blobs", ("data",), ("attachment_delivery",)),
     ContentSurface("adapter_checkpoints", ("cursor", "metadata"), ("native_recovery",)),

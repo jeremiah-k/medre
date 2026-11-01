@@ -30,15 +30,29 @@ async def test_staged_work_keeps_exact_plan_and_first_live_attempt(
         for row in rows
     )
     assert all(not adapter.delivered_payloads for adapter in adapters.values())
+    snapshot = await temp_storage.get_outbox_dispatch_context(
+        rows[0].outbox_id,
+        event_id=rows[0].event_id,
+        delivery_plan_id=rows[0].delivery_plan_id,
+        target_adapter=rows[0].target_adapter,
+        target_channel=rows[0].target_channel,
+    )
+    assert snapshot is not None
     original = reconstruct_retry_delivery_plan(
-        item=rows[0], previous_receipt=None, default_max_attempts=99
+        item=rows[0],
+        previous_receipt=None,
+        default_max_attempts=99,
+        dispatch_snapshot=snapshot,
     )
     assert original.route == route
     assert original.plan.retry_policy == RetryPolicy(max_attempts=4, jitter=False)
     # Mutable route configuration cannot rewrite an accepted obligation.
     route.source = RouteSource("other", (), None, "Changed origin")
     frozen = reconstruct_retry_delivery_plan(
-        item=rows[0], previous_receipt=None, default_max_attempts=1
+        item=rows[0],
+        previous_receipt=None,
+        default_max_attempts=1,
+        dispatch_snapshot=snapshot,
     )
     assert frozen == original
     dispatcher = RetryWorker(
@@ -98,11 +112,16 @@ async def test_rebound_stored_plan_is_held_without_native_submission(
     runner, _, adapters = _pipeline(temp_storage)
     rows = await _stage(temp_storage, runner)
     row = rows[0]
-    metadata = dict(row.metadata)
-    metadata["dispatch_context"]["plan"][field] = value
+    stored = await temp_storage._read_one(
+        "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
+        (row.outbox_id,),
+    )
+    assert stored is not None
+    context = msgspec.json.decode(stored["context_json"])
+    context["plan"][field] = value
     await temp_storage._write(
-        "UPDATE delivery_outbox SET metadata=? WHERE outbox_id=?",
-        (msgspec.json.encode(metadata).decode(), row.outbox_id),
+        "UPDATE delivery_outbox_snapshots SET context_json=? WHERE outbox_id=?",
+        (msgspec.json.encode(context).decode(), row.outbox_id),
     )
     dispatcher = RetryWorker(
         temp_storage, runner, None, initial_dispatch=True, enabled=False
@@ -148,11 +167,9 @@ async def test_missing_initial_snapshot_cannot_fall_back_to_guessed_planning(
 ) -> None:
     runner, _, adapters = _pipeline(temp_storage)
     rows = await _stage(temp_storage, runner)
-    metadata = dict(rows[0].metadata)
-    metadata.pop("dispatch_context")
     await temp_storage._write(
-        "UPDATE delivery_outbox SET metadata=? WHERE outbox_id=?",
-        (msgspec.json.encode(metadata).decode(), rows[0].outbox_id),
+        "DELETE FROM delivery_outbox_snapshots WHERE outbox_id=?",
+        (rows[0].outbox_id,),
     )
     dispatcher = RetryWorker(
         temp_storage, runner, None, initial_dispatch=True, enabled=False
@@ -183,6 +200,26 @@ async def test_initial_obligations_survive_reopen_without_native_or_route_replan
         dispatcher = RetryWorker(
             reopened, runner, None, initial_dispatch=True, enabled=False
         )
+        # While the obligations are pending, their frozen snapshots still
+        # carry the accepted plan; the replacement route configuration
+        # never rewrites it. Reconstruction after settlement is impossible
+        # by design: terminal settlement retires the snapshot.
+        for row in await reopened.list_outbox_items_for_event("event"):
+            snapshot = await reopened.get_outbox_dispatch_context(
+                row.outbox_id,
+                event_id=row.event_id,
+                delivery_plan_id=row.delivery_plan_id,
+                target_adapter=row.target_adapter,
+                target_channel=row.target_channel,
+            )
+            assert snapshot is not None
+            plan = reconstruct_retry_delivery_plan(
+                item=row,
+                previous_receipt=None,
+                default_max_attempts=1,
+                dispatch_snapshot=snapshot,
+            )
+            assert plan.route.source.origin_label == "Original mesh"
         await dispatcher._process_due(datetime.now(timezone.utc))
         after = await reopened.list_outbox_items_for_event("event")
         assert {row.outbox_id for row in after} == {row.outbox_id for row in before}
@@ -193,10 +230,6 @@ async def test_initial_obligations_survive_reopen_without_native_or_route_replan
         for row in after:
             receipts = await reopened.list_receipts_for_outbox(row.outbox_id)
             assert len(receipts) == 1 and receipts[0].source == "live"
-            plan = reconstruct_retry_delivery_plan(
-                item=row, previous_receipt=receipts[0], default_max_attempts=1
-            )
-            assert plan.route.source.origin_label == "Original mesh"
     finally:
         await reopened.close()
 
@@ -638,17 +671,21 @@ async def test_snapshot_destination_is_bound_to_retained_outbox_address(
     rows = await _stage(temp_storage, runner)
     row = rows[0]
     if rebind:
-        metadata = dict(row.metadata)
+        stored = await temp_storage._read_one(
+            "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
+            (row.outbox_id,),
+        )
+        assert stored is not None
+        snapshot = msgspec.json.decode(stored["context_json"])
         rebound = RouteTarget(
             "radio", destination=RouteDestination("contact", "foreign", "Recipient")
         )
-        snapshot = metadata["dispatch_context"]
         snapshot["plan"]["target"]["destination"]["destination_hash"] = "foreign"
         snapshot["route"]["targets"][0]["destination"]["destination_hash"] = "foreign"
         snapshot["plan"]["target_identity"] = delivery_target_identity(rebound)
         await temp_storage._write(
-            "UPDATE delivery_outbox SET metadata=? WHERE outbox_id=?",
-            (msgspec.json.encode(metadata).decode(), row.outbox_id),
+            "UPDATE delivery_outbox_snapshots SET context_json=? WHERE outbox_id=?",
+            (msgspec.json.encode(snapshot).decode(), row.outbox_id),
         )
     dispatcher = RetryWorker(
         temp_storage, runner, None, initial_dispatch=True, enabled=False
