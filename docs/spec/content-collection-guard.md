@@ -74,8 +74,14 @@ family's column-aware blocker evaluation.
 Opaque envelope and relation records, incoming excerpts owned by other
 events, radio plans, attachment associations, and operator decisions REMAIN
 wholesale blockers under independent policy. Collection MUST NOT expand its
-delete set to any of them, and no scheduler MAY invoke collection
-automatically.
+delete set to any of them. Automatic invocation is permitted ONLY through
+the operator-declared `relay-only` retention policy inside its durable
+activation epoch, executed by the runtime's single owner-fenced collection
+worker against the one live storage handle: the policy is disabled by
+default, a declared `retain` policy authorizes nothing, pre-watermark
+history is never swept, REPLAY scope never constructs the worker, and every
+per-event mutation still rechecks all blockers inside its own
+`BEGIN IMMEDIATE` transaction exactly as below. Absent that declaration, a scheduler MUST NOT invoke collection automatically.
 
 Pre-release initialize MAY automatically apply only exactly recognized additive
 catalog states: the nullable `expired_at` grant field, the independent

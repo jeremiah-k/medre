@@ -35,8 +35,12 @@ and the read-only release assessment classifies candidate copies, active
 owners and unmeasured scopes without selecting bytes. Exact-event
 isolated-content collection is available through the opt-in, relay-only
 `medre storage collect` workflow, which defaults to retain mode
-([guarded logical collection](../spec/content-collection-guard.md));
-automatic or periodic collection stays disabled.
+([guarded logical collection](../spec/content-collection-guard.md)).
+Automatic periodic collection additionally exists behind the explicitly
+enabled `relay-only` `content_retention` policy: the runtime's single
+owner-fenced collection worker sweeps epoch-scoped candidates with
+bounded batches and backoff (disabled by default; REPLAY scope excluded;
+[content retention](../spec/content-retention.md)).
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after

@@ -111,6 +111,35 @@ class RuntimeEventType(str, enum.Enum):
       in effect for that message.  Unlike ``retry_abandoned``, no retry
       loop was running at the time of refusal.
 
+    **Content collection lifecycle** — policy-governed retention worker:
+
+    * ``collection_started`` — the content collection worker began its
+      background loop.  Emitted once per successful worker activation.
+    * ``collection_stopped`` — the worker loop finished (clean stop or
+      cancellation) after an earlier ``collection_started``.
+    * ``collection_abandoned`` — a running collection loop was abandoned
+      mid-flight: it survived the bounded stop grace period or ``stop()``
+      itself was cancelled.  A subsequent start is refused for the
+      lifetime of the process.
+    * ``collection_start_refused`` — a worker start was requested but
+      refused (previous stop abandoned the loop, or a fail-closed
+      restriction is in effect).  No loop was running at refusal time.
+    * ``collection_deferred`` — a collection attempt hit a transient
+      SQLite condition; the remaining page was aborted, the cursor was
+      not advanced past the failed event, and a bounded backoff applies
+      before the next sweep.
+    * ``collection_restricted`` — the worker failed closed after
+      repeated integrity refusals within one sweep and stopped its loop;
+      it refuses further starts until operator intervention.
+    * ``collection_epoch_awaited`` — the durable activation epoch's
+      heartbeat is stale, so the worker idles without collecting or
+      heartbeating until a fresh operator-opened epoch appears.
+    * ``collection_failed`` — a collection attempt hit an integrity
+      refusal (fail-closed), or the worker task itself crashed.
+    * ``collection_swept`` — a bounded candidate page completed;
+      detail carries outcome counts only, never event identifiers or
+      content values.
+
     **Diagnostics** — health and observational signals only:
 
     * ``retry_unfinished_work_detected`` — retry-worker startup observed
@@ -164,6 +193,31 @@ class RuntimeEventType(str, enum.Enum):
     # -- Retry cancellation / abandonment ------------------------------------
     RETRY_ABANDONED = "retry_abandoned"  # running retry loop abandoned mid-flight (shutdown/cancellation)
     RETRY_START_REFUSED = "retry_start_refused"  # retry refused: abandon already in effect, loop never started
+
+    # -- Content collection lifecycle ----------------------------------------
+    COLLECTION_STARTED = "collection_started"  # collection worker loop began
+    COLLECTION_STOPPED = "collection_stopped"  # collection worker loop finished
+    COLLECTION_ABANDONED = (
+        "collection_abandoned"  # running collection loop abandoned mid-flight
+    )
+    COLLECTION_START_REFUSED = (
+        "collection_start_refused"  # start refused: abandoned or restricted
+    )
+    COLLECTION_DEFERRED = (
+        "collection_deferred"  # transient SQLite condition; page aborted with backoff
+    )
+    COLLECTION_RESTRICTED = (
+        "collection_restricted"  # fail-closed after integrity refusals; loop stopped
+    )
+    COLLECTION_EPOCH_AWAITED = (
+        "collection_epoch_awaited"  # stale epoch heartbeat; idling without collecting
+    )
+    COLLECTION_FAILED = (
+        "collection_failed"  # integrity refusal counted, or worker task crashed
+    )
+    COLLECTION_SWEPT = (
+        "collection_swept"  # bounded candidate page completed (counts only)
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -318,6 +318,7 @@ _EXPECTED_RUNTIME_SNAPSHOT_TOP_KEYS: frozenset[str] = frozenset(
         "accounting",
         "adapters",
         "capacity",
+        "content_collection",
         "diagnostics",
         "health",
         "identity",

@@ -1,12 +1,16 @@
-"""Conservative event-scoped logical collection; no background execution.
+"""Conservative event-scoped logical collection; the single mutation boundary.
 
-Authority is decided inside BEGIN IMMEDIATE, never from a prior assessment.
+This module holds the guarded per-event collector shared by the operator
+CLI and the runtime's policy-governed collection worker. Authority is
+decided inside BEGIN IMMEDIATE, never from a prior assessment or preview.
 No free-form content values leave the database as part of a report. This API
 removes only canonical body and same-event excerpt rows when every retained
 evidence family carries no content-potential values and every live owner,
 wholesale policy blocker and opaque copy is absent. Retained durable evidence
 (surviving rows, including the separated delivery diagnostics) is never
-deleted. It does not claim physical erasure.
+deleted. It does not claim physical erasure. The storage layer itself
+installs no scheduler: automatic invocation lives in the runtime worker
+and is gated on the operator's declared relay-only policy.
 """
 
 from __future__ import annotations
@@ -16,8 +20,13 @@ import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from medre.core.storage.backend import StorageError
+from medre.core.storage.backend import (
+    ContentCollectionEpochChanged,
+    ContentCollectionTransientError,
+    StorageError,
+)
 from medre.core.storage.content import UNMEASURED_CONTENT_SCOPES
+from medre.core.storage.content_retention import normalize_admission_watermark
 from medre.core.storage.sqlite._count import (
     _ALL_EVENT_COPY_PROBES,
     _EVENT_COPY_SQL,
@@ -25,7 +34,6 @@ from medre.core.storage.sqlite._count import (
 )
 
 COLLECTION_UNMEASURED_SCOPES = UNMEASURED_CONTENT_SCOPES
-
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -121,6 +129,7 @@ def sync_collect_event_content(
     lock: threading.Lock,
     event_id: str,
     dry_run: bool,
+    retention_epoch: int | None = None,
 ) -> dict[str, Any]:
     """Check and optionally mutate in one serialized transaction.
 
@@ -130,6 +139,33 @@ def sync_collect_event_content(
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE" if not dry_run else "BEGIN")
+            if retention_epoch is not None:
+                # Runtime collection is authorized by the *current* epoch,
+                # not the one observed before paging. This check shares the
+                # collector's write reservation with the content mutation.
+                active = db.execute(
+                    "SELECT epoch, mode, admission_watermark "
+                    "FROM content_retention_epochs ORDER BY epoch DESC LIMIT 1"
+                ).fetchone()
+                if (
+                    active is None
+                    or active[0] != retention_epoch
+                    or active[1] != "relay-only"
+                ):
+                    raise ContentCollectionEpochChanged(
+                        "Retention activation changed during collection"
+                    )
+                admission = db.execute(
+                    "SELECT created_at FROM canonical_events WHERE event_id=?",
+                    (event_id,),
+                ).fetchone()
+                if admission is None or (
+                    active[2] is not None
+                    and admission[0] <= normalize_admission_watermark(active[2])
+                ):
+                    raise ContentCollectionEpochChanged(
+                        "Candidate is outside the current activation boundary"
+                    )
             base_state, blockers, rows, logical_bytes = _read_collection_state(
                 db, event_id
             )
@@ -192,7 +228,8 @@ def sync_collect_event_content(
 
 
 class _CollectionMixin:
-    """Operator-invoked, exact-event collection only (no runtime scheduler)."""
+    """Exact-event guarded collection for the operator CLI and the
+    policy-governed runtime worker; this layer installs no scheduler."""
 
     if TYPE_CHECKING:
         _lock: threading.Lock
@@ -204,8 +241,16 @@ class _CollectionMixin:
         ) -> _T: ...
 
     async def collect_event_content(
-        self, event_id: str, *, dry_run: bool = True
+        self,
+        event_id: str,
+        *,
+        dry_run: bool = True,
+        retention_epoch: int | None = None,
     ) -> dict[str, Any]:
+        if retention_epoch is not None and (
+            type(retention_epoch) is not int or retention_epoch < 1
+        ):
+            raise ValueError("Retention epoch must be a positive integer")
         if not isinstance(event_id, str) or not event_id:
             raise ValueError("A bounded event ID is required")
         try:
@@ -215,6 +260,15 @@ class _CollectionMixin:
                 self._lock,
                 event_id,
                 dry_run,
+                retention_epoch,
             )
+        except sqlite3.OperationalError as exc:
+            # Transient SQLite condition (locked/busy/I/O): a later attempt
+            # may clear it. Semantic integrity refusals are raised inside the
+            # sync collector as StorageError and never take this path, so a
+            # caller may treat this subclass as defer-only.
+            raise ContentCollectionTransientError(
+                "Core content collection failed"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError("Core content collection failed") from exc
