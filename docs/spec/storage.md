@@ -499,7 +499,47 @@ The `source_native_*` columns persist the optional `CanonicalEvent.source_native
 
 `relations` on the in-memory `CanonicalEvent` are not stored in `payload` or `metadata`. They are reconstructed at load time from `event_relations`.
 
-**Append-only guarantee:** No row in `canonical_events` **MUST** ever be updated or deleted.
+The `metadata` column persists only the opaque `EventMetadata` namespaces
+(`transport`, `radio`, `telemetry`, `native`, `custom`); absent namespaces
+and the empty `custom` mapping are omitted, so an event without opaque
+metadata serializes to `{}`. The bounded `routing` namespace is separated at
+write time into `event_routing_facts` (Section 4.1.1) and never persists
+inline for a newly admitted event. Rows admitted before the separation keep
+their stored metadata bytes, including any inline routing value, and are
+never transformed. Production reads compose the routing namespace from the
+typed facts row when it exists, otherwise from the row's own inline value.
+
+**Append-only guarantee:** Rows in `canonical_events` **MUST NOT** be updated or deleted.
+
+### 4.1.1 event_routing_facts
+
+```sql
+CREATE TABLE IF NOT EXISTS event_routing_facts (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    matched_routes TEXT NOT NULL CHECK (json_valid(matched_routes) AND json_type(matched_routes) = 'array'),
+    fanout_group TEXT,
+    route_trace TEXT NOT NULL CHECK (json_valid(route_trace) AND json_type(route_trace) = 'array' AND json_array_length(route_trace) <= 16),
+    recorded_at TEXT NOT NULL
+);
+```
+
+`event_routing_facts` is the typed, write-once admission surface for the
+bounded routing facts (`matched_routes`, `fanout_group`, and the
+`route_trace` bounded to at most 16 entries). One row exists exactly when
+the admitted event's metadata carried the routing namespace; absence of a
+row is the standing fact that no routing decision was accepted at admission.
+The row is written in the same admission transaction as the canonical event
+row (both the ingress admission path and the append path) and is never
+rewritten: duplicate admissions never execute their ops, so the originally
+accepted decision survives unchanged.
+
+Every column is classified `immutable_identity` (see
+[storage-column-classification.md](storage-column-classification.md)); the
+table holds no content-potential column, adds no content inventory surface,
+and contributes no collection blocker. It is not a read grant: routing
+values are served to consumers through the composed event projections
+(`get_metadata`, `query_metadata`, and the authorized owner reads), which
+coalesce the typed row with any inline routing value of preexisting rows.
 
 ### 4.2 event_relations
 
@@ -1458,7 +1498,7 @@ shape, schema marker or package version.
 
 ### 5.1 Events
 
-No row in `canonical_events` **MUST** ever be updated or deleted. The `append` method **MUST** raise `DuplicateEventError` if `event_id` already exists.
+Rows in `canonical_events` **MUST NOT** be updated or deleted. The `append` method **MUST** raise `DuplicateEventError` if `event_id` already exists.
 
 ### 5.2 Delivery Receipts
 
@@ -1801,8 +1841,11 @@ after a stable, explicitly supported schema baseline is declared.
 
 Only explicitly allowlisted, structurally exact additive changes MAY be applied
 within one `BEGIN IMMEDIATE` transaction. For this slice those additions are
-the nullable `event_content_access_grants.expired_at` field and the independent
-`event_content_collection_log` table. This does not authorize renames, altered
+the nullable `event_content_access_grants.expired_at` field, the independent
+`event_content_collection_log` table, the write-time separated
+`delivery_evidence_diagnostics` table with its `idx_diagnostics_identity`
+index, and the typed `event_routing_facts` admission table (Section 4.1.1).
+This does not authorize renames, altered
 constraints, data backfills, or general legacy schema transformations. The
 `initialize()` method **MUST** validate the old catalog against one exact
 allowlisted predecessor before any DDL and validate the complete resulting

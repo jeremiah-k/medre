@@ -39,7 +39,10 @@ never authorizes any read, retention action, or collection.
    (`delivery_outbox.target_channel`/`target_address`, mirroring the receipt
    family's route correlation), closed structural descriptors of what a row
    is (including the durable ingress `provenance` admission marker and the
-   receipt family's closed `source` provenance), and write-once recorded
+   receipt family's closed `source` provenance), the typed admission routing
+   facts of `event_routing_facts` (`matched_routes`, `fanout_group`, and the
+   bounded `route_trace`: write-once route identifiers separated from the
+   opaque metadata JSON), and write-once recorded
    timestamps.
    Identity columns MAY remain while owned content around them is collected;
    they are deliberately retained correlation facts.

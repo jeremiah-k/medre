@@ -212,3 +212,8 @@ event in storage is unaffected.
 
 Custom content fields are preserved by Synapse under normal operation. They are
 not pruned by the server.
+
+Admission routing facts are validated against the typed routing namespace
+before persistence. The stored matched-route and trace columns MUST hold JSON
+arrays; trace length remains bounded to sixteen entries. Invalid routing facts
+MUST refuse admission without leaving partial event or ownership rows.

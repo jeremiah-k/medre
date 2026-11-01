@@ -17,9 +17,10 @@ document are to be interpreted as described in RFC 2119.
 
 ## 1. Scope
 
-Delivering one accepted event persists context in two JSON surfaces: the
-serialized `EventMetadata` namespaces in `canonical_events.metadata`, written
-by the admission path (`_serialize_metadata` in
+Delivering one accepted event persists context in three surfaces: the
+serialized opaque `EventMetadata` namespaces in `canonical_events.metadata`
+and the typed `event_routing_facts` rows, both written by the admission path
+(`_serialize_metadata` and `routing_facts_op` in
 `src/medre/core/storage/sqlite/serde.py`, applied by `admit_ingress` in
 `src/medre/core/storage/sqlite/_ingress.py`), and the
 route/destination/decision JSON object in `delivery_outbox.metadata`, written
@@ -100,14 +101,19 @@ the snapshot; the non-`{}` metadata value keeps the `outbox_records` family
 blocker active for the row's lifetime, including after terminal settlement
 and collection.
 
-**Current persisted shape:** the entire serialized `EventMetadata` object —
-including the bounded routing namespace — persists in
-`canonical_events.metadata`, classified `independently_owned_content`; the
-production serde writes all six namespace keys for every admitted event, so
-the value is never `{}`, and the `opaque_envelope` wholesale blocker stays
-active. An ordinary routed text event therefore retains exactly the
-`opaque_envelope` and `outbox_records` blockers after every target settles
-and all mandatory owners release; the guard tests pin that baseline.
+**Standing fact:** the bounded routing namespace persists as typed rows in
+`event_routing_facts` — classified `immutable_identity` column by column —
+written by the same admission transaction as the canonical event, never as
+inline metadata JSON. The production serde serializes only the opaque
+namespaces into `canonical_events.metadata`, omitting absent namespaces and
+the empty `custom` mapping, so a plain routed text event serializes to `{}`:
+its `opaque_envelope` blocker is inactive from admission through settlement
+and collection, and it retains exactly the `outbox_records` blocker after
+every target settles and all mandatory owners release. Rows admitted before
+this separation keep their stored bytes: their inline routing remains the
+row's own stored truth, reads coalesce to it whenever no typed row exists,
+and a non-`{}` metadata value keeps the `opaque_envelope` blocker active for
+the row's lifetime. The guard tests pin that baseline.
 
 ### 3.3 Fail-closed reconstruction
 
@@ -134,31 +140,45 @@ current configuration.
 
 ## 4. Field-level inventory
 
-### 4.1 `canonical_events.metadata` — serialized `EventMetadata`
+### 4.1 `canonical_events.metadata` — serialized `EventMetadata` and typed routing facts
 
 Producer: the source adapter supplies the namespaces at admission; the
-admission path serializes `EventMetadata` with `msgspec.json.encode` into the
-column. The serialized top-level key set is exactly `transport`, `routing`,
-`radio`, `telemetry`, `native`, `custom`.
+admission path serializes the opaque namespaces of `EventMetadata` into the
+column and writes any routing namespace as a typed `event_routing_facts` row
+in the same transaction (`_serialize_metadata` and `routing_facts_op` in
+`src/medre/core/storage/sqlite/serde.py`, applied by `admit_ingress` in
+`src/medre/core/storage/sqlite/_ingress.py` and by `append` in
+`src/medre/core/storage/sqlite/_event.py`). The serialized top-level key set
+is exactly the opaque namespaces the event carried: `transport`, `radio`,
+`telemetry`, `native`, `custom`. Absent namespaces and the empty `custom`
+mapping are omitted, so an event without opaque metadata serializes to `{}`.
+The `routing` namespace never persists inline.
 
 | Namespace   | Producer (source)                                                                                                                                                                                 | Consumers (verified)                                                                                                                                                                                                                                             | Class                                           |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `transport` | Source adapter at admission (`TransportMetadata`: `protocol`, `substrate`, `gateway_id`, `delivery_method`, `delivery_confirmed`, `transport_encrypted`, `signature_valid`, `propagation_state`). | No runtime consumer in core today; round-trips through the storage serde and the metadata-only projections (`get_metadata`, `query_metadata`).                                                                                                                   | Opaque content                                  |
-| `routing`   | Router matching during pipeline enrichment (`RoutingMetadata`: `matched_routes`, `fanout_group`, `route_trace`).                                                                                  | `OutboxManager.create_for_delivery` staging (`outbox_manager.py`); delivery-coordinator loop prevention over `route_trace` (`delivery_coordinator.py`); replay route narrowing (`engine/replay/routing.py`); rendering attribution (`rendering/attribution.py`). | Fact (bounded route identifiers and group name) |
+| `routing`   | Router matching during pipeline enrichment (`RoutingMetadata`: `matched_routes`, `fanout_group`, `route_trace`). Persisted as typed `event_routing_facts` columns at admission.                   | `OutboxManager.create_for_delivery` staging (`outbox_manager.py`); delivery-coordinator loop prevention over `route_trace` (`delivery_coordinator.py`); replay route narrowing (`engine/replay/routing.py`); rendering attribution (`rendering/attribution.py`). | Fact (bounded route identifiers and group name) |
 | `radio`     | Radio adapters at admission (`RadioMetadata`: `snr`, `rssi`, `channel_index`, `frequency`).                                                                                                       | No runtime consumer in core today; round-trips through the serde and metadata-only projections.                                                                                                                                                                  | Opaque content                                  |
 | `telemetry` | Telemetry producers at admission (`TelemetryMetadata.metrics`: free-form scalar mapping).                                                                                                         | No runtime consumer in core today; round-trips through the serde and metadata-only projections.                                                                                                                                                                  | Opaque content                                  |
 | `native`    | Source adapter at admission (`NativeMetadata.data`: arbitrary mapping).                                                                                                                           | Pipeline native-reference construction copies `native.data` into `NativeMessageRef.metadata` (`engine/pipeline/runner.py`).                                                                                                                                      | Opaque content                                  |
 | `custom`    | Plugins and extensions (free-form mapping).                                                                                                                                                       | No runtime consumer in core today; round-trips through the serde and metadata-only projections.                                                                                                                                                                  | Opaque content                                  |
 
-Post-terminal disposition: each namespace persists with the canonical event
-row and holds the `opaque_envelope` wholesale blocker while present; the
-collector's delete set never includes the column. Operator recovery reads
+Post-terminal disposition: each opaque namespace persists with the canonical
+event row and holds the `opaque_envelope` wholesale blocker while present;
+the collector's delete set never includes the column. Operator recovery reads
 namespace values only under owner-scoped event authority; metadata-only
 inspection returns structure without granting content. The `routing`
 namespace is a fact by type and role — bounded route identifiers — and
-**Current persisted shape:** it is serialized inside the opaque metadata
-JSON object, so it blocks as `opaque_envelope` together with the opaque
-namespaces instead of persisting as an independent typed fact surface.
+**Standing fact:** it persists as typed `event_routing_facts` rows
+(`event_id`, `matched_routes`, `fanout_group`, `route_trace` bounded to at
+most 16 entries, `recorded_at`), every column classified
+`immutable_identity`; a row exists exactly when the admitted event carried
+the routing namespace, and duplicate admissions never rewrite it. Production
+reads compose `EventMetadata` from the typed row plus the opaque metadata
+object: the typed row wins whenever it exists, otherwise the routing value
+inline in the metadata JSON is the row's own stored truth and still serves
+consumers. Rows admitted before this separation keep their stored bytes and
+remain conservative blockers while their metadata value is non-`{}`.
 
 ### 4.2 `delivery_outbox.metadata` — outbox JSON keys
 
@@ -237,17 +257,23 @@ rather than as a separately owned, independently retired representation.
   `OutboxManager.create_for_delivery(pending=True)` path on real SQLite
   storage, equals the §4.2 inventory exactly — any new key fails the guard
   until it is inventoried;
-- the serialized `EventMetadata` top-level key set, written through the
-  production admission path, equals the §4.1 namespace inventory;
+- the serialized `EventMetadata` top-level key set written through the
+  production admission path equals the §4.1 opaque namespace inventory for
+  the fully-populated fixture, and a routing-only event serializes to `{}`
+  with its routing decision persisted as typed `event_routing_facts` rows;
 - `STORAGE_COLUMN_CLASSES["delivery_outbox"]["metadata"]` and
   `STORAGE_COLUMN_CLASSES["canonical_events"]["metadata"]` are both
   `INDEPENDENTLY_OWNED_CONTENT`, so this page's opaque-content designation
   and the classification registry cannot drift apart;
 - the production-path blocker baseline for a staged routed text event: the
-  staged blocker set and the post-settlement residual set
-  (`opaque_envelope`, `outbox_records`) are pinned exactly, and arbitrary
+  staged blocker set (`active_ingress`, `active_outbox`,
+  `unsettled_mandatory_owners`, `outbox_records`) and the post-settlement
+  residual set (`outbox_records`) are pinned exactly, arbitrary
   `custom`/`native` metadata is pinned as opaque content that no change in
-  this contract's stack may exempt.
+  this contract's stack may exempt, and
+  `tests/test_admission_routing_facts.py` pins the typed-facts separation —
+  the composed reads, the historical-row conservatism, and the
+  semantic-equivalence of the composition.
 
 ## 6. Relationship to other contracts
 

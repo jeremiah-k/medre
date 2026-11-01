@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, cast
 
+import msgspec
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
@@ -26,7 +27,7 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.observability.sanitization import sanitize_error
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import StorageBackend
+from medre.core.storage.backend import StorageBackend, StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.runtime.app import RuntimeState
@@ -361,7 +362,13 @@ async def test_repeated_replay_runs_deterministic() -> None:
 
 @pytest.mark.asyncio
 async def test_recursive_metadata_payloads() -> None:
-    """Deeply nested payload dicts and long route_trace store without crash."""
+    """Deeply nested payload dicts and a full bounded route_trace store.
+
+    The typed ``event_routing_facts`` surface enforces the pipeline's own
+    route-trace bound (16) at write time: a trace at the bound stores and
+    composes, and an out-of-bound trace is rejected cleanly instead of
+    being retained as an unbounded fact.
+    """
     async with _open_storage() as storage:
         # Deep nested payload: _RECURSIVE_DEPTH levels.
         nested: dict[str, Any] = {"leaf": "value"}
@@ -370,7 +377,7 @@ async def test_recursive_metadata_payloads() -> None:
 
         routing_meta = RoutingMetadata(
             matched_routes=tuple(f"matched-{i}" for i in range(10)),
-            route_trace=tuple(f"route-trace-{i}" for i in range(_RECURSIVE_DEPTH)),
+            route_trace=tuple(f"route-trace-{i}" for i in range(16)),
         )
         evt = CanonicalEvent(
             event_id="recursive-evt-001",
@@ -392,7 +399,7 @@ async def test_recursive_metadata_payloads() -> None:
         # Routing survives the metadata projection; opaque payload bytes are
         # only visible through the authorized live-hold borrow.
         assert retrieved.metadata.routing is not None
-        assert len(retrieved.metadata.routing.route_trace) == _RECURSIVE_DEPTH
+        assert len(retrieved.metadata.routing.route_trace) == 16
         assert retrieved.metadata.routing.route_trace[0] == "route-trace-0"
         authorized = await storage.read_event_for_replay(
             "recursive-evt-001", now=datetime.now(timezone.utc)
@@ -402,6 +409,21 @@ async def test_recursive_metadata_payloads() -> None:
         assert "level_1" in authorized.event.payload
         assert "leaf" in str(authorized.event.payload)
         assert len(retrieved.metadata.routing.matched_routes) == 10
+
+        # A route trace beyond the typed bound is not a fact: the admission
+        # transaction fails closed without retaining the row.
+        unbounded = RoutingMetadata(
+            matched_routes=("matched-0",),
+            route_trace=tuple(f"route-trace-{i}" for i in range(_RECURSIVE_DEPTH)),
+        )
+        unbounded_evt = msgspec.structs.replace(
+            evt,
+            event_id="recursive-evt-003",
+            metadata=EventMetadata(routing=unbounded),
+        )
+        with pytest.raises(StorageError):
+            await storage.append(unbounded_evt)
+        assert await storage.get_metadata("recursive-evt-003") is None
 
         # Wide payload: 500 top-level keys + nested sub-dicts.
         wide_payload: dict[str, Any] = {f"key_{i}": f"value_{i}" for i in range(500)}

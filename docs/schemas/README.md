@@ -40,6 +40,9 @@ contract schemas mirror their projection helpers and normative specifications.
 | `recovery-action.schema.json`                    | `RecoveryAction` (`medre.core.observability.recovery`)          | Current destination ownership and read-only recovery guidance                                      |
 | `live-health.schema.json`                        | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                                             |
 
+The executable `event-routing-facts.schema.sql` fragment is checked against
+the authoritative admission table constraints.
+
 ## Examples
 
 The `examples/` directory contains representative JSON payloads validated

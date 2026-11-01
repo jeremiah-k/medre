@@ -37,6 +37,21 @@ CREATE TABLE IF NOT EXISTS canonical_events (
     created_at TEXT NOT NULL
 );
 
+-- Typed admission routing facts, separated at write time from the opaque
+-- event metadata JSON.  One row per event whose admission metadata carried
+-- the routing namespace; absence of a row is the standing fact that no
+-- routing decision was accepted at admission.  Values are bounded route
+-- identifiers, the fanout group, and the bounded route trace, written once
+-- in the admission transaction and never rewritten.  These facts do NOT
+-- authorize retention, reads, or collection.
+CREATE TABLE IF NOT EXISTS event_routing_facts (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    matched_routes TEXT NOT NULL CHECK (json_valid(matched_routes) AND json_type(matched_routes) = 'array'),
+    fanout_group TEXT,
+    route_trace TEXT NOT NULL CHECK (json_valid(route_trace) AND json_type(route_trace) = 'array' AND json_array_length(route_trace) <= 16),
+    recorded_at TEXT NOT NULL
+);
+
 -- One current, immutable admission fact per canonical body.  Absence of a
 -- body is not an empty string.  These facts do NOT authorize retention, reads,
 -- or collection: those require separately implemented consumer authority.
@@ -583,6 +598,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "event_routing_facts": frozenset(
+        {"event_id", "matched_routes", "fanout_group", "route_trace", "recorded_at"}
+    ),
     "event_body_identity": frozenset(
         {"event_id", "version", "present_at_admission", "recorded_at"}
     ),
@@ -836,6 +854,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # so column-presence validation alone is insufficient: an older pre-release
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
+    "event_routing_facts": frozenset({("event_id",)}),
     "event_body_identity": frozenset({("event_id",)}),
     "event_body_content": frozenset({("event_id", "field")}),
     "event_content_dependencies": frozenset({("event_id", "owner_kind", "owner_id")}),
@@ -858,6 +877,7 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 }
 
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
+    "event_routing_facts": frozenset({("event_id", "canonical_events", "event_id")}),
     "radio_attempt_progress": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
@@ -1130,5 +1150,11 @@ _DIAGNOSTICS_DDL = _SCHEMA[
 _DIAGNOSTICS_INDEX_DDL = _INDEXES[
     _INDEXES.index("-- Diagnostic coalescing reads") : _INDEXES.index(
         "CREATE INDEX IF NOT EXISTS idx_ingress_work_claim"
+    )
+]
+
+_ROUTING_FACTS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Typed admission routing facts") : _SCHEMA.index(
+        "-- One current, immutable admission fact per canonical body."
     )
 ]

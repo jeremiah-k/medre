@@ -11,9 +11,25 @@ _CORRELATION_COLUMNS = (
     "source_native_adapter, source_native_channel_id, "
     "source_native_message_id, source_native_thread_id"
 )
+# The composed routing namespace for one canonical_events row.  The typed
+# ``event_routing_facts`` row wins when present; otherwise the routing value
+# inline in the metadata JSON is the row's own stored truth and still serves
+# consumers.  Both sources hold the same bounded route identifiers; neither
+# grants content.
+_TYPED_ROUTING_SQL = (
+    "(SELECT json_object("
+    "'matched_routes', json(f.matched_routes), "
+    "'fanout_group', f.fanout_group, "
+    "'route_trace', json(f.route_trace)"
+    ") FROM event_routing_facts AS f "
+    "WHERE f.event_id = canonical_events.event_id)"
+)
+_INLINE_ROUTING_SQL = "json_extract(canonical_events.metadata, '$.routing')"
+_COMPOSED_ROUTING_SQL = f"COALESCE({_TYPED_ROUTING_SQL}, {_INLINE_ROUTING_SQL})"
+
 EVENT_COLUMNS = (
     f"{_IDENTITY_COLUMNS}, '{{}}' AS payload, "
-    "json_object('routing', json_extract(metadata, '$.routing')) AS metadata, "
+    f"json_object('routing', json({_COMPOSED_ROUTING_SQL})) AS metadata, "
     f"{_CORRELATION_COLUMNS}"
 )
 # The formatting marker selects canonical text without exposing its contents.
@@ -24,9 +40,21 @@ _REPLY_IDENTITY_AND_TEXT = (
 )
 # A live source authorizes provider-owned sender projection. A body-only quote
 # grant does not authorize arbitrary native/custom metadata copies.
-REPLY_COLUMNS = f"{_REPLY_IDENTITY_AND_TEXT}, metadata, {_CORRELATION_COLUMNS}"
+REPLY_COLUMNS = (
+    f"{_REPLY_IDENTITY_AND_TEXT}, "
+    f"json_set(metadata, '$.routing', json({_COMPOSED_ROUTING_SQL})) AS metadata, "
+    f"{_CORRELATION_COLUMNS}"
+)
 REPLY_BODY_COLUMNS = (
     f"{_REPLY_IDENTITY_AND_TEXT}, '{{}}' AS metadata, {_CORRELATION_COLUMNS}"
+)
+# Authorized owner reads (ingress, outbox, replay) project the row's own
+# opaque namespaces with the composed routing namespace folded in.  Every
+# column is schema-owned; no content column is added by the composition.
+AUTHORIZED_EVENT_COLUMNS = (
+    f"{_IDENTITY_COLUMNS}, payload, "
+    f"json_set(metadata, '$.routing', json({_COMPOSED_ROUTING_SQL})) AS metadata, "
+    f"{_CORRELATION_COLUMNS}"
 )
 
 # Relation key may contain reaction or other user text. Return only identities.

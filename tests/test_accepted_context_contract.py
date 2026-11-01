@@ -7,11 +7,13 @@ Pins the persisted JSON inventories of ``canonical_events.metadata`` and
 classification-registry equivalence that contract states, and reproduces the
 production-path blocker baseline for a staged routed text event.
 
-The blocker-baseline tests name the current persisted gap exactly. Later
-changes in the ownership stack update those current-gap expectations
-case-by-case; the permanently conservative opaque-content cases (arbitrary
-``custom`` and ``native`` metadata, incoming excerpts, radio plans,
-attachments, operator decisions) must never flip.
+Routing facts persist as typed ``event_routing_facts`` rows written in the
+admission transaction; the metadata column keeps only the opaque namespaces
+for new admissions. The blocker-baseline tests name the remaining persisted
+gap exactly. Later changes in the ownership stack update those current-gap
+expectations case-by-case; the permanently conservative opaque-content cases
+(arbitrary ``custom`` and ``native`` metadata, incoming excerpts, radio
+plans, attachments, operator decisions) must never flip.
 """
 
 from __future__ import annotations
@@ -69,11 +71,13 @@ CHANNEL_OUTBOX_METADATA_KEYS = frozenset(
     }
 )
 
-# docs/spec/accepted-context-ownership.md section 4.1: the serialized
-# EventMetadata top-level namespace inventory; section 4.3: the snapshot
-# members of the dispatch_context payload.
-EVENT_METADATA_NAMESPACES = frozenset(
-    {"transport", "routing", "radio", "telemetry", "native", "custom"}
+# docs/spec/accepted-context-ownership.md section 4.1: the persisted metadata
+# key set for new admissions is exactly the opaque namespace inventory. The
+# routing namespace never persists inline; routing facts are typed
+# ``event_routing_facts`` rows. Section 4.3: the snapshot members of the
+# dispatch_context payload.
+OPAQUE_EVENT_METADATA_NAMESPACES = frozenset(
+    {"transport", "radio", "telemetry", "native", "custom"}
 )
 DISPATCH_CONTEXT_MEMBERS = frozenset({"route", "plan", "routing"})
 
@@ -198,7 +202,13 @@ async def test_destination_staged_outbox_metadata_keys_match_the_inventory(
 async def test_persisted_event_metadata_key_set_matches_the_contract_inventory(
     tmp_path,
 ):
-    """The admission path serializes exactly the spec's namespace key set."""
+    """Admission persists exactly the opaque namespace key set.
+
+    The fully-populated fixture keeps every opaque namespace it carried; the
+    ``routing`` namespace persists only as typed ``event_routing_facts``
+    rows. A routing-only event serializes to ``{}``, so no opaque namespace
+    is written at all.
+    """
     store = SQLiteStorage(str(tmp_path / "event-keys.db"))
     await store.initialize()
     try:
@@ -218,7 +228,23 @@ async def test_persisted_event_metadata_key_set_matches_the_contract_inventory(
         )
         assert row is not None
         persisted = json.loads(row["metadata"])
-        assert set(persisted) == EVENT_METADATA_NAMESPACES
+        assert set(persisted) == OPAQUE_EVENT_METADATA_NAMESPACES
+        routing_only = _routed_text_event(event_id="routing-only")
+        await store.admit_ingress(routing_only, None, "live")
+        routing_row = await store._read_one(
+            "SELECT metadata FROM canonical_events WHERE event_id=?",
+            (routing_only.event_id,),
+        )
+        assert routing_row is not None
+        assert json.loads(routing_row["metadata"]) == {}
+        facts = await store._read_one(
+            "SELECT matched_routes, route_trace FROM event_routing_facts "
+            "WHERE event_id=?",
+            (routing_only.event_id,),
+        )
+        assert facts is not None
+        assert json.loads(facts["matched_routes"]) == ["r1"]
+        assert json.loads(facts["route_trace"]) == []
     finally:
         await store.close()
 
@@ -247,9 +273,11 @@ def test_registry_designation_matches_the_contract_inventory():
 async def test_staged_routed_text_event_blockers_match_the_current_gap(tmp_path):
     """At staged time the blocker set is exactly the pinned baseline.
 
-    Current-gap baseline: the ownership stack updates this expectation
-    case-by-case as it separates facts, frozen work snapshots, and opaque
-    content.
+    Current-gap baseline: routing facts no longer block as opaque content —
+    they persist as typed ``event_routing_facts`` rows written in the
+    admission transaction, and the plain routed event's metadata column
+    serializes to ``{}``. The remaining gap is the outbox family, whose
+    staged rows still carry the frozen dispatch snapshot.
     """
     store = SQLiteStorage(str(tmp_path / "staged-baseline.db"))
     await store.initialize()
@@ -262,7 +290,6 @@ async def test_staged_routed_text_event_blockers_match_the_current_gap(tmp_path)
             "active_ingress",
             "active_outbox",
             "unsettled_mandatory_owners",
-            "opaque_envelope",
             "outbox_records",
         ]
         # The outbox blocker names real persisted opaque bytes: the staged
@@ -278,10 +305,11 @@ async def test_settled_routed_text_event_residual_blockers_match_the_gap(tmp_pat
     """After real ingress completion and terminal settlement the residual
     blocker set is exactly the pinned baseline.
 
-    Current-gap baseline: the ownership stack updates this expectation
-    case-by-case. The two residual names identify the persisted opaque
-    surfaces — the canonical envelope and the non-empty outbox metadata —
-    not a desired end state.
+    Current-gap baseline: the canonical envelope no longer blocks — the
+    routed event's metadata column serializes to ``{}`` and its routing
+    facts persist as typed rows — while the non-empty outbox metadata still
+    does. The residual name identifies a persisted opaque surface, not a
+    desired end state.
     """
     store = SQLiteStorage(str(tmp_path / "settled-baseline.db"))
     await store.initialize()
@@ -292,8 +320,9 @@ async def test_settled_routed_text_event_residual_blockers_match_the_gap(tmp_pat
         await _complete_ingress(store, event.event_id)
         await _settle_outbox_sent(store, staged.outbox_id)
         assessment = await store.assess_event_content_release(event.event_id)
-        assert assessment["blockers"] == ["opaque_envelope", "outbox_records"]
-        # Each residual name traces to real persisted opaque content.
+        assert assessment["blockers"] == ["outbox_records"]
+        # The residual name traces to real persisted opaque content, and the
+        # settled event's routing facts remain typed rows, not opaque bytes.
         outbox_row = await store.get_outbox_item(staged.outbox_id)
         assert outbox_row is not None and outbox_row.metadata not in (None, {})
         raw_event = await store._read_one(
@@ -301,8 +330,13 @@ async def test_settled_routed_text_event_residual_blockers_match_the_gap(tmp_pat
             (event.event_id,),
         )
         assert raw_event is not None
-        persisted = json.loads(raw_event["metadata"])
-        assert persisted["routing"]["matched_routes"] == ["r1"]
+        assert json.loads(raw_event["metadata"]) == {}
+        facts = await store._read_one(
+            "SELECT matched_routes FROM event_routing_facts WHERE event_id=?",
+            (event.event_id,),
+        )
+        assert facts is not None
+        assert json.loads(facts["matched_routes"]) == ["r1"]
     finally:
         await store.close()
 
@@ -313,7 +347,9 @@ async def test_arbitrary_custom_and_native_metadata_stay_opaque_blockers(tmp_pat
     Permanently conservative: no change in the ownership stack may exempt
     free-form ``custom`` or ``native`` values; the same holds for incoming
     excerpts, radio plans, attachments, and operator decisions, which the
-    collection guard pins as wholesale policy blockers.
+    collection guard pins as wholesale policy blockers. Only the typed
+    routing facts separated from the opaque envelope; every opaque namespace
+    a source supplies keeps blocking exactly as before.
     """
     store = SQLiteStorage(str(tmp_path / "opaque-namespaces.db"))
     await store.initialize()
