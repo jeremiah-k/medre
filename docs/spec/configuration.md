@@ -39,6 +39,7 @@ class RuntimeConfig:
     limits: RuntimeLimits         # inflight delivery/replay limits, drain timeout
     retry: RetryConfig            # retry worker: enabled, interval, batch_size, max_attempts
     attachments: AttachmentConfig # durable attachment relay policy (disabled by default)
+    content_retention: ContentRetentionConfig  # operator retention policy declaration (disabled by default)
     adapters: AdapterConfigSet    # grouped by transport type
     routes: RouteConfigSet        # ordered, validated route definitions
 ```
@@ -166,6 +167,19 @@ be `real` or `fake`; `enabled` **MUST** be an actual boolean, not a truthy
 string or number. Invalid declarations **MUST** surface as
 `RuntimeConfigError` rather than silently changing runtime behavior.
 
+### 2.8 ContentRetentionConfig
+
+| Field              | Type    | Default  | Contract                                                    |
+| ------------------ | ------- | -------- | ----------------------------------------------------------- |
+| `enabled`          | boolean | `false`  | Explicit operator opt-in.                                   |
+| `version`          | integer | `1`      | Exactly 1; booleans are refused.                            |
+| `mode`             | string  | `retain` | `retain` or `relay-only`; relay-only requires enabled=true. |
+| `interval_seconds` | integer | `300`    | 1–86400 seconds.                                            |
+| `batch_limit`      | integer | `25`     | 1–100 events per page.                                      |
+
+An omitted section MUST authorize no automatic collection. The policy and
+activation authority are defined in [content retention](content-retention.md).
+
 ## 3. YAML Schema
 
 The typed config model in `src/medre/config/model.py` and
@@ -197,18 +211,19 @@ the structural requirements that the spec relies on.
 ### 3.2 Top-Level Sections
 
 The root mapping MAY contain the following keys. The typed leaf tables in
-§2.1–§2.6 are the field-level normative reference for each non-adapter
+§2.1–§2.8 are the field-level normative reference for each non-adapter
 section.
 
-| Key           | Typed model        | Field table | Notes                                         |
-| ------------- | ------------------ | ----------- | --------------------------------------------- |
-| `runtime`     | `RuntimeOptions`   | §2.1        | Carries the nested `limits` table — see §2.4. |
-| `logging`     | `LoggingConfig`    | §2.2        |                                               |
-| `storage`     | `StorageConfig`    | §2.3        |                                               |
-| `retry`       | `RetryConfig`      | §2.5        |                                               |
-| `attachments` | `AttachmentConfig` | §2.6        | Disabled unless explicitly enabled.           |
-| `adapters`    | `AdapterConfigSet` | §3.3        | Per-transport grouping.                       |
-| `routes`      | `RouteConfigSet`   | §3.4        | Per-route targeting and channel mapping.      |
+| Key                 | Typed model              | Field table | Notes                                                                                         |
+| ------------------- | ------------------------ | ----------- | --------------------------------------------------------------------------------------------- |
+| `runtime`           | `RuntimeOptions`         | §2.1        | Carries the nested `limits` table — see §2.4.                                                 |
+| `logging`           | `LoggingConfig`          | §2.2        |                                                                                               |
+| `storage`           | `StorageConfig`          | §2.3        |                                                                                               |
+| `retry`             | `RetryConfig`            | §2.5        |                                                                                               |
+| `attachments`       | `AttachmentConfig`       | §2.6        | Disabled unless explicitly enabled.                                                           |
+| `content_retention` | `ContentRetentionConfig` | §2.8        | Disabled unless explicitly enabled; `mode: relay-only` additionally requires `enabled: true`. |
+| `adapters`          | `AdapterConfigSet`       | §3.3        | Per-transport grouping.                                                                       |
+| `routes`            | `RouteConfigSet`         | §3.4        | Per-route targeting and channel mapping.                                                      |
 
 `runtime.limits` is the YAML path for the `RuntimeLimits` table (§2.4). A
 top-level `limits:` key is rejected by the loader as an unknown root key —

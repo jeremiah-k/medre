@@ -19,6 +19,7 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
+    _RETENTION_EPOCHS_DDL,
     _ROUTING_FACTS_DDL,
     _SCHEMA,
     _SNAPSHOT_OWNER_INDEX_DDL,
@@ -74,6 +75,7 @@ def _known_grant_table_forms() -> tuple[str, str]:
 _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("table", "event_content_collection_log"),
+        ("table", "content_retention_epochs"),
         ("table", "delivery_evidence_diagnostics"),
         ("table", "event_routing_facts"),
         ("table", "delivery_outbox_snapshots"),
@@ -124,6 +126,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
     current = _definitions(db)
     if ("table", "event_content_collection_log") not in current:
         execute_ddl(db, _COLLECTION_LOG_DDL)
+    if ("table", "content_retention_epochs") not in current:
+        execute_ddl(db, _RETENTION_EPOCHS_DDL)
     if ("table", "delivery_evidence_diagnostics") not in current:
         execute_ddl(db, _DIAGNOSTICS_DDL)
     if ("table", "event_routing_facts") not in current:

@@ -22,6 +22,7 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
             "delivery-evidence-diagnostics.schema.sql",
             {"delivery_evidence_diagnostics"},
         ),
+        ("content-retention-epochs.schema.sql", {"content_retention_epochs"}),
     ],
 )
 def test_content_schema_fragment_matches_authoritative_ddl(filename, tables):

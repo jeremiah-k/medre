@@ -79,7 +79,8 @@ automatically.
 
 Pre-release initialize MAY automatically apply only exactly recognized additive
 catalog states: the nullable `expired_at` grant field, the independent
-collection-receipt table, the delivery diagnostics table and its identity
-index, the `event_routing_facts` table, and the `delivery_outbox_snapshots`
+collection-receipt table, the `content_retention_epochs` activation-epoch
+table, the delivery diagnostics table and its identity index, the
+`event_routing_facts` table, and the `delivery_outbox_snapshots`
 table with its `idx_outbox_snapshot_owner_unique` index. All other schema
 changes MUST fail before DDL.
