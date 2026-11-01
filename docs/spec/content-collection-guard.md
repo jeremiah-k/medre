@@ -27,8 +27,22 @@ terminal settlement deletes it, and the `unretired_outbox_snapshots`
 live-ownership gate reports it with its row count. Terminal status alone is
 insufficient. Guarded operator cancellation MUST retire the same work snapshot
 inside the cancellation/owner-settlement transaction; an audit failure or
-stale decision MUST leave the original snapshot untouched. The historical inline dispatch metadata of rows created before
-the snapshot table keeps blocking through the outbox family's content probe.
+stale decision MUST leave the original snapshot untouched. Historical inline
+dispatch metadata from rows created before the snapshot table MUST continue
+blocking through the outbox family's content probe.
+
+This settled ordinary text vertical is demonstrated end to end on the
+production paths: an event admitted through the real admission pipeline,
+both sibling targets staged by durable ingress through the real outbox
+manager, one target settled by its guarded claim transition while the
+pending sibling blocks and names its live owner, and that sibling finalized
+by the real dispatcher from its persisted accepted snapshot after a restart
+and a route-configuration change. Collection then succeeds through the
+guarded collector — preview, explicit apply, and idempotent repeats — while
+immutable delivery facts, native references, attempt lineage, typed routing
+facts, and conversation identity survive unchanged, and the retired snapshot
+is unrecoverable as content.
+
 An inconsistent admission identity (missing admission record, unexpected
 body rows, missing uncollected body or recreated collected content) MUST be
 reported as a blocker by the read-only release assessment; the mutation guard
