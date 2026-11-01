@@ -63,6 +63,7 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
         outbox_id=item.outbox_id,
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     stored = object()
     storage.get_metadata = AsyncMock(return_value=stored)
     storage.get = AsyncMock(return_value=stored)

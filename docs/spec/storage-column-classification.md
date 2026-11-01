@@ -37,13 +37,15 @@ never authorizes any read, retention action, or collection.
 1. **Immutable identity** — event IDs, native message IDs, relation targets,
    attempt fingerprints, plan and receipt identifiers, route-target text
    (`delivery_outbox.target_channel`/`target_address`, mirroring the receipt
-   family's route correlation), closed structural descriptors of what a row
-   is (including the durable ingress `provenance` admission marker and the
-   receipt family's closed `source` provenance), the typed admission routing
-   facts of `event_routing_facts` (`matched_routes`, `fanout_group`, and the
-   bounded `route_trace`: write-once route identifiers separated from the
-   opaque metadata JSON), and write-once recorded
-   timestamps.
+   family's route correlation), the typed admission routing facts of
+   `event_routing_facts` (`matched_routes`, `fanout_group`, and the bounded
+   `route_trace`: write-once route identifiers separated from the opaque
+   metadata JSON), the outbox work snapshot's identity and shape columns
+   (`delivery_outbox_snapshots.outbox_id`, `attempt_number`,
+   `snapshot_version`, `snapshot_kind`), closed structural descriptors of
+   what a row is (including the durable ingress `provenance` admission
+   marker and the receipt family's closed `source` provenance), and
+   write-once recorded timestamps.
    Identity columns MAY remain while owned content around them is collected;
    they are deliberately retained correlation facts.
 2. **Operational authority** — statuses, ownership and lease facts
@@ -57,9 +59,11 @@ never authorizes any read, retention action, or collection.
    content.
 3. **Independently owned content** — rendered text, opaque envelope JSON,
    free-form error and provider diagnostic text (including the write-time
-   separated `delivery_evidence_diagnostics.diagnostic` surface), retained
-   blobs, radio plan JSON, and adapter cursor state: data whose lifetime is
-   content ownership rather than any delivery fact. This class mirrors the
+   separated `delivery_evidence_diagnostics.diagnostic` surface), the frozen
+   outbox work snapshot document
+   (`delivery_outbox_snapshots.context_json`), retained blobs, radio plan
+   JSON, and adapter cursor state: data whose lifetime is content ownership
+   rather than any delivery fact. This class mirrors the
    enforced `CONTENT_SURFACES` inventory in
    `src/medre/core/storage/content.py` exactly; the guard test asserts set
    equality in both directions.
@@ -104,7 +108,11 @@ conservatism of the collector:
   `unclassified` columns outside the assessed event's own rows in the
   collector-owned candidate tables
   (`event_body_content`, `event_relation_excerpts`) blocks collection, as
-  does a probe gating on live ownership authority. The exception is the five
+  does a probe gating on live ownership authority — including the
+  `unretired_outbox_snapshots` gate, which blocks by the pure presence of a
+  frozen work snapshot row: the row exists exactly until the guarded
+  terminal settlement deletes it, and the gate's lifecycle authority is its
+  owning `delivery_outbox` family. The exception is the five
   retained delivery-evidence families — `delivery_receipts`,
   `delivery_observations`, `delivery_outbox` (probed as `outbox_records`),
   `native_message_refs` (probed as `native_references`), and

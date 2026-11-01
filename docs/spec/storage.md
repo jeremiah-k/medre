@@ -349,27 +349,43 @@ class StorageBackend(Protocol):
 
     async def create_outbox_item(
         self,
-        item: OutboxItem,
+        item: DeliveryOutboxItem,
         *,
         allocate_new_generation: bool = False,
-    ) -> OutboxItem:
+        dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+    ) -> DeliveryOutboxItem:
         """Create an outbox item. Idempotent create preserves existing work;
-        replay can request atomic fresh-generation allocation (Section 9.3)."""
+        replay can request atomic fresh-generation allocation (Section 9.3).
+        The frozen dispatch snapshot joins the creation transaction."""
         ...
 
-    async def get_outbox_item(self, outbox_id: str) -> OutboxItem | None:
+    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         """Retrieve an outbox item by ID."""
+        ...
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        """Read the frozen dispatch context under the exact outbox identity.
+
+        Fail closed on a malformed or unknown-version snapshot."""
         ...
 
     async def list_outbox_items(
         self, status: str | None = None, limit: int = 100
-    ) -> list[OutboxItem]:
+    ) -> list[DeliveryOutboxItem]:
         """List outbox items, optionally filtered by status."""
         ...
 
     async def list_outbox_items_for_event(
         self, event_id: str,
-    ) -> list[OutboxItem]:
+    ) -> list[DeliveryOutboxItem]:
         """Return all outbox items for a specific event.
 
         Ordered by created_at ASC, outbox_id ASC for deterministic
@@ -378,7 +394,7 @@ class StorageBackend(Protocol):
 
     async def claim_due_outbox_items(
         self, now: datetime, worker_id: str, limit: int = 50
-    ) -> list[OutboxItem]:
+    ) -> list[DeliveryOutboxItem]:
         """Claim due outbox items for processing.  Items with pending,
         retry_wait, missing/expired in_progress leases, or stale queued status
         are eligible only when no sibling row for the same delivery identity
@@ -1069,13 +1085,16 @@ CREATE TABLE delivery_outbox (
 
 `attempt_number` is the last finalized attempt for the row. Zero denotes an
 initial obligation that has not dispatched; receipt and radio packet attempt
-numbers remain positive. Initial staging retains the complete route and plan in
-`metadata.dispatch_context`, including source origin, destination, strategy,
-fallback chain, retry policy, deadline and routing metadata. Dispatch validates that this snapshot
-matches the row's event, plan, route and native destination scope independently
-of the snapshot's own target-identity string. Empty and null channels compare as
-the same stored scope without changing the retained plan. Malformed or rebound
-snapshots MUST be held without native submission.
+numbers remain positive. The accepted route and plan for the row freeze into
+the privately owned `delivery_outbox_snapshots` table (Section 4.10.2),
+written atomically with the row; the row's own `metadata` stays `'{}'`.
+Dispatch validates that the frozen snapshot matches the row's event, plan,
+route and native destination scope independently of the snapshot's own
+target-identity string. Empty and null channels compare as the same stored
+scope without changing the retained plan. Malformed or rebound snapshots MUST
+be held without native submission. Rows created before the snapshot table
+keep their inline `metadata` bytes as the frozen context; those historical
+inline bytes are never transformed.
 
 `active_attempt` is the durably reserved in-flight attempt: the outbox dispatcher
 sets it to
@@ -1229,6 +1248,73 @@ The table is append-only: runtime code **MUST NOT** update or delete a
 diagnostic row. A successful handoff writes no new failure diagnostic; prior diagnostic
 rows, if any, remain append-only historical evidence. A delivery that has
 never failed retains no failure diagnostic content.
+
+### 4.10.2 delivery_outbox_snapshots
+
+```sql
+CREATE TABLE IF NOT EXISTS delivery_outbox_snapshots (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 0),
+    snapshot_version INTEGER NOT NULL CHECK (snapshot_version = 1),
+    snapshot_kind TEXT NOT NULL CHECK (snapshot_kind IN ('staged', 'direct')),
+    context_json TEXT NOT NULL CHECK (json_valid(context_json)),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_snapshot_owner_unique
+    ON delivery_outbox_snapshots(outbox_id);
+```
+
+`delivery_outbox_snapshots` is the privately owned frozen work snapshot for
+one outbox generation. Every outbox row created through the delivery
+pipeline writes one snapshot row in the same creation transaction, keyed by
+the exact outbox identity: `outbox_id` plus the committed creation
+generation read from the just-inserted row (so a replay allocation's
+rewritten attempt is the one recorded). The unique `outbox_id` index
+ensures there cannot be two competing snapshots for a single outbox row,
+regardless of attempted generation. New writers MUST NOT persist both inline
+metadata and a frozen snapshot. The snapshot column classification
+mirrors this write-once shape: identity and shape columns are immutable
+identity, and `context_json` is independently owned content in the enforced
+content inventory.
+
+`snapshot_kind` selects the frozen document shape with a closed vocabulary:
+
+- `staged` — the complete `OutboxDispatchContext` members (`route`, `plan`,
+  `routing`), including source origin, destination, strategy, fallback
+  chain, retry policy, deadline and routing metadata.
+- `direct` — the reduced route-decision context (`capability_level`,
+  `delivery_strategy`, `capability_field`, `capability_reason`, `deadline`)
+  plus the destination scope keys (`destination_kind`, `destination_hash`,
+  `destination_name`, `destination_metadata`) when the target is
+  destination-addressed.
+
+`snapshot_version` pins the document shape. An unknown or changed shape
+fails closed: the owner-scoped read raises instead of returning a partial
+context, and reconstruction never falls back to current router
+configuration. The typed read binds the snapshot to its outbox row's event,
+plan, adapter, and channel identity; a mismatched identity reads as absent.
+Metadata-only outbox projections never return snapshot bytes; the typed
+read is the only internal access path and returns no frozen document for
+terminal outbox rows, even if an inconsistent row survived retirement.
+
+**Retirement guarantee:** the snapshot row is deleted ONLY inside guarded
+terminal settlement — the terminal `mark_outbox_*` transitions
+(`sent`, `cancelled`, `dead_lettered`, `abandoned`) and the receipt-backed
+finalizers, and the guarded operator `cancel_unstarted` decision — in the
+same transaction as the status change. `pending`,
+`in_progress`, `retry_wait`, and `queued` never retire it, and a lost guard
+or rolled-back transaction preserves it. After retirement the snapshot is
+absent, not empty: an authorized read returns no snapshot bytes, and a
+content read for the collected content returns `unavailable`. Historical
+rows created before this table keep their inline `delivery_outbox.metadata`
+bytes as the frozen context; those bytes are never transformed and keep
+blocking through the outbox family's content probe.
+
+An unretired snapshot blocks content release as live work state through the
+`unretired_outbox_snapshots` probe of the shared release-assessment
+decision ([content-collection-guard.md](content-collection-guard.md)); a
+retired snapshot blocks nothing.
 
 ### 4.11 durable_ingress_work
 
@@ -1696,8 +1782,9 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`. Plan IDs are not globally unique across events, so omitting `event_id` may neither reuse nor constrain another event's outbox row. For `NULL` channels the partial unique index enforces the same event-scoped key.
 
-- `create_outbox_item`: Creates an outbox item or returns existing work unchanged; replay may request atomic fresh-generation allocation (Section 9.3).
-- `get_outbox_item`: Retrieves an item by `outbox_id`.
+- `create_outbox_item`: Creates an outbox item or returns existing work unchanged; replay may request atomic fresh-generation allocation (Section 9.3). A supplied frozen dispatch snapshot joins the creation transaction (Section 4.10.2); adopted existing rows never gain a snapshot from a later creator.
+- `get_outbox_item`: Retrieves an item by `outbox_id`. Metadata-only reads never return frozen snapshot bytes.
+- `get_outbox_dispatch_context`: Owner-scoped read of the frozen dispatch context under the exact outbox identity; returns `None` for an absent snapshot and raises for a malformed or unknown-version document.
 - `list_outbox_items_for_delivery`: Returns every durable outbox generation for one complete `DeliveryIdentity`, ordered by effective attempt generation. This is the mutable-history counterpart to `list_receipts_for_delivery`; incomplete identities are rejected.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
@@ -1799,6 +1886,9 @@ The outbox persists operational delivery work state. Outbox items are created af
 
 Receipt rows are append-only. For outbox-backed chains, the outbox `receipt_id` selects the current receipt and rejected late appends remain historical; receipt-only chains use latest append order. Outbox rows are mutable for non-terminal statuses only.
 
+The frozen dispatch work snapshot retires exactly with terminal settlement: every guarded terminal transition, receipt-backed finalizer and operator
+cancellation deletes the row's `delivery_outbox_snapshots` entry in the same transaction, and non-terminal transitions never retire it (Section 4.10.2).
+
 ### 9.3 Idempotent Create and Recovery Ownership
 
 Creating an outbox item requires its initial status to be either `pending` (default durable work) or `in_progress` (pipeline claim path). All other statuses must be reached through the dedicated `mark_outbox_*` transition methods, never through `create_outbox_item()`.
@@ -1844,8 +1934,9 @@ within one `BEGIN IMMEDIATE` transaction. For this slice those additions are
 the nullable `event_content_access_grants.expired_at` field, the independent
 `event_content_collection_log` table, the write-time separated
 `delivery_evidence_diagnostics` table with its `idx_diagnostics_identity`
-index, and the typed `event_routing_facts` admission table (Section 4.1.1).
-This does not authorize renames, altered
+index, the typed `event_routing_facts` admission table (Section 4.1.1), and
+the independent `delivery_outbox_snapshots` work-snapshot table
+(Section 4.10.2). This does not authorize renames, altered
 constraints, data backfills, or general legacy schema transformations. The
 `initialize()` method **MUST** validate the old catalog against one exact
 allowlisted predecessor before any DDL and validate the complete resulting

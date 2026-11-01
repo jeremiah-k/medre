@@ -40,8 +40,10 @@ contract schemas mirror their projection helpers and normative specifications.
 | `recovery-action.schema.json`                    | `RecoveryAction` (`medre.core.observability.recovery`)          | Current destination ownership and read-only recovery guidance                                      |
 | `live-health.schema.json`                        | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                                             |
 
-The executable `event-routing-facts.schema.sql` fragment is checked against
-the authoritative admission table constraints.
+Executable SQLite fragments for typed admission routing facts and frozen outbox
+work ownership are published as `event-routing-facts.schema.sql` and
+`outbox-dispatch-snapshots.schema.sql`. Their table constraints and declared
+indexes are checked against the authoritative SQLite DDL.
 
 ## Examples
 

@@ -109,6 +109,7 @@ from medre.core.engine.pipeline.receipt_factory import (
     capability_receipt_fields,
     plan_capability_receipt_fields,
 )
+from medre.core.engine.pipeline.retry_plan import resolve_capability_fallback
 from medre.core.events.canonical import (
     DeliveryObservation,
     DeliveryReceipt,
@@ -124,6 +125,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
+    OutboxDispatchSnapshot,
     TerminalOutboxFinalization,
 )
 
@@ -214,6 +216,18 @@ class DeliveryLifecycleStorage(Protocol):
         ...
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        """Read the frozen dispatch context under the exact outbox identity."""
+        ...
 
     async def release_outbox_claim(
         self,
@@ -1088,6 +1102,15 @@ class DeliveryLifecycleService:
                 provenance.attempt_number,
             )
 
+        # Receipt capability fallback: durable inline metadata is the
+        # historical source when no queued attempt evidence exists yet.
+        # Post-change rows keep those frozen decision facts in the owned work
+        # snapshot; a failed snapshot read leaves the fallback empty rather
+        # than blocking persistence of an outcome that already happened.
+        capability_fallback = await resolve_capability_fallback(
+            storage, outbox, self._log
+        )
+
         supplemental = build_delivery_receipt(
             event_id=provenance.event_id,
             delivery_plan_id=provenance.delivery_plan_id,
@@ -1127,7 +1150,7 @@ class DeliveryLifecycleService:
             ),
             **capability_receipt_fields(
                 receipt=queued_receipt,
-                metadata=outbox.metadata,
+                metadata=capability_fallback,
             ),
             rendering_evidence=(
                 queued_receipt.rendering_evidence

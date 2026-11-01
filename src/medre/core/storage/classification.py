@@ -314,6 +314,23 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
         "updated_at": ColumnClass.OPERATIONAL_AUTHORITY,
     },
+    # Privately owned frozen dispatch context for one outbox generation, keyed
+    # by the exact outbox identity (outbox_id plus its creation generation).
+    # The row is written once atomically with its outbox row and retired by
+    # deletion at guarded terminal settlement, so every column is written once:
+    # identity/shape columns are immutable identity and the frozen context
+    # document is independently owned content.  Retirement deletes the row, so
+    # no column is a mutable authority bound; the row's lifetime is the
+    # outbox family's guarded lifecycle (see the unretired_outbox_snapshots
+    # release probe).
+    "delivery_outbox_snapshots": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "snapshot_version": ColumnClass.IMMUTABLE_IDENTITY,
+        "snapshot_kind": ColumnClass.IMMUTABLE_IDENTITY,
+        "context_json": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
+        "created_at": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "durable_ingress_work": {
         "event_id": ColumnClass.IMMUTABLE_IDENTITY,
         # Closed three-value admission marker (live/recovered/history),

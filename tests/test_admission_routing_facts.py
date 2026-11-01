@@ -482,8 +482,17 @@ async def test_staging_uses_the_composed_routing_facts(tmp_path):
             loaded, route, plan, target, target.adapter, pending=True
         )
         stored = await store.get_outbox_item(context.outbox_id)
-        assert stored is not None and stored.metadata is not None
-        snapshot_routing = stored.metadata["dispatch_context"]["routing"]
+        assert stored is not None
+        assert stored.metadata == {}
+        snapshot = await store.get_outbox_dispatch_context(
+            context.outbox_id,
+            event_id=stored.event_id,
+            delivery_plan_id=stored.delivery_plan_id,
+            target_adapter=stored.target_adapter,
+            target_channel=stored.target_channel,
+        )
+        assert snapshot is not None and snapshot.kind == "staged"
+        snapshot_routing = snapshot.context["routing"]
         assert snapshot_routing["matched_routes"] == ["r1"]
         assert snapshot_routing["route_trace"] == ["r1"]
     finally:

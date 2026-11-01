@@ -17,26 +17,20 @@ authorized reads.
 
 The page carries the exact field-level inventory with producers, verified
 consumers, ownership classes, post-terminal dispositions and operator-recovery
-requirements for the serialized `EventMetadata` namespaces persisted in
-`canonical_events.metadata`, for the JSON keys
-`OutboxManager.create_for_delivery` writes into `delivery_outbox.metadata`,
-and for the `OutboxDispatchContext` snapshot payload consumed by
-`reconstruct_retry_delivery_plan`. Standing-fact notes record where the
-current persisted shape differs from the contract disposition: the full
-dispatch context is inlined in `delivery_outbox.metadata`, both metadata
-columns are classified `independently_owned_content` in the storage column
-registry, and an ordinary routed text event retains exactly the
-`opaque_envelope` and `outbox_records` blockers after every target settles
-and all mandatory owners release. The contract grants no collection-scope
-expansion; the storage column classification contract remains the
-column-level authority this page builds on.
+requirements. The original accepted-context audit identified historical inline
+outbox metadata as a collection blocker. The implementation in this stack
+separates bounded routing facts into `event_routing_facts` (fragment 431) and
+moves new outbox dispatch context into owned `delivery_outbox_snapshots`
+(fragment 432). New `delivery_outbox.metadata` values are `{}`; the frozen
+snapshot retires at terminal settlement. For a new plain routed text event,
+once ingress finishes and all targets settle, the residual blocker list is
+empty. Historical rows retain their original inline metadata bytes and
+conservative collection behavior.
 
-`tests/test_accepted_context_contract.py` pins the contract: the staged
-outbox metadata key set through the real `OutboxManager.create_for_delivery`
-path on real SQLite storage for both staging shapes, the serialized
-`EventMetadata` namespace key set through the production admission path, the
-registry equivalence of both metadata columns with
-`independently_owned_content`, and the production-path blocker baseline for
-staged and settled routed text events. Permanently conservative opaque
-content — arbitrary `custom` and `native` metadata among it — is pinned
-never to flip.
+`tests/test_accepted_context_contract.py` pins the accepted inventory across
+both staged and direct snapshot shapes, the opaque namespace serialization,
+and the production-path staged/settled blocker baseline. The legacy inline
+outbox metadata key set belongs to historical rows only.
+
+Permanently conservative opaque content — arbitrary `custom` and `native`
+metadata among it — is pinned never to flip.

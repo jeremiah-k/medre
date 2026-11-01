@@ -84,19 +84,29 @@ class TestDestinationMetadata:
         assert ctx.created is True
         assert ctx.skip_reason is None
 
-        # Verify the outbox item has destination metadata.
+        # Verify the outbox row mirrors the destination identity and keeps
+        # its own metadata empty: the destination and route-decision context
+        # freezes into the owned work snapshot instead.
         item = await temp_storage.get_outbox_item(ctx.outbox_id)
         assert item is not None
         assert item.target_address == "abc123"
-        assert item.metadata is not None
-        meta = item.metadata
-        assert meta["destination_kind"] == "lxmf_destination"
-        assert meta["destination_hash"] == "abc123"
-        assert meta["destination_name"] == "TestNode"
-        assert meta["destination_metadata"] == {"hop_count": 3}
-        # Route decision metadata should also be merged in.
-        assert "capability_level" in meta
-        assert "delivery_strategy" in meta
+        assert item.metadata == {}
+        snapshot = await temp_storage.get_outbox_dispatch_context(
+            ctx.outbox_id,
+            event_id=item.event_id,
+            delivery_plan_id=item.delivery_plan_id,
+            target_adapter=item.target_adapter,
+            target_channel=item.target_channel,
+        )
+        assert snapshot is not None
+        assert snapshot.kind == "direct"
+        assert snapshot.context["destination_kind"] == "lxmf_destination"
+        assert snapshot.context["destination_hash"] == "abc123"
+        assert snapshot.context["destination_name"] == "TestNode"
+        assert snapshot.context["destination_metadata"] == {"hop_count": 3}
+        # Route decision facts are frozen alongside the destination scope.
+        assert "capability_level" in snapshot.context
+        assert "delivery_strategy" in snapshot.context
 
 
 class TestOutboxCreationFailed:

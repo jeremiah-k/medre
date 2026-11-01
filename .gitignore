@@ -229,3 +229,6 @@ __marimo__/
 
 # Checkout-local development preferences
 .medre-dev.yaml
+
+# Local CodeRabbit analysis output (not repository documentation)
+coderabbit_*.md

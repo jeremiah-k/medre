@@ -376,6 +376,22 @@ CREATE TABLE IF NOT EXISTS radio_attempt_progress (
     PRIMARY KEY (outbox_id, attempt_number)
 );
 
+-- Frozen outbox dispatch work snapshot: the privately owned accepted work
+-- context for one outbox generation.  Written atomically with its outbox row,
+-- read only under the exact outbox identity by the recovery path, and retired
+-- (deleted) atomically by guarded terminal settlement.  Historical rows that
+-- predate this table keep their inline delivery_outbox.metadata bytes as the
+-- frozen context; those inline bytes are never transformed.
+CREATE TABLE IF NOT EXISTS delivery_outbox_snapshots (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 0),
+    snapshot_version INTEGER NOT NULL CHECK (snapshot_version = 1),
+    snapshot_kind TEXT NOT NULL CHECK (snapshot_kind IN ('staged', 'direct')),
+    context_json TEXT NOT NULL CHECK (json_valid(context_json)),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
 CREATE TABLE IF NOT EXISTS durable_ingress_work (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     provenance TEXT NOT NULL,
@@ -517,6 +533,11 @@ CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
     ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
 CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
+-- A frozen work snapshot has one owner: the exact outbox row.  The
+-- creation generation is recorded for provenance, not to permit multiple
+-- competing work documents for one outbox ID.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_snapshot_owner_unique
+    ON delivery_outbox_snapshots(outbox_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_event_created
     ON delivery_outbox(event_id, created_at, outbox_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_lineage
@@ -845,6 +866,16 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "updated_at",
         }
     ),
+    "delivery_outbox_snapshots": frozenset(
+        {
+            "outbox_id",
+            "attempt_number",
+            "snapshot_version",
+            "snapshot_kind",
+            "context_json",
+            "created_at",
+        }
+    ),
 }
 
 # Structural constraints that cannot be inferred from column presence alone.
@@ -863,6 +894,7 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
     "event_content_access_grants": frozenset({("event_id", "scope", "consumer")}),
     "operator_delivery_decisions": frozenset({("decision_id",)}),
     "radio_attempt_progress": frozenset({("outbox_id", "attempt_number")}),
+    "delivery_outbox_snapshots": frozenset({("outbox_id", "attempt_number")}),
     "delivery_outbox": frozenset(
         {
             (
@@ -879,6 +911,9 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "event_routing_facts": frozenset({("event_id", "canonical_events", "event_id")}),
     "radio_attempt_progress": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
+    "delivery_outbox_snapshots": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
     "event_body_identity": frozenset({("event_id", "canonical_events", "event_id")}),
@@ -1147,9 +1182,24 @@ _DIAGNOSTICS_DDL = _SCHEMA[
     )
 ]
 
+# Derive the approved additive snapshot-table DDL verbatim from the
+# authoritative schema, exactly like the diagnostics side table above.
+_SNAPSHOTS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Frozen outbox dispatch work snapshot") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS durable_ingress_work ("
+    )
+]
+
 _DIAGNOSTICS_INDEX_DDL = _INDEXES[
     _INDEXES.index("-- Diagnostic coalescing reads") : _INDEXES.index(
         "CREATE INDEX IF NOT EXISTS idx_ingress_work_claim"
+    )
+]
+
+# The approved additive uniqueness guard comes from the same index catalog.
+_SNAPSHOT_OWNER_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- A frozen work snapshot has one owner:") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_event_created"
     )
 ]
 

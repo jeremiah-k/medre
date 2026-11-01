@@ -972,6 +972,7 @@ class TestRetryWorkerReconstruction:
             delivery_plan_id=plan_id,
             target_adapter="dest_adapter",
             target_channel="ch-1",
+            target_address=outbox_metadata["destination_hash"],
             status="in_progress",
             attempt_number=1,
             next_attempt_at=now - timedelta(seconds=1),

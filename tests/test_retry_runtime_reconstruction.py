@@ -80,6 +80,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         delivery_plan_id=plan_id,
         target_adapter=adapter_id,
         target_channel=channel,
+        target_address="deadbeef",
         attempt_number=2,
         status="in_progress",
         # The dispatch gate reserves the attempt identity only on rows the

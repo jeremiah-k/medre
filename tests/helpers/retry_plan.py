@@ -38,5 +38,10 @@ def make_retry_outbox(
         delivery_plan_id=delivery_plan_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
+        target_address=(
+            resolved_metadata.get("destination_hash")
+            if resolved_metadata and "destination_kind" in resolved_metadata
+            else None
+        ),
         metadata=resolved_metadata,
     )

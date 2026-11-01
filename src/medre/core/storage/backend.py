@@ -91,6 +91,10 @@ class StorageError(Exception):
     """Base exception for all storage-related errors."""
 
 
+class OutboxSnapshotReadError(StorageError):
+    """A snapshot read failed before integrity could be assessed; retry is safe."""
+
+
 class EventNotFoundError(StorageError):
     """Raised when an event cannot be found by its identifier."""
 
@@ -626,6 +630,58 @@ class DeliveryOutboxItem:
         bool
         """
         return _get_is_claimable_outbox_status()(self.status)
+
+
+#: Snapshot shape version of the frozen outbox dispatch context document in
+#: ``delivery_outbox_snapshots``.  The writer stamps this value; readers fail
+#: closed on any other version instead of guessing the document's shape.
+OUTBOX_DISPATCH_SNAPSHOT_VERSION: int = 1
+
+#: Closed vocabulary of frozen snapshot shapes.  ``staged`` documents hold the
+#: serialized ``OutboxDispatchContext`` members (route, plan, routing);
+#: ``direct`` documents hold the reduced route-decision/destination context.
+OUTBOX_DISPATCH_SNAPSHOT_KINDS: frozenset[str] = frozenset({"staged", "direct"})
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxDispatchSnapshotWrite:
+    """Frozen dispatch context to persist atomically with one outbox row.
+
+    *kind* selects the document shape (``staged`` or ``direct``); *context*
+    is the JSON-safe frozen document.  The storage layer writes the snapshot
+    row inside the outbox-creation transaction, keyed by the exact outbox
+    identity with the row's committed creation generation.
+    """
+
+    kind: str
+    context: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        if self.kind not in OUTBOX_DISPATCH_SNAPSHOT_KINDS:
+            raise ValueError(
+                f"unknown outbox snapshot kind {self.kind!r}; "
+                f"expected one of {sorted(OUTBOX_DISPATCH_SNAPSHOT_KINDS)}"
+            )
+        if not isinstance(self.context, dict):
+            raise ValueError("outbox snapshot context must be a JSON-safe mapping")
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxDispatchSnapshot:
+    """Composed frozen dispatch context read under the exact outbox identity.
+
+    Metadata-only outbox projections never return snapshot bytes; this typed
+    read is the only access path.  *attempt_number* is the creation generation
+    recorded at write time, *kind* selects the document shape, and *context*
+    is the decoded frozen document.  Absent snapshots return ``None`` from the
+    storage read; malformed or unknown-version snapshots fail closed.
+    """
+
+    outbox_id: str
+    attempt_number: int
+    snapshot_version: int
+    kind: str
+    context: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1528,6 +1584,7 @@ class StorageBackend(Protocol):
         item: DeliveryOutboxItem,
         *,
         allocate_new_generation: bool = False,
+        dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item or return an existing generation unchanged.
 
@@ -1541,6 +1598,12 @@ class StorageBackend(Protocol):
         existing claim is returned instead of allocating a sibling generation.
         Named replay provenance is only valid in this allocation mode. Empty
         run IDs remain repeatable.
+
+        When *dispatch_snapshot* is provided, its frozen dispatch context is
+        written to ``delivery_outbox_snapshots`` inside the same creation
+        transaction, keyed by the exact outbox identity and the row's committed
+        creation generation.  Adopted existing rows never gain a snapshot from
+        a later creator.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
@@ -1567,6 +1630,28 @@ class StorageBackend(Protocol):
 
         Authority: **list/get** (read-only).  Returns ``None`` when no
         item with *outbox_id* exists.
+        """
+        ...
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        """Read the frozen dispatch context under the exact outbox identity.
+
+        Authority: **list/get** (read-only, owner-scoped).  The snapshot row is
+        resolved through its outbox identity binding, so a mismatched event,
+        plan, adapter, or channel yields ``None`` rather than another
+        generation's context.  A present snapshot with a malformed document or
+        an unknown snapshot shape version raises :class:`StorageError` —
+        reconstruction never falls back to current router configuration.
+        Metadata-only projections never return snapshot bytes; this typed read
+        is the only access path.
         """
         ...
 

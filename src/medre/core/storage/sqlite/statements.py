@@ -60,6 +60,25 @@ INSERT INTO delivery_receipts
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
+# The frozen dispatch context is written inside the outbox-creation
+# transaction, keyed by the exact outbox identity.  The row's committed
+# creation generation is read from the just-inserted outbox row, so a replay
+# allocation's rewritten attempt number is the one recorded.
+_INSERT_OUTBOX_SNAPSHOT = """
+INSERT INTO delivery_outbox_snapshots
+    (outbox_id, attempt_number, snapshot_version, snapshot_kind, context_json,
+     created_at)
+SELECT outbox_id, attempt_number, ?, ?, ?, ?
+FROM delivery_outbox WHERE outbox_id = ?
+"""
+
+# Retirement of the frozen dispatch context happens ONLY inside guarded
+# terminal transitions, in the same transaction as the status change; a
+# rolled-back transition preserves the snapshot.
+_RETIRE_OUTBOX_SNAPSHOT = """
+DELETE FROM delivery_outbox_snapshots WHERE outbox_id = ?
+"""
+
 _FINALIZE_QUEUED_OUTBOX_SENT = """
 UPDATE delivery_outbox
 SET status = 'sent',

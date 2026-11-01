@@ -17,6 +17,7 @@ _ALLOWED_WORKER_STORAGE_CALLS = frozenset(
         "count_outbox_by_status",
         "delivery_status",
         "get_metadata",
+        "get_outbox_dispatch_context",
         "read_event_for_outbox",
     }
 )

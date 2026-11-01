@@ -249,6 +249,7 @@ class TestRetryWorkerTaskCrashedOutcome:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         storage.count_outbox_by_status = AsyncMock(return_value={})
         pipeline = MagicMock()
         event_buffer = EventBuffer(maxlen=64)
@@ -308,6 +309,7 @@ class TestRetryWorkerTaskCrashedOutcome:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         storage.count_outbox_by_status = AsyncMock(return_value={})
         pipeline = MagicMock()
         event_buffer = EventBuffer(maxlen=64)
@@ -347,6 +349,7 @@ class TestRetryWorkerTaskCrashedOutcome:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         storage.count_outbox_by_status = AsyncMock(return_value={})
         pipeline = MagicMock()
         event_buffer = EventBuffer(maxlen=64)
@@ -402,6 +405,7 @@ class TestRetryWorkerTaskCrashedOutcome:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         storage.count_outbox_by_status = AsyncMock(return_value={})
         pipeline = MagicMock()
         event_buffer = EventBuffer(maxlen=64)
@@ -681,6 +685,7 @@ class TestRetryWorkerStopAbandonedEarlyReturn:
         from medre.runtime.retry import RetryWorker
 
         storage = MagicMock()
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         pipeline = MagicMock()
 
         worker = RetryWorker(
@@ -734,6 +739,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -824,6 +830,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
         status="in_progress",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -905,6 +912,7 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
         status="in_progress",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -990,6 +998,7 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
         status="in_progress",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -1060,6 +1069,7 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -1127,6 +1137,7 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
         worker_id="retry-worker-test",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -1207,6 +1218,7 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
         outbox_id=item.outbox_id,
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=object())
@@ -1278,6 +1290,7 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
         worker_id="retry-worker-denied",
     )
     storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     storage.get_metadata = AsyncMock(return_value=object())
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="denied", event=None)

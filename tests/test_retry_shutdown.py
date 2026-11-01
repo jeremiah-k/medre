@@ -131,6 +131,7 @@ class TestRetryShutdown:
             return_value=SimpleNamespace(status="retained", event=event)
         )
         storage.delivery_status = AsyncMock(return_value=None)
+        storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
         storage.list_receipts_for_delivery = AsyncMock(return_value=[])
         storage.count_outbox_by_status = AsyncMock(return_value={})
         storage.reserve_outbox_attempt = AsyncMock(return_value=2)

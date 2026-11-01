@@ -57,7 +57,11 @@ from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
 from medre.core.planning.delivery_plan import DeliveryFailureKind
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    OutboxDispatchSnapshot,
+    OutboxSnapshotReadError,
+)
 from medre.core.storage.read_contracts import AuthorizedEventRead
 from medre.runtime.events import RuntimeEventType
 
@@ -103,6 +107,18 @@ class RetryWorkerStorage(Protocol):
         identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
         """Return current delivery authority for one complete identity."""
+        ...
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        """Read the frozen dispatch context under the exact outbox identity."""
         ...
 
 
@@ -1087,15 +1103,39 @@ class RetryWorker:
         )
 
         # Reconstruct the delivery context (route + plan + retry policy)
-        # from the persisted outbox item and previous receipt.  The helper
-        # centralises all reconstruction semantics so the worker does not
-        # duplicate planning logic.
+        # from the frozen dispatch context read under the exact outbox
+        # identity, or from the row's historical inline metadata bytes, plus
+        # the previous receipt.  The helper centralises all reconstruction
+        # semantics so the worker does not duplicate planning logic; a missing,
+        # malformed, or unknown-version frozen context fails closed instead of
+        # re-planning from current router configuration.
         try:
+            dispatch_snapshot = await self._storage.get_outbox_dispatch_context(
+                item.outbox_id,
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                target_channel=item.target_channel,
+            )
             retry_context = reconstruct_retry_delivery_plan(
                 item=item,
                 previous_receipt=previous_receipt,
                 default_max_attempts=self._max_attempts,
+                dispatch_snapshot=dispatch_snapshot,
             )
+        except OutboxSnapshotReadError:
+            _logger.exception(
+                "RetryWorker: snapshot read failed for outbox %s; "
+                "releasing unstarted claim for a later poll",
+                item.outbox_id,
+            )
+            self.state.processed += 1
+            self.state.failed += 1
+            await self._release_unstarted_claims([item])
+            self._adapter_deferred_until[item.target_adapter] = datetime.now(
+                timezone.utc
+            ) + timedelta(seconds=self._interval)
+            return
         except Exception:
             _logger.exception(
                 "RetryWorker: failed to reconstruct delivery context for outbox %s",

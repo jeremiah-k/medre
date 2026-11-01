@@ -14,7 +14,10 @@ from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManag
 from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import RetryPolicy
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    OutboxSnapshotReadError,
+)
 from medre.runtime.retry import RetryWorker
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
@@ -215,6 +218,7 @@ async def test_retry_worker_reports_callback_won_queued_race_as_committed_succes
         return_value=SimpleNamespace(status="retained", event=stored)
     )
     storage.delivery_status = AsyncMock(return_value=None)
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(return_value=queued)
     lifecycle = MagicMock()
@@ -453,4 +457,37 @@ async def test_lifecycle_reconciles_abandoned_lifecycle_receipt_after_cas_loss()
         receipt_id="rcpt-abandoned-2",
         failure_kind="capacity_rejection",
         attempt_number=2,
+    )
+
+
+async def test_retry_worker_releases_unstarted_claim_on_transient_snapshot_read_failure():
+    item = _item()
+    storage = MagicMock()
+    storage.get_metadata = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    storage.get_outbox_dispatch_context = AsyncMock(
+        side_effect=OutboxSnapshotReadError("database is locked")
+    )
+    lifecycle = MagicMock()
+    lifecycle.release_unstarted_retry_claim = AsyncMock(return_value=True)
+    lifecycle.abandon_retry_outbox = AsyncMock()
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock()
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+
+    await worker._retry_outbox_item(item)
+
+    lifecycle.release_unstarted_retry_claim.assert_awaited_once_with(storage, item)
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.failed == 1
+    assert worker._adapter_deferred_until[item.target_adapter] > datetime.now(
+        timezone.utc
     )

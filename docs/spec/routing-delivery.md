@@ -557,9 +557,14 @@ class RetryPolicy:
     jitter: bool = True          # Whether to add jitter to avoid thundering-herd
 ```
 
-### 6.4 Route-Decision Metadata Persistence
+### 6.4 Route-Decision Persistence
 
-When `OutboxManager.create_for_delivery()` creates a `DeliveryOutboxItem`, the outbox `metadata` JSON dict includes route-decision fields alongside destination metadata. These fields are:
+For newly created work, `OutboxManager.create_for_delivery()` stores the route
+decision and destination context in a versioned
+`delivery_outbox_snapshots` row, atomically with its `DeliveryOutboxItem`.
+The new outbox row's inline `metadata` is `{}`. Work admitted before the
+snapshot table existed keeps its frozen context in the original inline
+`delivery_outbox.metadata` JSON. Both formats carry these fields:
 
 | Metadata key        | Source                                 | Type                   |
 | ------------------- | -------------------------------------- | ---------------------- |
@@ -569,11 +574,21 @@ When `OutboxManager.create_for_delivery()` creates a `DeliveryOutboxItem`, the o
 | `capability_reason` | `DeliveryPlan.capability_reason`       | `str \| None`          |
 | `deadline`          | `DeliveryPlan.deadline`                | ISO 8601 `str \| None` |
 
-Retry reconstruction (`reconstruct_retry_delivery_plan()`) reads these keys back from the outbox `metadata` dict and populates the reconstructed `DeliveryPlan`. This ensures retry delivery uses the same capability and strategy decisions as the original live delivery, rather than defaulting to `capability_level=None` (silently treated as `"native"`) and `strategy="direct"`.
+Retry reconstruction (`reconstruct_retry_delivery_plan()`) reads the
+owner-scoped frozen snapshot for new work, or the historical inline metadata
+for legacy work, and restores the original `DeliveryPlan`. It MUST NOT
+re-plan from the current router, infer missing capability or strategy fields,
+or silently default to `capability_level=None` or `strategy="direct"`.
+Malformed or unknown-version frozen context is a terminal invariant failure;
+a transient failure to read the snapshot MUST instead release the unstarted
+claim and defer the affected adapter lane by the configured retry interval,
+without abandoning valid work or immediately reclaiming it in a tight loop.
+Receipt recording for an already completed native outcome MAY omit optional
+capability fallback fields when the frozen context cannot be read; both
+receipt producers MUST share the same exact-owner lookup and log the cause.
 
-Missing, incomplete, or malformed route-decision metadata is an invariant violation. Retry reconstruction raises instead of guessing a capability level, strategy, or deadline; the retry worker then abandons the malformed outbox item through lifecycle authority rather than dispatching under invented semantics.
-
-**Wire protocol**: These keys are internal correlation metadata stored in the SQLite `metadata` column. They MUST NOT be rendered into Meshtastic, Matrix, MeshCore, or LXMF wire payloads.
+**Wire protocol**: These keys are internal durable work context and MUST NOT
+be rendered into Meshtastic, Matrix, MeshCore, or LXMF wire payloads.
 
 ### 6.5 Fallback Resolution
 
@@ -636,7 +651,7 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
    contribution is clamped to a 30-day scheduling maximum so an absurd hint cannot
    produce an unrepresentable timestamp. The hint cannot shorten policy backoff,
    bypass retry exhaustion, or make a permanent failure retryable.
-2. `RetryWorker` claims due current-generation outbox rows through `claim_due_outbox_items()`; older rows are not claimable once a sibling row represents the same or a newer effective attempt. The worker loads the canonical event, reads the lifecycle-authoritative delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
+2. `RetryWorker` claims due current-generation outbox rows through `claim_due_outbox_items()`; older rows are not claimable once a sibling row represents the same or a newer effective attempt. The worker loads the canonical event, reads the lifecycle-authoritative delivery status, and reconstructs the original delivery context from the frozen work snapshot read under the exact outbox identity (rows created before the snapshot table reconstruct from their historical inline metadata bytes) plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
 3. Before capacity acquisition or transport dispatch, the worker calls
    `DeliveryLifecycleService.reconcile_retry_claim()`. When the claimed row
    carries a live `active_attempt` reservation, this preflight inspects only
@@ -686,7 +701,16 @@ When a delivery first fails with `failure_kind='adapter_transient'` and a `Retry
 
 ### 7.6 Frozen Target Metadata
 
-Retry uses the `target_adapter`, `target_channel`, destination, and route-decision metadata persisted with the original outbox item rather than re-planning against current route configuration. Route targets, channel assignments, and adapter mappings MAY change between the original failure and a retry attempt, but the retry continues to target the recorded destination. If that adapter is no longer registered, the normal target-delivery path records `failure_kind=ADAPTER_MISSING`; lifecycle reconciliation classifies it as terminal and dead-letters the outbox item.
+Retry uses `target_adapter`, `target_channel`, destination, and route-decision
+context frozen for the original outbox work: the owned
+`delivery_outbox_snapshots` row for newly created work, or the historical
+inline outbox metadata for older rows. It MUST NOT re-plan against current
+route configuration. Route targets, channel assignments, and adapter mappings
+MAY change between the original failure and a retry attempt, but the retry
+continues to target the recorded destination. If that adapter is no longer
+registered, the normal target-delivery path records
+`failure_kind=ADAPTER_MISSING`; lifecycle reconciliation classifies it as
+terminal and dead-letters the outbox item.
 
 ### 7.7 Retry Properties Summary
 

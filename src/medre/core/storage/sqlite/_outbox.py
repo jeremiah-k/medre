@@ -42,7 +42,15 @@ from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
 )
 from medre.core.events import normalize_replay_run_id
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    OUTBOX_DISPATCH_SNAPSHOT_KINDS,
+    OUTBOX_DISPATCH_SNAPSHOT_VERSION,
+    DeliveryOutboxItem,
+    OutboxDispatchSnapshot,
+    OutboxDispatchSnapshotWrite,
+    OutboxSnapshotReadError,
+    StorageError,
+)
 from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
 from medre.core.storage.sqlite._evidence_diagnostics import (
     _EvidenceDiagnosticsReadMixin,
@@ -53,10 +61,15 @@ from medre.core.storage.sqlite.connection import sync_transition_outbox_and_sett
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
+    _decode_json,
     _encode_json,
     _ensure_iso,
     _now_iso,
     _row_to_outbox_item,
+)
+from medre.core.storage.sqlite.statements import (
+    _INSERT_OUTBOX_SNAPSHOT,
+    _RETIRE_OUTBOX_SNAPSHOT,
 )
 
 if TYPE_CHECKING:
@@ -112,6 +125,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         item: DeliveryOutboxItem,
         *,
         allocate_new_generation: bool = False,
+        dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item, or return an existing generation unchanged.
 
@@ -125,6 +139,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         run and returns it instead of allocating a sibling generation.  The run
         ID is therefore a durable idempotency key for one replay target while
         remaining provenance rather than part of :class:`DeliveryIdentity`.
+
+        When *dispatch_snapshot* is provided, its frozen dispatch context is
+        inserted into ``delivery_outbox_snapshots`` inside the same creation
+        transaction, keyed by the exact outbox identity with the row's
+        committed creation generation (read from the just-inserted row, so a
+        replay allocation's rewritten attempt is the one recorded).  Adopted
+        existing rows never gain a snapshot from a later creator; their own
+        creation-time snapshot (or their historical inline metadata bytes)
+        remains their frozen context.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -177,6 +200,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             raise ValueError(
                 "replay_run_id requires allocate_new_generation=True; "
                 "named replay execution provenance may only enter through the replay allocator"
+            )
+        if dispatch_snapshot is not None and item.metadata:
+            raise ValueError(
+                "outbox dispatch context must have one owner: frozen snapshot "
+                "or historical inline metadata, not both"
             )
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
@@ -249,6 +277,30 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             now,
             item.outbox_id,
         )
+        # The frozen dispatch context joins the creation transaction. Its
+        # op reads the row's committed creation generation from the
+        # just-inserted row, so the snapshot is keyed by the exact outbox
+        # identity the replay allocator committed. An adopted existing row
+        # returns before any op runs and never gains a snapshot here.
+        snapshot_ops: list[tuple[str, tuple[Any, ...]]] = []
+        if dispatch_snapshot is not None:
+            if dispatch_snapshot.kind not in OUTBOX_DISPATCH_SNAPSHOT_KINDS:
+                raise ValueError(
+                    f"invalid dispatch snapshot kind {dispatch_snapshot.kind!r}"
+                )
+            snapshot_ops.append(
+                (
+                    _INSERT_OUTBOX_SNAPSHOT,
+                    (
+                        OUTBOX_DISPATCH_SNAPSHOT_VERSION,
+                        dispatch_snapshot.kind,
+                        _encode_json(dispatch_snapshot.context),
+                        now,
+                        item.outbox_id,
+                    ),
+                )
+            )
+        post_insert_ops = [*diagnostic_ops, *snapshot_ops]
 
         generation_select_sql = (
             "SELECT MAX(COALESCE(active_attempt, attempt_number)) AS max_attempt"
@@ -292,7 +344,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     now,
                     replay_run_select_sql if item.replay_run_id else None,
                     replay_run_select_params if item.replay_run_id else None,
-                    diagnostic_ops,
+                    post_insert_ops,
                 )
                 if existing_id is not None:
                     existing = await self.get_outbox_item(existing_id)
@@ -315,7 +367,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 insert_sql,
                 insert_params,
                 now,
-                diagnostic_ops,
+                post_insert_ops,
             )
             if existing_id is not None:
                 existing = await self.get_outbox_item(existing_id)
@@ -353,7 +405,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         observed_at: str,
         replay_run_select_sql: str | None = None,
         replay_run_select_params: tuple[Any, ...] | None = None,
-        diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
+        post_insert_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     ) -> str | None:
         """Atomically allocate and insert a fresh outbox generation.
 
@@ -363,7 +415,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         ``active_attempt`` outranks its row's finalized ``attempt_number``.
         When replay-run lookup SQL is supplied, an existing row for that
         event-scoped delivery + run ID wins and its ``outbox_id`` is returned
-        without inserting another generation.
+        without inserting another generation.  *post_insert_ops* run inside the
+        same transaction after the outbox INSERT.
         """
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
@@ -396,8 +449,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     insert_outbox_dependency(
                         db, str(params[0]), str(params[1]), observed_at
                     )
-                for diagnostic_sql, diagnostic_params in diagnostic_ops or []:
-                    db.execute(diagnostic_sql, diagnostic_params)
+                for op_sql, op_params in post_insert_ops or []:
+                    db.execute(op_sql, op_params)
                 db.execute("COMMIT")
                 return None
             except BaseException:
@@ -415,7 +468,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         insert_sql: str,
         insert_params: tuple[Any, ...],
         observed_at: str,
-        diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
+        post_insert_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     ) -> str | None:
         """Atomically adopt existing work or insert a row without reclaiming."""
         with self._lock:
@@ -429,8 +482,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 insert_outbox_dependency(
                     db, str(insert_params[0]), str(insert_params[1]), observed_at
                 )
-                for diagnostic_sql, diagnostic_params in diagnostic_ops or []:
-                    db.execute(diagnostic_sql, diagnostic_params)
+                for op_sql, op_params in post_insert_ops or []:
+                    db.execute(op_sql, op_params)
                 db.execute("COMMIT")
                 return None
             except BaseException:
@@ -462,6 +515,89 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "outbox", [row], identity_column="outbox_id"
             )
         return _row_to_outbox_item(row)
+
+    async def get_outbox_dispatch_context(
+        self,
+        outbox_id: str,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+    ) -> OutboxDispatchSnapshot | None:
+        """Read the frozen dispatch context under the exact outbox identity.
+
+        Authority: **list/get** (read-only, owner-scoped).  The snapshot row is
+        resolved through a join on its outbox row, so a mismatched event, plan,
+        adapter, or channel yields ``None`` rather than another generation's
+        context.  A present snapshot with a malformed document or an unknown
+        snapshot shape version raises :class:`StorageError`; a failed database
+        read raises :class:`OutboxSnapshotReadError` instead so a temporary
+        failure cannot terminally abandon valid work. Recovery never
+        falls back to current router configuration.  Absence returns ``None``:
+        callers distinguish historical inline-metadata rows from post-change
+        rows, whose non-terminal work MUST always carry a snapshot.
+        """
+        try:
+            row = await self._read_one(
+                "SELECT s.attempt_number, s.snapshot_version, s.snapshot_kind,"
+                " s.context_json"
+                " FROM delivery_outbox_snapshots s"
+                " JOIN delivery_outbox o ON o.outbox_id = s.outbox_id"
+                " WHERE s.outbox_id = ?"
+                " AND o.event_id = ?"
+                " AND o.delivery_plan_id = ?"
+                " AND o.target_adapter = ?"
+                " AND o.target_channel IS ?"
+                " AND o.status IN ('pending','in_progress','retry_wait','queued')",
+                (
+                    outbox_id,
+                    event_id,
+                    delivery_plan_id,
+                    target_adapter,
+                    target_channel or None,
+                ),
+            )
+        except StorageError as exc:
+            # An I/O failure has not proved this frozen context invalid. It
+            # must not turn an otherwise valid work item into a terminal loss.
+            raise OutboxSnapshotReadError(
+                f"Could not read dispatch snapshot for outbox {outbox_id}"
+            ) from exc
+        if row is None:
+            return None
+        outbox_id_bound = outbox_id
+        attempt_number = int(row["attempt_number"])
+        snapshot_version = int(row["snapshot_version"])
+        kind = str(row["snapshot_kind"])
+        if snapshot_version != OUTBOX_DISPATCH_SNAPSHOT_VERSION:
+            raise StorageError(
+                f"Outbox dispatch snapshot {outbox_id_bound} has unknown shape "
+                f"version {snapshot_version}; expected "
+                f"{OUTBOX_DISPATCH_SNAPSHOT_VERSION}"
+            )
+        if kind not in OUTBOX_DISPATCH_SNAPSHOT_KINDS:
+            raise StorageError(
+                f"Outbox dispatch snapshot {outbox_id_bound} has unknown "
+                f"snapshot kind {kind!r}"
+            )
+        try:
+            context = _decode_json(str(row["context_json"]))
+        except Exception as exc:
+            raise StorageError(
+                f"Outbox dispatch snapshot {outbox_id_bound} is malformed"
+            ) from exc
+        if not isinstance(context, dict):
+            raise StorageError(
+                f"Outbox dispatch snapshot {outbox_id_bound} is malformed"
+            )
+        return OutboxDispatchSnapshot(
+            outbox_id=outbox_id_bound,
+            attempt_number=attempt_number,
+            snapshot_version=snapshot_version,
+            kind=kind,
+            context=context,
+        )
 
     async def list_outbox_items_for_delivery(
         self,
@@ -965,6 +1101,13 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         # generation the failure text describes.
         follow_ups = outbox_diagnostic_ops(diagnostics, now, outbox_id)
         if new_status in TERMINAL_OUTBOX_STATUSES:
+            # Retirement of the frozen dispatch context is part of the
+            # guarded terminal settlement: the delete runs inside the same
+            # transaction and only when the guarded UPDATE matched exactly
+            # one row, so a stale callback, superseded worker/generation, or
+            # rolled-back transition preserves the snapshot. Non-terminal
+            # transitions never retire it.
+            follow_ups.append((_RETIRE_OUTBOX_SNAPSHOT, (outbox_id,)))
             try:
                 rowcount = await self._run_in_thread(
                     sync_transition_outbox_and_settle,

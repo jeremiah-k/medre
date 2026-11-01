@@ -89,6 +89,15 @@ _EVENT_COPY_PROBES: dict[str, str] = {
     "active_ingress": "SELECT COUNT(*) FROM durable_ingress_work w WHERE w.event_id=e.event_id AND w.status NOT IN ('completed', 'failed')",
     "active_outbox": "SELECT COUNT(*) FROM delivery_outbox o WHERE o.event_id=e.event_id AND o.status NOT IN ('sent', 'cancelled', 'dead_lettered', 'abandoned')",
     "unsettled_mandatory_owners": "SELECT COUNT(*) FROM event_content_dependencies d WHERE d.event_id=e.event_id AND d.released_at IS NULL",
+    # Frozen outbox work snapshots block by pure presence: a snapshot row
+    # exists exactly while the guarded terminal settlement that retires it has
+    # not committed. The join through delivery_outbox resolves each snapshot's
+    # owner without reading any snapshot value.
+    "unretired_outbox_snapshots": (
+        "SELECT COUNT(*) FROM delivery_outbox_snapshots s "
+        "JOIN delivery_outbox o ON o.outbox_id=s.outbox_id "
+        "WHERE o.event_id=e.event_id"
+    ),
     "unrevoked_optional_grants": "SELECT COUNT(*) FROM event_content_access_grants g WHERE g.event_id=e.event_id AND g.revoked_at IS NULL AND g.expired_at IS NULL",
 }
 
@@ -114,6 +123,7 @@ _LIVE_BLOCKER_PROBES = (
     "active_ingress",
     "active_outbox",
     "unsettled_mandatory_owners",
+    "unretired_outbox_snapshots",
     "unrevoked_optional_grants",
 )
 
