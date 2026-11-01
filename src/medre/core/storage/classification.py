@@ -98,6 +98,19 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "source_native_thread_id": ColumnClass.IMMUTABLE_IDENTITY,
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    # Typed admission routing facts separated from the opaque metadata JSON
+    # at write time.  Every column is a bounded write-once admission fact
+    # (route identifiers, the fanout group, the bounded route trace): the
+    # same standing as the receipt family's route columns, so the inventory
+    # does not review them as free-form content.  Absence of a row is the
+    # standing fact that no routing decision was accepted at admission.
+    "event_routing_facts": {
+        "event_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "matched_routes": ColumnClass.IMMUTABLE_IDENTITY,
+        "fanout_group": ColumnClass.IMMUTABLE_IDENTITY,
+        "route_trace": ColumnClass.IMMUTABLE_IDENTITY,
+        "recorded_at": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "event_body_identity": {
         "event_id": ColumnClass.IMMUTABLE_IDENTITY,
         "version": ColumnClass.IMMUTABLE_IDENTITY,

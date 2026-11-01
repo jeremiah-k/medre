@@ -27,6 +27,7 @@ from medre.core.storage.sqlite.serde import (
     _row_to_event,
     _row_to_relation,
     _serialize_metadata,
+    routing_facts_op,
 )
 from medre.core.storage.sqlite.statements import (
     _INSERT_EVENT,
@@ -99,6 +100,9 @@ class _EventMixin:
         ]
         ops.append(body_admission_op(event, _now_iso()))
         ops.extend(body_content_ops(event, _now_iso()))
+        routing_op = routing_facts_op(event, _now_iso())
+        if routing_op is not None:
+            ops.append(routing_op)
         for rel in event.relations:
             ops.append(self._relation_op(event.event_id, rel))
             excerpt_op = self._relation_excerpt_op(rel)

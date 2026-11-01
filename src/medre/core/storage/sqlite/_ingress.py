@@ -45,7 +45,12 @@ from medre.core.storage.sqlite.connection import (
     sync_upsert_checkpoint,
 )
 from medre.core.storage.sqlite.ingress_sql import SELECT_INGRESS_WORK_STATE
-from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _serialize_metadata
+from medre.core.storage.sqlite.serde import (
+    _encode_json,
+    _now_iso,
+    _serialize_metadata,
+    routing_facts_op,
+)
 from medre.core.storage.sqlite.statements import _INSERT_EVENT
 
 if TYPE_CHECKING:
@@ -132,6 +137,9 @@ class _IngressMixin:
         ]
         ops.append(body_admission_op(event, _now_iso()))
         ops.extend(body_content_ops(event, _now_iso()))
+        routing_op = routing_facts_op(event, _now_iso())
+        if routing_op is not None:
+            ops.append(routing_op)
         for relation in event.relations:
             ops.append(self._relation_op(event.event_id, relation))
             excerpt_op = self._relation_excerpt_op(relation)

@@ -25,6 +25,11 @@ def _old_database(path, *, missing_expired_at=False, missing_diagnostics=False):
         "-- Immutable logical-collection receipt.",
         "CREATE TABLE IF NOT EXISTS event_relations (",
     )
+    ddl = _strip_section(
+        ddl,
+        "-- Typed admission routing facts",
+        "-- One current, immutable admission fact per canonical body.",
+    )
     if missing_diagnostics:
         ddl = _strip_section(
             ddl,
@@ -77,6 +82,9 @@ async def test_explicit_additions_are_atomic_and_idempotent(
                 "SELECT COUNT(*) AS n FROM event_content_collection_log"
             )
         )["n"] == 0
+        assert (await store._read_one("SELECT COUNT(*) AS n FROM event_routing_facts"))[
+            "n"
+        ] == 0
     finally:
         await store.close()
     again = SQLiteStorage(path)
@@ -87,11 +95,11 @@ async def test_explicit_additions_are_atomic_and_idempotent(
 async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     """A current predecessor lacking the diagnostics surface is accepted.
 
-    ``_old_database`` strips two tables: the collection log unconditionally
-    and the diagnostics surface for this test. The assertions below pin the
-    table set exactly — the upgrade adds those two tables and removes no
-    table. The created index and the untouched legacy row are asserted
-    separately in this test.
+    ``_old_database`` strips three tables: the collection log and the
+    routing facts unconditionally, and the diagnostics surface for this
+    test. The assertions below pin the table set exactly — the upgrade adds
+    those three tables and removes no table. The created index and the
+    untouched legacy row are asserted separately in this test.
     """
     path = str(tmp_path / "upgrade-diagnostics.db")
     _old_database(path, missing_diagnostics=True)
@@ -147,6 +155,7 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     assert after_names - before_names == {
         "delivery_evidence_diagnostics",
         "event_content_collection_log",
+        "event_routing_facts",
     }
     assert before_names <= after_names
     again = SQLiteStorage(path)
@@ -177,6 +186,12 @@ async def test_additive_upgrade_rejects_unrelated_shape_drift_without_writes(tmp
             db.execute(
                 "SELECT name FROM sqlite_master "
                 "WHERE name='delivery_evidence_diagnostics'"
+            ).fetchone()
+            is None
+        )
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master WHERE name='event_routing_facts'"
             ).fetchone()
             is None
         )

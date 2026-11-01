@@ -20,6 +20,7 @@ from medre.core.events import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.storage.backend import DeliveryOutboxItem
 
 
@@ -39,8 +40,76 @@ def _decode_json(text: str) -> Any:
 
 
 def _serialize_metadata(metadata: EventMetadata) -> str:
-    """Serialise an :class:`EventMetadata` instance to a JSON string."""
-    return msgspec.json.encode(metadata).decode()
+    """Serialise the opaque metadata namespaces to a JSON string.
+
+    The ``routing`` namespace never persists here for typed metadata:
+    routing facts are typed rows in ``event_routing_facts`` written by the
+    same admission transaction (see :func:`routing_facts_op`).  Absent
+    namespaces and the empty ``custom`` mapping are omitted, so an event
+    without opaque metadata serialises to ``{}`` and keeps the
+    ``opaque_envelope`` blocker inactive.  A namespace that is present stays
+    present: a non-``None`` typed struct (even one whose fields are all
+    ``None``) and a non-empty ``custom`` mapping persist verbatim, so a
+    composed read reconstructs exactly the admitted :class:`EventMetadata`.
+
+    A non-``EventMetadata`` metadata value (an untyped mapping installed by
+    ``msgspec.structs.replace``, which skips field validation) persists
+    verbatim exactly as before this separation; such a value never carries
+    typed routing facts and never writes a facts row.
+    """
+    if not isinstance(metadata, EventMetadata):
+        return _encode_json(metadata)
+    namespaces: dict[str, Any] = {}
+    if metadata.transport is not None:
+        namespaces["transport"] = msgspec.to_builtins(metadata.transport)
+    if metadata.radio is not None:
+        namespaces["radio"] = msgspec.to_builtins(metadata.radio)
+    if metadata.telemetry is not None:
+        namespaces["telemetry"] = msgspec.to_builtins(metadata.telemetry)
+    if metadata.native is not None:
+        namespaces["native"] = msgspec.to_builtins(metadata.native)
+    if metadata.custom:
+        namespaces["custom"] = msgspec.to_builtins(metadata.custom)
+    return _encode_json(namespaces)
+
+
+_ROUTING_FACTS_INSERT = """
+INSERT INTO event_routing_facts
+    (event_id, matched_routes, fanout_group, route_trace, recorded_at)
+VALUES (?, ?, ?, ?, ?)
+"""
+
+
+def routing_facts_op(
+    event: CanonicalEvent, recorded_at: str
+) -> tuple[str, tuple[Any, ...]] | None:
+    """Return the typed routing-facts insert op for an admission transaction.
+
+    ``None`` when the event carries no routing namespace: absence of a row
+    is the standing fact that no routing decision was accepted at
+    admission.  The op MUST run in the same transaction as the canonical
+    event row.  Duplicate admissions never execute their ops, so the row is
+    written exactly once with the originally accepted decision.  An untyped
+    metadata mapping (see :func:`_serialize_metadata`) never writes a row.
+    """
+    routing = getattr(event.metadata, "routing", None)
+    if routing is None:
+        return None
+    # Struct construction does not validate annotations. Check the declared
+    # fact shape before opaque routing is omitted from the envelope.
+    if not isinstance(routing, RoutingMetadata):
+        raise ValueError("Admission routing facts require typed routing metadata")
+    msgspec.convert(msgspec.structs.asdict(routing), type=RoutingMetadata)
+    return (
+        _ROUTING_FACTS_INSERT,
+        (
+            event.event_id,
+            _encode_json(routing.matched_routes),
+            routing.fanout_group,
+            _encode_json(routing.route_trace),
+            recorded_at,
+        ),
+    )
 
 
 def _deserialize_metadata(raw: str) -> EventMetadata:

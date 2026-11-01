@@ -21,7 +21,11 @@ from medre.core.storage.read_contracts import (
     ContentBodyRead,
     ReplyContextRead,
 )
-from medre.core.storage.sqlite._projections import REPLY_BODY_COLUMNS, REPLY_COLUMNS
+from medre.core.storage.sqlite._projections import (
+    AUTHORIZED_EVENT_COLUMNS,
+    REPLY_BODY_COLUMNS,
+    REPLY_COLUMNS,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -471,7 +475,11 @@ def sync_read_owned_event(
         # Live-source reply reads may project sender metadata. A body-only
         # grant cannot authorize opaque metadata; neither reply path selects
         # unrelated payload fields or the target's own quoted relations.
-        columns = "*"
+        # Ingress, outbox, and replay owner reads project the composed
+        # metadata value: opaque namespaces plus the routing namespace
+        # coalesced from the typed facts table and the row's own inline
+        # value. No content column is added by the composition.
+        columns = AUTHORIZED_EVENT_COLUMNS
         if owner_kind == "reply":
             columns = REPLY_BODY_COLUMNS if quote_grant_only else REPLY_COLUMNS
         # Closed schema projections; event identities are bound parameters.
