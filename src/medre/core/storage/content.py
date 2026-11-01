@@ -94,7 +94,7 @@ def inventory_sql() -> str:
             for column in surface.columns
         )
         queries.append(
-            f"SELECT '{surface.table}' AS surface, COUNT(*) AS rows, "
+            f"SELECT '{surface.table}' AS surface, COUNT(*) AS rows, "  # nosec B608 - identifiers come only from the closed CONTENT_SURFACES constants above; no user input
             f'COALESCE(SUM({sizes}), 0) AS logical_bytes FROM "{surface.table}"'
         )
     return " UNION ALL ".join(queries)

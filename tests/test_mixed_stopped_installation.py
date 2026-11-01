@@ -7,8 +7,8 @@ the pinned-SDK native reopen is qualified in the Matrix adapter's own suite.
 
 from __future__ import annotations
 
-import importlib
 import contextlib
+import importlib
 import json
 import os
 import sqlite3

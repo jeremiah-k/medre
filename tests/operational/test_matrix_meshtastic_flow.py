@@ -17,8 +17,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -62,17 +62,17 @@ from medre.core.storage.backend import (
     ConversationMembership,
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    StorageError,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    StorageError,
     TerminalOutboxFinalization,
 )
 from tests.helpers.content_reads import CannedContentReads, inspection_rows
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
-    allocate_new_outbox_generation,
     FrozenOutboxSnapshotFakeMixin,
+    allocate_new_outbox_generation,
     find_existing_outbox_generation,
     find_existing_replay_run_claim,
     release_guarded_outbox_claim,

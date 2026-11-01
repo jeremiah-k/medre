@@ -83,7 +83,7 @@ scopes; a distribution without that symbol is unsupported by automatic planning:
   and adapter ledgers. Automatic planning is unsupported for that case; a
   core-only selection must not be treated as a complete SimpleX backup.
 - **chatmail** — configuration-only `plan` refuses. `capture-config`
-  resolves the native `accounts.toml` UUID mapping and `dc.db` *after*
+  resolves the native `accounts.toml` UUID mapping and `dc.db` _after_
   acquiring both an existing MEDRE SQLite lease and the native
   `accounts.lock` flock. Only one selected account, a matching UUID
   directory, and an empty `dc.db-blobs` directory are supported. Missing,

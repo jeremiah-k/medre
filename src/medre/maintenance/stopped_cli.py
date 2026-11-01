@@ -35,8 +35,6 @@ from medre.maintenance.stopped_snapshot import (
     restore_stopped_snapshot,
     verify_stopped_snapshot,
 )
-
-
 from medre.runtime.errors import RuntimeConfigError
 
 
