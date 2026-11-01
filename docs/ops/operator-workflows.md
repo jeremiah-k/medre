@@ -106,6 +106,7 @@ an incompatible schema.
    A raw copy needs the matching main file and any `-wal`/`-shm` sidecars together.
    This preserves core state only; native identities, credentials and provider
    stores have separate [capture requirements](stopped-state-provider-inventory.md).
+
 3. **Reset the disposable database deliberately.** With all users stopped,
    and either a verified backup from step 2 or an explicit decision to discard
    the state, reset without making another archive:

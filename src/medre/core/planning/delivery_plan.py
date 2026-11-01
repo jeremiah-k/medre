@@ -27,7 +27,6 @@ from typing import Literal, cast
 from medre.core.contracts.adapter import AdapterSendError
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.events.delivery import DeliverySource
-
 from medre.core.routing.models import RouteTarget
 
 # ---------------------------------------------------------------------------

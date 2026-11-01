@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from medre.core.events.metadata import FrozenDict
-
 from medre.core.policies.route_policy import RoutePolicy
 
 # ---------------------------------------------------------------------------

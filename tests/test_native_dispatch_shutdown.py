@@ -13,8 +13,8 @@ from medre.core.contracts.adapter import AdapterHandoffResult
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.ingress import DurableIngressWorker
 from medre.core.rendering.renderer import RenderingResult
-from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.routing import Router
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.errors import RuntimeShutdownError
 from medre.runtime.retry import RetryWorker
 from tests.helpers.async_utils import wait_until

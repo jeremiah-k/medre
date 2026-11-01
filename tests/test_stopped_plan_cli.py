@@ -29,8 +29,8 @@ from medre.adapter_spec import SymbolRef
 from medre.maintenance.stopped_cli import main
 from medre.maintenance.stopped_declare import (
     DeclaredFile,
-    ProviderCoverage,
     LocalExclusion,
+    ProviderCoverage,
     StoppedStateDeclaration,
     declared,
 )
@@ -41,7 +41,9 @@ def _sqlite_database(path: Path, table: str = "kept") -> None:
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(f"CREATE TABLE {table}(value TEXT)")
-        connection.execute(f"INSERT INTO {table} VALUES('committed')")
+        connection.execute(
+            f"INSERT INTO {table} VALUES('committed')"  # nosec B608 - table name is a test-local literal, never user input
+        )
 
 
 def _write(path: Path, payload: bytes = b"native") -> None:

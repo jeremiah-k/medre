@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from tests.helpers.cli import _run_cli_raw
 from tests.helpers.adapter_spec import make_adapter_spec
+from tests.helpers.cli import _run_cli_raw
 
 
 def test_help_navigates_without_adapter_imports() -> None:

@@ -21,8 +21,8 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_UNIQUE_CONSTRAINTS,
     _ROUTING_FACTS_DDL,
     _SCHEMA,
-    _SNAPSHOTS_DDL,
     _SNAPSHOT_OWNER_INDEX_DDL,
+    _SNAPSHOTS_DDL,
 )
 
 

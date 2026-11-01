@@ -38,10 +38,10 @@ from medre.core.events import (
     NativeMessageRef,
 )
 from medre.core.storage.backend import (
+    OUTBOX_DISPATCH_SNAPSHOT_VERSION,
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
-    OUTBOX_DISPATCH_SNAPSHOT_VERSION,
     StorageBackend,
     TerminalOutboxFinalization,
 )
