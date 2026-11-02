@@ -1059,12 +1059,18 @@ class StorageBackend(Protocol):
         suppress_routing: bool = False,
         attachment: InboundAttachmentContent | None = None,
         attachment_limits: AttachmentLimits | None = None,
+        content_deadline: datetime | None = None,
     ) -> AdmissionResult:
         """Atomically persist event, native identity, and pending work.
 
         When *attachment* bytes are supplied, the event's content blob,
         event/content association, and payload descriptor rewrite commit in
         the same transaction, bounded by *attachment_limits*.
+
+        When *content_deadline* is supplied, the mandatory content
+        dependency deadline and the immutable event ceiling row commit in
+        the same transaction, and a mismatched installed ceiling refuses
+        the admission.
 
         Authority: **create** (atomic).
         """

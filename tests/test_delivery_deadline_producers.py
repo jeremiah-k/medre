@@ -76,17 +76,23 @@ def test_ceiling_parses_enabled_declaration() -> None:
 
 def test_ceiling_enabled_boolean_is_typed() -> None:
     with pytest.raises(ConfigValidationError, match="content_ceiling.enabled"):
-        ContentCeilingConfig(enabled="true", max_age_seconds=3600).validate()  # type: ignore[arg-type]
+        ContentCeilingConfig(
+            enabled="true", max_age_seconds=3600  # type: ignore[arg-type]
+        ).validate()
 
 
 def test_ceiling_window_rejects_boolean() -> None:
     with pytest.raises(ConfigValidationError, match="content_ceiling.max_age_seconds"):
-        ContentCeilingConfig(enabled=True, max_age_seconds=True).validate()  # type: ignore[arg-type]
+        ContentCeilingConfig(
+            enabled=True, max_age_seconds=True  # type: ignore[arg-type]
+        ).validate()
 
 
 def test_ceiling_window_rejects_string() -> None:
     with pytest.raises(ConfigValidationError, match="content_ceiling.max_age_seconds"):
-        ContentCeilingConfig(enabled=True, max_age_seconds="3600").validate()  # type: ignore[arg-type]
+        ContentCeilingConfig(
+            enabled=True, max_age_seconds="3600"  # type: ignore[arg-type]
+        ).validate()
 
 
 def test_ceiling_window_rejects_zero_and_negative() -> None:
@@ -97,7 +103,9 @@ def test_ceiling_window_rejects_zero_and_negative() -> None:
 
 def test_ceiling_window_rejects_unbounded_declaration() -> None:
     with pytest.raises(ConfigValidationError, match="max_age_seconds"):
-        ContentCeilingConfig(enabled=True, max_age_seconds=_CEILING_MAX_AGE_SECONDS + 1).validate()
+        ContentCeilingConfig(
+            enabled=True, max_age_seconds=_CEILING_MAX_AGE_SECONDS + 1
+        ).validate()
 
 
 def test_ceiling_enabled_without_window_is_refused() -> None:
@@ -225,7 +233,9 @@ def test_ceiling_malformed_empty_field_raises() -> None:
 
 
 def test_ceiling_duplicate_normalized_field_raises() -> None:
-    with pytest.raises(ConfigValidationError, match="Duplicate normalized content_ceiling"):
+    with pytest.raises(
+        ConfigValidationError, match="Duplicate normalized content_ceiling"
+    ):
         MedreEnvConfig.from_environ(
             {
                 "MEDRE_CONTENT_CEILING__ENABLED": "true",
@@ -252,7 +262,9 @@ def test_ceiling_override_enabled_without_window_is_refused(
         apply_env_overrides(base)
 
 
-def test_ceiling_override_bad_window_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ceiling_override_bad_window_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     base = _make_base_config()
     monkeypatch.setenv("MEDRE_CONTENT_CEILING__ENABLED", "true")
     monkeypatch.setenv("MEDRE_CONTENT_CEILING__MAX_AGE_SECONDS", "not-a-number")
@@ -299,7 +311,10 @@ def test_schema_declares_ceiling_section_with_closed_keys() -> None:
     schema = _runtime_config_schema()
     ceiling = schema["properties"]["content_ceiling"]  # type: ignore[index]
     assert ceiling["additionalProperties"] is False  # type: ignore[index]
-    assert set(ceiling["properties"]) == {"enabled", "max_age_seconds"}  # type: ignore[index]
+    assert set(ceiling["properties"]) == {  # type: ignore[index]
+        "enabled",
+        "max_age_seconds",
+    }
 
 
 def test_schema_rejects_enabled_ceiling_without_window() -> None:
@@ -391,7 +406,9 @@ async def _stage(
 ) -> str:
     """Create one direct outbox generation and return its outbox dependency."""
     item = make_outbox_item(event_id=event_id)
-    await store.create_outbox_item(item, dispatch_snapshot=_direct_snapshot(plan_deadline))
+    await store.create_outbox_item(
+        item, dispatch_snapshot=_direct_snapshot(plan_deadline)
+    )
     rows = await store.list_mandatory_content_dependencies(event_id)
     outbox = [row for row in rows if row[0] == "outbox"]
     assert len(outbox) <= 1
@@ -543,7 +560,9 @@ async def test_staging_without_ceiling_or_plan_adopts_null_deadline(tmp_path) ->
     store = SQLiteStorage(str(tmp_path / "adopt-null.db"))
     await store.initialize()
     try:
-        await store.admit_ingress(make_storage_event(event_id="adopt-null"), None, "live")
+        await store.admit_ingress(
+            make_storage_event(event_id="adopt-null"), None, "live"
+        )
         deadline = await _stage(store, "adopt-null", plan_deadline=None)
         assert deadline is None
     finally:
@@ -607,7 +626,9 @@ async def test_staging_after_the_frozen_plan_deadline_adopts_nothing(tmp_path) -
             content_deadline=ceiling,
         )
         elapsed_plan = datetime.now(timezone.utc) - timedelta(seconds=60)
-        outcome = await _stage(store, "plan-elapsed", plan_deadline=elapsed_plan.isoformat())
+        outcome = await _stage(
+            store, "plan-elapsed", plan_deadline=elapsed_plan.isoformat()
+        )
         assert outcome == "absent"
         # The generation remains an auditable obligation without content
         # authority, and the ceiling-governed source stays unreleased.
@@ -659,7 +680,7 @@ async def test_staging_refuses_append_content_without_deadline_under_ceiling(
             "(event_id, version, hard_ceiling, allowed_consumers, "
             "max_optional_hold_microseconds, created_at) "
             "VALUES ('append-ceiling', 1, ?, '[]', 3600000000, ?)",
-            (ceiling.isoformat(timespec="microseconds"), ceiling.isoformat(timespec="microseconds")),
+            (ceiling.isoformat(timespec="microseconds"),) * 2,
         )
         outcome = await _stage(store, "append-ceiling", plan_deadline=None)
         assert outcome == "absent"
@@ -687,7 +708,9 @@ async def test_naive_frozen_plan_deadline_refuses_adoption(tmp_path) -> None:
     store = SQLiteStorage(str(tmp_path / "naive-plan.db"))
     await store.initialize()
     try:
-        await store.admit_ingress(make_storage_event(event_id="naive-plan"), None, "live")
+        await store.admit_ingress(
+            make_storage_event(event_id="naive-plan"), None, "live"
+        )
         naive = (datetime.now(timezone.utc) + timedelta(seconds=60)).replace(
             tzinfo=None
         ).isoformat()
@@ -695,5 +718,135 @@ async def test_naive_frozen_plan_deadline_refuses_adoption(tmp_path) -> None:
             await _stage(store, "naive-plan", plan_deadline=naive)
         dependencies = await store.list_mandatory_content_dependencies("naive-plan")
         assert [row[0] for row in dependencies] == ["ingress"]
+    finally:
+        await store.close()
+
+
+# ---------------------------------------------------------------------------
+# Runtime — the producer derives each admission's absolute UTC ceiling
+# ---------------------------------------------------------------------------
+
+import dataclasses  # noqa: E402
+
+from medre.core.storage.content_ceiling import (  # noqa: E402
+    CONTENT_CEILING_MAX_AGE_SECONDS as _CORE_CEILING_BOUND,
+)
+from medre.core.storage.content_ceiling import ContentCeilingPolicy  # noqa: E402
+from medre.core.engine.pipeline import PipelineRunner  # noqa: E402
+from medre.core.routing import Router  # noqa: E402
+from medre.runtime.builder import RuntimeBuilder  # noqa: E402
+from tests.helpers.pipeline import (  # noqa: E402
+    make_event,
+    make_pipeline_config_for_pipeline,
+)
+
+
+def test_core_policy_derives_the_absolute_utc_ceiling() -> None:
+    policy = ContentCeilingPolicy(max_age_seconds=90).validate()
+    admitted = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+    ceiling = policy.ceiling_for(admitted)
+    assert ceiling == datetime(2026, 5, 1, 12, 1, 30, tzinfo=timezone.utc)
+    assert ceiling.tzinfo is timezone.utc
+
+
+def test_core_policy_refuses_naive_admission_time() -> None:
+    policy = ContentCeilingPolicy(max_age_seconds=90).validate()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        policy.ceiling_for(datetime(2026, 5, 1, 12, 0, 0))
+
+
+def test_core_policy_rejects_ill_typed_and_unbounded_windows() -> None:
+    with pytest.raises(ValueError, match="integer"):
+        ContentCeilingPolicy(max_age_seconds=True).validate()  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="between 1 and"):
+        ContentCeilingPolicy(max_age_seconds=0).validate()
+    with pytest.raises(ValueError, match="between 1 and"):
+        ContentCeilingPolicy(max_age_seconds=_CORE_CEILING_BOUND + 1).validate()
+
+
+def test_core_policy_bound_matches_the_config_declaration() -> None:
+    from medre.config.model import CONTENT_CEILING_MAX_AGE_SECONDS as _CONFIG_BOUND
+
+    assert _CORE_CEILING_BOUND == _CONFIG_BOUND
+
+
+def test_builder_maps_the_declaration_to_the_core_policy(tmp_path: Path) -> None:
+    from medre.config.paths import MedrePaths
+
+    paths = MedrePaths(
+        config_dir=None,
+        config_file=tmp_path / "config.yaml",
+        state_dir=tmp_path / "state",
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        log_dir=tmp_path / "log",
+        database_path=tmp_path / "state" / "medre.sqlite",
+    )
+    enabled = RuntimeConfig(
+        content_ceiling=ContentCeilingConfig(enabled=True, max_age_seconds=2400)
+    )
+    policy = RuntimeBuilder(enabled, paths)._build_content_ceiling_policy()
+    assert policy == ContentCeilingPolicy(max_age_seconds=2400)
+    disabled = RuntimeConfig(
+        content_ceiling=ContentCeilingConfig(enabled=False, max_age_seconds=2400)
+    )
+    assert RuntimeBuilder(disabled, paths)._build_content_ceiling_policy() is None
+    default_builder = RuntimeBuilder(RuntimeConfig(), paths)
+    assert default_builder._build_content_ceiling_policy() is None
+
+
+async def test_runner_admission_produces_the_policy_deadline(tmp_path) -> None:
+    store = SQLiteStorage(str(tmp_path / "produced.db"))
+    await store.initialize()
+    try:
+        config = make_pipeline_config_for_pipeline(storage=store, router=Router())
+        config = dataclasses.replace(
+            config,
+            content_ceiling=ContentCeilingPolicy(max_age_seconds=1800).validate(),
+        )
+        runner = PipelineRunner(config)
+        before = datetime.now(timezone.utc)
+        result = await runner.admit_ingress(
+            make_event(event_id="produced", payload={"text": "hello"}), "live"
+        )
+        after = datetime.now(timezone.utc)
+        assert result.created
+        dependencies = await store.list_mandatory_content_dependencies("produced")
+        assert len(dependencies) == 1
+        owner_kind, _owner_id, deadline, released = dependencies[0]
+        assert owner_kind == "ingress" and released is False
+        assert deadline is not None
+        produced = datetime.fromisoformat(deadline)
+        assert 1799 <= (produced - before).total_seconds() <= 1801
+        row = await store._read_one(
+            "SELECT hard_ceiling FROM event_content_access_policies "
+            "WHERE event_id='produced'"
+        )
+        assert row is not None
+        assert row["hard_ceiling"] == deadline
+    finally:
+        await store.close()
+
+
+async def test_runner_admission_without_a_policy_stays_dormant(tmp_path) -> None:
+    store = SQLiteStorage(str(tmp_path / "dormant-runner.db"))
+    await store.initialize()
+    try:
+        config = make_pipeline_config_for_pipeline(storage=store, router=Router())
+        assert config.content_ceiling is None
+        runner = PipelineRunner(config)
+        result = await runner.admit_ingress(
+            make_event(event_id="dormant-runner", payload={"text": "hello"}), "live"
+        )
+        assert result.created
+        dependencies = await store.list_mandatory_content_dependencies(
+            "dormant-runner"
+        )
+        assert dependencies[0][2] is None
+        row = await store._read_one(
+            "SELECT 1 FROM event_content_access_policies "
+            "WHERE event_id='dormant-runner'"
+        )
+        assert row is None
     finally:
         await store.close()
