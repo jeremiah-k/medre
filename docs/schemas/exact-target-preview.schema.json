@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/exact-target-preview.schema.json",
+  "title": "MEDRE typed exact-target delivery preview",
+  "description": "Read-only observation of one persisted delivery selected by its exact (event, plan, adapter, channel) identity. Every field describes persisted state at observation time; none authorizes a replay, cancellation, or any other mutation. Attempt counters are the raw persisted finalized counter and reservation, never a display-normalized effective generation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "execution_authorized",
+    "event_id",
+    "delivery_plan_id",
+    "target_adapter",
+    "target_channel",
+    "outbox_id",
+    "attempt_number",
+    "active_attempt",
+    "observed_generation",
+    "status",
+    "updated_at",
+    "next_attempt_at",
+    "payload_hash",
+    "snapshot_present",
+    "snapshot_kind",
+    "category",
+    "excluded_sibling_count",
+    "cancel_eligible",
+    "observed_fingerprint"
+  ],
+  "properties": {
+    "scope": {
+      "const": "read_only_current_generation"
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery_plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_channel": {
+      "description": "The selected channel, or null for the deliberate no-channel identity. The empty string is never a valid channel decision.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "outbox_id": {
+      "type": ["string", "null"]
+    },
+    "attempt_number": {
+      "description": "Raw persisted finalized attempt counter, including zero for never-dispatched staged work.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "active_attempt": {
+      "description": "Raw persisted in-flight attempt reservation, when a dispatch owner holds one.",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "observed_generation": {
+      "description": "Mirrors attempt_number exactly; a display-normalized effective generation MUST NOT appear in any field a write path could consume.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "status": {
+      "type": ["string", "null"]
+    },
+    "updated_at": {
+      "type": ["string", "null"]
+    },
+    "next_attempt_at": {
+      "type": ["string", "null"]
+    },
+    "payload_hash": {
+      "description": "Persisted render-input binding for the selected row, when present.",
+      "type": ["string", "null"]
+    },
+    "snapshot_present": {
+      "description": "Whether a frozen dispatch snapshot row was observed for the selected outbox generation.",
+      "type": "boolean"
+    },
+    "snapshot_kind": {
+      "type": ["string", "null"],
+      "enum": ["staged", "direct", null]
+    },
+    "category": {
+      "description": "Closed observation category. This vocabulary is frozen across the Python Literal, this enum, and the specification table; it is an observation, never a mutation permit.",
+      "enum": [
+        "not_found",
+        "ambiguous",
+        "stale",
+        "pending",
+        "in_progress",
+        "awaiting_feedback",
+        "retry_scheduled",
+        "completed",
+        "cancelled",
+        "inspect_native",
+        "preview_replay",
+        "needs_operator_action",
+        "content_unavailable",
+        "route_or_plan_changed"
+      ]
+    },
+    "excluded_sibling_count": {
+      "description": "Outbox rows for the same event that the exact selection did not select; zero when no single row was selected.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "cancel_eligible": {
+      "description": "Whether the selected row matches the exact-cancellation eligibility predicate (pending/retry_wait without a reservation or claim). An observation, not a permit.",
+      "type": "boolean"
+    },
+    "observed_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

@@ -41,6 +41,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `stopped-state-snapshot.schema.json`             | Dict shape (`medre.maintenance.stopped_snapshot`)               | Captured stopped-state snapshot manifest checked during verify and restore                                                    |
 | `operator-decision-inspection.schema.json`       | `medre inspect decisions`                                       | Versioned, read-only cancellation audit with unauthenticated actor provenance                                                 |
 | `recovery-action.schema.json`                    | `RecoveryAction` (`medre.core.observability.recovery`)          | Current destination ownership and read-only recovery guidance                                                                 |
+| `exact-target-preview.schema.json`               | `ExactTargetPreview` (`medre.core.observability.exact_target`)  | Typed read-only observation of one exact delivery target with a closed category vocabulary                                    |
 | `live-health.schema.json`                        | `LiveHealthSnapshot` (`medre.core.supervision.health`)          | Current manual samples and native health notifications                                                                        |
 
 Executable SQLite fragments for typed admission routing facts, frozen outbox

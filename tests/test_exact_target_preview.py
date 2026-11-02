@@ -527,6 +527,61 @@ async def test_preview_to_dict_is_json_safe_and_complete(temp_storage) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Vocabulary freeze parity with the JSON Schema document
+# ---------------------------------------------------------------------------
+
+
+def _preview_schema() -> dict[str, Any]:
+    import json
+
+    from pathlib import Path
+
+    directory = Path(__file__).parents[1] / "docs" / "schemas"
+    document = directory / "exact-target-preview.schema.json"
+    return json.loads(document.read_text(encoding="utf-8"))
+
+
+def test_schema_category_enum_matches_python_vocabulary() -> None:
+    """The closed category vocabulary is identical across Literal and schema."""
+    schema = _preview_schema()
+    assert set(schema["properties"]["category"]["enum"]) == set(EXACT_TARGET_CATEGORIES)
+
+
+def test_schema_required_fields_match_model_serialization() -> None:
+    """Every schema property is emitted by to_dict, and nothing else."""
+    from jsonschema import Draft202012Validator
+
+    schema = _preview_schema()
+    report = ExactTargetPreview(
+        event_id=_EVENT,
+        delivery_plan_id=_PLAN,
+        target_adapter=_ADAPTER,
+        target_channel=None,
+        category="pending",
+        outbox_id="obox-1",
+        attempt_number=0,
+        active_attempt=None,
+        observed_fingerprint="a" * 64,
+    )
+    exported = report.to_dict()
+    assert set(schema["required"]) == set(exported)
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["scope"] == {"const": EXACT_TARGET_PREVIEW_SCOPE}
+    assert schema["properties"]["execution_authorized"] == {"const": False}
+    Draft202012Validator(schema).validate(exported)
+
+
+def test_schema_snapshot_kind_enum_matches_storage_vocabulary() -> None:
+    """The snapshot kind enum is the frozen dispatch snapshot vocabulary."""
+    from medre.core.storage.backend import OUTBOX_DISPATCH_SNAPSHOT_KINDS
+
+    schema = _preview_schema()
+    assert set(schema["properties"]["snapshot_kind"]["enum"]) - {None} == set(
+        OUTBOX_DISPATCH_SNAPSHOT_KINDS
+    )
+
+
+# ---------------------------------------------------------------------------
 # No-write guarantee
 # ---------------------------------------------------------------------------
 
