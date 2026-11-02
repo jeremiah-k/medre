@@ -87,9 +87,7 @@ def _validate_decision_fields(
         identity.target_adapter,
     ):
         if not isinstance(value, str) or not value.strip() or len(value) > 512:
-            raise ValueError(
-                "Delivery identity must contain bounded non-empty strings"
-            )
+            raise ValueError("Delivery identity must contain bounded non-empty strings")
     if identity.target_channel is not None and (
         not isinstance(identity.target_channel, str)
         or len(identity.target_channel) > 512
