@@ -858,3 +858,46 @@ async def test_runner_admission_without_a_policy_stays_dormant(tmp_path) -> None
         assert row is None
     finally:
         await store.close()
+
+
+async def test_direct_ingress_refuses_to_bypass_a_declared_ceiling(tmp_path) -> None:
+    store = SQLiteStorage(str(tmp_path / "inline-ceiling.db"))
+    await store.initialize()
+    try:
+        config = make_pipeline_config_for_pipeline(storage=store, router=Router())
+        config = dataclasses.replace(
+            config,
+            content_ceiling=ContentCeilingPolicy(max_age_seconds=60).validate(),
+        )
+        runner = PipelineRunner(config)
+        with pytest.raises(ValueError, match="use durable admit_ingress"):
+            await runner.handle_ingress(make_event(event_id="inline-bypass"))
+        with pytest.raises(ValueError, match="use durable admit_ingress"):
+            await runner.store_event(make_event(event_id="direct-store-bypass"))
+        assert await store.get_metadata("inline-bypass") is None
+        assert await store.get_metadata("direct-store-bypass") is None
+    finally:
+        await store.close()
+
+
+async def test_malformed_frozen_deadline_fails_before_outbox_admission(
+    tmp_path,
+) -> None:
+    store = SQLiteStorage(str(tmp_path / "malformed-plan.db"))
+    await store.initialize()
+    try:
+        await store.admit_ingress(
+            make_storage_event(event_id="malformed-plan"),
+            None,
+            "live",
+            content_deadline=_future_deadline(),
+        )
+        item = make_outbox_item(event_id="malformed-plan")
+        malformed = OutboxDispatchSnapshotWrite(
+            kind="direct", context={"deadline": 1234}
+        )
+        with pytest.raises(ValueError, match="Frozen plan deadline"):
+            await store.create_outbox_item(item, dispatch_snapshot=malformed)
+        assert not await store.list_outbox_items_for_event("malformed-plan")
+    finally:
+        await store.close()

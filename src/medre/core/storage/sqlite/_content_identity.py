@@ -124,7 +124,11 @@ def frozen_plan_deadline(context: Any) -> str | None:
         plan = context.get("plan")
         if isinstance(plan, Mapping):
             raw = plan.get("deadline")
-    return raw if isinstance(raw, str) else None
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ValueError("Frozen plan deadline must be a UTC timestamp string")
+    return raw
 
 
 def _utc_microseconds(value: str, what: str) -> str:
