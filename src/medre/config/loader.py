@@ -145,9 +145,7 @@ _CONTENT_RETENTION_KNOWN_KEYS: frozenset[str] = frozenset(
 )
 
 #: Keys accepted in the top-level ``[content_ceiling]`` section.
-_CONTENT_CEILING_KNOWN_KEYS: frozenset[str] = frozenset(
-    {"enabled", "max_age_seconds"}
-)
+_CONTENT_CEILING_KNOWN_KEYS: frozenset[str] = frozenset({"enabled", "max_age_seconds"})
 
 #: Keys accepted in the ``[storage]`` section.
 _STORAGE_KNOWN_KEYS: frozenset[str] = frozenset({"backend", "path"})

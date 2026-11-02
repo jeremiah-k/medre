@@ -191,9 +191,7 @@ def insert_outbox_dependency(
         # eligible for ceiling-governed delivery.
         return
     bounds = [
-        bound
-        for bound in (source_deadline, ceiling, frozen_plan)
-        if bound is not None
+        bound for bound in (source_deadline, ceiling, frozen_plan) if bound is not None
     ]
     if any(bound <= now for bound in bounds):
         return

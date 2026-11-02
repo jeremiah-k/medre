@@ -131,8 +131,7 @@ def test_loader_absent_section_is_disabled(tmp_path: Path) -> None:
 def test_loader_section_parses_and_validates(tmp_path: Path) -> None:
     config = _load_yaml(
         tmp_path,
-        "content_ceiling:\n  enabled: true\n  max_age_seconds: 900\n"
-        + _MINIMAL_YAML,
+        "content_ceiling:\n  enabled: true\n  max_age_seconds: 900\n" + _MINIMAL_YAML,
     )
     assert config.content_ceiling.enabled is True
     assert config.content_ceiling.max_age_seconds == 900
@@ -141,8 +140,7 @@ def test_loader_section_parses_and_validates(tmp_path: Path) -> None:
 def test_loader_disabled_section_with_window_loads(tmp_path: Path) -> None:
     config = _load_yaml(
         tmp_path,
-        "content_ceiling:\n  enabled: false\n  max_age_seconds: 900\n"
-        + _MINIMAL_YAML,
+        "content_ceiling:\n  enabled: false\n  max_age_seconds: 900\n" + _MINIMAL_YAML,
     )
     assert config.content_ceiling.enabled is False
 
@@ -176,8 +174,7 @@ def test_loader_window_out_of_range_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ConfigValidationError, match="between 1 and"):
         _load_yaml(
             tmp_path,
-            "content_ceiling:\n  enabled: true\n  max_age_seconds: 0\n"
-            + _MINIMAL_YAML,
+            "content_ceiling:\n  enabled: true\n  max_age_seconds: 0\n" + _MINIMAL_YAML,
         )
 
 
@@ -301,9 +298,7 @@ def _runtime_config_schema() -> dict[str, object]:
         / "schemas"
         / "runtime-config.schema.json"
     )
-    schema: dict[str, object] = json.loads(
-        schema_path.read_text(encoding="utf-8")
-    )
+    schema: dict[str, object] = json.loads(schema_path.read_text(encoding="utf-8"))
     return schema
 
 
@@ -327,9 +322,7 @@ def test_schema_rejects_enabled_ceiling_without_window() -> None:
 def test_schema_accepts_disabled_and_enabled_declarations() -> None:
     validator = Draft202012Validator(_runtime_config_schema())
     assert list(validator.iter_errors({})) == []
-    assert (
-        list(validator.iter_errors({"content_ceiling": {"enabled": False}})) == []
-    )
+    assert list(validator.iter_errors({"content_ceiling": {"enabled": False}})) == []
     assert (
         list(
             validator.iter_errors(
@@ -422,7 +415,9 @@ async def test_admission_deadline_installs_matching_ceiling_row(tmp_path) -> Non
         admitted_at = datetime.now(timezone.utc)
         deadline = admitted_at + timedelta(seconds=_WINDOW_SECONDS)
         await store.admit_ingress(
-            make_storage_event(event_id="ceiling"), None, "live",
+            make_storage_event(event_id="ceiling"),
+            None,
+            "live",
             content_deadline=deadline,
         )
         row = await store._read_one(
@@ -472,11 +467,15 @@ async def test_duplicate_deadline_admission_keeps_one_ceiling_row(tmp_path) -> N
     try:
         deadline = _future_deadline()
         first = await store.admit_ingress(
-            make_storage_event(event_id="dup"), None, "live",
+            make_storage_event(event_id="dup"),
+            None,
+            "live",
             content_deadline=deadline,
         )
         again = await store.admit_ingress(
-            make_storage_event(event_id="dup"), None, "live",
+            make_storage_event(event_id="dup"),
+            None,
+            "live",
             content_deadline=deadline + timedelta(seconds=30),
         )
         assert first.created and not again.created
@@ -575,7 +574,9 @@ async def test_staging_under_ceiling_copies_the_ceiling(tmp_path) -> None:
     try:
         ceiling = _future_deadline()
         await store.admit_ingress(
-            make_storage_event(event_id="adopt-ceiling"), None, "live",
+            make_storage_event(event_id="adopt-ceiling"),
+            None,
+            "live",
             content_deadline=ceiling,
         )
         adopted = await _stage(store, "adopt-ceiling", plan_deadline=None)
@@ -590,7 +591,9 @@ async def test_staging_enforces_the_earlier_plan_deadline(tmp_path) -> None:
     try:
         ceiling = _future_deadline(seconds=600)
         await store.admit_ingress(
-            make_storage_event(event_id="plan-early"), None, "live",
+            make_storage_event(event_id="plan-early"),
+            None,
+            "live",
             content_deadline=ceiling,
         )
         plan = datetime.now(timezone.utc) + timedelta(seconds=60)
@@ -606,7 +609,9 @@ async def test_staging_ceiling_binds_a_later_plan_deadline(tmp_path) -> None:
     try:
         ceiling = _future_deadline(seconds=60)
         await store.admit_ingress(
-            make_storage_event(event_id="plan-late"), None, "live",
+            make_storage_event(event_id="plan-late"),
+            None,
+            "live",
             content_deadline=ceiling,
         )
         plan = datetime.now(timezone.utc) + timedelta(seconds=3600)
@@ -622,7 +627,9 @@ async def test_staging_after_the_frozen_plan_deadline_adopts_nothing(tmp_path) -
     try:
         ceiling = _future_deadline(seconds=600)
         await store.admit_ingress(
-            make_storage_event(event_id="plan-elapsed"), None, "live",
+            make_storage_event(event_id="plan-elapsed"),
+            None,
+            "live",
             content_deadline=ceiling,
         )
         elapsed_plan = datetime.now(timezone.utc) - timedelta(seconds=60)
@@ -645,7 +652,9 @@ async def test_staging_after_the_ceiling_releases_and_refuses(tmp_path) -> None:
     try:
         deadline = _future_deadline(seconds=600)
         await store.admit_ingress(
-            make_storage_event(event_id="ceiling-elapsed"), None, "live",
+            make_storage_event(event_id="ceiling-elapsed"),
+            None,
+            "live",
             content_deadline=deadline,
         )
         later = (datetime.now(timezone.utc) + timedelta(seconds=1200)).isoformat(
@@ -711,9 +720,11 @@ async def test_naive_frozen_plan_deadline_refuses_adoption(tmp_path) -> None:
         await store.admit_ingress(
             make_storage_event(event_id="naive-plan"), None, "live"
         )
-        naive = (datetime.now(timezone.utc) + timedelta(seconds=60)).replace(
-            tzinfo=None
-        ).isoformat()
+        naive = (
+            (datetime.now(timezone.utc) + timedelta(seconds=60))
+            .replace(tzinfo=None)
+            .isoformat()
+        )
         with pytest.raises(ValueError, match="timezone-aware"):
             await _stage(store, "naive-plan", plan_deadline=naive)
         dependencies = await store.list_mandatory_content_dependencies("naive-plan")
@@ -809,7 +820,6 @@ async def test_runner_admission_produces_the_policy_deadline(tmp_path) -> None:
         result = await runner.admit_ingress(
             make_event(event_id="produced", payload={"text": "hello"}), "live"
         )
-        after = datetime.now(timezone.utc)
         assert result.created
         dependencies = await store.list_mandatory_content_dependencies("produced")
         assert len(dependencies) == 1
@@ -839,9 +849,7 @@ async def test_runner_admission_without_a_policy_stays_dormant(tmp_path) -> None
             make_event(event_id="dormant-runner", payload={"text": "hello"}), "live"
         )
         assert result.created
-        dependencies = await store.list_mandatory_content_dependencies(
-            "dormant-runner"
-        )
+        dependencies = await store.list_mandatory_content_dependencies("dormant-runner")
         assert dependencies[0][2] is None
         row = await store._read_one(
             "SELECT 1 FROM event_content_access_policies "
