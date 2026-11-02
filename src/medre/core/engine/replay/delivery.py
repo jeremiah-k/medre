@@ -6,16 +6,19 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.replay.helpers import _elapsed_ms
 from medre.core.engine.replay.protocols import _StubPipelineProtocol
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent
+from medre.core.observability.exact_target import preview_exact_target
 from medre.core.planning.capabilities import resolve_adapter_capabilities
 from medre.core.planning.capability_decision import resolver as _resolver
 
 if TYPE_CHECKING:
     from medre.core.engine.replay.protocols import _RealPipelineProtocol
     from medre.core.observability.metrics import Diagnostician
+    from medre.core.storage.backend import StorageBackend
     from medre.core.supervision.accounting import RuntimeAccounting
     from medre.core.supervision.capacity import CapacityController
 
@@ -88,6 +91,107 @@ def _build_suppressed_evidence(
         "replay_run_id": run_id or None,
         "source": "replay",
     }
+
+
+# ---------------------------------------------------------------------------
+# Exact-target execution selection
+# ---------------------------------------------------------------------------
+
+
+#: Preview categories for which exact-target execution admission refuses to
+#: stage a send. These are the fail-closed selection outcomes of the shared
+#: observation contract: an identity the observation cannot resolve to one
+#: uncontradicted persisted row never reaches delivery admission. Every
+#: other category -- including completed and actively owned rows -- admits a
+#: new replay generation through the lifecycle's own outbox admission
+#: authority, which revalidates identity, generation and ownership in its
+#: write transaction.
+_EXACT_TARGET_REFUSAL_CATEGORIES: frozenset[str] = frozenset(
+    {"not_found", "ambiguous", "route_or_plan_changed"}
+)
+
+
+class _ExactTargetRefusal(NamedTuple):
+    """Evidence record for one exact target the admission gate refused.
+
+    The category is the shared observation contract's category for the
+    target's identity at admission time; ``reason`` is the stable refusal
+    string recorded in the replay result.
+    """
+
+    event_id: str
+    delivery_plan_id: str
+    target_adapter: str
+    target_channel: str | None
+    category: str
+
+    @property
+    def reason(self) -> str:
+        """The precise, stable refusal reason for this target."""
+        channel = (
+            self.target_channel
+            if self.target_channel is not None
+            else "no-channel"
+        )
+        return (
+            f"exact_target_refused: {self.category} "
+            f"({self.event_id}, {self.delivery_plan_id}, "
+            f"{self.target_adapter}, {channel})"
+        )
+
+    def to_evidence(self) -> dict[str, Any]:
+        """Return the JSON-safe evidence record for the replay output."""
+        return {
+            "event_id": self.event_id,
+            "delivery_plan_id": self.delivery_plan_id,
+            "target_adapter": self.target_adapter,
+            "target_channel": self.target_channel,
+            "category": self.category,
+            "reason": self.reason,
+        }
+
+
+def _build_exact_target_refusal_evidence(
+    refusals: list[_ExactTargetRefusal],
+    run_id: str | None,
+) -> dict[str, Any]:
+    """Build a dict of exact-target refusal evidence for ReplayResult.output.
+
+    Shaped like the capability-suppression evidence so refusal details
+    survive into the replay output alongside adapter results.
+    """
+    return {
+        "exact_target_refusals": [refusal.to_evidence() for refusal in refusals],
+        "replay_run_id": run_id or None,
+        "source": "replay",
+    }
+
+
+def _plan_delivery_identity(item: Any) -> DeliveryIdentity | None:
+    """Extract the full delivery identity a replay plan would stage.
+
+    Accepts both bare plan lists and ``list[tuple[Route, DeliveryPlan]]``
+    (as produced when the real pipeline is in use).  Returns ``None`` when
+    the plan structure is opaque or its identity is incomplete so the
+    caller can fail closed: a plan whose full identity cannot be read is
+    never treated as a selected exact target.
+    """
+    if isinstance(item, tuple) and len(item) == 2:
+        plan = item[1]
+    else:
+        plan = item
+    target = getattr(plan, "target", None)
+    if target is None:
+        return None
+    identity = DeliveryIdentity(
+        str(getattr(plan, "event_id", "") or ""),
+        str(getattr(plan, "plan_id", "") or ""),
+        str(getattr(target, "adapter", "") or ""),
+        getattr(target, "channel", None),
+    )
+    if not identity.complete:
+        return None
+    return identity
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +375,7 @@ class _ReplayDeliveryMixin:
     Expects the host class (via MRO) to provide:
 
     * ``self._pipeline``           – the delivery pipeline (or ``None``)
+    * ``self._storage``            – the storage backend
     * ``self._diagnostician``      – diagnostic recorder (or ``None``)
     * ``self._capacity_controller`` – capacity / shutdown guard (or ``None``)
     * ``self._accounting``         – accounting recorder (or ``None``)
@@ -293,9 +398,58 @@ class _ReplayDeliveryMixin:
     if TYPE_CHECKING:
 
         _pipeline: _RealPipelineProtocol | None
+        _storage: StorageBackend
         _diagnostician: Diagnostician | None
         _capacity_controller: CapacityController | None
         _accounting: RuntimeAccounting | None
+
+    async def _admit_plans_by_exact_selection(
+        self,
+        plans: list[Any],
+        request: ReplayRequest,
+    ) -> tuple[list[Any], list[_ExactTargetRefusal]]:
+        """Split delivery plans into admitted and refused by exact selection.
+
+        A plan is admitted only when its full delivery identity names one
+        requested selection and the shared exact-target observation resolves
+        that identity to one persisted outbox row whose frozen staged
+        binding agrees with the row.  The observation reuses
+        :func:`preview_exact_target` so execution admission and the
+        read-only preview resolve the same target, or both refuse, for the
+        same storage state.  Refusal categories are ``not_found``,
+        ``ambiguous``, and ``route_or_plan_changed``; every other observed
+        category admits the plan to the pipeline's own outbox admission
+        authority, which revalidates identity, generation and ownership in
+        its write transaction.  Storage errors from the observation
+        propagate under their own authority.
+        """
+        selections = {
+            selection.identity: selection
+            for selection in request.exact_target_selections
+        }
+        admitted: list[Any] = []
+        refusals: list[_ExactTargetRefusal] = []
+        for item in plans:
+            identity = _plan_delivery_identity(item)
+            if identity is None:
+                continue
+            selection = selections.get(identity)
+            if selection is None:
+                continue
+            preview = await preview_exact_target(self._storage, selection)
+            if preview.category in _EXACT_TARGET_REFUSAL_CATEGORIES:
+                refusals.append(
+                    _ExactTargetRefusal(
+                        identity.event_id,
+                        identity.delivery_plan_id,
+                        identity.target_adapter,
+                        identity.target_channel,
+                        preview.category,
+                    )
+                )
+            else:
+                admitted.append(item)
+        return admitted, refusals
 
     async def _stage_deliver(
         self,
@@ -316,6 +470,12 @@ class _ReplayDeliveryMixin:
         queued / best-effort results are **not** promoted to delivered /
         final.  Downstream consumers can inspect ``output["replay"]``
         to distinguish replay deliveries from live ones.
+
+        Exact-target selection: when the request carries
+        ``exact_target_selections``, only plans whose full delivery identity
+        names a selection are admitted, and each named target is verified
+        against persisted outbox state before a send is staged.  Unselected
+        and refused targets never reach ``deliver_to_targets``.
         """
         t0 = time.monotonic()
         mode = request.mode
@@ -367,6 +527,41 @@ class _ReplayDeliveryMixin:
                     duration_ms=_elapsed_ms(t0),
                 )
             plan_result = filtered
+
+        # Exact-target selection gate: when the request names exact delivery
+        # targets, a plan reaches delivery admission only when its full
+        # identity names a selection, and each named target is re-verified
+        # against persisted outbox state before a send is staged.  Unselected
+        # plans are skipped with the same semantics as target_adapters
+        # exclusion; a selected target that fails the persisted-state
+        # verification is refused with a precise reason instead of sent.
+        refusals: list[_ExactTargetRefusal] = []
+        if request.exact_target_selections:
+            selected, refusals = await self._admit_plans_by_exact_selection(
+                plan_result,
+                request,
+            )
+            if not selected:
+                if refusals:
+                    reason = "; ".join(refusal.reason for refusal in refusals)
+                else:
+                    reason = (
+                        "No delivery plans matched exact_target_selections filter"
+                    )
+                if self._diagnostician is not None:
+                    self._diagnostician.record_replay_skip(event.event_id, reason)
+                return ReplayResult(
+                    event_id=event.event_id,
+                    stage="deliver",
+                    status="skipped",
+                    error=reason,
+                    output=_build_exact_target_refusal_evidence(
+                        refusals,
+                        request.run_id,
+                    ),
+                    duration_ms=_elapsed_ms(t0),
+                )
+            plan_result = selected
 
         # Capability-aware skip: for BEST_EFFORT mode, check if the
         # event kind is supported by the target adapter.  Skip delivery
@@ -467,6 +662,14 @@ class _ReplayDeliveryMixin:
             if _suppressed:
                 replay_output.update(
                     _build_suppressed_evidence(_suppressed, request.run_id)
+                )
+
+            # Mixed exact-target outcome: some selected targets delivered,
+            # others refused by the admission gate.  Merge refusal evidence
+            # into the replay output alongside adapter results.
+            if refusals:
+                replay_output.update(
+                    _build_exact_target_refusal_evidence(refusals, request.run_id)
                 )
 
             return ReplayResult(

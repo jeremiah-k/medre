@@ -163,6 +163,66 @@ same event that the exact selection did not select, and is zero when no
 single row was selected — sibling deliveries are never widened into the
 result.
 
+## Execution selection at delivery admission
+
+Replay execution consumes the same selection key for its delivery admission.
+`ReplayRequest.exact_target_selections` in
+`src/medre/core/engine/replay/types.py` carries a tuple of
+`ExactTargetSelection` instances; the empty tuple is the unrestricted default
+and changes no existing behavior. When the tuple is non-empty, a delivery
+plan reaches delivery admission in the replay deliver stage only when its
+full `(event_id, delivery_plan_id, target_adapter, target_channel)` identity,
+read from the plan with the authority's channel normalization, names one
+requested selection. A plan whose full identity cannot be read is treated as
+unselected rather than passed through conservatively: exact-target admission
+never widens. Unselected targets are skipped with the same semantics as
+`target_adapters` exclusion, and when no plan survives, the deliver stage is
+skipped with the reason `No delivery plans matched exact_target_selections
+filter`. Where `target_adapters` or `route_ids` are also set, each filter
+applies in turn and the deliverable set is the intersection.
+`ReplayRequest` construction refuses malformed selection input — a
+non-selection element or a repeated identity — with `ValueError` before any
+replay runs; the selection class itself refuses incomplete identities and
+the empty-string channel.
+
+Each plan that names a selection is additionally verified against persisted
+state at admission time, before any outbox generation is admitted or a send
+is staged. The verification calls `preview_exact_target` with the same
+selection, so execution admission and the read-only preview resolve exactly
+the same target, or both refuse, for the same storage state. Admission
+refuses — records the refusal and stages no send for that target — exactly
+when the observation classifies the identity as `not_found`, `ambiguous`, or
+`route_or_plan_changed`: an event absent from canonical storage, no
+persisted outbox row for the identity, contested live generations, an
+uninterpretable frozen snapshot, or a staged binding that contradicts the
+row's persisted plan. Every other observed category admits the target to the
+delivery lifecycle, whose own outbox admission revalidates identity,
+generation, dispatch source and ownership in its write transaction; the
+selection gate constrains which targets replay execution may touch and never
+replaces that revalidation. The gate accepts no caller-supplied expected
+fingerprint or generation, so a superseded observation can never authorize a
+send: the persisted facts are read fresh at admission. A target whose
+persisted row is `completed` or actively owned is admitted as new replay
+work under the generation allocation rules, unchanged. The verification's
+reads are the preview's own read contract, including the authorized replay
+read for outcomes that need source content.
+
+Refusals surface in the replay result. When every plan for an event is
+refused, the deliver result is `skipped` and its error is one
+`exact_target_refused: <category> (<event_id>, <delivery_plan_id>,
+<target_adapter>, <target_channel>)` string per refused target, joined with
+`; `, where `no-channel` stands in for the `None` channel. When some targets
+are admitted, the deliver result carries the refusals in its output under
+`exact_target_refusals`, each record holding the identity, the observed
+category, and the same reason string. Storage errors from the verification
+propagate under their own authority and never become refusals.
+
+The execution selection adds no CLI surface, no decision or audit write
+path, and no outbox generation semantics. One exact target never widens into
+sibling channels; a route or plan drift refusal never falls back to
+re-planning from current router configuration — the refusal is final for
+that admission; and a native handoff is not recipient receipt.
+
 ## Schema and stability
 
 Preview instances serialize through `to_dict` and MUST conform to
