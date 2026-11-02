@@ -2,9 +2,10 @@
 
 This page is the design for register row
 [G03](contract-gap-status.md#register): a policy-set delivery deadline and a
-hard content privacy ceiling that hold across outbox admission, provider
-queues and pending work. It inventories the deadline machinery that already
-exists on `main`, then fixes where the hard deadline is checked, how it
+hard content privacy ceiling for relay-local work before native submission.
+Accepted or uncertain provider-queued work retains independent native
+authority. It inventories the deadline machinery already on `main`, then
+specifies where the effective deadline should be enforced, how it
 coexists with accepted and uncertain native attempts, and what the ceiling
 means for the availability preview. The implemented content authority it
 extends is
@@ -29,40 +30,54 @@ policy source.
 | Retry-claim cleanup | Retry worker refusal path (`src/medre/runtime/retry.py:1200-1216`) and claim release guard (`_outbox.py:1345-1362`) | A claimed row whose content authority is denied is reconciled against persisted evidence, then abandoned; a reserved attempt is never released back to the queue | Cleanup is lazy: a `pending` or `retry_wait` row sits until a dispatcher claims it, and nothing sweeps unclaimed rows when content expires |
 | Availability preview | `preview_content_access` (`src/medre/core/storage/content_availability.py:181-182`) and the immutable per-event ceiling row (`schema.py:91-99`) | Reports `unavailable/hard_ceiling_elapsed` for held consumers and refuses optional holds past the ceiling | Pure, non-mutating and dispatch-blind; it never blocks a send and is not the enforcement contract |
 
-The gap in one sentence: every enforcement site a hard deadline needs already
-exists and is transactionally correct, but the two timestamps that would
-make them fire — a policy-derived plan deadline and a content ceiling written
-into the dependency deadline — have no production producer.
+The gap in one sentence: the existing hooks provide much of the enforcement
+machinery, but the policy-derived deadlines have no production producer and
+several authority edges still require implementation. In particular, content
+availability, outbox adoption, native submission and cleanup must agree on
+the same immutable ceiling and effective per-plan deadline before the design
+is safe to implement.
 
 ## Enforcement points
 
-The design adds no second SQLite authority, no new queue framework and no new
-fence site. It supplies producers and cleanup on top of the rows and
-transactions listed above.
+The design adds no second SQLite authority or new queue framework. It supplies
+producers for the existing admission/native fences and a narrowly scoped,
+transactional cleanup transition for provably unstarted work. That cleanup
+transition is new and requires independent race qualification.
 
 - The hard privacy ceiling is an operator policy input expressed as an
-  absolute UTC instant. Admission writes it as the mandatory dependency
-  deadline in `event_content_dependencies.deadline`, in the same transaction
-  that admits the event.
+  absolute UTC instant. The same effective ceiling must be installed and
+  validated in both the immutable `event_content_access_policies.hard_ceiling`
+  row and the source `event_content_dependencies.deadline` inside the
+  admission transaction; existing mismatched policies fail closed. This is
+  one content limit represented consistently by two consumers, not two
+  independently configurable deadlines. Any append-owned content that may
+  enter delivery or retention must use the same ceiling and validation, or
+  must be refused by those paths until it is admitted under this contract.
+  An `append` dependency with a NULL deadline cannot be treated as eligible
+  for ceiling-governed delivery.
 - The delivery deadline is an operator policy input expressed as a maximum
   attempt window. Planning computes `DeliveryPlan.deadline` from a trusted
   local admission time and the selected policy; remote timestamps or
   provider TTL hints never create local authority.
-- At every site, the effective deadline is the earlier of the two. A policy
-  may shorten the content window below the ceiling; nothing may lengthen it.
+- At every site, the effective deadline is the earlier of the immutable event
+  ceiling and the frozen delivery-plan deadline. A plan may shorten the
+  delivery window; it cannot extend content availability. Outbox adoption
+  must enforce both limits, including when the plan expires before the event
+  ceiling. No subsequent retry, new generation or operator action may extend
+  the admitted deadline.
 - The plan deadline rides the existing snapshot: staging freezes it into the
   dispatch snapshot context (`outbox_manager.py:157-159`), retry
   reconstruction restores it and rejects timezone-naive values
   (`retry_plan.py:534-552`), so a restart or reclaim cannot lose it.
 
-Outbox admission is the first check. The design keeps `insert_outbox_dependency`
-as the single admission gate: once the ceiling is written as the source
-deadline, any generation staged after the ceiling — replay, retry staging or a
-new sibling target — commits as a row but adopts no content dependency, and
-`_outbox_content_authority`
-(`src/medre/core/storage/sqlite/_content_grants.py:121-151`) then denies every
-read and native start for that generation. The obligation stays durable and
-auditable; the content authority does not exist.
+Outbox admission is the first check. `insert_outbox_dependency` remains the
+content-adoption gate, but its producer and transaction must enforce the
+**earlier of** the frozen plan deadline and immutable event ceiling. Today it
+only copies the source deadline; implementing the policy without changing
+this contract would allow staging after the plan deadline. A generation
+staged after the effective deadline may remain an auditable obligation, but
+must not adopt content authority or reach native submission. The resulting
+refusal and terminal cleanup remain governed by existing lifecycle evidence.
 
 The native-submit fence is the second check. `authorize_native_submission`
 already observes expiry and requires a live dependency before every adapter
@@ -79,26 +94,31 @@ worker's poll cycle — the component that already owns claim, release and
 abandonment decisions for outbox rows — and uses only the existing lifecycle
 transitions:
 
-- It retires `pending` and `retry_wait` rows whose event ceiling has elapsed
-  through `mark_outbox_abandoned` with a `content_authority_denied` summary,
+- It retires only provably unstarted `pending` and `retry_wait` rows whose
+  **effective plan-or-event deadline** has elapsed, through a new strictly
+  status- and reservation-fenced cleanup transition (not the general
+  `mark_outbox_abandoned` transition) with a deadline refusal summary,
   letting the guarded terminal settlement release the target dependency in
   the same transaction
   (`src/medre/core/storage/sqlite/connection.py:365-411`).
-- It skips rows with a live `active_attempt` reservation and rows in
-  `queued` status entirely; their authority is the attempt and feedback
-  machinery, not the ceiling sweep.
+- It skips all `in_progress` and `queued` rows, as well as any row carrying
+  an `active_attempt`, worker claim or lease. A claim or in-flight pipeline
+  send may be between preflight authorization and the transport call even
+  without `active_attempt`; a generic abandoned transition cannot prove
+  that it is unsent. Such rows remain under the attempt and feedback
+  machinery until their owner can safely reconcile them.
 - It never deletes outbox rows, receipts, observations or native references;
   terminal rows are immutable history.
 
-The sweep's write is guarded by the transition's own compare-and-set
-(`src/medre/core/storage/sqlite/_outbox.py:967-1129`): the sweep passes the
-attempt identity it read, so a reservation committed between its read and its
-write fails the attempt fence and the row stays reserved for evidence
-reconciliation. Because `allowed_from` on the abandonment transition also
-admits `in_progress`, a claimed row that is still unreserved may be settled
-by the sweep — that is safe by construction, since an unreserved claim never
-authorized a native send and the dispatcher's subsequent reservation or
-finalization simply fails its guard and reconciles.
+The sweep needs a dedicated guarded transition, or a tightened existing
+transition with equivalent proof, executing in `BEGIN IMMEDIATE` and requiring
+the exact pending/retry-wait status, no claim, no active attempt, no lease,
+no newer authoritative generation, and an expired effective deadline. It
+must compare the observed generation and row timestamp inside that
+transaction, and release the target dependency only with the successful
+terminal transition. Reusing `mark_outbox_abandoned` while it accepts
+`in_progress` would permit a claimed pipeline send to be misclassified as
+unsent; that is expressly forbidden.
 
 ## Attempt authority interaction
 
@@ -109,10 +129,11 @@ is a content-retention and dispatch rule; it is not evidence about what the
 provider did.
 
 - A deadline that has elapsed does not imply non-acceptance. Expired work is
-  settled as an unsent refusal only when the reservation is provably
-  unstarted; otherwise the existing evidence reconciliation runs first and
-  the outcome comes from receipts, feedback facts or conservative uncertainty.
-- Cleanup refuses reserved and queued rows. `release_outbox_claim` already
+  settled as an unsent refusal only when there is no reservation, claim,
+  lease or in-flight pipeline send, as proven by the exact cleanup guard.
+  Otherwise existing evidence reconciliation runs first; the outcome comes
+  from receipts, feedback facts or conservative uncertainty.
+- Cleanup refuses claimed, in-progress, reserved and queued rows. `release_outbox_claim` already
   refuses to release a reservation, and the sweep adds no path around it;
   resolving a `queued` row stays with `DeferredHandoffCompleted`,
   `DeferredHandoffFailed` and `PostHandoffObservation` feedback under the
@@ -169,10 +190,12 @@ content-authority suites already established
 (`tests/test_content_dispatch_authority_races.py`,
 `tests/test_content_grants_storage.py`) plus new ones for the cleanup path.
 
-- Real-transaction races: admission versus expiry on the same event; the
-  ceiling sweep racing a live `claim_due_outbox_items` on the same row, with
-  the transition guard deciding; two workers allocating generations across
-  the ceiling in one `BEGIN IMMEDIATE` window.
+- Real-transaction races: admission versus expiry on the same event;
+  immutable policy/dependency ceiling parity for both `append` and
+  `admit_ingress`; a plan deadline earlier than the ceiling; the sweep
+  racing a claim, a preflight authorization and an in-progress send; two
+  workers allocating generations across either deadline in one
+  `BEGIN IMMEDIATE` window.
 - Deadline-elapsed with a live claim: a reservation taken before the ceiling
   that reaches the native fence after it — refused, evidence persisted, and
   the reservation consumed only by lifecycle finalization.
