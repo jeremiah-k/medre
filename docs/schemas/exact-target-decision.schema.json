@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/exact-target-decision.schema.json",
+  "title": "Recorded exact-target operator decision",
+  "description": "Immutable audit acknowledgement of one operator decision over one observed exact delivery target. The record never stages a send, never creates a delivery generation, and never mutates the observed outbox row: resumption goes only through the normal outbox claim and attempt fences. Observation fingerprints and categories are evidence only; the storage transaction revalidated the full observed state before this record was committed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "actor_id",
+    "action",
+    "event_id",
+    "delivery_plan_id",
+    "target_adapter",
+    "target_channel",
+    "outbox_id",
+    "observed_generation",
+    "observed_status",
+    "observed_updated_at",
+    "recorded_at"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "description": "Audit provenance label; never authentication.",
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "description": "What was decided. Both actions are audit-only acknowledgements over one unstarted scheduled row; the vocabulary is frozen across the specification page, the Python model, the storage CHECK constraint, and this enum.",
+      "enum": ["resolve_uncertain", "resume_scheduled"]
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery_plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_channel": {
+      "type": ["string", "null"]
+    },
+    "outbox_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_generation": {
+      "description": "Persisted finalized attempt counter at decision time, including zero for never-dispatched work.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "observed_status": {
+      "description": "Revalidated outbox status at decision time; only unstarted scheduled rows are decidable, so the value is always one of these tokens.",
+      "enum": ["pending", "retry_wait"]
+    },
+    "observed_updated_at": {
+      "description": "Persisted update version the decision CAS-guarded.",
+      "type": "string",
+      "minLength": 1
+    },
+    "recorded_at": {
+      "type": "string"
+    }
+  }
+}

@@ -479,6 +479,8 @@ CREATE TABLE IF NOT EXISTS plugin_state (
 );
 
 -- Operator decisions are immutable audit evidence, not native-send grants.
+-- The action vocabulary covers the exact unstarted cancellation and the
+-- audit-only exact-target resolve/resume acknowledgements.
 CREATE TABLE IF NOT EXISTS operator_delivery_decisions (
     decision_id TEXT PRIMARY KEY,
     actor_id TEXT NOT NULL,
@@ -492,7 +494,7 @@ CREATE TABLE IF NOT EXISTS operator_delivery_decisions (
     observed_status TEXT NOT NULL,
     action TEXT NOT NULL,
     recorded_at TEXT NOT NULL,
-    CHECK (action = 'cancel_unstarted'),
+    CHECK (action IN ('cancel_unstarted', 'resolve_uncertain', 'resume_scheduled')),
     CHECK (observed_status IN ('pending', 'retry_wait')),
     CHECK (observed_generation >= 0)
 );
@@ -1033,8 +1035,10 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
             r"CHECK\s*\(\s*observed_status\s+IN\s*\(\s*'pending'\s*,\s*'retry_wait'\s*\)\s*\)",
         ),
         (
-            "CHECK (action = 'cancel_unstarted')",
-            r"CHECK\s*\(\s*action\s*=\s*'cancel_unstarted'\s*\)",
+            "CHECK (action IN ('cancel_unstarted', 'resolve_uncertain',"
+            " 'resume_scheduled'))",
+            r"CHECK\s*\(\s*action\s+IN\s*\(\s*'cancel_unstarted'\s*,\s*"
+            r"'resolve_uncertain'\s*,\s*'resume_scheduled'\s*\)\s*\)",
         ),
         (
             "CHECK (observed_generation >= 0)",
