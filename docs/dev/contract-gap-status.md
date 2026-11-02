@@ -38,8 +38,8 @@ never stands in for a higher one.
 
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
-| G01 | P0 | Exact-destination replay selection and decision | partial | Replay selection remains adapter- and route-scoped (`ReplayRequest`); read-only exact inspection and exact unstarted cancellation exist, and the typed selection key, frozen 14-token observation vocabulary, and metadata-only preview landed in #424. | Shared execution-side selector, audited decision authority, operator command surface, adversarial qualification. |
-| G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences only unstarted work and no path resolves an uncertain native handoff, and none is inferred; the landed typed preview (#424) classifies the uncertainty states and the audited decision authority (#429) records operator resolutions over unstarted work while refusing to decide uncertain native states. | Per-transport native-acceptance proof under the exact-target authority; never infer non-acceptance. |
+| G01 | P0 | Exact-destination replay selection and decision | in flight | `main` provides exact inspection, unstarted cancellation and the typed #424 preview. Open #427 adds execution-side exact selection; open #429 adds audited decision authority (not yet on `main`). | Merge and qualify #427/#429, then add the operator command surface and adversarial native qualification. |
+| G02 | P0 | Uncertain-native-handoff remediation | in flight | On `main`, exact cancellation fences unstarted work and #424 classifies uncertainty without resolving it. Open #429 records auditable intent over unstarted work only; it cannot decide an uncertain native handoff. | Qualify #429 and obtain per-transport native-acceptance proof; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | partial | Preview and native-start deadline hooks exist; a policy-enforced hard expiry across provider queues and outbox admission is not implemented. The content-availability preview is not that enforcement contract. | Deadline enforcement at the native-submit fence and outbox admission, including pending-outbox cleanup without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the draft plugin branch carries a substantial implementation divergent from current `main` (193 main-only / 19 branch-only commits at the 2026-11-02 snapshot). | Semantic re-audit of capabilities, phase ordering, decision commit, replay qualification, and content grant scope against the merged storage, snapshot retirement, and collection epoch boundaries before any merge. |
 | G05 | P1 | Recipient and native verification on the current pin set | open | Historical 42-direction campaign and local SDK tiers exist; scoped current-pin native evidence remains outstanding for encrypted Matrix, radio interruption, LXMF propagation, SimpleX replies, XMPP, Chatmail. | Property-specific current-pin qualification; reuse historical proof as reference only. |
@@ -64,10 +64,10 @@ tracks the whole, this section tracks each stage:
    observation vocabulary, metadata-only preview. Landed in #424.
 2. **Shared selector** — one identity selector used by both preview and
    execution admission, rejecting route, recipient, and plan drift before a
-   send is staged. Open.
+   send is staged. In flight in #427; not yet merged.
 3. **Decision authority** — audited compare-and-swap over an observed exact
    target, reusing the attempt and claim fences; no implicit resend of
-   queued, in-progress, or uncertain native work. Landed in #429.
+   queued, in-progress, or uncertain native work. In flight in #429; not yet merged.
 4. **Operator command surface** — explicit intent, confirmation, and
    refusal rendering wired to the contract; `medre recover` stays read-only.
    Open.

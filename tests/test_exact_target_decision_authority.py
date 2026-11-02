@@ -25,6 +25,7 @@ from medre.core.storage.sqlite._operator_decision import (
     EXACT_TARGET_DECISION_ACTIONS,
     RESUME_SCHEDULED_ACTION,
     RESOLVE_UNCERTAIN_ACTION,
+    CancelUnstartedDecision,
     ExactTargetDecision,
     OperatorDecisionRefused,
 )
@@ -512,3 +513,37 @@ def test_malformed_decision_input_raises_before_storage(kwargs, pattern):
     }
     with pytest.raises(ValueError, match=pattern):
         ExactTargetDecision(**{**base, **kwargs})
+
+
+@pytest.mark.parametrize("model", [CancelUnstartedDecision, ExactTargetDecision])
+@pytest.mark.parametrize(
+    "overrides,pattern",
+    [
+        ({"decision_id": " "}, "non-empty bounded string"),
+        ({"actor_id": "x" * 513}, "non-empty bounded string"),
+        ({"outbox_id": " "}, "non-empty bounded string"),
+        ({"expected_updated_at": " "}, "non-empty bounded string"),
+        (
+            {"identity": DeliveryIdentity(" ", "plan", "matrix", "!room")},
+            "non-empty strings",
+        ),
+        (
+            {"identity": DeliveryIdentity("e", "plan", "matrix", "x" * 513)},
+            "channel must be bounded",
+        ),
+    ],
+)
+def test_decision_models_share_bounded_identity_validation(model, overrides, pattern):
+    kwargs = {
+        "decision_id": "decision-1",
+        "actor_id": "operator-test",
+        "identity": DeliveryIdentity("e", "plan", "matrix", "!room"),
+        "outbox_id": "obox",
+        "expected_generation": 0,
+        "expected_status": "pending",
+        "expected_updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    if model is ExactTargetDecision:
+        kwargs["action"] = RESUME_SCHEDULED_ACTION
+    with pytest.raises(ValueError, match=pattern):
+        model(**{**kwargs, **overrides})

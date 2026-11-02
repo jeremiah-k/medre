@@ -63,6 +63,40 @@ EXACT_TARGET_DECISION_ACTIONS: frozenset[str] = frozenset(
 )
 
 
+def _validate_decision_fields(
+    decision_id: str,
+    actor_id: str,
+    outbox_id: str,
+    expected_updated_at: str,
+    identity: DeliveryIdentity,
+) -> None:
+    """Apply the same bounded exact-identity contract to both decision types."""
+    for name, value in (
+        ("decision_id", decision_id),
+        ("actor_id", actor_id),
+        ("outbox_id", outbox_id),
+        ("expected_updated_at", expected_updated_at),
+    ):
+        if not isinstance(value, str) or not value.strip() or len(value) > 512:
+            raise ValueError(f"{name} must be a non-empty bounded string")
+    if not isinstance(identity, DeliveryIdentity) or not identity.complete:
+        raise ValueError("A complete event/plan/adapter identity is required")
+    for value in (
+        identity.event_id,
+        identity.delivery_plan_id,
+        identity.target_adapter,
+    ):
+        if not isinstance(value, str) or not value.strip() or len(value) > 512:
+            raise ValueError(
+                "Delivery identity must contain bounded non-empty strings"
+            )
+    if identity.target_channel is not None and (
+        not isinstance(identity.target_channel, str)
+        or len(identity.target_channel) > 512
+    ):
+        raise ValueError("Delivery channel must be bounded")
+
+
 @dataclass(frozen=True, slots=True)
 class CancelUnstartedDecision:
     decision_id: str
@@ -74,29 +108,13 @@ class CancelUnstartedDecision:
     expected_updated_at: str
 
     def __post_init__(self) -> None:
-        for name in ("decision_id", "actor_id", "outbox_id", "expected_updated_at"):
-            value = getattr(self, name)
-            if not isinstance(value, str) or not value.strip() or len(value) > 512:
-                raise ValueError(f"{name} must be a non-empty bounded string")
-        if (
-            not isinstance(self.identity, DeliveryIdentity)
-            or not self.identity.complete
-        ):
-            raise ValueError("A complete event/plan/adapter identity is required")
-        for value in (
-            self.identity.event_id,
-            self.identity.delivery_plan_id,
-            self.identity.target_adapter,
-        ):
-            if not isinstance(value, str) or not value.strip() or len(value) > 512:
-                raise ValueError(
-                    "Delivery identity must contain bounded non-empty strings"
-                )
-        if (
-            self.identity.target_channel is not None
-            and len(self.identity.target_channel) > 512
-        ):
-            raise ValueError("Delivery channel must be bounded")
+        _validate_decision_fields(
+            self.decision_id,
+            self.actor_id,
+            self.outbox_id,
+            self.expected_updated_at,
+            self.identity,
+        )
         if self.expected_status not in {"pending", "retry_wait"}:
             raise ValueError("Only pending or retry_wait work can be cancelled")
         if type(self.expected_generation) is not int or self.expected_generation < 0:
@@ -128,34 +146,18 @@ class ExactTargetDecision:
     expected_updated_at: str
 
     def __post_init__(self) -> None:
-        for name in ("decision_id", "actor_id", "outbox_id", "expected_updated_at"):
-            value = getattr(self, name)
-            if not isinstance(value, str) or not value.strip() or len(value) > 512:
-                raise ValueError(f"{name} must be a non-empty bounded string")
+        _validate_decision_fields(
+            self.decision_id,
+            self.actor_id,
+            self.outbox_id,
+            self.expected_updated_at,
+            self.identity,
+        )
         if self.action not in EXACT_TARGET_DECISION_ACTIONS:
             raise ValueError(
                 "action must be one of the frozen exact-target decision"
                 f" actions: {sorted(EXACT_TARGET_DECISION_ACTIONS)}"
             )
-        if (
-            not isinstance(self.identity, DeliveryIdentity)
-            or not self.identity.complete
-        ):
-            raise ValueError("A complete event/plan/adapter identity is required")
-        for value in (
-            self.identity.event_id,
-            self.identity.delivery_plan_id,
-            self.identity.target_adapter,
-        ):
-            if not isinstance(value, str) or not value.strip() or len(value) > 512:
-                raise ValueError(
-                    "Delivery identity must contain bounded non-empty strings"
-                )
-        if (
-            self.identity.target_channel is not None
-            and len(self.identity.target_channel) > 512
-        ):
-            raise ValueError("Delivery channel must be bounded")
         # The expected status is the operator's observation, not a request:
         # undecidable observed states are refused inside the write
         # transaction with the typed refusal vocabulary, not here.
