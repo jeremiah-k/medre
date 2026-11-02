@@ -12,6 +12,7 @@ Recovery operates within strict boundaries set by storage ownership:
 - **Recovery never rewrites history.** Existing receipts, events, and native refs are immutable. Recovery can only produce new state: new delivery attempts through replay, new retry receipts through the RetryWorker, or reclaimed outbox rows through lease expiry.
 - **Outbox reclaim is not lifecycle success.** Reclaiming an expired `in_progress` row or stale `queued` row restores operational work state. It does not imply the delivery succeeded. The outbox row must still complete the delivery pipeline and produce a receipt.
 - **Orphan detection is bookkeeping.** The orphan query (events with no receipts) is a diagnostic observation. It does not create, modify, or delete any storage rows. Re-delivering orphans requires explicit operator action via replay.
+- **Exact-target observations authorize nothing.** Selecting one `(event, plan, adapter, channel)` delivery for inspection reports its state and counts its excluded siblings, but never reserves, cancels, or replays it. See the [exact-target recovery observation contract](../spec/exact-target-recovery.md) for the closed category vocabulary and raw generation semantics.
 
 ## Complete Incident Workflow
 

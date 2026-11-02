@@ -1765,3 +1765,7 @@ errors MUST retain their original failure authority.
 A separate [storage cancellation authority](operator-exact-resolution.md) binds
 operator decisions to unreserved obligations. Its write contract does not turn
 the diagnostic fingerprint into authorization and does not expose a CLI action.
+The typed [exact-target recovery observation contract](exact-target-recovery.md)
+freezes the selection key, the closed category vocabulary and the raw
+generation semantics shared by every exact-target observation surface; it
+remains an observation with no execution authority.
