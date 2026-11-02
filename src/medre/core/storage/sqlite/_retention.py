@@ -21,7 +21,11 @@ import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from medre.core.storage.backend import ContentCollectionEpochChanged, StorageError
+from medre.core.storage.backend import (
+    ContentCollectionEpochChanged,
+    ContentCollectionTransientError,
+    StorageError,
+)
 from medre.core.storage.content_retention import (
     COLLECTION_UNMEASURED_SCOPES,
     RETENTION_BATCH_MAX,
@@ -463,6 +467,8 @@ class _RetentionMixin:
                 activated_by=activated_by,
                 now=now,
             )
+        except sqlite3.OperationalError as exc:
+            raise ContentCollectionTransientError("Opening a retention epoch failed") from exc
         except sqlite3.Error as exc:
             raise StorageError("Opening a retention epoch failed") from exc
 
@@ -474,6 +480,8 @@ class _RetentionMixin:
                 self._require_db(),
                 self._lock,
             )
+        except sqlite3.OperationalError as exc:
+            raise ContentCollectionTransientError("Reading the retention epoch failed") from exc
         except sqlite3.Error as exc:
             raise StorageError("Reading the retention epoch failed") from exc
 
@@ -493,6 +501,8 @@ class _RetentionMixin:
                 epoch=epoch,
                 now=now,
             )
+        except sqlite3.OperationalError as exc:
+            raise ContentCollectionTransientError("Recording the retention heartbeat failed") from exc
         except sqlite3.Error as exc:
             raise StorageError("Recording the retention heartbeat failed") from exc
 
@@ -569,5 +579,7 @@ class _RetentionMixin:
                 limit=limit,
                 watermark=watermark,
             )
+        except sqlite3.OperationalError as exc:
+            raise ContentCollectionTransientError("Collection candidate paging failed") from exc
         except sqlite3.Error as exc:
             raise StorageError("Collection candidate paging failed") from exc

@@ -104,10 +104,10 @@ class ContentCollectionEpochChanged(StorageError):
 
 
 class ContentCollectionTransientError(StorageError):
-    """The guarded collector failed on a transient SQLite condition.
+    """A retention storage operation failed on a transient SQLite condition.
 
-    Raised when ``collect_event_content`` fails on a transient SQLite
-    condition (lock, busy, I/O) that a later attempt may clear. Semantic
+    Raised when collection, epoch observation/activation, or candidate
+    paging fails on an operational SQLite condition that may clear. Semantic
     integrity refusals — inconsistent admission identity, unexpectedly
     recreated content, missing events — remain plain :class:`StorageError`
     and stay fail-closed: they are never retried by a caller that treats

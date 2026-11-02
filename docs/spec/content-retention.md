@@ -189,7 +189,10 @@ that watermark, so pre-activation history is never swept. Watermarks are
 monotonic across epochs: an empty store keeps the previous epoch's
 watermark and a lower observation never pulls the boundary backward. The
 heartbeat MUST never move backward; a clock rollback is a no-op by
-construction. Epoch rows are not event-scoped, carry no foreign key, hold
+construction. A durable observation in the future relative to the current
+clock MUST NOT count as freshness evidence: a worker MUST pause until a
+valid activation observation is established, and operator status MUST report
+unknown freshness rather than fresh. Epoch rows are not event-scoped, carry no foreign key, hold
 no content, and are append-only: the heartbeat is the only update and no
 delete exists.
 
@@ -272,8 +275,9 @@ under the enabled policy opens one with `runtime-first-start`
 provenance; a stale heartbeat suspends collection and heartbeating until
 a fresh operator-opened epoch appears), pages candidates through the
 bounded selector above, and mutates only through the guarded per-event
-collector. Transient SQLite failures defer the remaining page under a
-bounded backoff with an observable degraded state. Backoff MUST be at most
+collector. Transient SQLite failures in epoch observation/activation,
+heartbeat updates, candidate paging, or per-event collection MUST defer
+the sweep under the same bounded backoff with an observable degraded state. Backoff MUST be at most
 ten policy intervals and at most the epoch grace minus one interval, reserving
 time for processing. Repeated integrity refusals restrict the worker
 (fail-closed stop) until operator
