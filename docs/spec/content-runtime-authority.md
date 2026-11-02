@@ -175,11 +175,18 @@ accepted, partially accepted or uncertain native operation. Logical expiry
 must never erase attempt evidence or imply an uncertain operation did not
 happen.
 
-Before automatic collection: classify unmeasured and opaque copies, define
-shared attachment release, qualify optional/reply windows and provider-native
-retention, and test outbox/retry/packet acceptance against the actual collector,
-WAL and backups.
-No automatic deletion or physical erasure is enabled.
+Automatic collection exists only through the explicitly enabled
+`relay-only` retention policy and its durable activation epoch
+([content retention](content-retention.md)): it remains disabled by
+default, is bounded to the classified canonical core subset with its
+`BEGIN IMMEDIATE` revalidation, and never runs in REPLAY scope. The
+prerequisites below still stand for any broader automatic expiry beyond
+that classified subset: classify unmeasured and opaque copies, define
+shared attachment release, qualify optional/reply windows and
+provider-native retention, and test outbox/retry/packet acceptance
+against the actual collector, WAL and backups.
+No automatic deletion or physical erasure beyond that opt-in boundary is
+enabled.
 
 No storage migrations are provided for superseded, unsupported prerelease
 schemas. SQLite schema version remains 1. A later declared supported baseline

@@ -267,6 +267,43 @@ class TestRuntimeEventType:
         assert RuntimeEventType.STATE_TRANSITION == "state_transition"
         assert RuntimeEventType.ADAPTER_STARTED != "state_transition"
 
+    def test_content_collection_vocabulary_is_registered(self) -> None:
+        """The collection worker taxonomy mirrors the retry_* naming shape."""
+        expected = {
+            "collection_started",
+            "collection_stopped",
+            "collection_abandoned",
+            "collection_start_refused",
+            "collection_deferred",
+            "collection_restricted",
+            "collection_epoch_awaited",
+            "collection_failed",
+            "collection_swept",
+        }
+        actual = {
+            member.value
+            for member in RuntimeEventType
+            if member.value.startswith("collection_")
+        }
+        assert actual == expected
+
+    def test_collection_events_emit_through_buffer(self) -> None:
+        buf = EventBuffer(clock=lambda: 0.0)
+        for name in (
+            "collection_started",
+            "collection_stopped",
+            "collection_abandoned",
+            "collection_start_refused",
+            "collection_deferred",
+            "collection_restricted",
+            "collection_epoch_awaited",
+            "collection_failed",
+            "collection_swept",
+        ):
+            event = buf.emit(RuntimeEventType(name), {"k": 1})
+            assert event.event_type.value == name
+            assert event.detail == {"k": 1}
+
 
 class TestDetailSanitisation:
     """Event details are JSON-safe, bounded, and secret-free via central sanitizer."""

@@ -388,6 +388,7 @@ class TestSnapshotReadability:
             "accounting",
             "adapters",
             "capacity",
+            "content_collection",
             "diagnostics",
             "health",
             "identity",

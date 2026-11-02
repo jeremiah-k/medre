@@ -100,3 +100,10 @@ address validators. Static schema validation alone cannot verify which Python
 providers are installed in an operator's environment.
 
 Native metadata schemas and validated examples belong to their adapter repositories; see the [metadata ownership contract](../spec/metadata.md#3-adapter-owned-native-metadata).
+
+`content-collection-state.schema.json` defines the closed aggregate worker
+blocks emitted by `MedreApp.diagnostic_snapshot()` and
+`medre.runtime.snapshot.build_runtime_snapshot()`. These producers differ
+from `core.supervision.capture_runtime_snapshot()`, whose existing
+`runtime-snapshot.schema.json` and `diagnostics.schema.json` contracts remain
+separate. Unknown worker fields, content, and event identifiers are refused.

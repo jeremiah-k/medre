@@ -51,6 +51,7 @@ from medre.runtime.errors import (
     RuntimeShutdownError,
     RuntimeStartupError,
 )
+from medre.runtime.collection import ContentCollectionWorkerState
 from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.health_reporting import observed_health, reported_health_snapshot
 from medre.runtime.retry import RetryWorkerState
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
     from medre.core.contracts.adapter import AdapterContract
     from medre.core.engine.pipeline import PipelineRunner
     from medre.core.engine.replay.engine import ReplayEngine
+    from medre.runtime.collection import ContentCollectionWorker
     from medre.core.events.bus import EventBus
     from medre.core.observability.metrics import Diagnostician
     from medre.core.planning.fallback_resolution import FallbackResolver
@@ -107,19 +109,24 @@ class StartupScope(enum.Enum):
 
     ``LIVE``
         Full live runtime: storage, pipeline, adapters, the durable
-        ingress worker (routes admitted ingress), and the retry worker
-        (claims due outbox work).  This is the default and preserves
-        historical behaviour for every existing caller.
+        ingress worker (routes admitted ingress), the retry worker
+        (claims due outbox work), and — only under an explicitly enabled
+        ``relay-only`` retention policy — the content collection worker.
+        This is the default and preserves historical behaviour for every
+        existing caller.
 
     ``REPLAY``
         Replay-delivery scope: storage, pipeline, and adapters start so a
         side-effect replay can deliver through real adapters, but the
-        durable-ingress and retry workers do NOT run.  Live ingress
-        received while scoped still crosses the established durable
-        admission boundary (canonical event + pending work marker are
-        committed — nothing is silently lost), and due
+        durable-ingress, retry, and content collection workers do NOT
+        run.  Live ingress received while scoped still crosses the
+        established durable admission boundary (canonical event + pending
+        work marker are committed — nothing is silently lost), and due
         ``pending``/``retry_wait`` outbox rows are left untouched for the
-        live authority.  A normal LIVE start processes the deferred work.
+        live authority.  The collection worker is additionally scoped out
+        because a replay execution reads event bodies that a concurrent
+        collector must not remove.  A normal LIVE start processes the
+        deferred work.
     """
 
     LIVE = "live"
@@ -182,7 +189,9 @@ def _drain_pending_cancellations() -> int:
 
     * :meth:`MedreApp.stop()` — restores ``_deferred_cancel_count`` at
       the end of the method, after pipeline runner stop and storage
-      close.
+      close.  Each worker-stop stage (durable ingress, retry, content
+      collection) drains its own cancellation into that same deferred
+      count.
     * :meth:`MedreApp.start()` (``CancelledError`` handler) — restores
       ``_total`` (``_cleared + _cleanup_drained``) before re-raising.
     * :meth:`MedreApp._cleanup_core_resources` — restores
@@ -331,6 +340,12 @@ class MedreApp:
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
     _retry_worker: RetryWorker | None = field(default=None, init=False)
+    # Policy-governed content collection worker: constructed only in LIVE
+    # scope under an explicitly enabled ``relay-only`` retention policy and
+    # only for the one live storage handle.  REPLAY scope never constructs
+    # it: a replay execution reads event bodies that a concurrent
+    # collector must not remove.
+    _collection_worker: ContentCollectionWorker | None = field(default=None, init=False)
     _typing_relay: TypingRelay | None = field(default=None, init=False)
     _ingress_worker: Any = field(default=None, init=False)
     _runtime_accounting: RuntimeAccounting | None = field(default=None, init=False)
@@ -419,6 +434,17 @@ class MedreApp:
         if self._retry_worker is not None:
             return self._retry_worker.state
         return RetryWorkerState()
+
+    @property
+    def content_collection_state(self) -> ContentCollectionWorkerState:
+        """Return the content collection worker state, or a default disabled state.
+
+        Runtime-local, non-durable observability for the current process
+        only; see the state dataclass's durability boundary note.
+        """
+        if self._collection_worker is not None:
+            return self._collection_worker.state
+        return ContentCollectionWorkerState()
 
     @property
     def outbox_state(self) -> dict[str, int]:
@@ -560,11 +586,40 @@ class MedreApp:
                     "forced_cancellations": 0,
                 }
             ),
+            "content_collection": self._content_collection_diagnostics(),
             "shutdown_drain_timeout_seconds": (
                 self.config.limits.shutdown_drain_timeout_seconds
             ),
         }
         return snap
+
+    def _content_collection_diagnostics(self) -> dict[str, Any]:
+        """Aggregate, content-free collection-worker diagnostics.
+
+        Every value is a flag, a count, or a timestamp: no event IDs, no
+        message bodies, no native identifiers.  A zeroed block reports the
+        absent worker so operators can distinguish "disabled" from "enabled
+        and idle" (``enabled``/``worker_running`` carry that difference).
+        """
+        state = self.content_collection_state
+        return {
+            "worker_running": state.running,
+            "enabled": state.enabled,
+            "abandoned": state.abandoned,
+            "restricted": state.restricted,
+            "awaiting_activation": state.awaiting_activation,
+            "degraded": state.degraded,
+            "last_sweep_at": state.last_sweep_at,
+            "epoch": state.epoch,
+            "events_examined": state.events_examined,
+            "collected": state.collected,
+            "already_collected": state.already_collected,
+            "blocked": state.blocked,
+            "empty": state.empty,
+            "failed": state.failed,
+            "rows_removed": state.rows_removed,
+            "logical_bytes_removed": state.logical_bytes_removed,
+        }
 
     # -- Live Health ------------------------------------------------------------
 
@@ -876,10 +931,12 @@ class MedreApp:
         catastrophic core subsystem failure, any already-started adapters
         are stopped in reverse order.
 
-        In LIVE scope the retry and durable-ingress workers are activated
-        only at the post-adapter boundary, after startup readiness is
-        computed and every adapter has settled: a worker claim cycle must
-        never dispatch due work into an adapter that is still starting.
+        In LIVE scope the retry, durable-ingress, and — under an enabled
+        ``relay-only`` retention policy — content collection workers are
+        activated only at the post-adapter boundary, after startup
+        readiness is computed and every adapter has settled: a worker
+        claim cycle must never dispatch due work into an adapter that is
+        still starting.
 
         Parameters
         ----------
@@ -1267,6 +1324,14 @@ class MedreApp:
 
             if self._ingress_worker is not None:
                 await self._ingress_worker.start()
+
+            if self._collection_worker is not None:
+                # The policy-governed collector starts last, after adapters
+                # settled: its first sweep opens the activation epoch and
+                # must never run while startup (and its projection rebuild)
+                # is still in flight.  A start failure joins the rollback
+                # below.
+                await self._collection_worker.start()
         except asyncio.CancelledError as c_exc:
             # Worker activation is still part of startup.  Do not strand
             # already-started adapters/core resources if cancellation lands
@@ -1453,6 +1518,45 @@ class MedreApp:
             # attempt — permanently classifying/dead-lettering durable
             # work — purely from ordering, not from any real transport
             # failure.
+
+        # 2.75. Construct the policy-governed content collection worker.
+        #        Gated on the explicit operator opt-in: LIVE scope, the one
+        #        live storage handle, and an enabled ``relay-only`` policy
+        #        (a declared ``retain`` policy constructs nothing — it
+        #        authorizes no collection).  REPLAY scope never constructs
+        #        it: a replay execution reads event bodies that a
+        #        concurrent collector must not remove.  The worker uses the
+        #        same storage handle as every other runtime subsystem — no
+        #        second SQLite connection exists in this process — and the
+        #        guarded collector's BEGIN IMMEDIATE revalidation remains
+        #        the only mutation authority.
+        if (
+            scope is StartupScope.LIVE
+            and self.storage is not None
+            and self.config.content_retention is not None
+            and self.config.content_retention.enabled
+            and self.config.content_retention.mode == "relay-only"
+        ):
+            from medre.core.storage.content_retention import ContentRetentionPolicy
+            from medre.runtime.collection import (
+                ContentCollectionWorker as _CCW,
+            )
+
+            retention = self.config.content_retention
+            self._collection_worker = _CCW(
+                storage=self.storage,
+                candidate_source=self.storage,
+                policy=ContentRetentionPolicy(
+                    version=retention.version,
+                    mode=retention.mode,
+                    interval_seconds=retention.interval_seconds,
+                    batch_limit=retention.batch_limit,
+                ),
+                event_buffer=self._event_buffer,
+                stop_timeout_seconds=float(
+                    self.config.runtime.shutdown_timeout_seconds
+                ),
+            )
 
     async def _start_adapters(self, adapter_ids: list[str]) -> list[str]:
         """Settle every adapter attempt without exporting group cancellation.
@@ -1860,6 +1964,44 @@ class MedreApp:
                     "Outbox dispatch remains active after shutdown cancellation. "
                     "Pipeline, adapters, and storage were left running; call "
                     "stop() again after dispatch terminates."
+                )
+
+        # Stop the content collection worker while adapters are still up and
+        # before any pipeline teardown or storage close: a collection
+        # transaction must never overlap storage close, and the bounded stop
+        # shares the drain budget with the other workers.
+        if self._collection_worker is not None:
+            try:
+                await self._collection_worker.stop(
+                    timeout_seconds=max(0.0, drain_deadline - _time.monotonic())
+                )
+            except asyncio.CancelledError as c_exc:
+                # Cancellation during the collection stop must NOT skip
+                # pipeline_runner.stop() or storage.close().  Defer the
+                # cancellation so core cleanup still runs.
+                _cancelled = c_exc
+                _deferred_cancel_count += _drain_pending_cancellations()
+                _logger.debug(
+                    "Cancelled while stopping content collection worker (deferred)"
+                )
+            except Exception as exc:
+                _logger.error("Error stopping content collection worker: %s", exc)
+            if self._collection_worker.has_retained_work:
+                self._set_state(RuntimeState.FAILED)
+                _logger.error(
+                    "Content collection remains active after cancellation; "
+                    "pipeline, adapters and storage remain available"
+                )
+                if _cancelled is not None:
+                    current = asyncio.current_task()
+                    if current is not None:
+                        for _ in range(_deferred_cancel_count):
+                            current.cancel()
+                    raise _cancelled
+                raise RuntimeShutdownError(
+                    "Content collection remains active after shutdown "
+                    "cancellation. Pipeline, adapters, and storage were left "
+                    "running; call stop() again after the collector terminates."
                 )
 
         _logger.info("Runtime stopping — accepting no new work")
@@ -2688,8 +2830,22 @@ class MedreApp:
                 drained += _drain_pending_cancellations()
             except Exception:
                 _logger.exception("Failed-startup outbox stop failed")
-        if (self._ingress_worker is not None and self._ingress_worker.running) or (
-            self._retry_worker is not None and self._retry_worker.has_retained_work
+        if self._collection_worker is not None:
+            try:
+                await self._collection_worker.stop(
+                    timeout_seconds=max(0.0, deadline - _time.monotonic())
+                )
+            except asyncio.CancelledError:
+                drained += _drain_pending_cancellations()
+            except Exception:
+                _logger.exception("Failed-startup content collection stop failed")
+        if (
+            (self._ingress_worker is not None and self._ingress_worker.running)
+            or (self._retry_worker is not None and self._retry_worker.has_retained_work)
+            or (
+                self._collection_worker is not None
+                and self._collection_worker.has_retained_work
+            )
         ):
             self._set_state(RuntimeState.FAILED)
             _logger.error(
@@ -2780,8 +2936,33 @@ class MedreApp:
                     "Error stopping retry worker during startup cleanup: %s", exc
                 )
 
-        if (self._ingress_worker is not None and self._ingress_worker.running) or (
-            self._retry_worker is not None and self._retry_worker.has_retained_work
+        # Stop the content collection worker if it was started.  Same
+        # deferred-cancellation discipline: a collection transaction must
+        # never overlap the storage close below.
+        if self._collection_worker is not None:
+            try:
+                await self._collection_worker.stop()
+                _logger.info("Content collection worker stopped during startup cleanup")
+            except asyncio.CancelledError as c_exc:
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug(
+                    "Cancelled while stopping content collection worker (deferred)"
+                )
+            except Exception as exc:
+                _logger.error(
+                    "Error stopping content collection worker during startup "
+                    "cleanup: %s",
+                    exc,
+                )
+
+        if (
+            (self._ingress_worker is not None and self._ingress_worker.running)
+            or (self._retry_worker is not None and self._retry_worker.has_retained_work)
+            or (
+                self._collection_worker is not None
+                and self._collection_worker.has_retained_work
+            )
         ):
             self._set_state(RuntimeState.FAILED)
             _logger.error("Core cleanup refused while native work remains active")

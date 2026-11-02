@@ -97,6 +97,70 @@ async def test_collection_rejects_active_owner_opaque_and_incoming_quote(tmp_pat
         await store.close()
 
 
+async def test_transient_sqlite_condition_maps_to_typed_defer_only_error(
+    tmp_path, monkeypatch
+):
+    """sqlite3.OperationalError (locked/busy/I/O) surfaces as the typed
+    transient subclass a retention worker may defer on, preserving the
+    ``__cause__`` and the existing message discipline."""
+    import sqlite3
+
+    from medre.core.storage.backend import ContentCollectionTransientError
+
+    store = SQLiteStorage(str(tmp_path / "transient.db"))
+    await store.initialize()
+    try:
+        original = store._run_in_thread
+
+        async def _locked(func, *args, **kwargs):
+            # Intercept exactly the guarded collector's sync core so the
+            # wrapper's exception mapping is exercised, not bypassed.
+            if getattr(func, "__name__", "") == "sync_collect_event_content":
+                raise sqlite3.OperationalError("database is locked")
+            return await original(func, *args, **kwargs)
+
+        monkeypatch.setattr(store, "_run_in_thread", _locked)
+        with pytest.raises(
+            ContentCollectionTransientError, match="collection failed"
+        ) as excinfo:
+            await store.collect_event_content("candidate", dry_run=False)
+        assert isinstance(excinfo.value.__cause__, sqlite3.OperationalError)
+        assert isinstance(excinfo.value, StorageError)
+        row = await store._read_one(
+            "SELECT COUNT(*) AS n FROM event_content_collection_log"
+        )
+        assert row["n"] == 0
+    finally:
+        await store.close()
+
+
+async def test_integrity_refusal_is_plain_storage_error_not_transient(tmp_path):
+    """Semantic fail-closed refusals stay plain ``StorageError``: a caller
+    that defers only on the transient subclass must never retry them."""
+    from medre.core.storage.backend import ContentCollectionTransientError
+
+    store = SQLiteStorage(str(tmp_path / "refusal.db"))
+    await store.initialize()
+    try:
+        with pytest.raises(StorageError, match="admitted event") as excinfo:
+            await store.collect_event_content("does-not-exist", dry_run=False)
+        assert not isinstance(excinfo.value, ContentCollectionTransientError)
+        await _isolated(store)
+        await store._write(
+            "CREATE TRIGGER fail_collection BEFORE INSERT ON "
+            "event_content_collection_log BEGIN SELECT RAISE(ABORT,'test failure'); END"
+        )
+        with pytest.raises(StorageError, match="collection failed") as excinfo:
+            await store.collect_event_content("candidate", dry_run=False)
+        assert not isinstance(excinfo.value, ContentCollectionTransientError)
+        row = await store._read_one(
+            "SELECT body FROM event_body_content WHERE event_id='candidate'"
+        )
+        assert row["body"] == "private"
+    finally:
+        await store.close()
+
+
 async def test_collection_rolls_back_on_audit_write_failure(tmp_path):
     store = SQLiteStorage(str(tmp_path / "atomic.db"))
     await store.initialize()

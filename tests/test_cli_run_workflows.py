@@ -320,6 +320,7 @@ class TestSnapshotOnShutdown:
             "accounting",
             "adapters",
             "capacity",
+            "content_collection",
             "diagnostics",
             "health",
             "identity",

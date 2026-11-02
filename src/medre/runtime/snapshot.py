@@ -843,6 +843,59 @@ def build_runtime_snapshot(
             "succeeded": 0,
         }
 
+    # -- Content collection worker state ---------------------------------------
+    # Read defensively like the retry projection: the runtime-local worker
+    # state is flags, counters, and a timestamp only — never event IDs,
+    # message bodies, or native identifiers.
+    collection_state_obj: Any = getattr(app, "content_collection_state", None)
+    collection_snapshot: dict[str, Any]
+    if collection_state_obj is not None:
+        collection_snapshot = {
+            "abandoned": getattr(collection_state_obj, "abandoned", False),
+            "already_collected": getattr(collection_state_obj, "already_collected", 0),
+            "awaiting_activation": getattr(
+                collection_state_obj, "awaiting_activation", False
+            ),
+            "blocked": getattr(collection_state_obj, "blocked", 0),
+            "collected": getattr(collection_state_obj, "collected", 0),
+            "degraded": getattr(collection_state_obj, "degraded", False),
+            "empty": getattr(collection_state_obj, "empty", 0),
+            "enabled": getattr(collection_state_obj, "enabled", False),
+            "epoch": getattr(collection_state_obj, "epoch", None),
+            "events_examined": getattr(collection_state_obj, "events_examined", 0),
+            "failed": getattr(collection_state_obj, "failed", 0),
+            "last_sweep_at": getattr(collection_state_obj, "last_sweep_at", None),
+            "live_refresh": False,
+            "logical_bytes_removed": getattr(
+                collection_state_obj, "logical_bytes_removed", 0
+            ),
+            "restricted": getattr(collection_state_obj, "restricted", False),
+            "rows_removed": getattr(collection_state_obj, "rows_removed", 0),
+            "running": getattr(collection_state_obj, "running", False),
+            "scope": "process_local",
+        }
+    else:
+        collection_snapshot = {
+            "abandoned": False,
+            "already_collected": 0,
+            "awaiting_activation": False,
+            "blocked": 0,
+            "collected": 0,
+            "degraded": False,
+            "empty": 0,
+            "enabled": False,
+            "epoch": None,
+            "events_examined": 0,
+            "failed": 0,
+            "last_sweep_at": None,
+            "live_refresh": False,
+            "logical_bytes_removed": 0,
+            "restricted": False,
+            "rows_removed": 0,
+            "running": False,
+            "scope": "process_local",
+        }
+
     # -- Assemble final sectioned snapshot (sorted keys) ---------------------
 
     # -- Adapter diagnostics (safe per-adapter) --------------------------------
@@ -877,6 +930,7 @@ def build_runtime_snapshot(
             "scope": "process_local",
             "state": capacity_snapshot,
         },
+        "content_collection": collection_snapshot,
         "diagnostics": diagnostics_section,
         "health": {
             "live_health": live_health_snapshot,

@@ -156,7 +156,9 @@ may delete durable delivery facts, native references, radio plans, receipts,
 delivery observations, the separated diagnostics side table, attachments,
 provider state, WAL, backups or external copies. Logical removed
 byte counts MUST NOT be presented as disk savings or secure erasure.
-Automatic or periodic collection remains disabled.
+Automatic or periodic collection is enabled only through the operator
+retention policy declared below; absent that declaration it remains
+disabled.
 
 ## Operator retention policy declaration and activation boundary
 
@@ -190,6 +192,26 @@ heartbeat MUST never move backward; a clock rollback is a no-op by
 construction. Epoch rows are not event-scoped, carry no foreign key, hold
 no content, and are append-only: the heartbeat is the only update and no
 delete exists.
+
+Each new collection worker, including an explicitly invoked first sweep,
+MUST establish a new activation
+boundary when its predecessor epoch is still fresh. A fresh heartbeat
+proves only that some previous worker was active recently; it cannot prove
+that the operator did not run MEDRE with retention disabled in the
+intervening interval. The resulting conservative new watermark MAY leave
+previously eligible content retained. A stale predecessor MUST still fail
+closed into `awaiting_activation` until an explicit operator epoch is opened;
+a worker MUST NOT silently renew a stale epoch. Once running, a worker
+MUST reuse its current epoch unless an operator opens a newer one.
+
+A background collector MUST recheck the newest epoch identity and event
+admission watermark in the same `BEGIN IMMEDIATE` transaction as deletion
+and the collection receipt. An epoch replaced after candidate paging MUST
+NOT authorize collection. The worker MUST restart its keyset from the new
+epoch scope instead of treating epoch rotation as malformed content.
+Heartbeat writes MUST refuse to update a superseded epoch. The manual
+exact-event collector remains a separate, explicitly confirmed operator
+operation and does not inherit the background policy epoch guard.
 
 The aggregate policy preview
 (`SQLiteStorage.preview_content_retention`, schema
@@ -240,10 +262,26 @@ Retention under a declared relay-only policy is: "Best-effort, bounded
 logical collection of eligible isolated core text after accepted owners
 settle; refused or unmeasured copies are retained and reported." It is
 not physical erasure, a hard privacy deadline, or retention for
-attachments, provider stores, or plugin-held content. No scheduler
-invokes collection automatically, and automatic or periodic collection
-remains disabled; the exact-event `medre storage collect` workflow
-remains the operator's explicit path.
+attachments, provider stores, or plugin-held content.
+
+The runtime's single owner-fenced collection worker invokes collection
+automatically only under this declared relay-only policy: it is
+constructed solely in LIVE scope for the one live storage handle, gates
+every sweep on a fresh durable activation epoch (the first runtime start
+under the enabled policy opens one with `runtime-first-start`
+provenance; a stale heartbeat suspends collection and heartbeating until
+a fresh operator-opened epoch appears), pages candidates through the
+bounded selector above, and mutates only through the guarded per-event
+collector. Transient SQLite failures defer the remaining page under a
+bounded backoff with an observable degraded state. Backoff MUST be at most
+ten policy intervals and at most the epoch grace minus one interval, reserving
+time for processing. Repeated integrity refusals restrict the worker
+(fail-closed stop) until operator
+intervention. REPLAY scope never constructs the worker, a declared
+`retain` policy never collects, and disabling the section stops future
+collection while already collected bytes never reappear. The exact-event
+`medre storage collect` workflow remains the operator's explicit path
+for stopped storage.
 
 ## Bounded operator workflow
 

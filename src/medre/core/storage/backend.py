@@ -91,6 +91,10 @@ class StorageError(Exception):
     """Base exception for all storage-related errors."""
 
 
+class OutboxSnapshotReadError(StorageError):
+    """A snapshot read failed before integrity could be assessed; retry is safe."""
+
+
 class ContentCollectionEpochChanged(StorageError):
     """The selected retention epoch is no longer current or owns no such event.
 
@@ -99,8 +103,16 @@ class ContentCollectionEpochChanged(StorageError):
     """
 
 
-class OutboxSnapshotReadError(StorageError):
-    """A snapshot read failed before integrity could be assessed; retry is safe."""
+class ContentCollectionTransientError(StorageError):
+    """The guarded collector failed on a transient SQLite condition.
+
+    Raised when ``collect_event_content`` fails on a transient SQLite
+    condition (lock, busy, I/O) that a later attempt may clear. Semantic
+    integrity refusals — inconsistent admission identity, unexpectedly
+    recreated content, missing events — remain plain :class:`StorageError`
+    and stay fail-closed: they are never retried by a caller that treats
+    this subclass as defer-only.
+    """
 
 
 class EventNotFoundError(StorageError):
@@ -1006,12 +1018,18 @@ class StorageBackend(Protocol):
     # -- Content lifecycle --------------------------------------------------
 
     async def collect_event_content(
-        self, event_id: str, *, dry_run: bool = True
+        self,
+        event_id: str,
+        *,
+        dry_run: bool = True,
+        retention_epoch: int | None = None,
     ) -> dict[str, Any]:
         """Preview or atomically collect a classified, owner-free core subset.
 
         This never deletes immutable delivery facts, native state or external
         copies. A dry-run is a snapshot, not permission for a later mutation.
+        When invoked by the automatic worker, ``retention_epoch`` fences
+        the write to the newest activation and its admission boundary.
         """
         ...
 
