@@ -1456,6 +1456,19 @@ medre storage collect [--storage-path PATH] [--mode retain|relay-only] [--limit 
     a read-only preview; relay-only applying additionally requires --yes on
     stopped bridge storage. No scheduler.
 
+medre storage retention status [--storage-path PATH]
+    Storage management (read-only). Reports the retention policy's latest
+    activation epoch, an honest worker-heartbeat freshness observation, the
+    collected-event count, and the bounded retention preview — aggregate
+    metadata only, with no message content or identifiers. Fails closed on
+    unreadable storage.
+
+medre storage retention activate [--storage-path PATH] [--yes]
+    Storage management (policy activation). Opens a new relay-only
+    activation epoch whose watermark is the current admission high-water;
+    requires --yes and is safe against a live database. `medre storage
+    collect --apply` remains the stopped-storage maintenance path.
+
 medre storage reset [--storage-path PATH]
     Storage management (destructive). Deletes the database; accepts
     --backup and --yes.

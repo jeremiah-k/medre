@@ -68,6 +68,8 @@ If at least one adapter starts but others fail, the runtime enters `RUNNING` wit
 
 The retry and durable-ingress workers activate only after every adapter has settled, so due retry work is never claimed against an adapter that is still starting.
 
+When the opt-in `relay-only` content-retention policy is activated, the bounded collection worker joins them against the same storage owner; `medre storage retention status` reports its activation epoch and heartbeat freshness. See [privacy and message storage](message-storage.md).
+
 Diagnostic surfaces for degraded startup:
 
 - **Console output** — logs which adapters started and which failed.
