@@ -8,7 +8,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import normalize_replay_run_id
+from medre.core.observability.exact_target import ExactTargetSelection
 from medre.core.storage.backend import DEFAULT_QUERY_LIMIT
 
 
@@ -150,6 +152,24 @@ class ReplayRequest:
         Concurrent executions sharing that run ID reuse one generation.
         Different or empty run IDs remain intentionally repeatable, and
         transport retry/recovery is still at-least-once rather than exactly-once.
+    exact_target_selections:
+        Restrict delivery admission to these exact delivery targets.  Each
+        element is an :class:`~medre.core.observability.exact_target.
+        ExactTargetSelection` carrying the full ``(event_id,
+        delivery_plan_id, target_adapter, target_channel)`` identity, with
+        ``None`` as the deliberate no-channel decision; the empty string is
+        rejected by the selection itself.  ``()`` (empty) means no
+        restriction.  When non-empty (only meaningful for modes that
+        include the ``deliver`` stage), a delivery plan reaches delivery
+        admission only when its full identity names a selection, and each
+        named target is re-verified against persisted outbox state at
+        admission: an identity with no outbox row, with contested live
+        generations, or whose frozen staged binding contradicts the
+        persisted plan is refused and no send is staged for it.  Malformed
+        selection input raises ``ValueError``: an empty-string channel or an
+        incomplete identity when the selection itself is constructed, and a
+        non-selection element or a repeated identity when the request is
+        constructed.
     """
 
     time_start: datetime | None = None
@@ -163,10 +183,23 @@ class ReplayRequest:
     target_adapters: list[str] | None = None
     route_ids: tuple[str, ...] = ()
     run_id: str = ""
+    exact_target_selections: tuple[ExactTargetSelection, ...] = ()
 
     def __post_init__(self) -> None:
-        """Normalize the optional durable replay execution key."""
+        """Normalize the execution key and validate exact-target selections."""
         self.run_id = normalize_replay_run_id(self.run_id) or ""
+        seen: set[DeliveryIdentity] = set()
+        for selection in self.exact_target_selections:
+            if not isinstance(selection, ExactTargetSelection):
+                raise ValueError(
+                    "exact_target_selections elements must be ExactTargetSelection"
+                    " instances carrying one complete delivery identity"
+                )
+            if selection.identity in seen:
+                raise ValueError(
+                    "exact_target_selections must not repeat one delivery identity"
+                )
+            seen.add(selection.identity)
 
 
 @dataclass
@@ -184,7 +217,9 @@ class ReplayResult:
         ``"passed"`` -- stage completed successfully.
         ``"skipped"`` -- stage was not executed because an upstream
         dependency was unavailable, delivery was suppressed (dry_run),
-        or the target adapter was excluded by ``target_adapters``.
+        the target adapter was excluded by ``target_adapters``, or the
+        delivery target was outside or refused by
+        ``exact_target_selections``.
         ``"failed"`` -- stage ran but the result was negative (e.g.
         integrity check failed, no routes matched).
         ``"error"`` -- an exception was raised during stage execution.
