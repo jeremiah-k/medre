@@ -19,8 +19,10 @@ from typing import Any
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.replay.summary import collect_replay_summary
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
+from medre.core.observability.exact_target import ExactTargetSelection
 from medre.core.observability.sanitization import sanitize_error
 from medre.core.supervision.diagnostic_contract import (
     PENDING_DELIVERY_COUNT,
@@ -41,6 +43,68 @@ _BEST_EFFORT_WARNING = (
     "run IDs, and ambiguous transport retry/recovery. Use --mode dry_run first "
     "to preview."
 )
+
+
+def _parse_exact_target_specs(
+    exact_targets: list[str] | None, exact_no_channel: list[str] | None
+) -> tuple[ExactTargetSelection, ...]:
+    """Parse repeatable ``--exact-target``/``--exact-no-channel`` values.
+
+    One syntax: ``--exact-target EVENT:PLAN:ADAPTER`` names the deliberate
+    no-channel identity and ``--exact-target EVENT:PLAN:ADAPTER:CHANNEL``
+    names one channel. The channel is everything after the third colon, so
+    colon-bearing channels such as Matrix rooms stay intact. An empty channel
+    component is rejected: persistence would normalize it to the no-channel
+    identity and silently widen the selection. ``--exact-no-channel
+    EVENT:PLAN:ADAPTER`` is the explicit spelling of the three-component
+    form and accepts exactly three components. Each flag is repeatable;
+    one delivery identity may not repeat across them.
+    """
+    selections: list[ExactTargetSelection] = []
+    seen: set[DeliveryIdentity] = set()
+
+    def add(spec: str, *, no_channel: bool, flag: str) -> None:
+        parts = spec.split(":", 3)
+        if no_channel and len(parts) != 3:
+            raise ValueError(
+                f"Invalid {flag} {spec!r}: expected exactly"
+                " EVENT:PLAN:ADAPTER; a channel-bearing identity cannot"
+                " select no channel"
+            )
+        if len(parts) < 3:
+            raise ValueError(
+                f"Invalid {flag} {spec!r}: expected"
+                " EVENT:PLAN:ADAPTER or EVENT:PLAN:ADAPTER:CHANNEL"
+            )
+        channel = None if len(parts) == 3 else parts[3]
+        if channel == "":
+            raise ValueError(
+                f"Invalid {flag} {spec!r}: the empty string is not a channel"
+                " decision; omit the ':CHANNEL' component or use"
+                " --exact-no-channel"
+            )
+        try:
+            selection = ExactTargetSelection(
+                event_id=parts[0],
+                delivery_plan_id=parts[1],
+                target_adapter=parts[2],
+                target_channel=channel,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Invalid {flag} {spec!r}: {exc}") from exc
+        if selection.identity in seen:
+            raise ValueError(
+                f"Duplicate exact-target selection for one delivery"
+                f" identity: {spec!r}"
+            )
+        seen.add(selection.identity)
+        selections.append(selection)
+
+    for spec in exact_targets or []:
+        add(spec, no_channel=False, flag="--exact-target")
+    for spec in exact_no_channel or []:
+        add(spec, no_channel=True, flag="--exact-no-channel")
+    return tuple(selections)
 
 
 async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
@@ -159,6 +223,8 @@ async def _replay(
     route_ids: list[str] | None,
     limit: int,
     run_id: str = "",
+    exact_targets: list[str] | None = None,
+    exact_no_channel: list[str] | None = None,
 ) -> None:
     """Execute a replay operation via the built (not started) runtime."""
     # Validate mode.
@@ -169,6 +235,16 @@ async def _replay(
             f"Valid modes: {', '.join(sorted(mode_map.keys()))}",
             file=sys.stderr,
         )
+        sys.exit(EXIT_CONFIG)
+
+    # Validate exact-target selections before touching any configuration:
+    # malformed operator input is a config error, never a runtime failure.
+    try:
+        exact_selections = _parse_exact_target_specs(
+            exact_targets, exact_no_channel
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
 
     replay_mode = mode_map[mode]
@@ -235,15 +311,21 @@ async def _replay(
         # Initialize storage for read access without starting the runtime.
         await app.storage.initialize()
     try:
-        # Build replay request.
-        request = ReplayRequest(
-            mode=replay_mode,
-            correlation_ids=[event_id] if event_id else None,
-            target_adapters=target_adapters,
-            route_ids=tuple(route_ids) if route_ids else (),
-            limit=limit,
-            run_id=run_id,
-        )
+        # Build replay request. Malformed selections raise ValueError from
+        # the request itself; the CLI reports them as configuration errors.
+        try:
+            request = ReplayRequest(
+                mode=replay_mode,
+                correlation_ids=[event_id] if event_id else None,
+                target_adapters=target_adapters,
+                route_ids=tuple(route_ids) if route_ids else (),
+                limit=limit,
+                run_id=run_id,
+                exact_target_selections=exact_selections,
+            )
+        except ValueError as exc:
+            print(f"Error: invalid replay request: {exc}", file=sys.stderr)
+            sys.exit(EXIT_CONFIG)
 
         # Execute replay.
         t0 = _time.monotonic()

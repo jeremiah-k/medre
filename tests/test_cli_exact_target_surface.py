@@ -14,13 +14,17 @@ from __future__ import annotations
 import io
 import json
 import os
+import sqlite3
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
+from medre.cli import main as cli_main
 from medre.cli.main import _build_parser
+from medre.cli.replay_commands import _parse_exact_target_specs
 from medre.cli.resolve_commands import _resolve_unstarted
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.storage.sqlite._operator_decision import (
     ACTIVE_NATIVE_UNDECIDABLE,
     COMPETING_GENERATION,
@@ -478,3 +482,224 @@ async def test_decision_preview_requires_the_private_local_store(
     with pytest.raises(SystemExit) as exc:
         await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
     assert exc.value.code == 3
+
+
+# ---------------------------------------------------------------------------
+# Replay: exact-target specification parsing
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clean_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "MEDRE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def _selection(spec: str, *, no_channel: bool = False) -> DeliveryIdentity:
+    selections = (
+        _parse_exact_target_specs([spec], None)
+        if not no_channel
+        else _parse_exact_target_specs(None, [spec])
+    )
+    assert len(selections) == 1
+    return selections[0].identity
+
+
+def test_three_component_exact_target_selects_the_no_channel_identity():
+    identity = _selection("evt:plan:adapter")
+    assert identity == DeliveryIdentity("evt", "plan", "adapter", None)
+
+
+def test_four_component_exact_target_names_one_channel():
+    identity = _selection("evt:plan:adapter:!room:server")
+    assert identity == DeliveryIdentity("evt", "plan", "adapter", "!room:server")
+
+
+def test_explicit_no_channel_flag_selects_the_no_channel_identity():
+    identity = _selection("evt:plan:adapter", no_channel=True)
+    assert identity == DeliveryIdentity("evt", "plan", "adapter", None)
+
+
+def test_empty_channel_component_is_rejected_never_widened():
+    with pytest.raises(ValueError, match="empty string is not a channel"):
+        _parse_exact_target_specs(["evt:plan:adapter:"], None)
+
+
+def test_incomplete_identity_is_rejected():
+    for spec in ("evt", "evt:plan"):
+        with pytest.raises(ValueError, match="expected"):
+            _parse_exact_target_specs([spec], None)
+    with pytest.raises(ValueError, match="expected exactly"):
+        _parse_exact_target_specs(None, ["evt:plan:adapter:!room"])
+    with pytest.raises(ValueError, match="Invalid --exact-target"):
+        _parse_exact_target_specs(["evt::adapter"], None)
+
+
+def test_repeated_identity_across_flags_is_rejected():
+    with pytest.raises(ValueError, match="Duplicate exact-target"):
+        _parse_exact_target_specs(
+            ["evt:plan:adapter"], ["evt:plan:adapter"]
+        )
+    with pytest.raises(ValueError, match="Duplicate exact-target"):
+        _parse_exact_target_specs(
+            ["evt:plan:adapter:ch", "evt:plan:adapter:ch"], None
+        )
+
+
+# ---------------------------------------------------------------------------
+# Replay: CLI exit codes and wiring
+# ---------------------------------------------------------------------------
+
+_REPLAY_YAML = """\
+runtime:
+  name: exact-target-replay-surface
+  shutdown_timeout_seconds: 10
+
+logging:
+  level: WARNING
+  format: text
+
+storage:
+  backend: sqlite
+  path: "{storage_path}"
+
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: "@bot:fake.local"
+      access_token: fake
+      room_allowlist:
+        - "!room:fake.local"
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: exact-target-surface
+
+routes:
+  mx_to_mesh:
+    source_adapters:
+      - fake_matrix
+    dest_adapters:
+      - fake_meshtastic
+    directionality: source_to_dest
+    enabled: true
+"""
+
+
+def _replay_cli(*options: str) -> tuple[int, str, str]:
+    stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
+    code = 0
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+        try:
+            cli_main(list(options))
+        except SystemExit as exc:
+            code = int(exc.code or 0)
+    return code, stdout_buf.getvalue(), stderr_buf.getvalue()
+
+
+def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
+    db_path = tmp_path / "exact_target_replay.db"
+    config_path = tmp_path / "exact_target_replay.yaml"
+    config_path.write_text(_REPLAY_YAML.format(storage_path=str(db_path)))
+    code, stdout, stderr = _replay_cli(
+        "smoke",
+        "--config",
+        str(config_path),
+        "--json",
+    )
+    assert code == 0, f"smoke seed failed: {stderr}"
+    report = json.loads(stdout)
+    assert report["status"] == "passed"
+    return report["event_id"], config_path
+
+
+@pytest.mark.parametrize(
+    "specs",
+    [
+        ("--exact-target", "evt:plan"),
+        ("--exact-target", "evt:plan:adapter:"),
+        ("--exact-no-channel", "evt:plan:adapter:!room"),
+        ("--exact-target", "evt:plan:adapter", "--exact-target", "evt:plan:adapter"),
+    ],
+)
+def test_malformed_exact_target_specifications_exit_with_config_error(
+    tmp_path: Path, specs
+):
+    config_path = tmp_path / "unused.yaml"
+    config_path.write_text(_REPLAY_YAML.format(storage_path=str(tmp_path / "u.db")))
+    code, _, stderr = _replay_cli(
+        "replay",
+        "--config",
+        str(config_path),
+        "--mode",
+        "dry_run",
+        "--event",
+        "whatever",
+        *specs,
+    )
+    assert code == 2
+    assert "Invalid" in stderr or "Duplicate" in stderr
+
+
+def test_dry_run_accepts_exact_target_selections(tmp_path: Path):
+    event_id, config_path = _seed_replay_db(tmp_path)
+    code, stdout, stderr = _replay_cli(
+        "replay",
+        "--config",
+        str(config_path),
+        "--mode",
+        "dry_run",
+        "--event",
+        event_id,
+        "--json",
+        "--exact-target",
+        "evt:plan:adapter:!room:server",
+        "--exact-no-channel",
+        "evt2:plan2:adapter2",
+    )
+    assert code == 0, f"dry_run failed: {stderr}"
+    summary = json.loads(stdout)
+    assert summary["mode"] == "dry_run"
+    assert summary["events_replayed"] >= 4
+
+
+def test_best_effort_admits_nothing_outside_the_named_selection(tmp_path: Path):
+    event_id, config_path = _seed_replay_db(tmp_path)
+    db_path = tmp_path / "exact_target_replay.db"
+    code, stdout, stderr = _replay_cli(
+        "replay",
+        "--config",
+        str(config_path),
+        "--mode",
+        "best_effort",
+        "--event",
+        event_id,
+        "--json",
+        "--exact-target",
+        "absent:plan:adapter:!room:server",
+    )
+    assert code == 0, f"best_effort failed: {stderr}"
+    summary = json.loads(stdout)
+    assert summary["mode"] == "best_effort"
+    # The named identity matches no persisted delivery plan, so delivery
+    # admission admits no new generation for the seeded event.
+    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM delivery_outbox WHERE event_id=?", (event_id,)
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert count == 1
