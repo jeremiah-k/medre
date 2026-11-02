@@ -582,9 +582,7 @@ async def test_verification_storage_failure_propagates_and_sends_nothing(
     async def failing_read(event_id: str, *, metadata_only: bool = False) -> list[Any]:
         raise StorageError("backend read failed")
 
-    monkeypatch.setattr(
-        temp_storage, "list_outbox_items_for_event", failing_read
-    )
+    monkeypatch.setattr(temp_storage, "list_outbox_items_for_event", failing_read)
     engine = make_engine(temp_storage, pipeline=pipeline)
     results = [result async for result in engine.replay(request)]
 
@@ -722,9 +720,7 @@ async def test_agreement_uninterpretable_snapshot_refuses_on_both_surfaces(
 
 
 async def test_agreement_absent_event_refuses_on_both_surfaces(temp_storage) -> None:
-    await _assert_agreement(
-        temp_storage, _selection(), expected_category="not_found"
-    )
+    await _assert_agreement(temp_storage, _selection(), expected_category="not_found")
 
 
 async def test_agreement_selects_one_channel_and_counts_sibling_on_both_surfaces(

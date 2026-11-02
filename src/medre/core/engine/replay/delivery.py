@@ -129,9 +129,7 @@ class _ExactTargetRefusal(NamedTuple):
     def reason(self) -> str:
         """The precise, stable refusal reason for this target."""
         channel = (
-            self.target_channel
-            if self.target_channel is not None
-            else "no-channel"
+            self.target_channel if self.target_channel is not None else "no-channel"
         )
         return (
             f"exact_target_refused: {self.category} "
@@ -545,9 +543,7 @@ class _ReplayDeliveryMixin:
                 if refusals:
                     reason = "; ".join(refusal.reason for refusal in refusals)
                 else:
-                    reason = (
-                        "No delivery plans matched exact_target_selections filter"
-                    )
+                    reason = "No delivery plans matched exact_target_selections filter"
                 if self._diagnostician is not None:
                     self._diagnostician.record_replay_skip(event.event_id, reason)
                 return ReplayResult(
