@@ -537,6 +537,6 @@ async def test_channel_scoped_preview_names_the_exact_target_replay_flag(
     )
     assert any(
         "--exact-target EVENT:PLAN:ADAPTER:CHANNEL" in warning
-        and "--exact-no-channel" in warning
+        and "--exact-no-channel EVENT:PLAN:ADAPTER" in warning
         for warning in warnings
     )

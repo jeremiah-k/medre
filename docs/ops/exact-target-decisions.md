@@ -20,7 +20,9 @@ never a credential.
 Given the full identity — event, delivery plan, adapter, and an explicit
 channel decision (`--target-channel CHANNEL` or `--no-channel`, never an
 empty string) — the preview reports the current persisted state without
-authorizing anything:
+authorizing anything. The preview opens the state file writable; its
+content-authority read can durably record an expired mandatory dependency.
+The output remains metadata-only and the outbox row is unchanged:
 
 ```bash
 medre resolve --storage-path /private/state.sqlite --event EVENT \

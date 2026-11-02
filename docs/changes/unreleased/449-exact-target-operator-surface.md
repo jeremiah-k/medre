@@ -33,3 +33,19 @@ The recovery runbook keeps its adapter/route warning for replays without an
 exact selection and, for channel-scoped previewable failures, also names
 the exact-target replay flag. The operator guide for the decision flow is
 `docs/ops/exact-target-decisions.md`.
+
+Replay request validation runs before configuration loading or adapter startup.
+Smoke-backed replay CLI qualifications require registered fake providers and
+belong to the adapter compatibility tier; the core suite retains request
+validation, exact-target parsing, and audited decision tests. Exact-target
+flags restrict only side-effecting delivery admission: `dry_run` reports
+route/plan/render stages without testing that admission scope.
+
+Decision previews open their private state file writable because a content
+read may record a durable mandatory dependency expiry observation; they do
+not change the observed outbox row or authorize delivery.
+
+Replay selections reject whitespace-only event, plan, adapter, or channel
+components before loading configuration. Operator guidance distinguishes the
+boolean no-channel inspection flag from the replay flag, which requires the
+full `EVENT:PLAN:ADAPTER` identity argument.

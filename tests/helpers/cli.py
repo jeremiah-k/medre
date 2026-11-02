@@ -94,3 +94,16 @@ def _run_cli_raw(*args: str) -> tuple[str, str, int | None]:
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
     return stdout.getvalue(), stderr.getvalue(), code
+
+
+def _replay_cli(*options: str) -> tuple[int, str, str]:
+    """Run CLI and return (exit_code, stdout, stderr) with code always int."""
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    code = 0
+    try:
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            main(list(options))
+    except SystemExit as e:
+        code = int(e.code or 0)
+    return code, stdout.getvalue(), stderr.getvalue()

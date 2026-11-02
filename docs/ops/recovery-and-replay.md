@@ -1024,9 +1024,13 @@ do not turn a preview into `best_effort` until its scope matches the intended
 recovery. These commands do not execute changes or settle uncertain handoffs.
 When one exact destination has been identified and verified, name it with
 `medre replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL` (or
-`--exact-no-channel` for a channel-less identity) to restrict delivery
+`medre replay --exact-no-channel EVENT:PLAN:ADAPTER` for a channel-less
+identity) to restrict delivery
 admission to that single identity; replays without that flag still select
-adapters and routes only.
+adapters and routes only. `dry_run` does not evaluate exact-target selection:
+it reports route/plan/render stages and suppresses all delivery, even if its
+named exact identities would be refused by `best_effort`. Use the exact-target
+preview to check the persisted identity before a side-effecting replay.
 
 ## Inspect one exact delivery leg before intervention
 
@@ -1045,8 +1049,8 @@ the current snapshot and `excluded_sibling_count` makes the limited scope
 visible. **This is not a send command.** A replay without an exact-target
 flag still uses broad adapter/route selection and can affect other rooms;
 name the identified destination with `medre replay --exact-target
-EVENT:PLAN:ADAPTER:CHANNEL` when that exact target is the intended recovery
-scope. Uncertain, active or scheduled attempts remain under their original
+EVENT:PLAN:ADAPTER:CHANNEL` or `medre replay --exact-no-channel
+EVENT:PLAN:ADAPTER` when that exact target is the intended recovery scope. Uncertain, active or scheduled attempts remain under their original
 lifecycle owner; an audited resume/resolve decision over an unstarted target
 is recorded separately with `medre resolve --action` (see
 [exact-target decisions](exact-target-decisions.md)).

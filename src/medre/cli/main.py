@@ -770,7 +770,9 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Restrict delivery admission to one exact target (repeatable). "
             "Three components name the no-channel identity; a fourth names "
-            "the channel. An empty channel component is rejected"
+            "the channel. An empty channel component is rejected. "
+            "In dry_run, selection is not evaluated; only best_effort "
+            "checks exact-target admission"
         ),
     )
     replay_p.add_argument(

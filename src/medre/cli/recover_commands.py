@@ -114,7 +114,7 @@ async def _build_event_recovery_runbook(
     ``delivery_actions`` also includes current work without a receipt.
     Recommendations follow current ownership and contain inspection commands or
     adapter/route-scoped dry-run previews, with inspection as the fallback when
-    no actionable commands remain. Replay filters cannot isolate channels.
+    no actionable commands remain. Generated replay previews cannot isolate channels.
     """
     tl_result = await _timeline.assemble_event_timeline(storage, event_id)
     if tl_result is None:
@@ -407,7 +407,8 @@ async def _build_event_recovery_runbook(
         runbook["warnings"].append(
             "When one exact destination is identified, name it with 'medre "
             "replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL' (or "
-            "'--exact-no-channel' when the stored identity has no channel); "
+            "'--exact-no-channel EVENT:PLAN:ADAPTER' when the stored "
+            "identity has no channel); "
             "replays without that flag still select adapters and routes only."
         )
 

@@ -53,7 +53,7 @@ def _parse_exact_target_specs(
     One syntax: ``--exact-target EVENT:PLAN:ADAPTER`` names the deliberate
     no-channel identity and ``--exact-target EVENT:PLAN:ADAPTER:CHANNEL``
     names one channel. The channel is everything after the third colon, so
-    colon-bearing channels such as Matrix rooms stay intact. An empty channel
+    colon-bearing channels such as Matrix rooms stay intact. A blank channel
     component is rejected: persistence would normalize it to the no-channel
     identity and silently widen the selection. ``--exact-no-channel
     EVENT:PLAN:ADAPTER`` is the explicit spelling of the three-component
@@ -76,10 +76,14 @@ def _parse_exact_target_specs(
                 f"Invalid {flag} {spec!r}: expected"
                 " EVENT:PLAN:ADAPTER or EVENT:PLAN:ADAPTER:CHANNEL"
             )
-        channel = None if len(parts) == 3 else parts[3]
-        if channel == "":
+        if any(not part.strip() for part in parts[:3]):
             raise ValueError(
-                f"Invalid {flag} {spec!r}: the empty string is not a channel"
+                f"Invalid {flag} {spec!r}: event, plan and adapter must be" " nonblank"
+            )
+        channel = None if len(parts) == 3 else parts[3]
+        if channel is not None and not channel.strip():
+            raise ValueError(
+                f"Invalid {flag} {spec!r}: a blank string is not a channel"
                 " decision; omit the ':CHANNEL' component or use"
                 " --exact-no-channel"
             )
@@ -246,6 +250,21 @@ async def _replay(
         sys.exit(EXIT_CONFIG)
 
     replay_mode = mode_map[mode]
+    # Request construction validates the execution key and selection
+    # identity before configuration loading or adapter startup.
+    try:
+        request = ReplayRequest(
+            mode=replay_mode,
+            correlation_ids=[event_id] if event_id else None,
+            target_adapters=target_adapters,
+            route_ids=tuple(route_ids) if route_ids else (),
+            limit=limit,
+            run_id=run_id,
+            exact_target_selections=exact_selections,
+        )
+    except ValueError as exc:
+        print(f"Error: invalid replay request: {exc}", file=sys.stderr)
+        sys.exit(EXIT_CONFIG)
 
     # Warn for BEST_EFFORT.
     if replay_mode == ReplayMode.BEST_EFFORT and not json_output:
@@ -309,22 +328,6 @@ async def _replay(
         # Initialize storage for read access without starting the runtime.
         await app.storage.initialize()
     try:
-        # Build replay request. Malformed selections raise ValueError from
-        # the request itself; the CLI reports them as configuration errors.
-        try:
-            request = ReplayRequest(
-                mode=replay_mode,
-                correlation_ids=[event_id] if event_id else None,
-                target_adapters=target_adapters,
-                route_ids=tuple(route_ids) if route_ids else (),
-                limit=limit,
-                run_id=run_id,
-                exact_target_selections=exact_selections,
-            )
-        except ValueError as exc:
-            print(f"Error: invalid replay request: {exc}", file=sys.stderr)
-            sys.exit(EXIT_CONFIG)
-
         # Execute replay.
         t0 = _time.monotonic()
         results = app.replay_engine.replay(request)

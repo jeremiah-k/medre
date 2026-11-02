@@ -11,16 +11,12 @@ previews, idempotent applies, and refusal rendering. Replay-side tests prove
 
 from __future__ import annotations
 
-import io
 import json
 import os
-import sqlite3
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
-from medre.cli import main as cli_main
 from medre.cli.main import _build_parser
 from medre.cli.replay_commands import _parse_exact_target_specs
 from medre.cli.resolve_commands import _resolve_unstarted
@@ -33,7 +29,7 @@ from medre.core.storage.sqlite._operator_decision import (
     TERMINAL_REOPEN_REFUSED,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from medre.config import loader as _config_loader
+from tests.helpers.cli import _replay_cli
 from tests.helpers.storage_outbox import make_outbox_item
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX owner boundary")
@@ -528,7 +524,7 @@ def test_explicit_no_channel_flag_selects_the_no_channel_identity():
 
 
 def test_empty_channel_component_is_rejected_never_widened():
-    with pytest.raises(ValueError, match="empty string is not a channel"):
+    with pytest.raises(ValueError, match="blank string is not a channel"):
         _parse_exact_target_specs(["evt:plan:adapter:"], None)
 
 
@@ -554,97 +550,16 @@ def test_repeated_identity_across_flags_is_rejected():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _declared_replay_transports(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Declare the transports the replay fixtures name.
-
-    Transport-group validation reads the import-time snapshot of installed
-    adapters, which is empty in adapter-free environments. The fixtures
-    name these groups themselves, mirroring the bridge compatibility
-    suites that declare the transports their configs use.
-    """
-    declared = frozenset({"matrix", "meshtastic", "fake_meshtastic"})
-    monkeypatch.setattr(
-        _config_loader,
-        "_KNOWN_TRANSPORTS",
-        declared | frozenset(_config_loader._KNOWN_TRANSPORTS),
-    )
-
-
-_REPLAY_YAML = """\
-runtime:
-  name: exact-target-replay-surface
-  shutdown_timeout_seconds: 10
-
-logging:
-  level: WARNING
-  format: text
-
-storage:
-  backend: sqlite
-  path: "{storage_path}"
-
-adapters:
-  matrix:
-    fake_matrix:
-      enabled: true
-      adapter_kind: fake
-      homeserver: https://fake.local
-      user_id: "@bot:fake.local"
-      access_token: fake
-      room_allowlist:
-        - "!room:fake.local"
-      encryption_mode: plaintext
-  meshtastic:
-    fake_meshtastic:
-      enabled: true
-      adapter_kind: fake
-      connection_type: fake
-      origin_label: exact-target-surface
-
-routes:
-  mx_to_mesh:
-    source_adapters:
-      - fake_matrix
-    dest_adapters:
-      - fake_meshtastic
-    directionality: source_to_dest
-    enabled: true
-"""
-
-
-def _replay_cli(*options: str) -> tuple[int, str, str]:
-    stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
-    code = 0
-    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-        try:
-            cli_main(list(options))
-        except SystemExit as exc:
-            code = int(exc.code or 0)
-    return code, stdout_buf.getvalue(), stderr_buf.getvalue()
-
-
-def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
-    db_path = tmp_path / "exact_target_replay.db"
-    config_path = tmp_path / "exact_target_replay.yaml"
-    config_path.write_text(_REPLAY_YAML.format(storage_path=str(db_path)))
-    code, stdout, stderr = _replay_cli(
-        "smoke",
-        "--config",
-        str(config_path),
-        "--json",
-    )
-    assert code == 0, f"smoke seed failed: {stderr}; stdout: {stdout[:2000]}"
-    report = json.loads(stdout)
-    assert report["status"] == "passed", f"smoke seed report: {stdout[:2000]}"
-    return report["event_id"], config_path
-
-
 @pytest.mark.parametrize(
     "specs",
     [
         ("--exact-target", "evt:plan"),
         ("--exact-target", "evt:plan:adapter:"),
+        ("--exact-target", "   :plan:adapter"),
+        ("--exact-target", "evt:  :adapter"),
+        ("--exact-target", "evt:plan:  "),
+        ("--exact-target", "evt:plan:adapter:  "),
+        ("--exact-no-channel", "evt:plan:  "),
         ("--exact-no-channel", "evt:plan:adapter:!room"),
         ("--exact-target", "evt:plan:adapter", "--exact-target", "evt:plan:adapter"),
     ],
@@ -653,7 +568,6 @@ def test_malformed_exact_target_specifications_exit_with_config_error(
     tmp_path: Path, specs
 ):
     config_path = tmp_path / "unused.yaml"
-    config_path.write_text(_REPLAY_YAML.format(storage_path=str(tmp_path / "u.db")))
     code, _, stderr = _replay_cli(
         "replay",
         "--config",
@@ -666,55 +580,22 @@ def test_malformed_exact_target_specifications_exit_with_config_error(
     )
     assert code == 2
     assert "Invalid" in stderr or "Duplicate" in stderr
+    assert not config_path.exists()
 
 
-def test_dry_run_accepts_exact_target_selections(tmp_path: Path):
-    event_id, config_path = _seed_replay_db(tmp_path)
-    code, stdout, stderr = _replay_cli(
-        "replay",
-        "--config",
-        str(config_path),
-        "--mode",
-        "dry_run",
-        "--event",
-        event_id,
-        "--json",
-        "--exact-target",
-        "evt:plan:adapter:!room:server",
-        "--exact-no-channel",
-        "evt2:plan2:adapter2",
+def test_invalid_request_is_rejected_before_loading_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from medre.cli import replay_commands
+
+    def invalid_request(**_kwargs):
+        raise ValueError("unacceptable execution key")
+
+    monkeypatch.setattr(replay_commands, "ReplayRequest", invalid_request)
+    config_path = tmp_path / "missing-config.yaml"
+    code, _stdout, stderr = _replay_cli(
+        "replay", "--config", str(config_path), "--mode", "best_effort"
     )
-    assert code == 0, f"dry_run failed: {stderr}"
-    summary = json.loads(stdout)
-    assert summary["mode"] == "dry_run"
-    assert summary["events_replayed"] >= 4
-
-
-def test_best_effort_admits_nothing_outside_the_named_selection(tmp_path: Path):
-    event_id, config_path = _seed_replay_db(tmp_path)
-    db_path = tmp_path / "exact_target_replay.db"
-    code, stdout, stderr = _replay_cli(
-        "replay",
-        "--config",
-        str(config_path),
-        "--mode",
-        "best_effort",
-        "--event",
-        event_id,
-        "--json",
-        "--exact-target",
-        "absent:plan:adapter:!room:server",
-    )
-    assert code == 0, f"best_effort failed: {stderr}"
-    summary = json.loads(stdout)
-    assert summary["mode"] == "best_effort"
-    # The named identity matches no persisted delivery plan, so delivery
-    # admission admits no new generation for the seeded event.
-    connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        count = connection.execute(
-            "SELECT COUNT(*) FROM delivery_outbox WHERE event_id=?", (event_id,)
-        ).fetchone()[0]
-    finally:
-        connection.close()
-    assert count == 1
+    assert code == 2
+    assert "invalid replay request: unacceptable execution key" in stderr
+    assert not config_path.exists()
