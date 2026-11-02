@@ -1022,6 +1022,11 @@ Generated previews filter adapters and routes. They cannot isolate one channel
 inside a route that fans out to several channels. Review every preview target;
 do not turn a preview into `best_effort` until its scope matches the intended
 recovery. These commands do not execute changes or settle uncertain handoffs.
+When one exact destination has been identified and verified, name it with
+`medre replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL` (or
+`--exact-no-channel` for a channel-less identity) to restrict delivery
+admission to that single identity; replays without that flag still select
+adapters and routes only.
 
 ## Inspect one exact delivery leg before intervention
 
@@ -1037,10 +1042,14 @@ medre recover --event EVENT --storage-path private.sqlite \
 Use `--exact-no-channel` in place of `--exact-channel` when the stored
 delivery identity has no channel. The returned `observed_fingerprint` identifies
 the current snapshot and `excluded_sibling_count` makes the limited scope
-visible. **This is not a send command.** Existing `medre replay --mode
-best_effort` still uses broad adapter/route selection and can affect other
-rooms. Do not use it to execute the exact preview. Uncertain, active or
-scheduled attempts remain under their original lifecycle owner.
+visible. **This is not a send command.** A replay without an exact-target
+flag still uses broad adapter/route selection and can affect other rooms;
+name the identified destination with `medre replay --exact-target
+EVENT:PLAN:ADAPTER:CHANNEL` when that exact target is the intended recovery
+scope. Uncertain, active or scheduled attempts remain under their original
+lifecycle owner; an audited resume/resolve decision over an unstarted target
+is recorded separately with `medre resolve --action` (see
+[exact-target decisions](exact-target-decisions.md)).
 An absent or ambiguous exact target exits with `5` (not found), while malformed
 selector flags exit with `2` (configuration). Storage/data errors are not
 reclassified as missing destinations.

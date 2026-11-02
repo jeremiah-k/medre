@@ -38,7 +38,7 @@ never stands in for a higher one.
 
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
-| G01 | P0 | Exact-destination replay selection and decision | partial | `main` provides exact inspection, unstarted cancellation, the typed #424 preview, exact-identity replay selection at delivery admission (#427), and audited exact-target decision authority (#429); the read-only guidance and storage authorities are complete. | Operator command surface wiring the selector and decision authority, then adversarial qualification. |
+| G01 | P0 | Exact-destination replay selection and decision | partial | `main` provides exact inspection, unstarted cancellation, the typed #424 preview, exact-identity replay selection at delivery admission (#427), and audited exact-target decision authority (#429); the read-only guidance and storage authorities are complete. | Adversarial qualification. |
 | G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences unstarted work and the typed preview classifies uncertainty without resolving it; the landed decision authority (#429) records auditable intent over unstarted work only and cannot decide an uncertain native handoff. | Per-transport native-acceptance proof under the exact-target authority; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | partial | Ceiling producers and admission consistency landed; the fenced cleanup transition and native enforcement qualification remain. The `content_ceiling` policy drives admission, which installs and validates the ceiling in both content rows, and the outbox adoption fence enforces the earlier-of effective deadline. The content-availability preview is not that enforcement contract; the enforcement design is documented in the delivery-deadline page under developer documentation. | The strictly fenced pending-outbox cleanup transition and the native-submit fence qualification per that design, without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the draft plugin branch carries a substantial implementation divergent from current `main` (193 main-only / 19 branch-only commits at the 2026-11-02 snapshot). | Semantic re-audit of capabilities, phase ordering, decision commit, replay qualification, and content grant scope against the merged storage, snapshot retirement, and collection epoch boundaries before any merge. |
@@ -70,7 +70,7 @@ tracks the whole, this section tracks each stage:
    queued, in-progress, or uncertain native work. Landed in #429.
 4. **Operator command surface** — explicit intent, confirmation, and
    refusal rendering wired to the contract; `medre recover` stays read-only.
-   Open.
+   Landed on main.
 5. **Adversarial qualification** — real-transaction races, restart,
    cancellation, and current-pin native evidence for the exact-target
    property. Open.
