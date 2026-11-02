@@ -165,6 +165,20 @@ def _build_exact_target_refusal_evidence(
     }
 
 
+def _build_filter_evidence(
+    suppressed: list[_CapabilitySuppressedPlan],
+    refusals: list[_ExactTargetRefusal],
+    run_id: str | None,
+) -> dict[str, Any]:
+    """Keep all admission decisions visible on every post-filter exit path."""
+    evidence: dict[str, Any] = {}
+    if suppressed:
+        evidence.update(_build_suppressed_evidence(suppressed, run_id))
+    if refusals:
+        evidence.update(_build_exact_target_refusal_evidence(refusals, run_id))
+    return evidence
+
+
 def _plan_delivery_identity(item: Any) -> DeliveryIdentity | None:
     """Extract the full delivery identity a replay plan would stage.
 
@@ -545,7 +559,10 @@ class _ReplayDeliveryMixin:
                 else:
                     reason = "No delivery plans matched exact_target_selections filter"
                 if self._diagnostician is not None:
-                    self._diagnostician.record_replay_skip(event.event_id, reason)
+                    self._diagnostician.record_replay_skip(
+                        event.event_id,
+                        "exact_target_selection_refused" if refusals else reason,
+                    )
                 return ReplayResult(
                     event_id=event.event_id,
                     stage="deliver",
@@ -594,7 +611,9 @@ class _ReplayDeliveryMixin:
                         f"capability_suppressed: {event.event_kind} "
                         f"not supported by target adapter(s)"
                     ),
-                    output=_build_suppressed_evidence(_suppressed, request.run_id),
+                    output=_build_filter_evidence(
+                        _suppressed, refusals, request.run_id
+                    ),
                     duration_ms=_elapsed_ms(t0),
                 )
 
@@ -615,6 +634,9 @@ class _ReplayDeliveryMixin:
                     stage="deliver",
                     status="error",
                     error=replay_error,
+                    output=_build_filter_evidence(
+                        _suppressed, refusals, request.run_id
+                    ) or None,
                     duration_ms=_elapsed_ms(t0),
                 )
             _capacity_acquired = True
@@ -655,18 +677,9 @@ class _ReplayDeliveryMixin:
             # Mixed BEST_EFFORT outcome: some plans delivered, others
             # capability-suppressed.  Merge suppressed-plan evidence
             # into the replay output alongside adapter results.
-            if _suppressed:
-                replay_output.update(
-                    _build_suppressed_evidence(_suppressed, request.run_id)
-                )
-
-            # Mixed exact-target outcome: some selected targets delivered,
-            # others refused by the admission gate.  Merge refusal evidence
-            # into the replay output alongside adapter results.
-            if refusals:
-                replay_output.update(
-                    _build_exact_target_refusal_evidence(refusals, request.run_id)
-                )
+            replay_output.update(
+                _build_filter_evidence(_suppressed, refusals, request.run_id)
+            )
 
             return ReplayResult(
                 event_id=event.event_id,
@@ -689,6 +702,9 @@ class _ReplayDeliveryMixin:
                 stage="deliver",
                 status="error",
                 error=str(exc),
+                output=_build_filter_evidence(
+                    _suppressed, refusals, request.run_id
+                ) or None,
                 duration_ms=_elapsed_ms(t0),
             )
         finally:

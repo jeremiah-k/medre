@@ -211,10 +211,14 @@ Refusals surface in the replay result. When every plan for an event is
 refused, the deliver result is `skipped` and its error is one
 `exact_target_refused: <category> (<event_id>, <delivery_plan_id>,
 <target_adapter>, <target_channel>)` string per refused target, joined with
-`; `, where `no-channel` stands in for the `None` channel. When some targets
+a semicolon and a space, where `no-channel` stands in for the `None` channel. Diagnostic skip
+counts use the bounded `exact_target_selection_refused` reason rather than
+target-specific identifiers; full details remain in the result. When some targets
 are admitted, the deliver result carries the refusals in its output under
 `exact_target_refusals`, each record holding the identity, the observed
-category, and the same reason string. Storage errors from the verification
+category, and the same reason string. This refusal evidence also survives when
+every admitted target is subsequently capability-suppressed, capacity-rejected,
+or fails in delivery. Storage errors from the verification
 propagate under their own authority and never become refusals.
 
 The execution selection adds no CLI surface, no decision or audit write
