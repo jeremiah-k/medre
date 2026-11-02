@@ -33,6 +33,7 @@ from medre.core.storage.sqlite._operator_decision import (
     TERMINAL_REOPEN_REFUSED,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from medre.config import loader as _config_loader
 from tests.helpers.storage_outbox import make_outbox_item
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX owner boundary")
@@ -551,6 +552,24 @@ def test_repeated_identity_across_flags_is_rejected():
 # ---------------------------------------------------------------------------
 # Replay: CLI exit codes and wiring
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _declared_replay_transports(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Declare the transports the replay fixtures name.
+
+    Transport-group validation reads the import-time snapshot of installed
+    adapters, which is empty in adapter-free environments. The fixtures
+    name these groups themselves, mirroring the bridge compatibility
+    suites that declare the transports their configs use.
+    """
+    declared = frozenset({"matrix", "meshtastic", "fake_meshtastic"})
+    monkeypatch.setattr(
+        _config_loader,
+        "_KNOWN_TRANSPORTS",
+        declared | frozenset(_config_loader._KNOWN_TRANSPORTS),
+    )
+
 
 _REPLAY_YAML = """\
 runtime:
