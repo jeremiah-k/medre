@@ -410,6 +410,64 @@ class ContentRetentionConfig:
         return self
 
 
+#: Upper bound for one declared ceiling window: 365 days expressed in
+#: seconds. A hard content privacy ceiling is a bounded local authority;
+#: longer declarations are refused at load time.
+CONTENT_CEILING_MAX_AGE_SECONDS = 31_536_000
+
+
+@dataclass(frozen=True)
+class ContentCeilingConfig:
+    """Operator hard content privacy ceiling declaration.
+
+    Disabled by default: an omitted section produces no content deadline at
+    admission and leaves every ceiling gate dormant. When enabled, the
+    declaration states one bounded window; the producer derives each event's
+    absolute UTC ceiling from the trusted local admission time plus that
+    window. The delivery deadline and cleanup legs derive their windows from
+    this ceiling and may only end earlier.
+    """
+
+    enabled: bool = False
+    max_age_seconds: int | None = None
+
+    def validate(self) -> Self:
+        """Validate the ceiling declaration.
+
+        Raises
+        ------
+        ConfigValidationError
+            If ``enabled`` is not a boolean, ``max_age_seconds`` is declared
+            with a non-integer type (in particular a boolean) or outside the
+            closed range, or the ceiling is enabled without a declared
+            window — an unbounded ceiling is refused at load time.
+        """
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError(
+                "content_ceiling.enabled must be a boolean, got "
+                f"{type(self.enabled).__name__}"
+            )
+        if self.max_age_seconds is not None:
+            if type(self.max_age_seconds) is not int:
+                raise ConfigValidationError(
+                    "content_ceiling.max_age_seconds must be an integer, got "
+                    f"{type(self.max_age_seconds).__name__}"
+                )
+            if not 1 <= self.max_age_seconds <= CONTENT_CEILING_MAX_AGE_SECONDS:
+                raise ConfigValidationError(
+                    "content_ceiling.max_age_seconds must be between 1 and "
+                    f"{CONTENT_CEILING_MAX_AGE_SECONDS} seconds, got "
+                    f"{self.max_age_seconds}"
+                )
+        if self.enabled and self.max_age_seconds is None:
+            raise ConfigValidationError(
+                "content_ceiling.enabled=true requires "
+                "content_ceiling.max_age_seconds; an unbounded ceiling is "
+                "refused"
+            )
+        return self
+
+
 @dataclass(frozen=True)
 class StorageConfig:
     """Persistence / storage configuration."""
@@ -790,5 +848,6 @@ class RuntimeConfig:
     content_retention: ContentRetentionConfig = field(
         default_factory=ContentRetentionConfig
     )
+    content_ceiling: ContentCeilingConfig = field(default_factory=ContentCeilingConfig)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
     routes: RouteConfigSet = field(default_factory=_default_route_config_set)

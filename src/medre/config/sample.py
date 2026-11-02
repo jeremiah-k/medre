@@ -38,6 +38,11 @@ attachments:
 content_retention:
   enabled: false
   mode: retain
+# The hard content privacy ceiling is disabled by default: no admission
+# content deadline is produced and every ceiling gate stays dormant. Enabling
+# requires an explicit max_age_seconds window (1..31536000 seconds).
+content_ceiling:
+  enabled: false
 """
 
 _ROUTE_HELP = """\

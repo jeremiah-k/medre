@@ -49,6 +49,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
+from medre.core.storage.content_ceiling import ContentCeilingPolicy
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import CapacityController
@@ -392,6 +393,7 @@ class RuntimeBuilder:
             route_stats=route_stats,
             runtime_accounting=runtime_accounting,
             project_sender_metadata_fn=project_sender_metadata_fn,
+            content_ceiling=self._build_content_ceiling_policy(),
         )
         pipeline_runner = PipelineRunner(pipeline_config)
 
@@ -562,6 +564,24 @@ class RuntimeBuilder:
             f"Unsupported storage backend {storage_config.backend!r}. "
             f"Supported: sqlite, memory"
         )
+
+    def _build_content_ceiling_policy(self) -> ContentCeilingPolicy | None:
+        """Convert the ceiling declaration into the core policy, or ``None``.
+
+        An omitted or disabled ``content_ceiling`` section constructs
+        nothing: admission produces no content deadline and every ceiling
+        gate stays dormant. Configuration is startup-compiled, so a changed
+        ceiling applies to later admissions only.
+        """
+        declaration = self._config.content_ceiling
+        if not declaration.enabled or declaration.max_age_seconds is None:
+            return None
+        try:
+            return ContentCeilingPolicy(
+                max_age_seconds=declaration.max_age_seconds
+            ).validate()
+        except ValueError as exc:
+            raise RuntimeConfigError(f"Invalid content ceiling policy: {exc}") from exc
 
     # -- Route retry policies ---------------------------------------------------
 

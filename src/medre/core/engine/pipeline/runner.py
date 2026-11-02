@@ -87,6 +87,7 @@ from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.content_ceiling import ContentCeilingPolicy
 from medre.core.supervision.accounting import RuntimeAccounting
 
 if TYPE_CHECKING:
@@ -149,6 +150,14 @@ class PipelineConfig:
         generic :attr:`CanonicalEvent.source_transport_id` field for
         ``original_sender`` and leaves ``original_sender_displayname``
         unset.
+    content_ceiling:
+        The operator hard content privacy ceiling, or ``None`` when the
+        ``content_ceiling`` configuration section is absent or disabled.
+        When set, :meth:`PipelineRunner.admit_ingress` derives each event's
+        absolute UTC ceiling from the trusted local admission time and
+        passes it to storage, which writes the mandatory dependency
+        deadline and the immutable ceiling row in the admission
+        transaction.
     """
 
     storage: StorageBackend
@@ -164,6 +173,7 @@ class PipelineConfig:
     runtime_accounting: RuntimeAccounting | None = None
     route_retry_policies: dict[str, RetryPolicy] = field(default_factory=dict)
     project_sender_metadata_fn: SenderProjectionFn | None = None
+    content_ceiling: ContentCeilingPolicy | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -802,7 +812,9 @@ class PipelineRunner:
         storage boundary.  Storage then commits the canonical event, inbound
         native reference, durable work marker — and, when *attachment* bytes
         are supplied, the content blob plus event/content association — in
-        one transaction.
+        one transaction.  When a content ceiling policy is configured, the
+        admission also carries its absolute UTC deadline for the mandatory
+        content dependency and immutable ceiling row.
         """
         self._validate_event(event)
         with correlation_scope(
@@ -817,6 +829,15 @@ class PipelineRunner:
             with correlation_scope(conversation_id=event.conversation_id):
                 inbound_ref = self._build_inbound_native_ref(event)
                 suppress_routing = provenance == "history"
+                content_deadline = None
+                if self._config.content_ceiling is not None:
+                    # The ceiling is local authority derived from a trusted
+                    # local admission time; storage installs and validates it
+                    # against the immutable ceiling row inside the admission
+                    # transaction and refuses a mismatched installed policy.
+                    content_deadline = self._config.content_ceiling.ceiling_for(
+                        datetime.now(timezone.utc)
+                    )
                 result = await self._config.storage.admit_ingress(
                     event,
                     inbound_ref,
@@ -824,6 +845,7 @@ class PipelineRunner:
                     suppress_routing=suppress_routing,
                     attachment=attachment,
                     attachment_limits=attachment_limits,
+                    content_deadline=content_deadline,
                 )
                 # Repair on both new and duplicate admission.  If a previous
                 # process committed ingress facts but failed during projection

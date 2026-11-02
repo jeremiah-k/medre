@@ -183,6 +183,7 @@ class _IngressMixin:
         observed_at = datetime.now(timezone.utc)
         now = observed_at.isoformat(timespec="microseconds")
         deadline: str | None = None
+        content_ceiling: tuple[str, int] | None = None
         if content_deadline is not None:
             if content_deadline.tzinfo is None or content_deadline.utcoffset() is None:
                 raise ValueError("Content deadline must be timezone-aware")
@@ -190,6 +191,14 @@ class _IngressMixin:
             if normalized <= observed_at:
                 raise ValueError("Content deadline must be after admission time")
             deadline = normalized.isoformat(timespec="microseconds")
+            # One content limit, two consumers: the mandatory dependency
+            # deadline above and the immutable ceiling row installed in the
+            # same transaction. The optional-hold bound spans the whole
+            # window; the installed row grants no optional consumer.
+            content_ceiling = (
+                deadline,
+                (normalized - observed_at) // timedelta(microseconds=1),
+            )
         suppress = suppress_routing or provenance == "history"
         work_status: IngressWorkStatus = "suppressed_history" if suppress else "pending"
 
@@ -250,6 +259,7 @@ class _IngressMixin:
                 work_status=work_status,
                 now_iso=now,
                 attachment_plan=attachment_plan,
+                content_ceiling=content_ceiling,
             )
             if not created:
                 return await self._admission_result_for_existing(

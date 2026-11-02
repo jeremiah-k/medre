@@ -33,6 +33,7 @@ from medre.config.errors import (
 from medre.config.model import (
     AdapterConfigSet,
     AttachmentConfig,
+    ContentCeilingConfig,
     ContentRetentionConfig,
     GenericAdapterRuntimeConfig,
     LoggingConfig,
@@ -89,6 +90,7 @@ _KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
         "retry",
         "attachments",
         "content_retention",
+        "content_ceiling",
         "adapters",
         "routes",
     }
@@ -141,6 +143,9 @@ _ATTACHMENTS_KNOWN_KEYS: frozenset[str] = frozenset(
 _CONTENT_RETENTION_KNOWN_KEYS: frozenset[str] = frozenset(
     {"enabled", "version", "mode", "interval_seconds", "batch_limit"}
 )
+
+#: Keys accepted in the top-level ``[content_ceiling]`` section.
+_CONTENT_CEILING_KNOWN_KEYS: frozenset[str] = frozenset({"enabled", "max_age_seconds"})
 
 #: Keys accepted in the ``[storage]`` section.
 _STORAGE_KNOWN_KEYS: frozenset[str] = frozenset({"backend", "path"})
@@ -661,6 +666,28 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         batch_limit=content_retention_data.get("batch_limit", 25),
     ).validate()
 
+    # [content_ceiling] section — operator hard content privacy ceiling
+    # declaration. Disabled by default: an omitted section produces no
+    # content deadline at admission; enabling additionally requires an
+    # explicit bounded window (validated by the typed dataclass).
+    content_ceiling_data = _get_section_dict(data, "content_ceiling")
+    _reject_unknown_keys(
+        content_ceiling_data,
+        _CONTENT_CEILING_KNOWN_KEYS,
+        section_path="content_ceiling",
+    )
+    raw_ceiling_enabled = content_ceiling_data.get("enabled", False)
+    if not isinstance(raw_ceiling_enabled, bool):
+        raise ConfigValidationError(
+            "content_ceiling.enabled must be a boolean, "
+            f"got {type(raw_ceiling_enabled).__name__}",
+            section_path="content_ceiling",
+        )
+    content_ceiling = ContentCeilingConfig(
+        enabled=raw_ceiling_enabled,
+        max_age_seconds=content_ceiling_data.get("max_age_seconds"),
+    ).validate()
+
     # Reject unknown root-level keys so operator typos (e.g. ``roues:``)
     # surface as a clear error rather than silently dropping the section.
     # Matches ``additionalProperties: false`` on the JSON schemas.
@@ -681,6 +708,7 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         retry=retry,
         attachments=attachments,
         content_retention=content_retention,
+        content_ceiling=content_ceiling,
         adapters=adapters,
         routes=routes,
     )

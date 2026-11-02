@@ -13,6 +13,10 @@ extends is
 retention background is
 [content lifecycle](content-lifecycle.md#deadlines-and-handoff-safety).
 
+The ceiling producer leg is implemented: the `content_ceiling` policy feeds
+admission, which installs and validates the ceiling in both content rows, and
+the adoption fence enforces the earlier-of effective deadline.
+
 ## Current state
 
 Two deadline families exist. They are enforced at different places and are

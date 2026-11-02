@@ -203,6 +203,17 @@ class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 
 
+class ContentCeilingMismatchError(StorageError):
+    """Raised when an admission deadline disagrees with the immutable ceiling.
+
+    One content limit is represented consistently by the
+    ``event_content_access_policies.hard_ceiling`` row and the mandatory
+    ``event_content_dependencies.deadline``. An admission that would write a
+    deadline other than the event's installed ceiling fails closed, and the
+    whole admission transaction rolls back.
+    """
+
+
 class DuplicateEventError(StorageError):
     """Raised when attempting to append a canonical event whose ``event_id``
     already exists in the store.
@@ -1048,12 +1059,18 @@ class StorageBackend(Protocol):
         suppress_routing: bool = False,
         attachment: InboundAttachmentContent | None = None,
         attachment_limits: AttachmentLimits | None = None,
+        content_deadline: datetime | None = None,
     ) -> AdmissionResult:
         """Atomically persist event, native identity, and pending work.
 
         When *attachment* bytes are supplied, the event's content blob,
         event/content association, and payload descriptor rewrite commit in
         the same transaction, bounded by *attachment_limits*.
+
+        When *content_deadline* is supplied, the mandatory content
+        dependency deadline and the immutable event ceiling row commit in
+        the same transaction, and a mismatched installed ceiling refuses
+        the admission.
 
         Authority: **create** (atomic).
         """

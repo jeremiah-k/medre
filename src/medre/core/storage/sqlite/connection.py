@@ -23,7 +23,10 @@ from pathlib import Path
 from typing import Any
 
 from medre.core.ingress.types import AttachmentAdmissionFact
-from medre.core.storage.backend import PreReleaseSchemaMismatchError
+from medre.core.storage.backend import (
+    ContentCeilingMismatchError,
+    PreReleaseSchemaMismatchError,
+)
 from medre.core.storage.sqlite.ingress_sql import (
     CLAIM_INGRESS_SELECT,
     CLAIM_INGRESS_UPDATE,
@@ -613,6 +616,7 @@ def sync_admit_ingress(
     work_status: str,
     now_iso: str,
     attachment_plan: "AttachmentAdmissionPlan | None" = None,
+    content_ceiling: "tuple[str, int] | None" = None,
 ) -> tuple[str, bool, "AttachmentAdmissionFact | None"]:
     """Atomically admit an event/native ref/work marker plus attachment bytes.
 
@@ -628,10 +632,21 @@ def sync_admit_ingress(
     :class:`~medre.core.ingress.types.AttachmentAdmissionFact` for the
     committed admission (``None`` when no bytes were supplied or the event
     was a duplicate without a stored association).
+
+    When *content_ceiling* is supplied it carries the admitted
+    ``(hard_ceiling ISO instant, optional-hold bound in microseconds)``. The
+    same ceiling is validated against — or installed into — the immutable
+    ``event_content_access_policies`` row inside this transaction, so one
+    content limit is represented consistently by both the ceiling row and
+    the mandatory dependency deadline. A mismatched existing policy raises
+    :class:`~medre.core.storage.backend.ContentCeilingMismatchError` and
+    rolls the whole admission back. Admission grants no optional read
+    authority: the installed row carries an empty consumer allowlist.
     """
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE")
+            installed_ceiling: tuple[str, int] | None = None
             existing_event_id: str | None = None
             if native_identity is not None:
                 row = db.execute(SELECT_NATIVE_EVENT_ID, native_identity).fetchone()
@@ -660,6 +675,27 @@ def sync_admit_ingress(
 
             chosen_event_ops = event_ops
             attachment_fact = None
+            if content_ceiling is not None:
+                # One content limit, two consumers: validate the admitted
+                # ceiling against an already-installed policy row before any
+                # event op runs, and remember to install the row once the
+                # canonical event exists. Duplicate admissions never reach
+                # this point; they observe the installed ceiling unchanged.
+                existing_policy = db.execute(
+                    "SELECT hard_ceiling FROM event_content_access_policies "
+                    "WHERE event_id=?",
+                    (event_id,),
+                ).fetchone()
+                if existing_policy is not None:
+                    if str(existing_policy["hard_ceiling"]) != content_ceiling[0]:
+                        raise ContentCeilingMismatchError(
+                            "Admission refused: the installed content ceiling "
+                            f"{existing_policy['hard_ceiling']!r} does not match "
+                            f"the admitted deadline {content_ceiling[0]!r} for "
+                            f"event {event_id}"
+                        )
+                else:
+                    installed_ceiling = content_ceiling
             if attachment_plan is not None:
                 retained = True
                 reason: str | None = attachment_plan.forced_unavailable_reason
@@ -689,6 +725,19 @@ def sync_admit_ingress(
 
             for sql, params in chosen_event_ops:
                 db.execute(sql, params)
+            if installed_ceiling is not None:
+                db.execute(
+                    "INSERT INTO event_content_access_policies "
+                    "(event_id, version, hard_ceiling, allowed_consumers, "
+                    "max_optional_hold_microseconds, created_at) "
+                    "VALUES (?, 1, ?, '[]', ?, ?)",
+                    (
+                        event_id,
+                        installed_ceiling[0],
+                        installed_ceiling[1],
+                        now_iso,
+                    ),
+                )
             if (
                 attachment_plan is not None
                 and attachment_fact is not None
