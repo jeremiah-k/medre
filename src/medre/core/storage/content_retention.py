@@ -40,6 +40,7 @@ __all__ = [
     "RETENTION_DEFAULT_BATCH",
     "normalize_admission_watermark",
     "retention_epoch_grace_seconds",
+    "retention_epoch_observation_age_seconds",
 ]
 
 #: Closed mode vocabulary of the operator declaration. ``retain`` is the
@@ -80,6 +81,33 @@ RETENTION_DEFAULT_BATCH = 25
 def retention_epoch_grace_seconds(interval_seconds: int) -> int:
     """Freshness grace for an already validated retention policy interval."""
     return max(3600, 10 * interval_seconds)
+
+
+def retention_epoch_observation_age_seconds(
+    epoch: RetentionEpoch, now: datetime
+) -> float | None:
+    """Age of the last durable activation observation, or ``None`` if unsafe.
+
+    A missing, malformed, timezone-naive, or future-dated heartbeat cannot
+    prove that a retention epoch was continuously active. In particular,
+    after a wall-clock rollback an observation from the future MUST NOT keep
+    an epoch fresh indefinitely. Callers fail closed on ``None``: runtime
+    pauses collection; operator status reports unknown freshness.
+    """
+    observed_at = epoch.last_observed_active_at or epoch.activated_at
+    try:
+        observed = datetime.fromisoformat(observed_at)
+    except (TypeError, ValueError):
+        return None
+    if (
+        observed.tzinfo is None
+        or observed.utcoffset() is None
+        or now.tzinfo is None
+        or now.utcoffset() is None
+    ):
+        return None
+    age = (now - observed).total_seconds()
+    return age if age >= 0 else None
 
 
 def normalize_admission_watermark(value: str | None) -> str | None:

@@ -40,7 +40,26 @@ Automatic periodic collection additionally exists behind the explicitly
 enabled `relay-only` `content_retention` policy: the runtime's single
 owner-fenced collection worker sweeps epoch-scoped candidates with
 bounded batches and backoff (disabled by default; REPLAY scope excluded;
-[content retention](../spec/content-retention.md)).
+[content retention](../spec/content-retention.md)). The qualified vertical
+is covered end to end by the PR E qualification suites: the clock and
+policy boundaries (duplicate activation, disable across restarts, exact
+staleness and watermark equality, grant expiry and revocation, unknown
+schema refusal, corrupt admission identity, empty versus absent body,
+nonmonotonic event IDs), the transaction/race families driven through the
+real worker and storage (pending siblings, queued native handoffs,
+uncertain in-flight sends, guarded snapshot retirement, grant revocation
+between page and collect, opaque metadata, shared attachments and radio
+plans, restart after commit-before-bookkeeping, SQLite lock contention,
+mid-scan cancellation, failed candidate reads, replay-scope exclusion with
+live CLI activation, and the no-resend invariant), and the fake-provider
+mixed-workload sweep proving routing facts, delivery evidence, native
+references, and conversation identity survive collection exactly. The
+bounded mixed-workload measurement lives in
+`scripts/measure_retention_workload.py`: two runs of the same seeded mix
+with the collector disabled and enabled report phase throughput,
+per-event collect duration percentiles, transient-lock occurrences, and
+database/sidecar snapshots before and after storage close — measurements, not performance verdicts, with no
+physical space recovery claim.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after

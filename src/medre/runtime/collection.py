@@ -50,6 +50,7 @@ from medre.core.storage.content_retention import (
     ContentRetentionPolicy,
     RetentionEpoch,
     retention_epoch_grace_seconds,
+    retention_epoch_observation_age_seconds,
 )
 from medre.runtime.events import EventBuffer, RuntimeEventType
 
@@ -86,21 +87,6 @@ _STOP_POLL_SECONDS = 0.01
 
 def _default_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _parse_aware_iso(value: str) -> datetime | None:
-    """Parse a durable ISO observation timestamp; ``None`` when unusable.
-
-    A missing or unparseable or naive observation fails closed: the caller
-    treats ``None`` as a stale epoch rather than guessing it is fresh.
-    """
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        return None
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        return None
-    return parsed
 
 
 def _counted_int(value: Any) -> int:
@@ -610,6 +596,11 @@ class ContentCollectionWorker:
                 self._sweep_wake.clear()
                 try:
                     await self.sweep()
+                except ContentCollectionTransientError:
+                    # Epoch reads, heartbeat writes and candidate paging
+                    # need the same pacing as an event-level SQLite lock.
+                    # No candidate cursor advances on these failures.
+                    self._defer_transient(None)
                 except Exception:
                     _logger.exception("Content collection cycle error")
                     self._record_worker_error("cycle", None)
@@ -643,6 +634,37 @@ class ContentCollectionWorker:
         return timeout
 
     # -- The sweep -----------------------------------------------------------
+
+    def _defer_transient(self, event_id: str | None) -> None:
+        """Apply the same bounded backoff to all transient SQLite operations.
+
+        A page/heartbeat/epoch read failure has no candidate identity but
+        must not spin at the base poll cadence. The cursor never advances.
+        """
+        self._state.degraded = True
+        self._consecutive_transient += 1
+        backoff_seconds = min(
+            self._policy.interval_seconds * 2**self._consecutive_transient,
+            self._policy.interval_seconds * _TRANSIENT_BACKOFF_CAP_MULTIPLIER,
+            self._epoch_staleness_threshold() - self._policy.interval_seconds,
+        )
+        self._next_sweep_not_before = self._now() + timedelta(seconds=backoff_seconds)
+        self._record_worker_error("transient", event_id)
+        _logger.warning(
+            "Content collection deferred after transient SQLite operation "
+            "(candidate=%s); backing off %.1fs",
+            event_id,
+            backoff_seconds,
+            exc_info=True,
+        )
+        self._emit(
+            "collection_deferred",
+            {
+                "event_id": event_id,
+                "backoff_seconds": backoff_seconds,
+                "consecutive_transient": self._consecutive_transient,
+            },
+        )
 
     async def sweep(self) -> None:
         """Run one bounded collection cycle.
@@ -717,36 +739,9 @@ class ContentCollectionWorker:
                 self._cursor_epoch = None
                 return
             except ContentCollectionTransientError:
-                # Transient SQLite condition: abort the remaining page with
-                # the cursor NOT advanced past the failed event, back off,
-                # and surface the degraded state.
-                self._state.degraded = True
-                self._consecutive_transient += 1
-                backoff_seconds = min(
-                    self._policy.interval_seconds * 2**self._consecutive_transient,
-                    self._policy.interval_seconds * _TRANSIENT_BACKOFF_CAP_MULTIPLIER,
-                    # Leave one policy interval for collection and scheduling:
-                    # a deliberate defer must not exhaust the freshness grace.
-                    self._epoch_staleness_threshold() - self._policy.interval_seconds,
-                )
-                self._next_sweep_not_before = self._now() + timedelta(
-                    seconds=backoff_seconds
-                )
-                self._record_worker_error("transient", event_id)
-                _logger.warning(
-                    "Content collection deferred for %s after a transient "
-                    "SQLite condition; backing off %.1fs",
-                    event_id,
-                    backoff_seconds,
-                )
-                self._emit(
-                    "collection_deferred",
-                    {
-                        "event_id": event_id,
-                        "backoff_seconds": backoff_seconds,
-                        "consecutive_transient": self._consecutive_transient,
-                    },
-                )
+                # Retain the unprocessed page cursor and share the same
+                # bounded defer path as epoch/heartbeat/candidate failures.
+                self._defer_transient(event_id)
                 return
             except StorageError as exc:
                 # Integrity refusal: fail-closed bookkeeping, advance past
@@ -919,10 +914,9 @@ class ContentCollectionWorker:
         return float(retention_epoch_grace_seconds(self._policy.interval_seconds))
 
     def _epoch_is_stale(self, epoch: RetentionEpoch, now: datetime) -> bool:
-        reference = epoch.last_observed_active_at or epoch.activated_at
-        observed = _parse_aware_iso(reference)
-        if observed is None:
-            # Unparseable durable observation: fail closed (idle, collect
-            # nothing) rather than guess the boundary is fresh.
+        age = retention_epoch_observation_age_seconds(epoch, now)
+        if age is None:
+            # Missing, malformed, naive, or future-dated durable observations
+            # cannot prove continuous activation after a clock rollback.
             return True
-        return (now - observed).total_seconds() > self._epoch_staleness_threshold()
+        return age > self._epoch_staleness_threshold()

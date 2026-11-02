@@ -49,7 +49,7 @@
     },
     "heartbeat_observation": {
       "enum": ["fresh", "stale", "unknown"],
-      "description": "Honest freshness observation of the durable last_observed_active_at heartbeat, falling back to activated_at only when no heartbeat is recorded (null). `unknown` is reported whenever freshness cannot be assessed: no active epoch, an unparseable timestamp, or a non-timezone-aware timestamp. Freshness is never fabricated."
+      "description": "Honest freshness observation of the durable last_observed_active_at heartbeat, falling back to activated_at only when no heartbeat is recorded (null). `unknown` is reported whenever freshness cannot be assessed: no active epoch, an unparseable timestamp, a non-timezone-aware timestamp, or an observation dated in the future after a clock rollback. Freshness is never fabricated."
     },
     "heartbeat_stale": {
       "type": ["boolean", "null"],
