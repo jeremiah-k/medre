@@ -169,9 +169,7 @@ def _decision_preview_payload(preview: ExactTargetPreview) -> dict[str, Any]:
     if decidable:
         payload["observed"] = _decision_observed_fields(preview)
     else:
-        payload["refusal_implications"] = list(
-            _decision_category_implications(preview)
-        )
+        payload["refusal_implications"] = list(_decision_category_implications(preview))
     return payload
 
 
@@ -229,8 +227,7 @@ async def _apply_exact_target_decision(
     missing = sorted(name for name, value in observed.items() if value is None)
     if missing:
         print(
-            "Decision apply requires the observed state: "
-            + ", ".join(missing),
+            "Decision apply requires the observed state: " + ", ".join(missing),
             file=sys.stderr,
         )
         raise SystemExit(EXIT_CONFIG)

@@ -240,9 +240,7 @@ async def _replay(
     # Validate exact-target selections before touching any configuration:
     # malformed operator input is a config error, never a runtime failure.
     try:
-        exact_selections = _parse_exact_target_specs(
-            exact_targets, exact_no_channel
-        )
+        exact_selections = _parse_exact_target_specs(exact_targets, exact_no_channel)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)

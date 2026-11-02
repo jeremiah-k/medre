@@ -543,13 +543,9 @@ def test_incomplete_identity_is_rejected():
 
 def test_repeated_identity_across_flags_is_rejected():
     with pytest.raises(ValueError, match="Duplicate exact-target"):
-        _parse_exact_target_specs(
-            ["evt:plan:adapter"], ["evt:plan:adapter"]
-        )
+        _parse_exact_target_specs(["evt:plan:adapter"], ["evt:plan:adapter"])
     with pytest.raises(ValueError, match="Duplicate exact-target"):
-        _parse_exact_target_specs(
-            ["evt:plan:adapter:ch", "evt:plan:adapter:ch"], None
-        )
+        _parse_exact_target_specs(["evt:plan:adapter:ch", "evt:plan:adapter:ch"], None)
 
 
 # ---------------------------------------------------------------------------
