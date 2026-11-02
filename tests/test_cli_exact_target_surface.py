@@ -615,9 +615,9 @@ def _seed_replay_db(tmp_path: Path) -> tuple[str, Path]:
         str(config_path),
         "--json",
     )
-    assert code == 0, f"smoke seed failed: {stderr}"
+    assert code == 0, f"smoke seed failed: {stderr}; stdout: {stdout[:2000]}"
     report = json.loads(stdout)
-    assert report["status"] == "passed"
+    assert report["status"] == "passed", f"smoke seed report: {stdout[:2000]}"
     return report["event_id"], config_path
 
 
