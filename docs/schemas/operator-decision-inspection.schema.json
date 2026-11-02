@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/operator-decision-inspection.schema.json",
-  "title": "Read-only event-scoped operator cancellation decisions",
+  "title": "Read-only event-scoped operator delivery decisions",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -34,7 +34,10 @@
         ],
         "properties": {
           "decision_id": { "type": "string", "minLength": 1 },
-          "action": { "const": "cancel_unstarted" },
+          "action": {
+            "description": "The exact unstarted cancellation and the audit-only exact-target resolve/resume acknowledgements.",
+            "enum": ["cancel_unstarted", "resolve_uncertain", "resume_scheduled"]
+          },
           "outbox_id": { "type": "string", "minLength": 1 },
           "delivery_plan_id": { "type": "string", "minLength": 1 },
           "target_adapter": { "type": "string", "minLength": 1 },
