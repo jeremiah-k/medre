@@ -112,9 +112,7 @@ async def test_resume_scheduled_decision_records_audit_without_touching_the_row(
     assert "message" not in str(evidence)
 
     # The acknowledgement settles no content owner: the row keeps its hold.
-    deps = await temp_storage.list_mandatory_content_dependencies(
-        sample_event.event_id
-    )
+    deps = await temp_storage.list_mandatory_content_dependencies(sample_event.event_id)
     state = {(kind, owner): released for kind, owner, _, released in deps}
     assert state.get(("outbox", item.outbox_id), False) is False
 
@@ -180,9 +178,7 @@ async def test_resolve_uncertain_decision_records_distinct_intent(
             lambda d: replace(d, expected_updated_at="2000-01-01T00:00:00+00:00"),
             id="update-version",
         ),
-        pytest.param(
-            lambda d: replace(d, expected_status="retry_wait"), id="status"
-        ),
+        pytest.param(lambda d: replace(d, expected_status="retry_wait"), id="status"),
         pytest.param(
             lambda d: replace(d, action=RESOLVE_UNCERTAIN_ACTION), id="action"
         ),
@@ -208,9 +204,7 @@ async def test_claimed_row_refuses_the_decision(temp_storage, sample_event, acti
     with pytest.raises(
         OperatorDecisionRefused, match="not decidable by this authority"
     ):
-        await temp_storage.record_exact_target_decision(
-            _decision(item, action=action)
-        )
+        await temp_storage.record_exact_target_decision(_decision(item, action=action))
     current = await temp_storage.get_outbox_item(item.outbox_id)
     assert current.status == "in_progress"
     assert await _audit(temp_storage, sample_event.event_id) == []
@@ -322,9 +316,7 @@ async def test_identity_and_competing_generation_refuse_without_audit(
         ),
     )
     with pytest.raises(OperatorDecisionRefused, match="competing"):
-        await temp_storage.record_exact_target_decision(
-            _decision(item, action=action)
-        )
+        await temp_storage.record_exact_target_decision(_decision(item, action=action))
     assert (await temp_storage.get_outbox_item(item.outbox_id)).status == "pending"
     assert await _audit(temp_storage, sample_event.event_id) == []
 
@@ -445,7 +437,7 @@ async def test_observation_evidence_never_authorizes_the_decision(
     temp_storage, sample_event
 ):
     """A genuine preview is evidence only; the transaction revalidates."""
-    item = await _seed(temp_storage, sample_event, "!room", outbox_id="obox-observe")
+    await _seed(temp_storage, sample_event, "!room", outbox_id="obox-observe")
     preview = await preview_exact_target(
         temp_storage,
         ExactTargetSelection(sample_event.event_id, "plan", "matrix", "!room"),
@@ -476,9 +468,7 @@ async def test_observation_evidence_never_authorizes_the_decision(
     assert preview.execution_authorized is False
 
 
-async def test_recorded_row_conforms_to_the_decision_schema(
-    temp_storage, sample_event
-):
+async def test_recorded_row_conforms_to_the_decision_schema(temp_storage, sample_event):
     item = await _seed(temp_storage, sample_event, "!room", outbox_id="obox-schema")
     committed = await temp_storage.record_exact_target_decision(
         _decision(item, action=RESOLVE_UNCERTAIN_ACTION)

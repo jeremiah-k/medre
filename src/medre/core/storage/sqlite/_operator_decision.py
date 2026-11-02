@@ -43,8 +43,7 @@ OBSERVATION_STALE: str = "Stale observed state; nothing decided"
 COMPETING_GENERATION: str = "A competing delivery generation exists"
 CONCURRENT_DECISION_CHANGE: str = "Concurrent attempt changed; nothing decided"
 ACTIVE_NATIVE_UNDECIDABLE: str = (
-    "In-progress, queued or uncertain native work is not decidable by this"
-    " authority"
+    "In-progress, queued or uncertain native work is not decidable by this" " authority"
 )
 TERMINAL_REOPEN_REFUSED: str = (
     "Reopening terminal failed or dead-lettered work requires a separate"
@@ -485,9 +484,7 @@ class _OperatorDecisionMixin:
         except sqlite3.Error as exc:
             raise StorageError(f"Operator decision write failed: {exc}") from exc
 
-    async def record_exact_target_decision(
-        self, decision: ExactTargetDecision
-    ) -> bool:
+    async def record_exact_target_decision(self, decision: ExactTargetDecision) -> bool:
         """Record one audited exact-target decision; never dispatch or mutate.
 
         The observed outbox row is never modified and nothing is staged:
