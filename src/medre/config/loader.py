@@ -33,6 +33,7 @@ from medre.config.errors import (
 from medre.config.model import (
     AdapterConfigSet,
     AttachmentConfig,
+    ContentRetentionConfig,
     GenericAdapterRuntimeConfig,
     LoggingConfig,
     RetryConfig,
@@ -81,7 +82,16 @@ _TOML_NOT_SUPPORTED_MSG = (
 #: in this set is rejected at load time so typos (e.g. ``roues:``) surface
 #: as a :class:`ConfigValidationError` instead of silently being dropped.
 _KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
-    {"runtime", "logging", "storage", "retry", "attachments", "adapters", "routes"}
+    {
+        "runtime",
+        "logging",
+        "storage",
+        "retry",
+        "attachments",
+        "content_retention",
+        "adapters",
+        "routes",
+    }
 )
 
 #: Adapter transport group names accepted under ``adapters:``. Any key not
@@ -125,6 +135,11 @@ _ATTACHMENTS_KNOWN_KEYS: frozenset[str] = frozenset(
         "max_concurrent_transfers",
         "transfer_timeout_seconds",
     }
+)
+
+#: Keys accepted in the top-level ``[content_retention]`` section.
+_CONTENT_RETENTION_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"enabled", "version", "mode", "interval_seconds", "batch_limit"}
 )
 
 #: Keys accepted in the ``[storage]`` section.
@@ -621,6 +636,31 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         transfer_timeout_seconds=attachments_data.get("transfer_timeout_seconds", 60.0),
     ).validate()
 
+    # [content_retention] section — operator retention policy declaration.
+    # Disabled by default: an omitted section means no collector and no
+    # policy; relay-only additionally requires enabled (validated by the
+    # typed dataclass).
+    content_retention_data = _get_section_dict(data, "content_retention")
+    _reject_unknown_keys(
+        content_retention_data,
+        _CONTENT_RETENTION_KNOWN_KEYS,
+        section_path="content_retention",
+    )
+    raw_retention_enabled = content_retention_data.get("enabled", False)
+    if not isinstance(raw_retention_enabled, bool):
+        raise ConfigValidationError(
+            "content_retention.enabled must be a boolean, "
+            f"got {type(raw_retention_enabled).__name__}",
+            section_path="content_retention",
+        )
+    content_retention = ContentRetentionConfig(
+        enabled=raw_retention_enabled,
+        version=content_retention_data.get("version", 1),
+        mode=content_retention_data.get("mode", "retain"),
+        interval_seconds=content_retention_data.get("interval_seconds", 300),
+        batch_limit=content_retention_data.get("batch_limit", 25),
+    ).validate()
+
     # Reject unknown root-level keys so operator typos (e.g. ``roues:``)
     # surface as a clear error rather than silently dropping the section.
     # Matches ``additionalProperties: false`` on the JSON schemas.
@@ -640,6 +680,7 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         limits=limits,
         retry=retry,
         attachments=attachments,
+        content_retention=content_retention,
         adapters=adapters,
         routes=routes,
     )

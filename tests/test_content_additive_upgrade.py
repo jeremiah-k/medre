@@ -23,6 +23,11 @@ def _old_database(path, *, missing_expired_at=False, missing_diagnostics=False):
     ddl = _strip_section(
         ddl,
         "-- Immutable logical-collection receipt.",
+        "-- Durable content-retention activation epochs.",
+    )
+    ddl = _strip_section(
+        ddl,
+        "-- Durable content-retention activation epochs.",
         "CREATE TABLE IF NOT EXISTS event_relations (",
     )
     ddl = _strip_section(
@@ -110,11 +115,12 @@ async def test_explicit_additions_are_atomic_and_idempotent(
 async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     """A current predecessor lacking the diagnostics surface is accepted.
 
-    ``_old_database`` strips four tables: the collection log, the routing
-    facts and the outbox work snapshot unconditionally, and the diagnostics
-    surface for this test. The assertions below pin the table set exactly —
-    the upgrade adds those four tables and removes no table. The created
-    index and the untouched legacy row are asserted separately in this test.
+    ``_old_database`` strips five tables: the collection log, the retention
+    activation epochs, the routing facts and the outbox work snapshot
+    unconditionally, and the diagnostics surface for this test. The
+    assertions below pin the table set exactly — the upgrade adds those five
+    tables and removes no table. The created index and the untouched legacy
+    row are asserted separately in this test.
     """
     path = str(tmp_path / "upgrade-diagnostics.db")
     _old_database(path, missing_diagnostics=True)
@@ -168,6 +174,7 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     before_names = {name for (name,) in before_tables}
     after_names = {name for (name,) in after_tables}
     assert after_names - before_names == {
+        "content_retention_epochs",
         "delivery_evidence_diagnostics",
         "delivery_outbox_snapshots",
         "event_content_collection_log",

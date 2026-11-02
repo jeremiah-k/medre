@@ -157,6 +157,23 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "rows_removed": ColumnClass.IMMUTABLE_IDENTITY,
         "logical_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    # Durable relay-only activation epochs. Every column is the activation
+    # boundary the retention worker relies on and none holds content: the
+    # AUTOINCREMENT epoch number is written once identity, the closed mode
+    # and activator provenance are authority vocabulary, and the three
+    # activation boundary facts (activation timestamp, admission watermark,
+    # forward-only heartbeat) are durable facts guarded retention sweeps
+    # compare or advance — the watermark and heartbeat never move backward.
+    # The table is append-only, not event-scoped, and never authorizes
+    # deletion.
+    "content_retention_epochs": {
+        "epoch": ColumnClass.IMMUTABLE_IDENTITY,
+        "mode": ColumnClass.OPERATIONAL_AUTHORITY,
+        "activated_at": ColumnClass.OPERATIONAL_AUTHORITY,
+        "admission_watermark": ColumnClass.OPERATIONAL_AUTHORITY,
+        "last_observed_active_at": ColumnClass.OPERATIONAL_AUTHORITY,
+        "activated_by": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
     "event_relations": {
         "id": ColumnClass.IMMUTABLE_IDENTITY,
         "event_id": ColumnClass.IMMUTABLE_IDENTITY,

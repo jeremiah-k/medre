@@ -62,6 +62,7 @@ from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.model import (
     AttachmentConfig,
+    ContentRetentionConfig,
     GenericAdapterRuntimeConfig,
     RetryConfig,
     RuntimeConfig,
@@ -75,10 +76,12 @@ from medre.core.observability.sanitization import (
 
 __all__ = [
     "ATTACHMENTS_ENV_PREFIX",
+    "CONTENT_RETENTION_ENV_PREFIX",
     "RETRY_ENV_PREFIX",
     "ROUTE_ENV_PREFIX",
     "ROUTE_ENV_NAMES",
     "apply_attachment_overrides",
+    "apply_content_retention_overrides",
     "apply_env_overrides",
     "apply_instance_env_overrides",
     "apply_retry_overrides",
@@ -107,6 +110,11 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
         "MEDRE_RUNTIME_DELIVERY_ACQUIRE_TIMEOUT_SECONDS",
         "MEDRE_RUNTIME_MAX_INFLIGHT_INBOUND_ADMISSIONS",
         "MEDRE_RUNTIME_INBOUND_ADMISSION_TIMEOUT_SECONDS",
+        "MEDRE_CONTENT_RETENTION__ENABLED",
+        "MEDRE_CONTENT_RETENTION__VERSION",
+        "MEDRE_CONTENT_RETENTION__MODE",
+        "MEDRE_CONTENT_RETENTION__INTERVAL_SECONDS",
+        "MEDRE_CONTENT_RETENTION__BATCH_LIMIT",
     }
 )
 
@@ -121,12 +129,22 @@ ATTACHMENTS_ENV_PREFIX = "MEDRE_ATTACHMENTS__"
 
 RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
+CONTENT_RETENTION_ENV_PREFIX = "MEDRE_CONTENT_RETENTION__"
+
 _ATTACHMENTS_FIELD_MAP: dict[str, str] = {
     "ENABLED": "enabled",
     "MAX_ATTACHMENT_BYTES": "max_attachment_bytes",
     "MAX_RETAINED_BYTES": "max_retained_bytes",
     "MAX_CONCURRENT_TRANSFERS": "max_concurrent_transfers",
     "TRANSFER_TIMEOUT_SECONDS": "transfer_timeout_seconds",
+}
+
+_CONTENT_RETENTION_FIELD_MAP: dict[str, str] = {
+    "ENABLED": "enabled",
+    "VERSION": "version",
+    "MODE": "mode",
+    "INTERVAL_SECONDS": "interval_seconds",
+    "BATCH_LIMIT": "batch_limit",
 }
 
 _REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = tuple(
@@ -765,6 +783,66 @@ def _parse_attachment_env_vars(
     return result
 
 
+def _parse_content_retention_env_vars(
+    environ: dict[str, str] | os._Environ[str],
+) -> dict[str, ParsedAdapterEnvValue]:
+    """Parse ``MEDRE_CONTENT_RETENTION__<FIELD>`` vars from *environ*.
+
+    Returns a mapping of field name → ParsedAdapterEnvValue.
+    Raises ConfigValidationError for malformed, unsupported, or duplicate
+    fields.
+    """
+    prefix = CONTENT_RETENTION_ENV_PREFIX
+    result: dict[str, ParsedAdapterEnvValue] = {}
+    malformed: list[str] = []
+    unsupported: list[str] = []
+    duplicates: list[str] = []
+
+    for name, value in environ.items():
+        if not name.startswith(prefix):
+            continue
+        remainder = name[len(prefix) :]
+        if not remainder:
+            malformed.append(name)
+            continue
+        if "__" in remainder:
+            malformed.append(name)
+            continue
+        field_upper = remainder.upper()
+        if field_upper not in _CONTENT_RETENTION_FIELD_MAP:
+            unsupported.append(name)
+            continue
+        field_name = _CONTENT_RETENTION_FIELD_MAP[field_upper]
+        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
+        if field_name in result:
+            duplicates.append(
+                f"{result[field_name].env_var_name} and {name} both normalize "
+                f"to content_retention field {field_name!r}"
+            )
+            continue
+        result[field_name] = parsed
+
+    if malformed:
+        raise ConfigValidationError(
+            f"Malformed MEDRE_CONTENT_RETENTION__ environment variable(s): "
+            f"{sorted(malformed)}. Expected shape: "
+            f"MEDRE_CONTENT_RETENTION__<FIELD> with a single, non-empty field name."
+        )
+    if unsupported:
+        raise ConfigValidationError(
+            f"Unsupported MEDRE_CONTENT_RETENTION__ field(s): "
+            f"{sorted(unsupported)}. Supported fields: "
+            f"{sorted(_CONTENT_RETENTION_FIELD_MAP.keys())}"
+        )
+    if duplicates:
+        raise ConfigValidationError(
+            f"Duplicate normalized content_retention fields: "
+            f"{'; '.join(duplicates)}. "
+            f"Each content_retention field must come from exactly one env var."
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # MedreEnvConfig
 # ---------------------------------------------------------------------------
@@ -798,6 +876,9 @@ class MedreEnvConfig:
 
     # -- Attachments policy overrides --
     attachments_overrides: dict[str, str] = field(default_factory=dict)
+
+    # -- Content retention policy overrides --
+    content_retention_overrides: dict[str, str] = field(default_factory=dict)
 
     # -- Instance-scoped adapter overrides --
     instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(
@@ -920,6 +1001,25 @@ class MedreEnvConfig:
                     parsed.env_var_name,
                     parsed.raw_value,
                     source_kind="attachments",
+                    target_field=field_name,
+                )
+
+        # Content retention policy overrides.
+        content_retention_overrides = _parse_content_retention_env_vars(source)
+        if content_retention_overrides:
+            object.__setattr__(
+                instance,
+                "content_retention_overrides",
+                {
+                    field_name: parsed.raw_value
+                    for field_name, parsed in content_retention_overrides.items()
+                },
+            )
+            for field_name, parsed in content_retention_overrides.items():
+                provenance.record(
+                    parsed.env_var_name,
+                    parsed.raw_value,
+                    source_kind="content_retention",
                     target_field=field_name,
                 )
 
@@ -1576,6 +1676,45 @@ def apply_attachment_overrides(
     return dataclasses.replace(config, attachments=new_attachments)
 
 
+def apply_content_retention_overrides(
+    config: RuntimeConfig,
+    content_retention_overrides: dict[str, str],
+) -> RuntimeConfig:
+    """Apply ``MEDRE_CONTENT_RETENTION__<FIELD>`` overrides to *config*.
+
+    Returns a new RuntimeConfig with content-retention overrides applied and
+    revalidated as a whole (cross-field rules included, so a relay-only mode
+    without an explicit enabled=true fails here too).
+    Raises ConfigValidationError if values fail type coercion or
+    validation.
+    """
+    if not content_retention_overrides:
+        return config
+
+    kwargs: dict[str, Any] = {
+        f.name: getattr(config.content_retention, f.name)
+        for f in fields(config.content_retention)
+    }
+
+    hints = get_type_hints(ContentRetentionConfig)
+    for field_name, raw_value in content_retention_overrides.items():
+        if field_name not in kwargs:
+            raise ConfigValidationError(
+                f"Unknown content_retention field {field_name!r}"
+            )
+        field_type = hints.get(field_name)
+        coerced = _coerce_field_value(
+            raw_value,
+            field_name,
+            field_type,
+            f"MEDRE_CONTENT_RETENTION__{field_name.upper()}",
+        )
+        kwargs[field_name] = coerced
+
+    new_content_retention = ContentRetentionConfig(**kwargs).validate()
+    return dataclasses.replace(config, content_retention=new_content_retention)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1726,5 +1865,10 @@ def apply_env_overrides(
     # Attachment policy overrides
     # ------------------------------------------------------------------
     config = apply_attachment_overrides(config, env.attachments_overrides)
+
+    # ------------------------------------------------------------------
+    # Content retention policy overrides
+    # ------------------------------------------------------------------
+    config = apply_content_retention_overrides(config, env.content_retention_overrides)
 
     return config

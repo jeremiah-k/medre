@@ -253,16 +253,21 @@ def test_registry_entries_are_unique_and_complete() -> None:
 #: `updated_at`-style transition timestamps that guarded transitions
 #: advance, lease and freshness bounds (`locked_at`, `next_attempt_at`,
 #: `last_seen_at`), settlement and expiry bounds (`released_at`,
-#: `revoked_at`, `expired_at`, `expires_at`), and the MIN-bound aggregation
-#: anchor `first_seen_at`.  Recorded CAS guard snapshots (for example
-#: `operator_delivery_decisions.observed_updated_at`) are written once with
-#: their row and classified immutable identity, so they never belong here.
-#: A new `*_at` column classified operational_authority MUST consciously
-#: extend this allowlist and keep the rule text consistent in the same
-#: change.
+#: `revoked_at`, `expired_at`, `expires_at`), the retention activation
+#: boundary timestamps (`content_retention_epochs.activated_at` bounds every
+#: sweep together with its admission watermark, and
+#: `last_observed_active_at` is the forward-only heartbeat), and the
+#: MIN-bound aggregation anchor `first_seen_at`.  Recorded CAS guard
+#: snapshots (for example `operator_delivery_decisions.observed_updated_at`)
+#: are written once with their row and classified immutable identity, so
+#: they never belong here.  A new `*_at` column classified
+#: operational_authority MUST consciously extend this allowlist and keep the
+#: rule text consistent in the same change.
 _AUTHORITY_TIMESTAMP_COLUMNS: frozenset[tuple[str, str]] = frozenset(
     {
         ("adapter_checkpoints", "updated_at"),
+        ("content_retention_epochs", "activated_at"),
+        ("content_retention_epochs", "last_observed_active_at"),
         ("conversation_membership", "updated_at"),
         ("conversation_projection_state", "updated_at"),
         ("delivery_outbox", "last_attempt_at"),

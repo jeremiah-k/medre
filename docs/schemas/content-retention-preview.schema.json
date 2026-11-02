@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-retention-preview.schema.json",
+  "title": "Content retention preview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "scope",
+    "mode",
+    "events_examined",
+    "eligible",
+    "blocked",
+    "empty",
+    "already_collected",
+    "inconsistent",
+    "has_more",
+    "next_after",
+    "retention_authorized",
+    "deletion_authorized",
+    "physical_erasure_claimed",
+    "unmeasured"
+  ],
+  "properties": {
+    "format": {
+      "const": "medre-content-retention-preview"
+    },
+    "version": {
+      "const": 1
+    },
+    "scope": {
+      "const": "core_sqlite_epoch"
+    },
+    "mode": {
+      "const": "relay-only"
+    },
+    "status": {
+      "const": "no_active_epoch",
+      "description": "Present only on the no-active-epoch result: collection cannot safely be assessed because the policy was never activated on this store. Absent when an epoch is active."
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The examined activation epoch. Present only when an epoch is active."
+    },
+    "activated_at": {
+      "type": "string",
+      "description": "Activation timestamp of the examined epoch. Present only when an epoch is active."
+    },
+    "admission_watermark": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The examined epoch's admission watermark; null records an empty store at activation. Present only when an epoch is active."
+    },
+    "activated_by": {
+      "enum": [
+        "runtime-first-start",
+        "operator"
+      ],
+      "description": "Activation provenance of the examined epoch. Present only when an epoch is active."
+    },
+    "events_examined": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "eligible": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "blocked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "empty": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "already_collected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "inconsistent": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "next_after": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "items": false
+        }
+      ],
+      "description": "Null on an empty page; otherwise the (created_at, event_id) continuation pair for preview_content_retention(after=...). The cursor exposes one event ID, not an event enumeration."
+    },
+    "retention_authorized": {
+      "const": false
+    },
+    "deletion_authorized": {
+      "const": false
+    },
+    "physical_erasure_claimed": {
+      "const": false
+    },
+    "unmeasured": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}

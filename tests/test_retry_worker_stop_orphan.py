@@ -355,7 +355,7 @@ class TestRetryWorkerStopOrphan:
         # State counters are preserved (not reset).
         assert worker.state.processed == 0
 
-    async def test_stop_when_task_already_done(self):
+    async def test_stop_when_task_already_done(self, monkeypatch):
         """stop() called when the background task has already completed
         naturally (not due to stop()) returns promptly with clean-stop
         semantics.
@@ -369,37 +369,8 @@ class TestRetryWorkerStopOrphan:
 
         storage = MagicMock()
 
-        # A cleanly-completing claim: the task returns ``[]`` (no
-        # items) on its first poll, then the ``wait_for`` sees the
-        # shutdown event not yet set, waits the interval, and on
-        # the next iteration the event is still not set, so it
-        # loops.  To get a clean natural completion we make the
-        # first claim return ``[]`` and then signal the shutdown
-        # event from a side channel.  Simpler: just have the claim
-        # return ``[]`` and have a separate event that ``stop()``
-        # will set via the normal path — but we want the task to
-        # complete *before* stop() is called.
-        #
-        # Cleanest approach: make the claim return ``[]`` and have
-        # the run loop's ``wait_for`` see a very short interval
-        # timeout, then loop.  But that's the normal running path,
-        # not a "task already done" scenario.
-        #
-        # To get a task that completes *naturally* (not via cancel,
-        # not via stop's shutdown event), we need the run loop to
-        # exit on its own.  The loop exits when
-        # ``self._shutdown_event.is_set()`` becomes True, which is
-        # only set by ``stop()``.  So a truly "natural" completion
-        # in the current implementation is only possible via a
-        # crash.
-        #
-        # This test models the "task already done with a crash"
-        # scenario: the claim raises ``_FatalCrash`` (a
-        # ``BaseException`` that escapes ``_run_loop``'s ``except
-        # Exception``), the task ends with that exception, and
-        # ``stop()`` is called afterward.  The fix must surface the
-        # crash as ``retry_failed`` (not ``retry_stopped``) so
-        # operators see the real failure.
+        # An escaped BaseException finishes the run loop before stop(). The
+        # stop path must preserve the crash without polling or cancellation.
         class _FatalCrash(BaseException):
             pass
 
@@ -437,7 +408,14 @@ class TestRetryWorkerStopOrphan:
         # crash as ``retry_failed`` rather than falsely reporting
         # ``retry_stopped``.  The fix re-raises the crash from
         # ``stop()`` so the caller sees the real failure.
-        stop_start = asyncio.get_event_loop().time()
+        poll_sleep = AsyncMock(
+            side_effect=AssertionError("finished task must not poll")
+        )
+        force_cancel = AsyncMock(
+            side_effect=AssertionError("finished task must not cancel")
+        )
+        monkeypatch.setattr("medre.runtime.retry.asyncio.sleep", poll_sleep)
+        monkeypatch.setattr(worker, "_force_cancel_with_poll", force_cancel)
         # The dispatcher now owns its children through TaskGroup, which
         # reports an escaped BaseException as an ExceptionGroup. Preserve
         # that structured failure instead of unwrapping the native crash.
@@ -448,12 +426,8 @@ class TestRetryWorkerStopOrphan:
             and str(error) == "simulated unrecoverable error"
             for error in raised.value.exceptions
         )
-        stop_elapsed = asyncio.get_event_loop().time() - stop_start
-
-        assert stop_elapsed < 0.1, (
-            f"stop() took {stop_elapsed:.3f}s for an already-done task; "
-            f"expected < 0.1s"
-        )
+        poll_sleep.assert_not_called()
+        force_cancel.assert_not_called()
         assert worker._task is None
         assert worker.state.running is False
         assert worker.state.abandoned is False

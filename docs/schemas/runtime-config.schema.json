@@ -182,6 +182,52 @@
         }
       }
     },
+    "content_retention": {
+      "type": "object",
+      "description": "Operator content-retention policy declaration (ContentRetentionConfig). Disabled by default: an omitted or disabled section authorizes no retention collector and no policy. mode 'retain' is a declared, observing policy that never collects; mode 'relay-only' is the explicit opt-in to bounded, guarded logical collection and additionally requires enabled=true. Booleans are not integer versions; the declaration is versioned and unknown versions are refused.",
+      "additionalProperties": false,
+      "if": {
+        "properties": { "mode": { "const": "relay-only" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": { "enabled": { "const": true } },
+        "required": ["enabled"]
+      },
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the retention policy. While false, no collector is assembled and no content is collected."
+        },
+        "version": {
+          "type": "integer",
+          "const": 1,
+          "default": 1,
+          "description": "Strict policy declaration version. Must be exactly the integer 1; booleans are refused."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["retain", "relay-only"],
+          "default": "retain",
+          "description": "Closed mode vocabulary. 'retain' never collects; 'relay-only' opts in to bounded guarded logical collection and requires enabled=true."
+        },
+        "interval_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400,
+          "default": 300,
+          "description": "Cadence knob bounding the runtime retention worker's sweep interval in seconds."
+        },
+        "batch_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25,
+          "description": "Cadence knob bounding the number of candidate events one retention sweep may examine."
+        }
+      }
+    },
     "adapters": {
       "type": "object",
       "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",

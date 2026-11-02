@@ -14,7 +14,11 @@ from medre.core.storage.classification import (
     CONTENT_POTENTIAL_CLASSES,
     STORAGE_COLUMN_CLASSES,
 )
-from medre.core.storage.content import CONTENT_SURFACES, inventory_sql
+from medre.core.storage.content import (
+    CONTENT_SURFACES,
+    UNMEASURED_CONTENT_SCOPES,
+    inventory_sql,
+)
 
 # The relation type is a closed core enum; a corrupted/free-form value is
 # not assumed to be content-free structured identity.
@@ -222,15 +226,6 @@ def _release_blockers(counts: dict[str, int]) -> list[str]:
     return blockers
 
 
-_UNMEASURED_CONTENT_SCOPES = (
-    "provider_native_queues_histories_and_peers",
-    "plugin_state_and_adapter_checkpoints",
-    "sqlite_free_pages_and_wal",
-    "backups_exports_and_snapshots",
-    "application_and_provider_logs",
-    "copies_embedded_in_other_events",
-)
-
 # One compound projection serves the collector and the read-only release
 # assessment: the report probes plus each evidence family's registry-derived
 # content probe, all in a single read snapshot.
@@ -430,7 +425,7 @@ class _CountMixin:
                 }
                 for name in _EVENT_COPY_PROBES
             ],
-            "unmeasured": list(_UNMEASURED_CONTENT_SCOPES),
+            "unmeasured": list(UNMEASURED_CONTENT_SCOPES),
         }
 
     async def count_events(self) -> int:

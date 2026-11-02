@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS event_content_collection_log (
     logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
 );
 
+-- Durable content-retention activation epochs. One append-only row per
+-- relay-only policy activation; the admission watermark is the store's
+-- maximum local admission created_at observed inside the activation
+-- transaction (NULL only when the store held no events then), and every
+-- retention sweep is bounded to events admitted strictly after it, so
+-- pre-activation history is never swept. The heartbeat column only moves
+-- forward. This table is not event-scoped, holds no content, references no
+-- event, and never authorizes deletion.
+CREATE TABLE IF NOT EXISTS content_retention_epochs (
+    epoch INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode TEXT NOT NULL CHECK (mode = 'relay-only'),
+    activated_at TEXT NOT NULL,
+    admission_watermark TEXT,
+    last_observed_active_at TEXT,
+    activated_by TEXT NOT NULL CHECK (activated_by IN ('runtime-first-start','operator'))
+);
+
 CREATE TABLE IF NOT EXISTS event_relations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -632,6 +649,16 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "event_content_collection_log": frozenset(
         {"event_id", "collected_at", "policy", "rows_removed", "logical_bytes_removed"}
     ),
+    "content_retention_epochs": frozenset(
+        {
+            "epoch",
+            "mode",
+            "activated_at",
+            "admission_watermark",
+            "last_observed_active_at",
+            "activated_by",
+        }
+    ),
     "event_relations": frozenset(
         {
             "id",
@@ -954,6 +981,16 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "content_retention_epochs": (
+        ("CHECK (mode = 'relay-only')", r"CHECK\s*\(\s*mode\s*=\s*'relay-only'\s*\)"),
+        (
+            "CHECK (activated_by IN ('runtime-first-start','operator'))",
+            (
+                r"CHECK\s*\(\s*activated_by\s+IN\s*\(\s*'runtime-first-start'\s*,"
+                r"\s*'operator'\s*\)\s*\)"
+            ),
+        ),
+    ),
     "event_body_identity": (
         (
             "CHECK (version = 1)",
@@ -1172,6 +1209,14 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
 # This prevents fresh and additive-upgraded databases from diverging.
 _COLLECTION_LOG_DDL = _SCHEMA[
     _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
+        "-- Durable content-retention activation epochs."
+    )
+]
+
+# The approved additive activation-epoch table derives from the same
+# authoritative schema, ending at the collection log's successor object.
+_RETENTION_EPOCHS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Durable content-retention activation epochs.") : _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS event_relations ("
     )
 ]
