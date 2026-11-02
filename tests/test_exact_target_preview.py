@@ -2,7 +2,7 @@
 
 Pins the closed category vocabulary mapping, the explicit None-vs-empty
 channel decision, fail-closed selection, raw generation reporting, and the
-no-write guarantee of :func:`medre.core.observability.exact_target.
+no-independent-mutation guarantee of :func:`medre.core.observability.exact_target.
 preview_exact_target`.
 """
 
@@ -25,7 +25,12 @@ from medre.core.observability.exact_target import (
     classify_outbox_status,
     preview_exact_target,
 )
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    OutboxSnapshotIntegrityError,
+    OutboxSnapshotReadError,
+    StorageError,
+)
 from tests.helpers.storage import make_storage_event
 from tests.helpers.storage_outbox import (
     admit_event,
@@ -582,11 +587,11 @@ def test_schema_snapshot_kind_enum_matches_storage_vocabulary() -> None:
 
 
 # ---------------------------------------------------------------------------
-# No-write guarantee
+# No independent write, and explicitly observed content expiry
 # ---------------------------------------------------------------------------
 
 
-async def test_preview_never_mutates_storage(temp_storage) -> None:
+async def test_preview_does_not_mutate_delivery_state(temp_storage) -> None:
     event = msgspec.structs.replace(
         make_storage_event(event_id=_EVENT), payload={"body": "retained"}
     )
@@ -612,7 +617,15 @@ async def test_preview_never_mutates_storage(temp_storage) -> None:
                 f"SELECT COUNT(*) AS n FROM {table}"  # nosec B608
             )
             counts.append((table, int(row["n"])))
-        return (sorted(i.outbox_id for i in items), items, metadata, tuple(counts))
+        dependencies = await temp_storage._read_all(
+            "SELECT event_id, owner_kind, owner_id, acquired_at, deadline, released_at "
+            "FROM event_content_dependencies WHERE event_id=? "
+            "ORDER BY owner_kind, owner_id", (_EVENT,)
+        )
+        return (
+            sorted(i.outbox_id for i in items), items, metadata,
+            tuple(counts), dependencies,
+        )
 
     before = await observed_state()
     first = await preview_exact_target(temp_storage, _selection(channel="ch-a"))
@@ -645,3 +658,153 @@ async def test_preview_fingerprint_tracks_reservation_and_status(temp_storage) -
     reserved_view = await preview_exact_target(temp_storage, _selection())
     assert reserved_view.observed_fingerprint != claimed_view.observed_fingerprint
     assert reserved_view.active_attempt == 2
+
+
+@pytest.mark.parametrize(
+    ("status", "category"),
+    [
+        ("sent", "completed"),
+        ("cancelled", "cancelled"),
+        ("abandoned", "inspect_native"),
+        ("queued", "awaiting_feedback"),
+        ("in_progress", "in_progress"),
+        ("pending", "content_unavailable"),
+        ("retry_wait", "content_unavailable"),
+    ],
+)
+async def test_preview_keeps_native_outcomes_after_source_release(
+    temp_storage, monkeypatch, status: str, category: str
+) -> None:
+    await admit_event(temp_storage, _EVENT)
+    row = await temp_storage.create_outbox_item(_row())
+    await temp_storage._write_rowcount(
+        "UPDATE event_content_dependencies SET released_at=? "
+        "WHERE event_id=? AND owner_kind IN ('ingress','append')",
+        (datetime.now(timezone.utc).isoformat(timespec="microseconds"), _EVENT),
+    )
+    original = temp_storage.list_outbox_items_for_event
+
+    async def observed_rows(event_id: str, *, metadata_only: bool = False):
+        rows = await original(event_id, metadata_only=metadata_only)
+        return [replace(item, status=status) for item in rows]
+
+    monkeypatch.setattr(temp_storage, "list_outbox_items_for_event", observed_rows)
+    report = await preview_exact_target(temp_storage, _selection())
+    assert report.category == category
+    assert report.outbox_id == row.outbox_id
+
+
+async def test_preview_distinguishes_corrupt_snapshot_from_failed_snapshot_read(
+    temp_storage, monkeypatch
+) -> None:
+    from medre.core.storage.backend import OutboxDispatchSnapshotWrite
+
+    await admit_event(temp_storage, _EVENT)
+    row = await temp_storage.create_outbox_item(
+        _row(),
+        dispatch_snapshot=OutboxDispatchSnapshotWrite(
+            kind="staged", context=_matching_context()
+        ),
+    )
+    await temp_storage._write_rowcount(
+        "UPDATE delivery_outbox_snapshots SET context_json='[]' WHERE outbox_id=?",
+        (row.outbox_id,),
+    )
+    with pytest.raises(OutboxSnapshotIntegrityError):
+        await temp_storage.get_outbox_dispatch_context(
+            row.outbox_id,
+            event_id=_EVENT,
+            delivery_plan_id=_PLAN,
+            target_adapter=_ADAPTER,
+            target_channel=_CHANNEL,
+        )
+    malformed = await preview_exact_target(temp_storage, _selection())
+    assert malformed.category == "ambiguous"
+    assert malformed.snapshot_present is True
+    assert malformed.snapshot_kind is None
+
+    async def failed_read(*args, **kwargs):
+        raise OutboxSnapshotReadError("transient SQLite read")
+
+    monkeypatch.setattr(temp_storage, "get_outbox_dispatch_context", failed_read)
+    with pytest.raises(OutboxSnapshotReadError, match="transient SQLite read"):
+        await preview_exact_target(temp_storage, _selection())
+
+    async def other_storage_failure(*args, **kwargs):
+        raise StorageError("unexpected backend read failure")
+
+    monkeypatch.setattr(
+        temp_storage, "get_outbox_dispatch_context", other_storage_failure
+    )
+    with pytest.raises(StorageError, match="unexpected backend read failure"):
+        await preview_exact_target(temp_storage, _selection())
+
+
+async def test_preview_records_expired_source_permission_without_delivery_mutation(
+    temp_storage,
+) -> None:
+    event = msgspec.structs.replace(
+        make_storage_event(event_id=_EVENT), payload={"body": "private"}
+    )
+    await temp_storage.append(event)
+    row = await temp_storage.create_outbox_item(_row())
+    before = await temp_storage._read_one(
+        "SELECT released_at FROM event_content_dependencies "
+        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+    )
+    assert before is not None and before["released_at"] is None
+    await temp_storage._write_rowcount(
+        "UPDATE event_content_dependencies SET "
+        "acquired_at='2000-01-01T00:00:00+00:00', "
+        "deadline='2001-01-01T00:00:00+00:00' "
+        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+    )
+    before_outbox = await temp_storage.list_outbox_items_for_event(
+        _EVENT, metadata_only=True
+    )
+    report = await preview_exact_target(temp_storage, _selection())
+    assert report.category == "content_unavailable"
+    after = await temp_storage._read_one(
+        "SELECT released_at FROM event_content_dependencies "
+        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+    )
+    assert after is not None and after["released_at"] is not None
+    assert await temp_storage.list_outbox_items_for_event(
+        _EVENT, metadata_only=True
+    ) == before_outbox
+    assert report.outbox_id == row.outbox_id
+
+
+async def test_preview_propagates_content_authority_storage_failure(
+    temp_storage, monkeypatch
+) -> None:
+    await create_outbox_item_with_parent(temp_storage, _row())
+
+    async def failed_content_read(*args, **kwargs):
+        raise StorageError("content read failed")
+
+    monkeypatch.setattr(temp_storage, "read_event_for_replay", failed_content_read)
+    with pytest.raises(StorageError, match="content read failed"):
+        await preview_exact_target(temp_storage, _selection())
+
+
+async def test_real_sent_outbox_remains_completed_after_content_release(
+    temp_storage,
+) -> None:
+    event = msgspec.structs.replace(
+        make_storage_event(event_id=_EVENT), payload={"body": "private"}
+    )
+    await temp_storage.append(event)
+    row = await temp_storage.create_outbox_item(_row())
+    claimed = await temp_storage.claim_due_outbox_items(_claim_now(), "worker-1")
+    assert row.outbox_id in {item.outbox_id for item in claimed}
+    assert await temp_storage.mark_outbox_sent(row.outbox_id)
+    await temp_storage._write_rowcount(
+        "UPDATE event_content_dependencies SET released_at=? "
+        "WHERE event_id=? AND owner_kind IN ('ingress','append')",
+        (datetime.now(timezone.utc).isoformat(timespec="microseconds"), _EVENT),
+    )
+    report = await preview_exact_target(temp_storage, _selection())
+    assert report.category == "completed"
+    assert report.status == "sent"
+    assert report.snapshot_present is False

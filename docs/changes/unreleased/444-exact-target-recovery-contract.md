@@ -11,8 +11,12 @@ the shared recovery disposition authority, and reports the raw persisted
 `attempt_number` and `active_attempt` counters; no field carries a
 display-normalized effective generation that a write path could consume.
 
-The preview performs metadata reads only and never returns stored message
-text. Selection failures classify fail-closed: an identity with no outbox row
+The preview exposes metadata only and never returns stored message text.
+For outcomes needing source bytes, its replay-authorization read may durably
+observe content-dependency expiry under a short write transaction. Terminal,
+active-owner and uncertain-native outcomes remain visible after content is
+released; only a malformed frozen snapshot becomes ambiguous, while snapshot
+I/O errors propagate. Selection failures classify fail-closed: an identity with no outbox row
 or contested live generations is `ambiguous`, superseded caller expectations
 are `stale`, lost source content is `content_unavailable`, and a frozen
 staged plan contradicting the row's persisted binding is

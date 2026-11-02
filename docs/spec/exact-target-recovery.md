@@ -32,9 +32,10 @@ before authority normalization applies:
   stated intent.
 
 An identity missing any of event, plan, or adapter MUST be rejected at
-construction. Malformed selection input is the only condition under which the
-preview raises: incomplete identities, empty-string channels, and malformed
-expected observations raise `ValueError` before storage is touched.
+construction. Malformed selection input is the only caller-input condition
+that raises: incomplete identities, empty-string channels, and malformed
+expected observations raise `ValueError` before storage is touched. Storage
+errors propagate under their own authority as specified below.
 
 ## Category vocabulary
 
@@ -61,22 +62,30 @@ ambiguity, which is a different token in the canonical event namespace.
 | Outbox `in_progress`, or any non-terminal row with `active_attempt`   | `in_progress`           |
 | Outbox `queued`                                                       | `awaiting_feedback`     |
 | Outbox `retry_wait`                                                   | `retry_scheduled`       |
-| Outbox or receipt `sent`                                              | `completed`             |
-| Outbox or receipt `cancelled`                                         | `cancelled`             |
-| Outbox or receipt `abandoned`                                         | `inspect_native`        |
+| Outbox `sent`                                              | `completed`             |
+| Outbox `cancelled`                                         | `cancelled`             |
+| Outbox `abandoned`                                         | `inspect_native`        |
 | Failed or dead-lettered with a retryable persisted failure kind       | `preview_replay`        |
 | Failed or dead-lettered otherwise (including no persisted kind)       | `needs_operator_action` |
 | Event present but source content no longer reads as retained          | `content_unavailable`   |
 | Frozen staged plan contradicts the row's persisted plan binding       | `route_or_plan_changed` |
 
-Classification precedence follows that table's observation order: `not_found`,
-then selection ambiguity, then `content_unavailable`, then `stale`, then
-`route_or_plan_changed`, then the status mapping. Terminal persisted outcomes
-are authoritative and classify regardless of a residual reservation, which
-terminal settlement clears atomically. A live `active_attempt` reservation on
-a non-terminal row means a dispatch owner exists, so the row classifies as
-`in_progress` exactly where the cancellation authority would refuse it. Any
-status outside the persisted outbox vocabulary fails closed to `ambiguous`.
+Classification precedence is independent of the table's row order. An absent
+event is `not_found`; missing or multiply live generations are `ambiguous`.
+For rows classified as `pending`, `retry_scheduled`, `preview_replay` or
+`needs_operator_action`, a source no longer retained is `content_unavailable`
+before evaluating expectations and plan binding. Other outcomes do not need
+source bytes to report their persisted state. A superseded expected observation
+is then `stale`, followed by `route_or_plan_changed` for a contradictory staged
+binding or `ambiguous` for an uninterpretable snapshot, then status mapping.
+
+Terminal persisted outcomes (`sent`, `cancelled`, `abandoned`) remain visible
+after content collection; active-owner and uncertain-native states
+(`in_progress`, `queued`) likewise remain visible without borrowing source
+content. Terminal settlement clears the reservation atomically. A live
+`active_attempt` reservation on a non-terminal row means a dispatch owner
+exists, so the row classifies as `in_progress` exactly where cancellation
+would refuse it. Any unrecognized status fails closed to `ambiguous`.
 
 The persisted plan-binding contradiction is checked only when a
 `delivery_outbox_snapshots` row exists for the selected generation. Rows
@@ -115,13 +124,13 @@ observation evidence only and never authorizes anything.
 
 ## Read-only and metadata-only guarantees
 
-The preview performs metadata reads only, through the storage read paths
-other operator surfaces use: event existence via metadata, outbox rows via
-the metadata-only projection, content availability via the replay read's
-authorization, and the frozen dispatch snapshot via its typed owner-scoped
-read. It never returns stored message text, excerpt bytes, or error
-summaries. It acquires no lock beyond ordinary reads and performs no storage
-mutation.
+The preview reports metadata only, using event existence, metadata-only
+outbox rows, a typed owner-scoped dispatch snapshot read, and (only for
+outcomes needing source content) the replay read's authorization. It never
+returns stored message text, excerpt bytes, or error summaries. The preview
+issues no lifecycle or content mutation of its own. The replay authorization
+read takes a short `BEGIN IMMEDIATE` transaction and may durably record an
+expiry observation under content authority.
 
 The content-availability check reuses the replay read's own authority. That
 read creates no hold and grants no claim. Where a mandatory dependency has
@@ -136,12 +145,16 @@ reassembly from previews, projections, or any other partial observation.
 
 ## Fail-closed behavior and error authority
 
-Any state the preview cannot classify deterministically becomes `ambiguous`
-in the returned model. `ValueError` is reserved for malformed selection
+Any persisted state the preview cannot classify deterministically becomes
+`ambiguous` in the returned model. For an uninterpretable frozen snapshot,
+`snapshot_present` is `true` and `snapshot_kind` is unknown rather than falsely
+reporting a missing row. `ValueError` is reserved for malformed selection
 input, mirroring the untyped preview's refusal semantics. Storage errors
-propagate with their own authority and MUST NOT be converted into selection
-outcomes; a failed snapshot read is a storage error, while a present but
-uninterpretable frozen document is an `ambiguous` observation.
+other than `OutboxSnapshotIntegrityError` MUST propagate under their own
+authority and MUST NOT become selection outcomes. The storage
+adapter raises `OutboxSnapshotReadError` for snapshot I/O failures and
+`OutboxSnapshotIntegrityError` for a present but malformed or unknown-version
+snapshot; only the latter becomes an `ambiguous` observation.
 
 The model carries fixed values: `execution_authorized` is always `False` and
 `scope` is always the read-only current-generation scope shared with the

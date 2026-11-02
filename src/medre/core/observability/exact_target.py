@@ -32,11 +32,11 @@ Selection and failure semantics:
   touched. Storage errors propagate with their own authority; only
   uninterpretable *persisted state* becomes ``ambiguous``.
 
-The preview performs metadata reads only and never returns stored
-message text. It issues no storage writes of its own; the replay read it
-composes for content availability creates no hold and grants no claim,
-and where a mandatory dependency has already expired it durably records
-that expiry observation under the content authority's own read path.
+The preview returns metadata only and never exposes stored message text.
+For categories that need source content, the replay read internally projects
+content after authorization. The preview issues no writes of its own; that
+read creates no hold or claim and may durably record an expired mandatory
+dependency under the content authority's short write transaction.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ from medre.core.observability.classification import failure_category
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    OutboxSnapshotIntegrityError,
     OutboxSnapshotReadError,
-    StorageError,
 )
 from medre.core.storage.read_contracts import AuthorizedEventRead
 
@@ -418,15 +418,12 @@ async def preview_exact_target(
 ) -> ExactTargetPreview:
     """Observe one exact delivery target without mutating storage.
 
-    Classification precedence, each stage read-only: an event absent
-    from canonical metadata is ``not_found``; an identity with no
-    outbox row or with more than one currently-live (non-terminal)
-    generation is ``ambiguous``; a selected row whose source content no
-    longer reads as retained is ``content_unavailable``; a caller-
-    supplied expected observation that the current state supersedes is
-    ``stale``; a frozen staged plan contradicting the row's persisted
-    binding is ``route_or_plan_changed``; otherwise the row's own
-    status maps through :func:`classify_outbox_status`.
+    An absent event is ``not_found`` and an unselectable identity is
+    ``ambiguous``. For statuses that require source content to consider
+    recovery, unavailable content takes precedence over stale expectations
+    and plan binding. For other statuses, persisted work state remains
+    visible even after source collection. Stale expectations then precede
+    plan-binding contradictions, which precede status classification.
 
     The expected generation is the persisted finalized attempt counter.
     It is superseded when it differs from the row's raw
@@ -442,7 +439,9 @@ async def preview_exact_target(
     error; a present but uninterpretable snapshot fails closed to
     ``ambiguous``. Storage errors from the metadata, outbox, and
     content reads propagate unchanged. The preview never returns
-    stored message text and never mutates storage.
+    stored message text or issues a lifecycle/content mutation of its own.
+    A replay authorization read takes a short write transaction and may
+    record a durable mandatory-dependency expiry observation.
     """
     _validate_expected_observation(expected_fingerprint, expected_generation)
     identity = selection.identity
@@ -472,8 +471,10 @@ async def preview_exact_target(
         )
     except OutboxSnapshotReadError:
         raise
-    except StorageError:
-        snapshot_present = False
+    except OutboxSnapshotIntegrityError:
+        # Only an observed but uninterpretable persisted document is ambiguous.
+        # Backend errors other than snapshot integrity failures propagate.
+        snapshot_present = True
         snapshot_kind = None
         binding = None
     else:
@@ -486,8 +487,23 @@ async def preview_exact_target(
         )
 
     fingerprint = _fingerprint(_observed_statement(identity, item))
-    read = await storage.read_event_for_replay(identity.event_id)
-    if read.status != "retained":
+    status_category = classify_outbox_status(
+        item.status,
+        active_attempt=item.active_attempt,
+        failure_kind=item.failure_kind,
+    )
+    # Completed/uncertain/actively owned outcomes require observation, not
+    # source bytes. Reading replay content here would mask durable native
+    # evidence after collection and could record an unrelated expiry.
+    needs_content = status_category in {
+        "pending", "retry_scheduled", "preview_replay", "needs_operator_action"
+    }
+    read = (
+        await storage.read_event_for_replay(identity.event_id)
+        if needs_content
+        else None
+    )
+    if read is not None and read.status != "retained":
         category: ExactTargetCategory = "content_unavailable"
     elif (expected_fingerprint is not None and expected_fingerprint != fingerprint) or (
         expected_generation is not None
@@ -502,11 +518,7 @@ async def preview_exact_target(
     elif binding is None:
         category = "ambiguous"
     else:
-        category = classify_outbox_status(
-            item.status,
-            active_attempt=item.active_attempt,
-            failure_kind=item.failure_kind,
-        )
+        category = status_category
 
     return ExactTargetPreview(
         event_id=identity.event_id,

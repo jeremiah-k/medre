@@ -65,7 +65,7 @@
       "minimum": 1
     },
     "observed_generation": {
-      "description": "Mirrors attempt_number exactly; a display-normalized effective generation MUST NOT appear in any field a write path could consume.",
+      "description": "Mirrors attempt_number exactly; never a display-normalized effective generation.",
       "type": ["integer", "null"],
       "minimum": 0
     },

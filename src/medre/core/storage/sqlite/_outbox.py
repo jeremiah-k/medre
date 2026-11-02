@@ -48,6 +48,7 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    OutboxSnapshotIntegrityError,
     OutboxSnapshotReadError,
     StorageError,
 )
@@ -531,7 +532,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         resolved through a join on its outbox row, so a mismatched event, plan,
         adapter, or channel yields ``None`` rather than another generation's
         context.  A present snapshot with a malformed document or an unknown
-        snapshot shape version raises :class:`StorageError`; a failed database
+        snapshot shape version raises :class:`OutboxSnapshotIntegrityError`; a failed database
         read raises :class:`OutboxSnapshotReadError` instead so a temporary
         failure cannot terminally abandon valid work. Recovery never
         falls back to current router configuration.  Absence returns ``None``:
@@ -571,24 +572,24 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         snapshot_version = int(row["snapshot_version"])
         kind = str(row["snapshot_kind"])
         if snapshot_version != OUTBOX_DISPATCH_SNAPSHOT_VERSION:
-            raise StorageError(
+            raise OutboxSnapshotIntegrityError(
                 f"Outbox dispatch snapshot {outbox_id_bound} has unknown shape "
                 f"version {snapshot_version}; expected "
                 f"{OUTBOX_DISPATCH_SNAPSHOT_VERSION}"
             )
         if kind not in OUTBOX_DISPATCH_SNAPSHOT_KINDS:
-            raise StorageError(
+            raise OutboxSnapshotIntegrityError(
                 f"Outbox dispatch snapshot {outbox_id_bound} has unknown "
                 f"snapshot kind {kind!r}"
             )
         try:
             context = _decode_json(str(row["context_json"]))
         except Exception as exc:
-            raise StorageError(
+            raise OutboxSnapshotIntegrityError(
                 f"Outbox dispatch snapshot {outbox_id_bound} is malformed"
             ) from exc
         if not isinstance(context, dict):
-            raise StorageError(
+            raise OutboxSnapshotIntegrityError(
                 f"Outbox dispatch snapshot {outbox_id_bound} is malformed"
             )
         return OutboxDispatchSnapshot(
