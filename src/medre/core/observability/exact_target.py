@@ -496,7 +496,10 @@ async def preview_exact_target(
     # source bytes. Reading replay content here would mask durable native
     # evidence after collection and could record an unrelated expiry.
     needs_content = status_category in {
-        "pending", "retry_scheduled", "preview_replay", "needs_operator_action"
+        "pending",
+        "retry_scheduled",
+        "preview_replay",
+        "needs_operator_action",
     }
     read = (
         await storage.read_event_for_replay(identity.event_id)

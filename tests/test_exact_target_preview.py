@@ -620,11 +620,15 @@ async def test_preview_does_not_mutate_delivery_state(temp_storage) -> None:
         dependencies = await temp_storage._read_all(
             "SELECT event_id, owner_kind, owner_id, acquired_at, deadline, released_at "
             "FROM event_content_dependencies WHERE event_id=? "
-            "ORDER BY owner_kind, owner_id", (_EVENT,)
+            "ORDER BY owner_kind, owner_id",
+            (_EVENT,),
         )
         return (
-            sorted(i.outbox_id for i in items), items, metadata,
-            tuple(counts), dependencies,
+            sorted(i.outbox_id for i in items),
+            items,
+            metadata,
+            tuple(counts),
+            dependencies,
         )
 
     before = await observed_state()
@@ -750,14 +754,16 @@ async def test_preview_records_expired_source_permission_without_delivery_mutati
     row = await temp_storage.create_outbox_item(_row())
     before = await temp_storage._read_one(
         "SELECT released_at FROM event_content_dependencies "
-        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+        "WHERE event_id=? AND owner_kind='append'",
+        (_EVENT,),
     )
     assert before is not None and before["released_at"] is None
     await temp_storage._write_rowcount(
         "UPDATE event_content_dependencies SET "
         "acquired_at='2000-01-01T00:00:00+00:00', "
         "deadline='2001-01-01T00:00:00+00:00' "
-        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+        "WHERE event_id=? AND owner_kind='append'",
+        (_EVENT,),
     )
     before_outbox = await temp_storage.list_outbox_items_for_event(
         _EVENT, metadata_only=True
@@ -766,12 +772,14 @@ async def test_preview_records_expired_source_permission_without_delivery_mutati
     assert report.category == "content_unavailable"
     after = await temp_storage._read_one(
         "SELECT released_at FROM event_content_dependencies "
-        "WHERE event_id=? AND owner_kind='append'", (_EVENT,)
+        "WHERE event_id=? AND owner_kind='append'",
+        (_EVENT,),
     )
     assert after is not None and after["released_at"] is not None
-    assert await temp_storage.list_outbox_items_for_event(
-        _EVENT, metadata_only=True
-    ) == before_outbox
+    assert (
+        await temp_storage.list_outbox_items_for_event(_EVENT, metadata_only=True)
+        == before_outbox
+    )
     assert report.outbox_id == row.outbox_id
 
 
