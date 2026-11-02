@@ -181,6 +181,17 @@ def test_category_vocabulary_is_closed_and_frozen() -> None:
             target_adapter=_ADAPTER,
             target_channel=None,
             category="delivered",  # type: ignore[arg-type]
+            observed_fingerprint="a" * 64,
+        )
+
+    with pytest.raises(ValueError, match="64 lowercase hex characters"):
+        ExactTargetPreview(
+            event_id=_EVENT,
+            delivery_plan_id=_PLAN,
+            target_adapter=_ADAPTER,
+            target_channel=None,
+            category="pending",
+            observed_fingerprint="not-a-fingerprint",
         )
 
 

@@ -203,6 +203,7 @@ class ExactTargetPreview:
     target_adapter: str
     target_channel: str | None
     category: ExactTargetCategory
+    observed_fingerprint: str
     outbox_id: str | None = None
     attempt_number: int | None = None
     active_attempt: int | None = None
@@ -214,13 +215,16 @@ class ExactTargetPreview:
     snapshot_kind: str | None = None
     excluded_sibling_count: int = 0
     cancel_eligible: bool = False
-    observed_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         if self.category not in EXACT_TARGET_CATEGORIES:
             raise ValueError(f"Unknown exact-target category: {self.category!r}")
         if self.excluded_sibling_count < 0:
             raise ValueError("excluded_sibling_count must not be negative")
+        if len(self.observed_fingerprint) != 64 or any(
+            char not in "0123456789abcdef" for char in self.observed_fingerprint
+        ):
+            raise ValueError("observed_fingerprint must be 64 lowercase hex characters")
 
     @property
     def observed_generation(self) -> int | None:
