@@ -5,7 +5,9 @@ generation-bound ownership, restart recovery and conservative confirmation
 semantics. Build visible messenger features and usable recovery on that
 foundation. Keep protocol details in providers and delivery authority in core.
 A capability declaration is an implemented and qualified contract, rather than a
-list of upstream protocol possibilities.
+list of upstream protocol possibilities. The
+[contract gap register](contract-gap-status.md) tracks the status of each gap
+this program advances.
 
 ## Coordinated work program
 
