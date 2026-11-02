@@ -746,11 +746,13 @@ async def test_candidate_read_failure_preserves_the_cursor(tmp_path) -> None:
         assert any(e.kind == "cycle" for e in worker.state.recent_errors)
 
         # The next cycle re-pages from the same head; nothing was skipped.
+        # The worker's classified counter is the authoritative signal: the
+        # recording wrapper appends before the guarded call settles, so
+        # waiting on the record list alone can observe a collect that the
+        # sweep has not classified yet.
         store.page_collection_candidates = original_page  # type: ignore[method-assign]
-        assert await wait_until(
-            lambda: record.collects == ["first", "second"], timeout=10.0
-        )
-        assert worker.state.collected == 2
+        assert await wait_until(lambda: worker.state.collected == 2, timeout=10.0)
+        assert record.collects == ["first", "second"], "nothing was skipped"
         assert await wait_until(lambda: not worker.state.degraded, timeout=5.0)
     finally:
         if worker is not None:
