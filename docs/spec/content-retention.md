@@ -305,7 +305,39 @@ apply without initializing a new database. Read-only previews require the
 current validated schema; approved additive predecessors can be upgraded by
 normal writable initialization before a preview campaign.
 
+Two operator commands inspect and control this boundary without exposing
+content. `medre storage retention status --storage-path PATH` MUST open
+validated storage strictly read-only and report aggregate metadata only: the
+latest activation epoch (or an explicit `no_active_epoch` status), the
+durable `last_observed_active_at` heartbeat (or `activated_at` only when no
+heartbeat has been recorded) with a freshness observation
+computed against a stated default-interval assumption — the configured
+interval is not stored in the database, so the command applies the
+documented grace rule `max(3600, 10 * interval_seconds)` to the policy's
+default interval and MUST report `unknown` instead of guessing whenever
+freshness cannot honestly be assessed — the aggregate collected-receipt
+count, and the bounded preview's outcome counts and disclaimers without the
+preview's `next_after` continuation cursor. It MUST NOT emit message text,
+event identifiers, or native identifiers, and it MUST fail closed with a
+path-free refusal on unreadable or incomplete storage.
+`medre storage retention activate --storage-path PATH --yes` MUST refuse to
+run without `--yes`, then open a new operator activation epoch
+(`activated_by="operator"`) inside one small `BEGIN IMMEDIATE` transaction
+whose admission watermark is the current admission high-water, so
+pre-activation history is never swept; the command is safe against a live
+database because a running worker observes the new epoch on its next sweep,
+and repeating the command appends a new epoch each time with monotonic
+watermarks. The stopped-storage `medre storage collect --apply` workflow
+remains the maintenance path for storage that no live runtime owns, and its
+contract above is unchanged.
+
 Admission-watermark comparison MUST exclude equivalent UTC spellings of the
 same instant, including a zero microsecond written with or without a fraction.
 The comparison normalizes the boundary, never the indexed admission column;
-stored facts and cursor keys remain unchanged.
+stored facts and cursor keys remain unchanged. Retention status MUST observe
+its epoch, collection receipt count and preview in one read snapshot, so a
+concurrent operator activation cannot mix policy boundaries in one report.
+
+Status MUST report unknown freshness when an epoch can be decoded but its
+activity timestamp cannot be parsed. A structurally invalid epoch, including
+an empty heartbeat string, MUST instead produce the existing path-free refusal.
