@@ -1,0 +1,480 @@
+"""Operator surface for exact-target decisions and replay selection.
+
+Resolve-side tests prove the ``medre resolve --action`` preview/apply flow
+over the audited decision authority: private-local ownership, metadata-only
+previews, idempotent applies, and refusal rendering. Replay-side tests prove
+``--exact-target``/``--exact-no-channel`` validation and plumbing into
+``ReplayRequest.exact_target_selections``. Every resolve test calls the real
+``_resolve_unstarted`` handler; every replay exit-code test calls
+``main(["replay", ...])``.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+
+import pytest
+
+from medre.cli.main import _build_parser
+from medre.cli.resolve_commands import _resolve_unstarted
+from medre.core.storage.sqlite._operator_decision import (
+    ACTIVE_NATIVE_UNDECIDABLE,
+    COMPETING_GENERATION,
+    EXACT_TARGET_GONE,
+    SETTLED_TARGET_UNDECIDABLE,
+    TERMINAL_REOPEN_REFUSED,
+)
+from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import make_outbox_item
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX owner boundary")
+
+
+# ---------------------------------------------------------------------------
+# Resolve-side helpers
+# ---------------------------------------------------------------------------
+
+
+def _args(path: str, *options: str):
+    return _build_parser(include_adapter_cli=False).parse_args(
+        [
+            "resolve",
+            "--storage-path",
+            path,
+            "--event",
+            "test-001",
+            "--plan-id",
+            "plan",
+            "--target-adapter",
+            "matrix",
+            "--target-channel",
+            "!left",
+            *options,
+        ]
+    )
+
+
+def _no_channel_args(path: str, *options: str):
+    return _build_parser(include_adapter_cli=False).parse_args(
+        [
+            "resolve",
+            "--storage-path",
+            path,
+            "--event",
+            "test-001",
+            "--plan-id",
+            "plan",
+            "--target-adapter",
+            "matrix",
+            "--no-channel",
+            *options,
+        ]
+    )
+
+
+async def _seed_two_legs(path: str, sample_event) -> None:
+    store = SQLiteStorage(path)
+    await store.initialize()
+    await store.append(sample_event)
+    for channel in ("!left", "!right"):
+        await store.create_outbox_item(
+            make_outbox_item(
+                delivery_plan_id="plan",
+                target_adapter="matrix",
+                target_channel=channel,
+                event_id=sample_event.event_id,
+            )
+        )
+    await store.close()
+
+
+async def _claim_all(path: str) -> None:
+    store = SQLiteStorage(path)
+    await store.initialize()
+    try:
+        await store.claim_due_outbox_items(
+            now="2030-01-01T00:00:00", worker_id="native-owner", limit=10
+        )
+    finally:
+        await store.close()
+
+
+async def _mark_channel(
+    path: str,
+    event_id: str,
+    channel: str,
+    mark: str,
+) -> None:
+    """Move one leg to a terminal status through the production transitions."""
+    store = SQLiteStorage(path)
+    await store.initialize()
+    try:
+        items = await store.list_outbox_items_for_event(event_id)
+        target = next(item for item in items if item.target_channel == channel)
+        if mark == "dead_lettered":
+            await store.claim_due_outbox_items(
+                now="2030-01-01T00:00:00", worker_id="native-owner", limit=10
+            )
+            await store.mark_outbox_dead_lettered(
+                target.outbox_id, failure_kind="retry_exhausted"
+            )
+        elif mark == "cancelled":
+            await store.mark_outbox_cancelled(target.outbox_id)
+        else:  # pragma: no cover - test-only guard
+            raise AssertionError(f"unsupported mark: {mark}")
+    finally:
+        await store.close()
+
+
+def _apply_options(observed: dict, decision_id: str, action: str) -> list[str]:
+    return [
+        "--action",
+        action,
+        "--apply",
+        "--yes",
+        "--decision-id",
+        decision_id,
+        "--actor-label",
+        "operator-provenance",
+        "--outbox-id",
+        str(observed["outbox_id"]),
+        "--expected-generation",
+        str(observed["expected_generation"]),
+        "--expected-status",
+        str(observed["expected_status"]),
+        "--expected-updated-at",
+        str(observed["expected_updated_at"]),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Resolve: decision preview
+# ---------------------------------------------------------------------------
+
+
+@posix_only
+async def test_decision_preview_reports_decidable_observation(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["apply_authorized"] is False
+    assert payload["decision_capable"] is True
+    preview = payload["preview"]
+    assert preview["category"] == "pending"
+    assert preview["target_channel"] == "!left"
+    assert preview["attempt_number"] == 1
+    assert preview["active_attempt"] is None
+    assert preview["cancel_eligible"] is True
+    assert preview["execution_authorized"] is False
+    observed = payload["observed"]
+    assert observed["target_channel"] == "!left"
+    assert observed["expected_generation"] == 1
+    assert observed["expected_status"] == "pending"
+    assert observed["expected_updated_at"]
+    assert observed["outbox_id"]
+    assert "refusal_implications" not in payload
+
+
+@posix_only
+async def test_decision_preview_selects_the_no_channel_identity(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    store = SQLiteStorage(path)
+    await store.initialize()
+    await store.append(sample_event)
+    await store.create_outbox_item(
+        make_outbox_item(
+            delivery_plan_id="plan",
+            target_adapter="matrix",
+            target_channel=None,
+            event_id=sample_event.event_id,
+        )
+    )
+    await store.close()
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_no_channel_args(path, "--action", "resolve_uncertain"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_capable"] is True
+    assert payload["preview"]["target_channel"] is None
+    assert payload["observed"]["expected_status"] == "pending"
+
+
+@posix_only
+async def test_decision_preview_names_active_native_refusal(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _claim_all(path)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_capable"] is False
+    assert "observed" not in payload
+    assert payload["refusal_implications"] == [ACTIVE_NATIVE_UNDECIDABLE]
+
+
+@posix_only
+async def test_decision_preview_names_terminal_reopen_refusal(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    await _mark_channel(path, sample_event.event_id, "!left", "dead_lettered")
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_capable"] is False
+    assert payload["preview"]["category"] == "preview_replay"
+    assert payload["refusal_implications"] == [TERMINAL_REOPEN_REFUSED]
+
+
+@posix_only
+async def test_decision_preview_names_settled_refusal(tmp_path, sample_event, capsys):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    await _mark_channel(path, sample_event.event_id, "!left", "cancelled")
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resolve_uncertain"))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_capable"] is False
+    assert payload["preview"]["category"] == "cancelled"
+    assert payload["refusal_implications"] == [SETTLED_TARGET_UNDECIDABLE]
+
+
+@posix_only
+async def test_decision_preview_names_absent_and_contested_identity_refusals(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    missing = _build_parser(include_adapter_cli=False).parse_args(
+        [
+            "resolve",
+            "--storage-path",
+            path,
+            "--event",
+            "test-001",
+            "--plan-id",
+            "plan",
+            "--target-adapter",
+            "matrix",
+            "--target-channel",
+            "!missing",
+            "--action",
+            "resume_scheduled",
+        ]
+    )
+    await _resolve_unstarted(missing)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decision_capable"] is False
+    assert payload["preview"]["category"] == "ambiguous"
+    assert payload["refusal_implications"] == [
+        EXACT_TARGET_GONE,
+        COMPETING_GENERATION,
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Resolve: decision apply
+# ---------------------------------------------------------------------------
+
+
+@posix_only
+async def test_decision_apply_commits_once_and_never_touches_the_row(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    observed = json.loads(capsys.readouterr().out)["observed"]
+    args = _args(path, *_apply_options(observed, "choice-1", "resume_scheduled"))
+    await _resolve_unstarted(args)
+    assert json.loads(capsys.readouterr().out) == {
+        "decision_id": "choice-1",
+        "committed": True,
+    }
+    await _resolve_unstarted(args)
+    assert json.loads(capsys.readouterr().out)["committed"] is False
+
+    store = await SQLiteStorage.open_readonly(path)
+    try:
+        outboxes = await store.list_outbox_items_for_event(sample_event.event_id)
+        assert {x.target_channel: x.status for x in outboxes} == {
+            "!left": "pending",
+            "!right": "pending",
+        }
+        decisions = await store.list_operator_decisions(sample_event.event_id)
+        assert len(decisions) == 1
+        assert decisions[0]["action"] == "resume_scheduled"
+        assert decisions[0]["actor_id"] == "operator-provenance"
+        assert decisions[0]["observed_status"] == "pending"
+    finally:
+        await store.close()
+
+
+@posix_only
+async def test_resolve_uncertain_apply_records_the_audit_row(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resolve_uncertain"))
+    observed = json.loads(capsys.readouterr().out)["observed"]
+    await _resolve_unstarted(
+        _args(path, *_apply_options(observed, "choice-2", "resolve_uncertain"))
+    )
+    assert json.loads(capsys.readouterr().out)["committed"] is True
+    store = await SQLiteStorage.open_readonly(path)
+    try:
+        decisions = await store.list_operator_decisions(sample_event.event_id)
+        assert [row["action"] for row in decisions] == ["resolve_uncertain"]
+    finally:
+        await store.close()
+
+
+@posix_only
+async def test_decision_id_rebind_refuses(tmp_path, sample_event, capsys):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    observed = json.loads(capsys.readouterr().out)["observed"]
+    await _resolve_unstarted(
+        _args(path, *_apply_options(observed, "choice-1", "resume_scheduled"))
+    )
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(
+            _args(path, *_apply_options(observed, "choice-1", "resolve_uncertain"))
+        )
+    assert exc.value.code == 1
+    assert "Decision ID already binds another request" in capsys.readouterr().err
+    store = await SQLiteStorage.open_readonly(path)
+    try:
+        decisions = await store.list_operator_decisions(sample_event.event_id)
+        assert [row["action"] for row in decisions] == ["resume_scheduled"]
+    finally:
+        await store.close()
+
+
+@posix_only
+async def test_stale_observation_refuses_the_apply(tmp_path, sample_event, capsys):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    observed = json.loads(capsys.readouterr().out)["observed"]
+    await _claim_all(path)
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(
+            _args(path, *_apply_options(observed, "late-1", "resume_scheduled"))
+        )
+    assert exc.value.code == 1
+    assert ACTIVE_NATIVE_UNDECIDABLE in capsys.readouterr().err
+    store = await SQLiteStorage.open_readonly(path)
+    try:
+        assert await store.list_operator_decisions(sample_event.event_id) == []
+    finally:
+        await store.close()
+
+
+@posix_only
+async def test_cli_cannot_express_a_decision_over_a_settled_row(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    await _mark_channel(path, sample_event.event_id, "!left", "cancelled")
+    Path(path).chmod(0o600)
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(
+            _args(
+                path,
+                "--action",
+                "resume_scheduled",
+                "--apply",
+                "--yes",
+                "--decision-id",
+                "settled-1",
+                "--actor-label",
+                "operator",
+                "--outbox-id",
+                "obox",
+                "--expected-generation",
+                "1",
+                "--expected-status",
+                "cancelled",
+                "--expected-updated-at",
+                "2026-01-01T00:00:00+00:00",
+            )
+        )
+    assert exc.value.code == 2
+    assert "invalid choice: 'cancelled'" in capsys.readouterr().err
+
+
+@posix_only
+async def test_decision_apply_requires_confirmation_and_observed_state(
+    tmp_path, sample_event, capsys
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o600)
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(
+            _args(
+                path,
+                "--action",
+                "resume_scheduled",
+                "--apply",
+                "--decision-id",
+                "d",
+                "--actor-label",
+                "a",
+                "--outbox-id",
+                "obox",
+                "--expected-generation",
+                "1",
+                "--expected-status",
+                "pending",
+                "--expected-updated-at",
+                "2026-01-01T00:00:00+00:00",
+            )
+        )
+    assert exc.value.code == 2
+    assert "--yes" in capsys.readouterr().err
+
+    await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    observed = json.loads(capsys.readouterr().out)["observed"]
+    partial = _apply_options(observed, "d", "resume_scheduled")
+    for flag in ("--outbox-id", "--expected-updated-at"):
+        idx = partial.index(flag)
+        stripped = partial[:idx] + partial[idx + 2 :]
+        with pytest.raises(SystemExit) as exc:
+            await _resolve_unstarted(_args(path, *stripped))
+        assert exc.value.code == 2
+        assert flag in capsys.readouterr().err
+
+
+@posix_only
+async def test_decision_preview_requires_the_private_local_store(
+    tmp_path, sample_event
+):
+    path = str(tmp_path / "state.sqlite")
+    await _seed_two_legs(path, sample_event)
+    Path(path).chmod(0o644)
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(_args(path, "--action", "resume_scheduled"))
+    assert exc.value.code == 3

@@ -10,8 +10,9 @@ the decision sibling of the
 counterpart of the typed
 [exact-target observation contract](exact-target-recovery.md): it consumes
 observation evidence (identity, generation, status, update version) but an
-observation never authorizes by itself. It exposes no CLI command and changes
-no engine, replay, or adapter behavior.
+observation never authorizes by itself. It changes no engine, replay, or
+adapter behavior; operators reach it through the
+[local caller boundary](#local-caller-boundary).
 
 The decision never stages a send, never creates a delivery generation, and
 never mutates the observed outbox row: no status change, no `updated_at`
@@ -128,8 +129,32 @@ remains constrained to `pending`/`retry_wait`. The widening is part of the
 MEDRE refuses older single-action shapes at initialization, qualification
 uses fresh state, and no migration path is provided.
 
+## Local caller boundary
+
+The `medre resolve --action` command records decisions over one exact target,
+mirroring the [exact-cancellation command](../ops/exact-cancellation.md) and
+its private POSIX owner-only state-file requirement. The preview calls the
+typed exact-target observation and renders metadata only: the observed
+category, raw generation fields, `cancel_eligible`, and — when the observed
+state is not decidable — the frozen refusal(s) the authority would raise.
+Only an unstarted scheduled observation (`pending`/`retry_wait` without a
+reservation or claim, and without an observation-level contradiction) renders
+as decidable, together with the exact `outbox_id`, `expected_generation`,
+`expected_status` and `expected_updated_at` an apply must copy. Non-decidable
+categories render no apply shape: an observation never becomes a mutation
+permit.
+
+Apply requires explicit confirmation, an actor label, a decision ID and the
+observed state, and reports `{"decision_id", "committed"}`. Refusals surface
+with the frozen refusal string; storage failures surface with the
+storage-error exit code. The preview opens the same private file because the
+observation's content-authority read may durably record an expired mandatory
+dependency; the rendered output stays metadata-only. The command adds no send
+capability: resumption remains owned by the normal claim/attempt fences.
+
 ## Non-goals
 
-No operator command surface in this slice, no engine or replay change, no
-provider adapter, no repeat-send authority for terminal or uncertain native
-work, and no widening from one exact target to sibling destinations.
+No engine or replay change, no provider adapter, no repeat-send authority
+for terminal or uncertain native work, and no widening from one exact target
+to sibling destinations. The caller boundary records decisions only; it is
+not a replay execution grant and never mutates the observed row.

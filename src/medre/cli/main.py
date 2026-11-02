@@ -863,6 +863,15 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     resolve_p.add_argument(
         "--yes", action="store_true", help="Confirm the exact cancellation"
     )
+    resolve_p.add_argument(
+        "--action",
+        default=None,
+        choices=("resume_scheduled", "resolve_uncertain"),
+        help=(
+            "Record an audited exact-target decision (preview/apply) instead"
+            " of an unstarted cancellation"
+        ),
+    )
 
     # storage (with sub-subcommands)
     storage_p = sub.add_parser("storage", help="Storage management commands")

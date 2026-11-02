@@ -1,4 +1,5 @@
-"""Explicit local-owner control for the existing exact unstarted-cancel authority.
+"""Explicit local-owner control for the exact unstarted-cancel and
+exact-target decision authorities.
 
 The OS file owner and private state directory are the local permission boundary.
 Actor labels are audit provenance only, never credentials. A preview has no
@@ -14,9 +15,21 @@ from pathlib import Path
 from typing import Any
 
 from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.observability.exact_target import (
+    ExactTargetPreview,
+    ExactTargetSelection,
+    preview_exact_target,
+)
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._operator_decision import (
+    ACTIVE_NATIVE_UNDECIDABLE,
+    COMPETING_GENERATION,
+    EXACT_TARGET_GONE,
+    OBSERVATION_STALE,
+    SETTLED_TARGET_UNDECIDABLE,
+    TERMINAL_REOPEN_REFUSED,
     CancelUnstartedDecision,
+    ExactTargetDecision,
     OperatorDecisionRefused,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -85,6 +98,181 @@ def _decision_fields(item: Any) -> dict[str, Any]:
     }
 
 
+#: Refusal implications rendered for observed categories the decision
+#: authority refuses. The strings quote the authority's frozen refusal
+#: vocabulary. ``ambiguous`` lists both refusal conditions a contested
+#: identity can produce. Categories absent from this mapping
+#: (``content_unavailable`` and ``route_or_plan_changed``) render the
+#: re-observation sentence below.
+_DECISION_CATEGORY_IMPLICATIONS: dict[str, tuple[str, ...]] = {
+    "in_progress": (ACTIVE_NATIVE_UNDECIDABLE,),
+    "awaiting_feedback": (ACTIVE_NATIVE_UNDECIDABLE,),
+    "inspect_native": (ACTIVE_NATIVE_UNDECIDABLE,),
+    "preview_replay": (TERMINAL_REOPEN_REFUSED,),
+    "needs_operator_action": (TERMINAL_REOPEN_REFUSED,),
+    "completed": (SETTLED_TARGET_UNDECIDABLE,),
+    "cancelled": (SETTLED_TARGET_UNDECIDABLE,),
+    "not_found": (EXACT_TARGET_GONE,),
+    "ambiguous": (EXACT_TARGET_GONE, COMPETING_GENERATION),
+    "stale": (OBSERVATION_STALE,),
+}
+_REOBSERVE_REQUIRED = (
+    "This observation does not support a decision; re-observe the exact target"
+)
+
+
+def _decision_category_implications(preview: ExactTargetPreview) -> tuple[str, ...]:
+    """Name the authority refusals implied by one observed category."""
+    if preview.category in _DECISION_CATEGORY_IMPLICATIONS:
+        return _DECISION_CATEGORY_IMPLICATIONS[preview.category]
+    return (_REOBSERVE_REQUIRED,)
+
+
+def _decision_decidable(preview: ExactTargetPreview) -> bool:
+    """Mirror the decision authority's unstarted-scheduled eligibility.
+
+    The row is ``pending``/``retry_wait`` with no reservation and no claim
+    ownership — the same predicate ``cancel_eligible`` mirrors. Reservations
+    promote the category to ``in_progress`` before this check, so the
+    category gate excludes them; the claim-ownership check matches the
+    eligibility mirror. Competing generations and staleness remain
+    transaction-verified and never make a preview decidable here.
+    """
+    return preview.cancel_eligible and preview.category in {
+        "pending",
+        "retry_scheduled",
+    }
+
+
+def _decision_observed_fields(preview: ExactTargetPreview) -> dict[str, Any]:
+    """The observed state an apply must copy exactly, as cancellation renders it."""
+    return {
+        "event_id": preview.event_id,
+        "delivery_plan_id": preview.delivery_plan_id,
+        "target_adapter": preview.target_adapter,
+        "target_channel": preview.target_channel,
+        "outbox_id": preview.outbox_id,
+        "expected_generation": preview.attempt_number,
+        "expected_status": preview.status,
+        "expected_updated_at": preview.updated_at,
+    }
+
+
+def _decision_preview_payload(preview: ExactTargetPreview) -> dict[str, Any]:
+    """Metadata-only JSON for one exact-target decision observation."""
+    decidable = _decision_decidable(preview)
+    payload: dict[str, Any] = {
+        "apply_authorized": False,
+        "decision_capable": decidable,
+        "preview": preview.to_dict(),
+    }
+    if decidable:
+        payload["observed"] = _decision_observed_fields(preview)
+    else:
+        payload["refusal_implications"] = list(
+            _decision_category_implications(preview)
+        )
+    return payload
+
+
+async def _preview_exact_target_decision(
+    storage_path: str, identity: DeliveryIdentity
+) -> None:
+    """Observe one exact target for decision-making; never authorize a write.
+
+    The typed preview is opened on the same private owner-only file the
+    apply path validates: its content-authority read may durably record an
+    expired mandatory dependency, which a read-only connection cannot
+    record. The rendered JSON stays metadata-only either way.
+    """
+    try:
+        selection = ExactTargetSelection(
+            event_id=identity.event_id,
+            delivery_plan_id=identity.delivery_plan_id,
+            target_adapter=identity.target_adapter,
+            target_channel=identity.target_channel,
+        )
+    except ValueError as exc:
+        print(f"Invalid exact-target selection: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG) from exc
+    store = SQLiteStorage(storage_path)
+    try:
+        await store.initialize()
+        preview = await preview_exact_target(store, selection)
+    except ValueError as exc:
+        print(f"Invalid exact-target selection: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG) from exc
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD) from exc
+    finally:
+        await store.close()
+    print(to_json(_decision_preview_payload(preview)))
+
+
+async def _apply_exact_target_decision(
+    args: Any, storage_path: str, identity: DeliveryIdentity
+) -> None:
+    """Record one audited exact-target decision under the private-local boundary."""
+    if not args.yes or not args.actor_label or not args.decision_id:
+        print(
+            "Decision apply requires --yes, --actor-label and --decision-id",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
+    observed = {
+        "--outbox-id": args.outbox_id,
+        "--expected-generation": args.expected_generation,
+        "--expected-status": args.expected_status,
+        "--expected-updated-at": args.expected_updated_at,
+    }
+    missing = sorted(name for name, value in observed.items() if value is None)
+    if missing:
+        print(
+            "Decision apply requires the observed state: "
+            + ", ".join(missing),
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
+    try:
+        decision = ExactTargetDecision(
+            decision_id=args.decision_id,
+            actor_id=args.actor_label,
+            action=args.action,
+            identity=identity,
+            outbox_id=args.outbox_id,
+            expected_generation=args.expected_generation,
+            expected_status=args.expected_status,
+            expected_updated_at=args.expected_updated_at,
+        )
+    except ValueError as exc:
+        print(f"Invalid decision request: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG) from exc
+    store = SQLiteStorage(storage_path)
+    try:
+        await store.initialize()
+        committed = await store.record_exact_target_decision(decision)
+    except OperatorDecisionRefused as exc:
+        print(f"Decision refused: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_FAILED) from exc
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD) from exc
+    finally:
+        await store.close()
+    print(to_json({"decision_id": decision.decision_id, "committed": committed}))
+
+
+async def _resolve_exact_target_decision(
+    args: Any, storage_path: str, identity: DeliveryIdentity
+) -> None:
+    """Dispatch the exact-target decision preview or apply for one identity."""
+    if not args.apply:
+        await _preview_exact_target_decision(storage_path, identity)
+        return
+    await _apply_exact_target_decision(args, storage_path, identity)
+
+
 async def _resolve_unstarted(args: Any) -> None:
     """Preview one target or transactionally apply the observed exact request."""
     try:
@@ -101,6 +289,9 @@ async def _resolve_unstarted(args: Any) -> None:
     if not identity.complete:
         print("A complete delivery identity is required", file=sys.stderr)
         raise SystemExit(EXIT_CONFIG)
+    if args.action is not None:
+        await _resolve_exact_target_decision(args, storage_path, identity)
+        return
     if args.apply:
         if not args.yes or not args.actor_label or not args.decision_id:
             print(
