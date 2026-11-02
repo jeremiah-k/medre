@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.content_retention import (
     RETENTION_DEFAULT_INTERVAL,
+    retention_epoch_observation_age_seconds,
     retention_epoch_grace_seconds,
 )
 
@@ -83,14 +84,11 @@ def _heartbeat_observation(
     grace_seconds = retention_epoch_grace_seconds(_HEARTBEAT_ASSUMED_INTERVAL_SECONDS)
     if epoch is None:
         return "unknown", None, grace_seconds
-    raw = epoch.last_observed_active_at or epoch.activated_at
-    try:
-        observed = datetime.fromisoformat(raw)
-    except ValueError:
+    age_seconds = retention_epoch_observation_age_seconds(
+        epoch, datetime.now(timezone.utc)
+    )
+    if age_seconds is None:
         return "unknown", None, grace_seconds
-    if observed.tzinfo is None or observed.utcoffset() is None:
-        return "unknown", None, grace_seconds
-    age_seconds = (datetime.now(timezone.utc) - observed).total_seconds()
     if age_seconds <= grace_seconds:
         return "fresh", False, grace_seconds
     return "stale", True, grace_seconds

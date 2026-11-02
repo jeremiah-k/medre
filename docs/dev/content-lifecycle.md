@@ -203,7 +203,15 @@ qualification remain outside that subset:
 4. Opt-in release and bounded collection are implemented: an apply request
    acquires the SQLite write reservation before rechecking every owner, grant,
    record and copy blocker, and repeated collection stays idempotent across
-   concurrent writers and restarts.
+   concurrent writers and restarts. The relay-only step now also includes the
+   policy-gated runtime worker and its qualification: the clock/policy
+   boundary, transaction/race, and fake-provider suites in
+   `tests/test_content_lifecycle_*.py` drive the real worker over the real
+   storage through the plan's race families and clock boundaries, and the
+   bounded mixed-workload measurement in
+   `scripts/measure_retention_workload.py` records collector-disabled versus
+   collector-enabled throughput and collect-duration distributions without a
+   performance verdict.
 5. Optional plugin holds still require the actual plugin permission and
    ownership system. Cooperative external-copy disclosure is defined
    separately.
