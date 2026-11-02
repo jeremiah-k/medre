@@ -404,6 +404,12 @@ async def _build_event_recovery_runbook(
             "Replay filters select adapters and routes, not individual channels. "
             "Review every destination in the dry-run output before sending."
         )
+        runbook["warnings"].append(
+            "When one exact destination is identified, name it with 'medre "
+            "replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL' (or "
+            "'--exact-no-channel' when the stored identity has no channel); "
+            "replays without that flag still select adapters and routes only."
+        )
 
     # Side-effecting replay remains an explicit operator choice after preview.
     if has_preview:
