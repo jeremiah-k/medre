@@ -95,6 +95,10 @@ class OutboxSnapshotReadError(StorageError):
     """A snapshot read failed before integrity could be assessed; retry is safe."""
 
 
+class OutboxSnapshotIntegrityError(StorageError):
+    """A persisted snapshot exists but has invalid version, kind or document."""
+
+
 class ContentCollectionEpochChanged(StorageError):
     """The selected retention epoch is no longer current or owns no such event.
 
@@ -1674,8 +1678,10 @@ class StorageBackend(Protocol):
         resolved through its outbox identity binding, so a mismatched event,
         plan, adapter, or channel yields ``None`` rather than another
         generation's context.  A present snapshot with a malformed document or
-        an unknown snapshot shape version raises :class:`StorageError` —
-        reconstruction never falls back to current router configuration.
+        an unknown snapshot shape version raises
+        :class:`OutboxSnapshotIntegrityError`; an unsuccessful database read
+        raises :class:`OutboxSnapshotReadError`. Reconstruction never falls back
+        to current router configuration.
         Metadata-only projections never return snapshot bytes; this typed read
         is the only access path.
         """
