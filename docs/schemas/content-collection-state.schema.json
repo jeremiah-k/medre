@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/content-collection-state.schema.json",
+  "title": "Content collection worker projections",
+  "description": "Closed aggregate projections emitted by MedreApp.diagnostic_snapshot and build_runtime_snapshot. These are separate from core.supervision.capture_runtime_snapshot. No content or event identifiers are permitted.",
+  "$defs": {
+    "common": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "abandoned": {
+          "type": "boolean"
+        },
+        "restricted": {
+          "type": "boolean"
+        },
+        "awaiting_activation": {
+          "type": "boolean"
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "events_examined": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "collected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "already_collected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "empty": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "logical_bytes_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "epoch": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "last_sweep_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "enabled",
+        "abandoned",
+        "restricted",
+        "awaiting_activation",
+        "degraded",
+        "events_examined",
+        "collected",
+        "already_collected",
+        "blocked",
+        "empty",
+        "failed",
+        "rows_removed",
+        "logical_bytes_removed",
+        "epoch",
+        "last_sweep_at"
+      ]
+    },
+    "diagnostics": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "properties": {
+            "worker_running": {
+              "type": "boolean"
+            }
+          },
+          "required": ["worker_running"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "runtime": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/common"
+        },
+        {
+          "properties": {
+            "running": {
+              "type": "boolean"
+            },
+            "scope": {
+              "const": "process_local"
+            },
+            "live_refresh": {
+              "const": false
+            }
+          },
+          "required": ["running", "scope", "live_refresh"]
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/diagnostics"
+    },
+    {
+      "$ref": "#/$defs/runtime"
+    }
+  ]
+}

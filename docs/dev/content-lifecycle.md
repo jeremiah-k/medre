@@ -7,7 +7,11 @@ separately from the immutable event envelope, mandatory content dependencies
 are acquired atomically at admission and outbox staging, then settle with
 guarded ingress completion and terminal lifecycle transitions, runtime content reads are owner-scoped, and exact-event
 isolated-content collection runs as a guarded, opt-in relay-only operator
-workflow with automatic and periodic collection disabled. The implemented read
+workflow. An explicitly enabled `relay-only` `content_retention` policy
+additionally drives the runtime's single owner-fenced collection worker —
+epoch-bounded, best-effort, disabled by default, and never active in
+REPLAY scope — while broader timed profiles stay unimplemented. The
+implemented read
 and settlement boundary is
 [content runtime authority](../spec/content-runtime-authority.md); the
 collection contract is
@@ -50,10 +54,16 @@ Offer a small set of understandable profiles before exposing individual duration
   History and reply-context limits remain independent of delivery deadlines.
 
 Retention profiles require completed runtime integration and qualification
-before activation. The implemented step in the relay-only direction is
+before activation. The implemented steps in the relay-only direction are
 bounded, operator-initiated collection of isolated canonical text and
-same-event excerpt rows through `medre storage collect --mode relay-only`;
-it is a collection workflow, not a selectable profile. Prerelease schema
+same-event excerpt rows through `medre storage collect --mode relay-only`
+for stopped storage, and one selectable declared policy: an explicitly
+enabled `relay-only` `content_retention` configuration drives the
+runtime's epoch-bounded collection worker (disabled by default; a
+declared `retain` policy never collects; the activation boundary and
+worker behavior are specified in
+[content retention](../spec/content-retention.md)). Broader timed
+profiles remain unimplemented. Prerelease schema
 changes use fresh development state, and existing databases accept only the
 explicitly allowlisted additive catalog additions, without alternate readers
 or data transformations for earlier layouts. Recent context
