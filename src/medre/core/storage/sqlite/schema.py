@@ -511,6 +511,10 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 _INDEXES: str = """
 CREATE INDEX IF NOT EXISTS idx_events_timestamp
     ON canonical_events(timestamp, event_id);
+-- Retention candidate discovery pages the stable local admission ordering;
+-- event IDs are deliberately not assumed to be chronological.
+CREATE INDEX IF NOT EXISTS idx_events_admission_order
+    ON canonical_events(created_at, event_id);
 CREATE INDEX IF NOT EXISTS idx_relations_event_id
     ON event_relations(event_id, id);
 CREATE INDEX IF NOT EXISTS idx_relations_target_event_id
@@ -1251,5 +1255,13 @@ _SNAPSHOT_OWNER_INDEX_DDL = _INDEXES[
 _ROUTING_FACTS_DDL = _SCHEMA[
     _SCHEMA.index("-- Typed admission routing facts") : _SCHEMA.index(
         "-- One current, immutable admission fact per canonical body."
+    )
+]
+
+# The approved additive admission-ordering index derives verbatim from the
+# same index catalog, exactly like the diagnostics index above.
+_ADMISSION_ORDER_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- Retention candidate discovery") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_relations_event_id"
     )
 ]

@@ -6,7 +6,11 @@ from contextlib import closing
 import pytest
 
 from medre.core.storage.backend import StorageInitializationError
-from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
+from medre.core.storage.sqlite.schema import (
+    _ADMISSION_ORDER_INDEX_DDL,
+    _INDEXES,
+    _SCHEMA,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
@@ -44,6 +48,11 @@ def _old_database(path, *, missing_expired_at=False, missing_diagnostics=False):
         indexes,
         "-- A frozen work snapshot has one owner:",
         "CREATE INDEX IF NOT EXISTS idx_outbox_event_created",
+    )
+    indexes = _strip_section(
+        indexes,
+        "-- Retention candidate discovery",
+        "CREATE INDEX IF NOT EXISTS idx_relations_event_id",
     )
     if missing_diagnostics:
         ddl = _strip_section(
@@ -181,6 +190,73 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
         "event_routing_facts",
     }
     assert before_names <= after_names
+    again = SQLiteStorage(path)
+    await again.initialize()
+    await again.close()
+
+
+async def test_missing_admission_order_index_is_upgraded_atomically(tmp_path):
+    """A predecessor missing only the admission-ordering index is upgraded.
+
+    ``idx_events_admission_order`` is an allowlisted additive object: a
+    database created before it existed is accepted, the index is recreated
+    from the authoritative DDL slice, and the pre-existing work survives.
+    The upgraded catalog ends definition-identical to a fresh database, and
+    reopening is idempotent.
+    """
+    path = str(tmp_path / "upgrade-index.db")
+    _old_database(path)
+    with closing(sqlite3.connect(path)) as db, db:
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_events_admission_order'"
+            ).fetchone()
+            is None
+        )
+    store = SQLiteStorage(path)
+    await store.initialize()
+    try:
+        body = await store._read_one(
+            "SELECT body FROM event_body_content WHERE event_id='preserve'"
+        )
+        assert body is not None and body["body"] == "KEEP ME"
+        index = await store._read_one(
+            "SELECT name, sql FROM sqlite_master WHERE type='index' "
+            "AND name='idx_events_admission_order'"
+        )
+        assert index is not None
+        # sqlite_master stores the statement without IF NOT EXISTS and the
+        # trailing semicolon; normalize the authoritative slice the same way.
+        assert index["sql"] == (
+            _ADMISSION_ORDER_INDEX_DDL[_ADMISSION_ORDER_INDEX_DDL.index("CREATE") :]
+            .replace("IF NOT EXISTS ", "")
+            .split(";", 1)[0]
+            .strip()
+        )
+        # The upgraded shape matches a fresh database exactly.
+        with (
+            closing(sqlite3.connect(path)) as upgraded,
+            closing(sqlite3.connect(":memory:")) as fresh,
+        ):
+            fresh.executescript(_SCHEMA + _INDEXES)
+            upgraded_defs = {
+                (str(row[0]), str(row[1])): str(row[2])
+                for row in upgraded.execute(
+                    "SELECT type, name, sql FROM sqlite_master "
+                    "WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+                )
+            }
+            fresh_defs = {
+                (str(row[0]), str(row[1])): str(row[2])
+                for row in fresh.execute(
+                    "SELECT type, name, sql FROM sqlite_master "
+                    "WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+                )
+            }
+            assert upgraded_defs == fresh_defs
+    finally:
+        await store.close()
     again = SQLiteStorage(path)
     await again.initialize()
     await again.close()
