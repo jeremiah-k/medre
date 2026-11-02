@@ -666,15 +666,20 @@ def _parse_route_env_vars(
 # ---------------------------------------------------------------------------
 
 
-def _parse_retry_env_vars(
+def _parse_section_env_vars(
     environ: dict[str, str] | os._Environ[str],
+    *,
+    prefix: str,
+    field_map: dict[str, str],
+    label: str,
 ) -> dict[str, ParsedAdapterEnvValue]:
-    """Parse ``MEDRE_RETRY__<FIELD>`` vars from *environ*.
+    """Parse ``<prefix><FIELD>`` variables for one single-level config section.
 
-    Returns a mapping of field name → ParsedAdapterEnvValue.
-    Raises ConfigValidationError for malformed, unsupported, or duplicate fields.
+    Returns a mapping of field name → ParsedAdapterEnvValue. Raises
+    ConfigValidationError for malformed, unsupported, or duplicate fields;
+    every message names the prefix and the section label so each section's
+    errors stay self-identifying.
     """
-    prefix = RETRY_ENV_PREFIX
     result: dict[str, ParsedAdapterEnvValue] = {}
     malformed: list[str] = []
     unsupported: list[str] = []
@@ -684,44 +689,57 @@ def _parse_retry_env_vars(
         if not name.startswith(prefix):
             continue
         remainder = name[len(prefix) :]
-        if not remainder:
-            malformed.append(name)
-            continue
-        if "__" in remainder:
+        if not remainder or "__" in remainder:
             malformed.append(name)
             continue
         field_upper = remainder.upper()
-        if field_upper not in _RETRY_FIELD_MAP:
+        if field_upper not in field_map:
             unsupported.append(name)
             continue
-        field_name = _RETRY_FIELD_MAP[field_upper]
+        field_name = field_map[field_upper]
         parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
         if field_name in result:
             duplicates.append(
                 f"{result[field_name].env_var_name} and {name} both normalize "
-                f"to retry field {field_name!r}"
+                f"to {label} field {field_name!r}"
             )
             continue
         result[field_name] = parsed
 
     if malformed:
         raise ConfigValidationError(
-            f"Malformed MEDRE_RETRY__ environment variable(s): "
+            f"Malformed {prefix} environment variable(s): "
             f"{sorted(malformed)}. Expected shape: "
-            f"MEDRE_RETRY__<FIELD> with a single, non-empty field name."
+            f"{prefix}<FIELD> with a single, non-empty field name."
         )
     if unsupported:
         raise ConfigValidationError(
-            f"Unsupported MEDRE_RETRY__ field(s): "
+            f"Unsupported {prefix} field(s): "
             f"{sorted(unsupported)}. Supported fields: "
-            f"{sorted(_RETRY_FIELD_MAP.keys())}"
+            f"{sorted(field_map.keys())}"
         )
     if duplicates:
         raise ConfigValidationError(
-            f"Duplicate normalized retry fields: {'; '.join(duplicates)}. "
-            f"Each retry field must come from exactly one env var."
+            f"Duplicate normalized {label} fields: {'; '.join(duplicates)}. "
+            f"Each {label} field must come from exactly one env var."
         )
     return result
+
+
+def _parse_retry_env_vars(
+    environ: dict[str, str] | os._Environ[str],
+) -> dict[str, ParsedAdapterEnvValue]:
+    """Parse ``MEDRE_RETRY__<FIELD>`` vars from *environ*.
+
+    Returns a mapping of field name → ParsedAdapterEnvValue.
+    Raises ConfigValidationError for malformed, unsupported, or duplicate fields.
+    """
+    return _parse_section_env_vars(
+        environ,
+        prefix=RETRY_ENV_PREFIX,
+        field_map=_RETRY_FIELD_MAP,
+        label="retry",
+    )
 
 
 def _parse_attachment_env_vars(
@@ -733,54 +751,12 @@ def _parse_attachment_env_vars(
     Raises ConfigValidationError for malformed, unsupported, or duplicate
     fields.
     """
-    prefix = ATTACHMENTS_ENV_PREFIX
-    result: dict[str, ParsedAdapterEnvValue] = {}
-    malformed: list[str] = []
-    unsupported: list[str] = []
-    duplicates: list[str] = []
-
-    for name, value in environ.items():
-        if not name.startswith(prefix):
-            continue
-        remainder = name[len(prefix) :]
-        if not remainder:
-            malformed.append(name)
-            continue
-        if "__" in remainder:
-            malformed.append(name)
-            continue
-        field_upper = remainder.upper()
-        if field_upper not in _ATTACHMENTS_FIELD_MAP:
-            unsupported.append(name)
-            continue
-        field_name = _ATTACHMENTS_FIELD_MAP[field_upper]
-        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
-        if field_name in result:
-            duplicates.append(
-                f"{result[field_name].env_var_name} and {name} both normalize "
-                f"to attachments field {field_name!r}"
-            )
-            continue
-        result[field_name] = parsed
-
-    if malformed:
-        raise ConfigValidationError(
-            f"Malformed MEDRE_ATTACHMENTS__ environment variable(s): "
-            f"{sorted(malformed)}. Expected shape: "
-            f"MEDRE_ATTACHMENTS__<FIELD> with a single, non-empty field name."
-        )
-    if unsupported:
-        raise ConfigValidationError(
-            f"Unsupported MEDRE_ATTACHMENTS__ field(s): "
-            f"{sorted(unsupported)}. Supported fields: "
-            f"{sorted(_ATTACHMENTS_FIELD_MAP.keys())}"
-        )
-    if duplicates:
-        raise ConfigValidationError(
-            f"Duplicate normalized attachments fields: {'; '.join(duplicates)}. "
-            f"Each attachments field must come from exactly one env var."
-        )
-    return result
+    return _parse_section_env_vars(
+        environ,
+        prefix=ATTACHMENTS_ENV_PREFIX,
+        field_map=_ATTACHMENTS_FIELD_MAP,
+        label="attachments",
+    )
 
 
 def _parse_content_retention_env_vars(
@@ -792,55 +768,12 @@ def _parse_content_retention_env_vars(
     Raises ConfigValidationError for malformed, unsupported, or duplicate
     fields.
     """
-    prefix = CONTENT_RETENTION_ENV_PREFIX
-    result: dict[str, ParsedAdapterEnvValue] = {}
-    malformed: list[str] = []
-    unsupported: list[str] = []
-    duplicates: list[str] = []
-
-    for name, value in environ.items():
-        if not name.startswith(prefix):
-            continue
-        remainder = name[len(prefix) :]
-        if not remainder:
-            malformed.append(name)
-            continue
-        if "__" in remainder:
-            malformed.append(name)
-            continue
-        field_upper = remainder.upper()
-        if field_upper not in _CONTENT_RETENTION_FIELD_MAP:
-            unsupported.append(name)
-            continue
-        field_name = _CONTENT_RETENTION_FIELD_MAP[field_upper]
-        parsed = ParsedAdapterEnvValue(env_var_name=name, raw_value=value)
-        if field_name in result:
-            duplicates.append(
-                f"{result[field_name].env_var_name} and {name} both normalize "
-                f"to content_retention field {field_name!r}"
-            )
-            continue
-        result[field_name] = parsed
-
-    if malformed:
-        raise ConfigValidationError(
-            f"Malformed MEDRE_CONTENT_RETENTION__ environment variable(s): "
-            f"{sorted(malformed)}. Expected shape: "
-            f"MEDRE_CONTENT_RETENTION__<FIELD> with a single, non-empty field name."
-        )
-    if unsupported:
-        raise ConfigValidationError(
-            f"Unsupported MEDRE_CONTENT_RETENTION__ field(s): "
-            f"{sorted(unsupported)}. Supported fields: "
-            f"{sorted(_CONTENT_RETENTION_FIELD_MAP.keys())}"
-        )
-    if duplicates:
-        raise ConfigValidationError(
-            f"Duplicate normalized content_retention fields: "
-            f"{'; '.join(duplicates)}. "
-            f"Each content_retention field must come from exactly one env var."
-        )
-    return result
+    return _parse_section_env_vars(
+        environ,
+        prefix=CONTENT_RETENTION_ENV_PREFIX,
+        field_map=_CONTENT_RETENTION_FIELD_MAP,
+        label="content_retention",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1608,6 +1541,45 @@ def apply_route_overrides(
 # ---------------------------------------------------------------------------
 
 
+def _apply_section_env_overrides(
+    config: RuntimeConfig,
+    overrides: dict[str, str],
+    *,
+    section_attr: str,
+    label: str,
+    env_prefix: str,
+    section_class: type[Any],
+) -> RuntimeConfig:
+    """Apply one section's ``<env_prefix><FIELD>`` overrides to *config*.
+
+    Coerces each value against the section's type hints, revalidates the
+    section as a whole (cross-field rules included), and returns a new
+    RuntimeConfig with only that section replaced. Raises
+    ConfigValidationError if a value fails type coercion or validation.
+    """
+    if not overrides:
+        return config
+
+    current = getattr(config, section_attr)
+    kwargs: dict[str, Any] = {f.name: getattr(current, f.name) for f in fields(current)}
+
+    hints = get_type_hints(section_class)
+    for field_name, raw_value in overrides.items():
+        if field_name not in kwargs:
+            raise ConfigValidationError(f"Unknown {label} field {field_name!r}")
+        field_type = hints.get(field_name)
+        coerced = _coerce_field_value(
+            raw_value,
+            field_name,
+            field_type,
+            f"{env_prefix}{field_name.upper()}",
+        )
+        kwargs[field_name] = coerced
+
+    new_section = section_class(**kwargs).validate()
+    return dataclasses.replace(config, **{section_attr: new_section})
+
+
 def apply_retry_overrides(
     config: RuntimeConfig,
     retry_overrides: dict[str, str],
@@ -1617,28 +1589,14 @@ def apply_retry_overrides(
     Returns a new RuntimeConfig with retry overrides applied.
     Raises ConfigValidationError if values fail type coercion.
     """
-    if not retry_overrides:
-        return config
-
-    kwargs: dict[str, Any] = {
-        f.name: getattr(config.retry, f.name) for f in fields(config.retry)
-    }
-
-    hints = get_type_hints(RetryConfig)
-    for field_name, raw_value in retry_overrides.items():
-        if field_name not in kwargs:
-            raise ConfigValidationError(f"Unknown retry field {field_name!r}")
-        field_type = hints.get(field_name)
-        coerced = _coerce_field_value(
-            raw_value,
-            field_name,
-            field_type,
-            f"MEDRE_RETRY__{field_name.upper()}",
-        )
-        kwargs[field_name] = coerced
-
-    new_retry = RetryConfig(**kwargs).validate()
-    return dataclasses.replace(config, retry=new_retry)
+    return _apply_section_env_overrides(
+        config,
+        retry_overrides,
+        section_attr="retry",
+        label="retry",
+        env_prefix=RETRY_ENV_PREFIX,
+        section_class=RetryConfig,
+    )
 
 
 def apply_attachment_overrides(
@@ -1652,28 +1610,14 @@ def apply_attachment_overrides(
     Raises ConfigValidationError if values fail type coercion or
     validation.
     """
-    if not attachments_overrides:
-        return config
-
-    kwargs: dict[str, Any] = {
-        f.name: getattr(config.attachments, f.name) for f in fields(config.attachments)
-    }
-
-    hints = get_type_hints(AttachmentConfig)
-    for field_name, raw_value in attachments_overrides.items():
-        if field_name not in kwargs:
-            raise ConfigValidationError(f"Unknown attachments field {field_name!r}")
-        field_type = hints.get(field_name)
-        coerced = _coerce_field_value(
-            raw_value,
-            field_name,
-            field_type,
-            f"MEDRE_ATTACHMENTS__{field_name.upper()}",
-        )
-        kwargs[field_name] = coerced
-
-    new_attachments = AttachmentConfig(**kwargs).validate()
-    return dataclasses.replace(config, attachments=new_attachments)
+    return _apply_section_env_overrides(
+        config,
+        attachments_overrides,
+        section_attr="attachments",
+        label="attachments",
+        env_prefix=ATTACHMENTS_ENV_PREFIX,
+        section_class=AttachmentConfig,
+    )
 
 
 def apply_content_retention_overrides(
@@ -1688,31 +1632,14 @@ def apply_content_retention_overrides(
     Raises ConfigValidationError if values fail type coercion or
     validation.
     """
-    if not content_retention_overrides:
-        return config
-
-    kwargs: dict[str, Any] = {
-        f.name: getattr(config.content_retention, f.name)
-        for f in fields(config.content_retention)
-    }
-
-    hints = get_type_hints(ContentRetentionConfig)
-    for field_name, raw_value in content_retention_overrides.items():
-        if field_name not in kwargs:
-            raise ConfigValidationError(
-                f"Unknown content_retention field {field_name!r}"
-            )
-        field_type = hints.get(field_name)
-        coerced = _coerce_field_value(
-            raw_value,
-            field_name,
-            field_type,
-            f"MEDRE_CONTENT_RETENTION__{field_name.upper()}",
-        )
-        kwargs[field_name] = coerced
-
-    new_content_retention = ContentRetentionConfig(**kwargs).validate()
-    return dataclasses.replace(config, content_retention=new_content_retention)
+    return _apply_section_env_overrides(
+        config,
+        content_retention_overrides,
+        section_attr="content_retention",
+        label="content_retention",
+        env_prefix=CONTENT_RETENTION_ENV_PREFIX,
+        section_class=ContentRetentionConfig,
+    )
 
 
 # ---------------------------------------------------------------------------
