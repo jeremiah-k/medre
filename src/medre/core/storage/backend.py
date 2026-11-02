@@ -203,6 +203,17 @@ class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 
 
+class ContentCeilingMismatchError(StorageError):
+    """Raised when an admission deadline disagrees with the immutable ceiling.
+
+    One content limit is represented consistently by the
+    ``event_content_access_policies.hard_ceiling`` row and the mandatory
+    ``event_content_dependencies.deadline``. An admission that would write a
+    deadline other than the event's installed ceiling fails closed, and the
+    whole admission transaction rolls back.
+    """
+
+
 class DuplicateEventError(StorageError):
     """Raised when attempting to append a canonical event whose ``event_id``
     already exists in the store.

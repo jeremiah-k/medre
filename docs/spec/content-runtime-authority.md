@@ -25,6 +25,12 @@ reaction keys and provider/custom metadata can contain content even without a
 canonical body or excerpt; no bodyless bypass is permitted. Append-only insertion
 uses an `append` owner. Each new ordinary outbox generation adopts an independent
 `outbox` dependency inside its insert transaction while the source remains live.
+The adopted deadline MUST be the earlier of the source dependency deadline, the
+immutable event ceiling (`event_content_access_policies.hard_ceiling`), and the
+frozen delivery-plan deadline; a generation staged after that effective deadline
+adopts no dependency and remains an auditable obligation without content
+authority. When a ceiling row is installed for the event, an `append` dependency
+with a NULL deadline MUST NOT adopt content authority.
 Duplicate admission cannot replace the original
 bytes or recreate an owner. A new **replay** generation adopts no dependency of
 its own and never inherits a live outbox hold; its dispatch authority is the
@@ -37,7 +43,16 @@ An `append` source has no durable ingress completion marker and remains held
 until an explicit later lifecycle is defined; it is never guessed terminal.
 
 An optional UTC `content_deadline` may be given to SQLite ingress admission.
-The deadline is not a default retention rule. Observing expiration releases
+The deadline is not a default retention rule. An admission that carries one
+MUST also install — or validate against — the immutable event ceiling row
+inside the same transaction, so one content limit is represented consistently
+by `event_content_access_policies.hard_ceiling` and the mandatory dependency
+deadline. The installed row carries an empty consumer allowlist: admission
+grants no optional read authority and creates no implicit grant. An existing
+policy row whose ceiling differs from the admitted deadline MUST fail closed
+with a typed storage refusal, and the whole admission rolls back. Duplicate
+admissions observe the installed ceiling unchanged and never rewrite it.
+Observing expiration releases
 expired source **and target** dependencies **logically and durably**, including when attempting to
 stage a late outbox, and a subsequent backward clock adjustment cannot
 reactivate them, even if optional-hold issuance is refused after observing expiry.

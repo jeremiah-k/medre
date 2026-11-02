@@ -52,7 +52,10 @@ from medre.core.storage.backend import (
     OutboxSnapshotReadError,
     StorageError,
 )
-from medre.core.storage.sqlite._content_identity import insert_outbox_dependency
+from medre.core.storage.sqlite._content_identity import (
+    frozen_plan_deadline,
+    insert_outbox_dependency,
+)
 from medre.core.storage.sqlite._evidence_diagnostics import (
     _EvidenceDiagnosticsReadMixin,
     outbox_diagnostic_ops,
@@ -148,7 +151,9 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         replay allocation's rewritten attempt is the one recorded).  Adopted
         existing rows never gain a snapshot from a later creator; their own
         creation-time snapshot (or their historical inline metadata bytes)
-        remains their frozen context.
+        remains their frozen context. The snapshot's frozen plan deadline
+        rides the same transaction as the content adoption fence, which
+        enforces the earlier of the event ceiling and that deadline.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -328,6 +333,14 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             item.target_channel or None,
             item.replay_run_id,
         )
+        # The frozen plan deadline rides the same transaction as the content
+        # adoption fence, which enforces the earlier of the event ceiling and
+        # this deadline. Snapshots without a deadline key contribute no bound.
+        plan_deadline = (
+            frozen_plan_deadline(dispatch_snapshot.context)
+            if dispatch_snapshot is not None
+            else None
+        )
 
         try:
             if allocate_new_generation:
@@ -346,6 +359,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     replay_run_select_sql if item.replay_run_id else None,
                     replay_run_select_params if item.replay_run_id else None,
                     post_insert_ops,
+                    plan_deadline,
                 )
                 if existing_id is not None:
                     existing = await self.get_outbox_item(existing_id)
@@ -369,6 +383,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 insert_params,
                 now,
                 post_insert_ops,
+                plan_deadline,
             )
             if existing_id is not None:
                 existing = await self.get_outbox_item(existing_id)
@@ -407,6 +422,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         replay_run_select_sql: str | None = None,
         replay_run_select_params: tuple[Any, ...] | None = None,
         post_insert_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
+        plan_deadline: str | None = None,
     ) -> str | None:
         """Atomically allocate and insert a fresh outbox generation.
 
@@ -448,7 +464,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 # a fresh body-retention or native-send grant.
                 if params[23] != "replay":
                     insert_outbox_dependency(
-                        db, str(params[0]), str(params[1]), observed_at
+                        db,
+                        str(params[0]),
+                        str(params[1]),
+                        observed_at,
+                        plan_deadline=plan_deadline,
                     )
                 for op_sql, op_params in post_insert_ops or []:
                     db.execute(op_sql, op_params)
@@ -470,6 +490,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         insert_params: tuple[Any, ...],
         observed_at: str,
         post_insert_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
+        plan_deadline: str | None = None,
     ) -> str | None:
         """Atomically adopt existing work or insert a row without reclaiming."""
         with self._lock:
@@ -481,7 +502,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     return str(row["outbox_id"])
                 db.execute(insert_sql, insert_params)
                 insert_outbox_dependency(
-                    db, str(insert_params[0]), str(insert_params[1]), observed_at
+                    db,
+                    str(insert_params[0]),
+                    str(insert_params[1]),
+                    observed_at,
+                    plan_deadline=plan_deadline,
                 )
                 for op_sql, op_params in post_insert_ops or []:
                     db.execute(op_sql, op_params)

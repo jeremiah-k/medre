@@ -8,7 +8,7 @@ mistaking empty but explicitly present text for missing content.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.core.storage.backend import StorageError
 
@@ -109,11 +109,48 @@ def ingress_dependency_op(
     )
 
 
-def insert_outbox_dependency(db: Any, outbox_id: str, event_id: str, now: str) -> None:
+def frozen_plan_deadline(context: Any) -> str | None:
+    """Read the frozen delivery-plan deadline from a dispatch snapshot context.
+
+    Direct snapshots carry the plan deadline at the top level; staged
+    snapshots freeze the whole plan. Any other shape — including replay
+    contexts and historical inline metadata without a deadline — yields
+    ``None``, and the adoption fence then enforces the remaining bounds only.
+    """
+    if not isinstance(context, Mapping):
+        return None
+    raw = context.get("deadline")
+    if raw is None:
+        plan = context.get("plan")
+        if isinstance(plan, Mapping):
+            raw = plan.get("deadline")
+    return raw if isinstance(raw, str) else None
+
+
+def _utc_microseconds(value: str, what: str) -> str:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{what} must be timezone-aware")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def insert_outbox_dependency(
+    db: Any,
+    outbox_id: str,
+    event_id: str,
+    now: str,
+    *,
+    plan_deadline: str | None = None,
+) -> None:
     """Run inside outbox INSERT transaction, never after commit.
 
-    A target whose ingress deadline has already passed does not receive
-    content authority. It must not create a new native send.
+    A generation staged after the effective deadline does not receive
+    content authority; it remains an auditable obligation and must not
+    create a new native send. The effective deadline is the earlier of the
+    immutable event ceiling, the source dependency deadline, and the frozen
+    delivery-plan deadline. An event governed by an installed ceiling cannot
+    adopt an ``append`` dependency that carries no deadline: the ceiling
+    could not be validated against it.
     """
     # The general outbox timestamp helper may omit fractional seconds. Use
     # the same fixed UTC representation as admission deadlines and read gates.
@@ -121,6 +158,11 @@ def insert_outbox_dependency(db: Any, outbox_id: str, event_id: str, now: str) -
         datetime.fromisoformat(now)
         .astimezone(timezone.utc)
         .isoformat(timespec="microseconds")
+    )
+    frozen_plan = (
+        _utc_microseconds(plan_deadline, "Frozen plan deadline")
+        if plan_deadline is not None
+        else None
     )
     # Mark the source deadline within the same transaction before adoption.
     # A later backwards wall-clock adjustment must not resurrect an expired
@@ -131,14 +173,34 @@ def insert_outbox_dependency(db: Any, outbox_id: str, event_id: str, now: str) -
         "AND released_at IS NULL AND deadline IS NOT NULL AND deadline<=?",
         (now, event_id, now),
     )
+    source = db.execute(
+        "SELECT d.deadline AS deadline, p.hard_ceiling AS hard_ceiling "
+        "FROM event_content_dependencies AS d "
+        "LEFT JOIN event_content_access_policies AS p ON p.event_id=d.event_id "
+        "WHERE d.event_id=? AND d.owner_kind IN ('ingress', 'append') "
+        "AND d.released_at IS NULL "
+        "ORDER BY d.owner_kind LIMIT 1",
+        (event_id,),
+    ).fetchone()
+    if source is None:
+        return
+    source_deadline = source["deadline"]
+    ceiling = source["hard_ceiling"]
+    if ceiling is not None and source_deadline is None:
+        # An append dependency with a NULL deadline cannot be treated as
+        # eligible for ceiling-governed delivery.
+        return
+    bounds = [
+        bound
+        for bound in (source_deadline, ceiling, frozen_plan)
+        if bound is not None
+    ]
+    if any(bound <= now for bound in bounds):
+        return
+    effective_deadline = min(bounds) if bounds else None
     db.execute(
         "INSERT INTO event_content_dependencies "
         "(event_id, owner_kind, owner_id, acquired_at, deadline) "
-        "SELECT d.event_id, 'outbox', ?, ?, d.deadline "
-        "FROM event_content_dependencies AS d "
-        "WHERE d.event_id=? AND d.owner_kind IN ('ingress', 'append') "
-        "AND d.released_at IS NULL "
-        "AND (d.deadline IS NULL OR d.deadline > ?) "
-        "ORDER BY d.owner_kind LIMIT 1",
-        (outbox_id, now, event_id, now),
+        "VALUES (?, 'outbox', ?, ?, ?)",
+        (event_id, outbox_id, now, effective_deadline),
     )
