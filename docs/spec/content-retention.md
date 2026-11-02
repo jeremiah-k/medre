@@ -214,6 +214,28 @@ assessed, which is distinct from nothing being eligible. The preview
 never grants mutation authority; the guarded per-event collector with its
 `BEGIN IMMEDIATE` revalidation remains the only mutation boundary.
 
+Bounded candidate discovery
+(`SQLiteStorage.page_collection_candidates`, the
+`CollectionCandidateSource` seam a retention sweep consumes) pages one
+epoch's candidate event IDs. Each call MUST run one read-only SELECT that
+returns at most `limit` (1–100) event IDs in the stable
+`(created_at, event_id)` ordering of the `idx_events_admission_order`
+index — an admission-time ordering that never assumes event IDs are
+chronological — and MUST NOT select body, excerpt, metadata, or any
+content value into the caller. The watermark lower bound is strict: an
+event admitted at exactly the watermark instant is pre-activation and
+MUST NOT be a candidate, and a `None` watermark records the empty-store
+activation semantics, so every current event is in scope. Continuation is
+the `next_after` `(created_at, event_id)` keyset of the last returned
+row; paging past the epoch scope returns an empty page with a `None`
+continuation, and a new sweep cycle restarts from the scope head by the
+caller's decision. The page advance is independent of per-event
+collection outcomes — a permanently blocked event never starves later
+candidates — and a page whose first row does not advance past its keyset
+cursor MUST be refused instead of looping. Selection grants no mutation
+authority: the guarded per-event collector with its `BEGIN IMMEDIATE`
+revalidation remains the only mutation boundary.
+
 Retention under a declared relay-only policy is: "Best-effort, bounded
 logical collection of eligible isolated core text after accepted owners
 settle; refused or unmeasured copies are retained and reported." It is

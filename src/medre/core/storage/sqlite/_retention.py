@@ -28,6 +28,7 @@ from medre.core.storage.content_retention import (
     RETENTION_BATCH_MIN,
     RETENTION_EPOCH_ACTIVATORS,
     RETENTION_PREVIEW_OUTCOMES,
+    CandidatePage,
     RetentionEpoch,
     normalize_admission_watermark,
 )
@@ -277,6 +278,108 @@ def sync_preview_content_retention(
             db.rollback()
 
 
+_CANDIDATE_SELECT_SQL = "SELECT event_id, created_at FROM canonical_events"
+_CANDIDATE_ORDER_SQL = " ORDER BY created_at ASC, event_id ASC LIMIT ?"
+_CANDIDATE_WATERMARK_SQL = " WHERE created_at > ?"
+_CANDIDATE_KEYSET_SQL = " WHERE (created_at, event_id) > (?, ?)"
+
+_CANDIDATE_LIMIT_MAX = RETENTION_BATCH_MAX
+
+
+def sync_page_collection_candidates(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    after: tuple[str, str] | None,
+    limit: int,
+    watermark: str | None,
+) -> CandidatePage:
+    """Page epoch-scoped candidate event IDs in stable admission order.
+
+    One read-only SELECT returns at most ``limit + 1`` ``(event_id,
+    created_at)`` rows ordered by the ``idx_events_admission_order`` index.
+    The extra row only decides ``has_more`` and never reaches the caller, so
+    memory stays bounded by the page limit regardless of table size. Event
+    IDs are deliberately not assumed to be chronological: the ordering key is
+    the stored local admission ``created_at`` text with ``event_id`` breaking
+    ties, and per-event collection outcomes are invisible to this selector,
+    so a permanently blocked event can never starve later ones — the page
+    advance is outcome-independent.
+
+    The ``watermark`` lower bound is strictly greater: an event admitted at
+    exactly the watermark instant is pre-activation and never a candidate. A
+    ``None`` watermark records an empty store at activation (the open-epoch
+    semantics) and applies no filter. The ``after`` cursor is the previous
+    page's ``next_after`` ``(created_at, event_id)`` keyset; a cursor at or
+    before the watermark continues from the strict watermark head, which
+    cannot return a pre-activation row. A page whose first row does not
+    advance past ``after`` raises ``RuntimeError`` instead of looping.
+
+    There is no implicit wraparound: paging past the epoch scope returns an
+    empty page with ``has_more=False`` and ``next_after=None``. A new sweep
+    cycle is the caller's decision and restarts with ``after=None``, which
+    re-visits every epoch-scoped event including already-collected and
+    blocked ones; outcome filtering across cycles belongs to the caller.
+
+    Selection grants no mutation authority: nothing here collects, deletes,
+    or authorizes anything, and the guarded per-event collector with its
+    ``BEGIN IMMEDIATE`` revalidation remains the only mutation boundary.
+    """
+    if (
+        type(limit) is not int
+        or not RETENTION_BATCH_MIN <= limit <= _CANDIDATE_LIMIT_MAX
+    ):
+        raise ValueError(
+            "A collection candidate page limit must be an integer in [1, 100]"
+        )
+    if watermark is not None and (not isinstance(watermark, str) or not watermark):
+        raise ValueError("The admission watermark must be a timestamp or absent")
+    if after is not None and (
+        not isinstance(after, tuple)
+        or len(after) != 2
+        or not all(isinstance(part, str) and part for part in after)
+    ):
+        raise ValueError(
+            "A collection candidate cursor must be a non-empty "
+            "(created_at, event_id) pair"
+        )
+    watermark = normalize_admission_watermark(watermark)
+    fetch = limit + 1
+    if after is None:
+        if watermark is None:
+            # Empty-store epoch semantics: no events existed at activation,
+            # so every current event is post-activation (matching the
+            # aggregate preview's unfiltered head page).
+            sql = _CANDIDATE_SELECT_SQL + _CANDIDATE_ORDER_SQL
+            params: tuple[Any, ...] = (fetch,)
+        else:
+            sql = (
+                _CANDIDATE_SELECT_SQL + _CANDIDATE_WATERMARK_SQL + _CANDIDATE_ORDER_SQL
+            )
+            params = (watermark, fetch)
+    elif watermark is None or after[0] > watermark:
+        # The cursor sits strictly inside the epoch scope: the keyset alone
+        # seeks directly to the continuation point.
+        sql = _CANDIDATE_SELECT_SQL + _CANDIDATE_KEYSET_SQL + _CANDIDATE_ORDER_SQL
+        params = (*after, fetch)
+    else:
+        # The cursor is at or before the activation boundary; every event at
+        # or before the watermark is pre-activation, so the strict watermark
+        # head is the correct continuation and cannot return one.
+        sql = _CANDIDATE_SELECT_SQL + _CANDIDATE_WATERMARK_SQL + _CANDIDATE_ORDER_SQL
+        params = (watermark, fetch)
+    with lock:
+        rows = db.execute(sql, params).fetchall()
+    if after is not None and rows and (str(rows[0][1]), str(rows[0][0])) <= after:
+        raise RuntimeError("collection candidate scan did not advance its keyset")
+    page = rows[:limit]
+    return CandidatePage(
+        event_ids=[str(row[0]) for row in page],
+        next_after=(str(page[-1][1]), str(page[-1][0])) if page else None,
+        has_more=len(rows) > limit,
+    )
+
+
 class _RetentionMixin:
     """Durable activation epochs and bounded candidate discovery; no scheduler."""
 
@@ -379,3 +482,42 @@ class _RetentionMixin:
             )
         except sqlite3.Error as exc:
             raise StorageError("Content retention preview failed") from exc
+
+    async def page_collection_candidates(
+        self,
+        *,
+        after: tuple[str, str] | None,
+        limit: int,
+        watermark: str | None,
+    ) -> CandidatePage:
+        """Return one bounded, admission-ordered page of candidate event IDs.
+
+        Read-only bounded candidate discovery for a retention sweep: at most
+        ``limit`` (1–100) event IDs in the stable ``(created_at, event_id)``
+        index ordering, strictly after the activation ``watermark`` when one
+        is given, with the ``next_after`` keyset cursor and ``has_more``
+        continuing the sweep. There is no implicit wraparound: paging past
+        the epoch scope returns an empty page, and a new sweep cycle
+        restarts with ``after=None``. The page advance is outcome-
+        independent — a permanently blocked event never starves later
+        candidates — and a non-advancing cursor is refused. Selection grants
+        no mutation authority.
+        """
+        if (
+            type(limit) is not int
+            or not RETENTION_BATCH_MIN <= limit <= RETENTION_BATCH_MAX
+        ):
+            raise ValueError(
+                "A collection candidate page limit must be an integer in [1, 100]"
+            )
+        try:
+            return await self._run_in_thread(
+                sync_page_collection_candidates,
+                self._require_db(),
+                self._lock,
+                after=after,
+                limit=limit,
+                watermark=watermark,
+            )
+        except sqlite3.Error as exc:
+            raise StorageError("Collection candidate paging failed") from exc

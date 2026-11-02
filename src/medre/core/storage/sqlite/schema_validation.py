@@ -11,6 +11,7 @@ from medre.core.storage.backend import (
     StorageInitializationError,
 )
 from medre.core.storage.sqlite.schema import (
+    _ADMISSION_ORDER_INDEX_DDL,
     _COLLECTION_LOG_DDL,
     _DIAGNOSTICS_DDL,
     _DIAGNOSTICS_INDEX_DDL,
@@ -80,6 +81,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("table", "event_routing_facts"),
         ("table", "delivery_outbox_snapshots"),
         ("index", "idx_diagnostics_identity"),
+        ("index", "idx_events_admission_order"),
         ("index", "idx_outbox_snapshot_owner_unique"),
     }
 )
@@ -136,6 +138,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _SNAPSHOTS_DDL)
     if ("index", "idx_diagnostics_identity") not in current:
         execute_ddl(db, _DIAGNOSTICS_INDEX_DDL)
+    if ("index", "idx_events_admission_order") not in current:
+        execute_ddl(db, _ADMISSION_ORDER_INDEX_DDL)
     if ("index", "idx_outbox_snapshot_owner_unique") not in current:
         execute_ddl(db, _SNAPSHOT_OWNER_INDEX_DDL)
     if (
