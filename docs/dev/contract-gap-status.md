@@ -19,15 +19,17 @@ Statuses form a small closed set:
 | Status | Meaning |
 | --- | --- |
 | `open` | No behavior for the gap has landed on `main`. |
-| `partial` | Some behavior has landed; the contract is not fully met. |
-| `in flight` | A change request is open that advances the row. |
+| `partial` | Some behavior has landed, but the contract is not fully met and no open change request currently advances it. |
+| `in flight` | An open change request advances the gap, including when some behavior has already landed. This status takes precedence over `partial` while that request remains open. |
 | `deferred` | Deliberately sequenced behind other work; not abandoned. |
 | `out of scope` | Explicitly not a project goal at the current maturity. |
 
-A row moves to `partial` or `in flight` only when the advancing change is
-open or landed on `main`; a local branch without an open change request
-advances nothing. A gap closes only when its behavior is implemented,
-specified under `docs/spec/`, and qualified on `main` — historical evidence
+A row is `in flight` while a linked, open change request advances it, even
+when existing `main` behavior is partial. After the change merges, reassess
+against `main`: move to `partial` if the contract remains incomplete, or close
+the row only after the qualification rule below. A local branch without an
+open change request advances nothing. A gap closes only when its behavior is
+implemented, specified under `docs/spec/`, and qualified on `main` — historical evidence
 never closes a row. Native evidence tiers (fake, SDK, local service,
 independent recipient, hardware) are recorded per claim and a lower tier
 never stands in for a higher one.
@@ -37,7 +39,7 @@ never stands in for a higher one.
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
 | G01 | P0 | Exact-destination replay selection and decision | in flight | Replay selection remains adapter- and route-scoped (`ReplayRequest`); read-only exact inspection and exact unstarted cancellation exist. The typed selection key, frozen 14-token observation vocabulary, and metadata-only preview are open in #424. | Shared execution-side selector, audited decision authority, operator command surface, adversarial qualification. |
-| G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences only unstarted work; no path resolves an uncertain native handoff and none is inferred. #424 classifies the uncertainty states (`awaiting_feedback`, `inspect_native`) without resolving them. | Decision taxonomy and proof under the exact-target authority; never infer non-acceptance. |
+| G02 | P0 | Uncertain-native-handoff remediation | in flight | Exact cancellation fences only unstarted work; no path resolves an uncertain native handoff and none is inferred. #424 classifies the uncertainty states (`awaiting_feedback`, `inspect_native`) without resolving them. | Decision taxonomy and proof under the exact-target authority; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | partial | Preview and native-start deadline hooks exist; a policy-enforced hard expiry across provider queues and outbox admission is not implemented. The content-availability preview is not that enforcement contract. | Deadline enforcement at the native-submit fence and outbox admission, including pending-outbox cleanup without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the draft plugin branch carries a substantial implementation divergent from current `main` (193 main-only / 19 branch-only commits at the 2026-11-02 snapshot). | Semantic re-audit of capabilities, phase ordering, decision commit, replay qualification, and content grant scope against the merged storage, snapshot retirement, and collection epoch boundaries before any merge. |
 | G05 | P1 | Recipient and native verification on the current pin set | open | Historical 42-direction campaign and local SDK tiers exist; scoped current-pin native evidence remains outstanding for encrypted Matrix, radio interruption, LXMF propagation, SimpleX replies, XMPP, Chatmail. | Property-specific current-pin qualification; reuse historical proof as reference only. |
