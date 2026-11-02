@@ -228,6 +228,31 @@
         }
       }
     },
+    "content_ceiling": {
+      "type": "object",
+      "description": "Operator hard content privacy ceiling declaration (ContentCeilingConfig). Disabled by default: an omitted or disabled section produces no content deadline at admission and leaves every ceiling gate dormant. When enabled, the declaration states one bounded window; the producer derives each event's absolute UTC ceiling from the trusted local admission time plus that window, writes it into the immutable per-event ceiling row and the mandatory content dependency deadline inside the admission transaction, and refuses mismatched existing policies. An enabled section without max_age_seconds is refused.",
+      "additionalProperties": false,
+      "if": {
+        "properties": { "enabled": { "const": true } },
+        "required": ["enabled"]
+      },
+      "then": {
+        "required": ["max_age_seconds"]
+      },
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the hard content privacy ceiling. While false, admission produces no content deadline and the dormant deadline gates behave exactly as before."
+        },
+        "max_age_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31536000,
+          "description": "Bounded window between the trusted local admission time and the absolute UTC content ceiling (1..31536000 seconds). Required when enabled is true; an unbounded ceiling is refused."
+        }
+      }
+    },
     "adapters": {
       "type": "object",
       "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",

@@ -40,6 +40,7 @@ class RuntimeConfig:
     retry: RetryConfig            # retry worker: enabled, interval, batch_size, max_attempts
     attachments: AttachmentConfig # durable attachment relay policy (disabled by default)
     content_retention: ContentRetentionConfig  # operator retention policy declaration (disabled by default)
+    content_ceiling: ContentCeilingConfig      # hard content privacy ceiling declaration (disabled by default)
     adapters: AdapterConfigSet    # grouped by transport type
     routes: RouteConfigSet        # ordered, validated route definitions
 ```
@@ -180,6 +181,22 @@ string or number. Invalid declarations **MUST** surface as
 An omitted section MUST authorize no automatic collection. The policy and
 activation authority are defined in [content retention](content-retention.md).
 
+### 2.9 ContentCeilingConfig
+
+| Field             | Type             | Default | Contract                                                     |
+| ----------------- | ---------------- | ------- | ------------------------------------------------------------ |
+| `enabled`         | boolean          | `false` | Explicit operator opt-in.                                    |
+| `max_age_seconds` | integer or null  | `null`  | 1–31536000 seconds; required when `enabled: true`.           |
+
+An omitted section MUST produce no content deadline at admission and leave
+every ceiling gate dormant. An enabled declaration states one bounded
+window; the producer derives each event's absolute UTC ceiling from the
+trusted local admission time plus that window. Enabling without a declared
+window is refused at load time — an unbounded ceiling is not a
+declaration. The ceiling and its consumers are defined in
+[content runtime authority](content-runtime-authority.md) and the delivery
+deadline design page.
+
 ## 3. YAML Schema
 
 The typed config model in `src/medre/config/model.py` and
@@ -211,7 +228,7 @@ the structural requirements that the spec relies on.
 ### 3.2 Top-Level Sections
 
 The root mapping MAY contain the following keys. The typed leaf tables in
-§2.1–§2.8 are the field-level normative reference for each non-adapter
+§2.1–§2.9 are the field-level normative reference for each non-adapter
 section.
 
 | Key                 | Typed model              | Field table | Notes                                                                                         |
@@ -222,6 +239,7 @@ section.
 | `retry`             | `RetryConfig`            | §2.5        |                                                                                               |
 | `attachments`       | `AttachmentConfig`       | §2.6        | Disabled unless explicitly enabled.                                                           |
 | `content_retention` | `ContentRetentionConfig` | §2.8        | Disabled unless explicitly enabled; `mode: relay-only` additionally requires `enabled: true`. |
+| `content_ceiling`   | `ContentCeilingConfig`   | §2.9        | Disabled unless explicitly enabled; `enabled: true` additionally requires `max_age_seconds`.  |
 | `adapters`          | `AdapterConfigSet`       | §3.3        | Per-transport grouping.                                                                       |
 | `routes`            | `RouteConfigSet`         | §3.4        | Per-route targeting and channel mapping.                                                      |
 

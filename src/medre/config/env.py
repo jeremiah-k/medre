@@ -62,6 +62,7 @@ from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.model import (
     AttachmentConfig,
+    ContentCeilingConfig,
     ContentRetentionConfig,
     GenericAdapterRuntimeConfig,
     RetryConfig,
@@ -76,11 +77,13 @@ from medre.core.observability.sanitization import (
 
 __all__ = [
     "ATTACHMENTS_ENV_PREFIX",
+    "CONTENT_CEILING_ENV_PREFIX",
     "CONTENT_RETENTION_ENV_PREFIX",
     "RETRY_ENV_PREFIX",
     "ROUTE_ENV_PREFIX",
     "ROUTE_ENV_NAMES",
     "apply_attachment_overrides",
+    "apply_content_ceiling_overrides",
     "apply_content_retention_overrides",
     "apply_env_overrides",
     "apply_instance_env_overrides",
@@ -115,6 +118,8 @@ CORE_ENV_NAMES: frozenset[str] = frozenset(
         "MEDRE_CONTENT_RETENTION__MODE",
         "MEDRE_CONTENT_RETENTION__INTERVAL_SECONDS",
         "MEDRE_CONTENT_RETENTION__BATCH_LIMIT",
+        "MEDRE_CONTENT_CEILING__ENABLED",
+        "MEDRE_CONTENT_CEILING__MAX_AGE_SECONDS",
     }
 )
 
@@ -131,6 +136,8 @@ RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
 CONTENT_RETENTION_ENV_PREFIX = "MEDRE_CONTENT_RETENTION__"
 
+CONTENT_CEILING_ENV_PREFIX = "MEDRE_CONTENT_CEILING__"
+
 _ATTACHMENTS_FIELD_MAP: dict[str, str] = {
     "ENABLED": "enabled",
     "MAX_ATTACHMENT_BYTES": "max_attachment_bytes",
@@ -145,6 +152,11 @@ _CONTENT_RETENTION_FIELD_MAP: dict[str, str] = {
     "MODE": "mode",
     "INTERVAL_SECONDS": "interval_seconds",
     "BATCH_LIMIT": "batch_limit",
+}
+
+_CONTENT_CEILING_FIELD_MAP: dict[str, str] = {
+    "ENABLED": "enabled",
+    "MAX_AGE_SECONDS": "max_age_seconds",
 }
 
 _REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = tuple(
@@ -776,6 +788,23 @@ def _parse_content_retention_env_vars(
     )
 
 
+def _parse_content_ceiling_env_vars(
+    environ: dict[str, str] | os._Environ[str],
+) -> dict[str, ParsedAdapterEnvValue]:
+    """Parse ``MEDRE_CONTENT_CEILING__<FIELD>`` vars from *environ*.
+
+    Returns a mapping of field name → ParsedAdapterEnvValue.
+    Raises ConfigValidationError for malformed, unsupported, or duplicate
+    fields.
+    """
+    return _parse_section_env_vars(
+        environ,
+        prefix=CONTENT_CEILING_ENV_PREFIX,
+        field_map=_CONTENT_CEILING_FIELD_MAP,
+        label="content_ceiling",
+    )
+
+
 # ---------------------------------------------------------------------------
 # MedreEnvConfig
 # ---------------------------------------------------------------------------
@@ -812,6 +841,9 @@ class MedreEnvConfig:
 
     # -- Content retention policy overrides --
     content_retention_overrides: dict[str, str] = field(default_factory=dict)
+
+    # -- Content ceiling policy overrides --
+    content_ceiling_overrides: dict[str, str] = field(default_factory=dict)
 
     # -- Instance-scoped adapter overrides --
     instance_overrides: dict[str, dict[str, ParsedAdapterEnvValue]] = field(
@@ -953,6 +985,25 @@ class MedreEnvConfig:
                     parsed.env_var_name,
                     parsed.raw_value,
                     source_kind="content_retention",
+                    target_field=field_name,
+                )
+
+        # Content ceiling policy overrides.
+        content_ceiling_overrides = _parse_content_ceiling_env_vars(source)
+        if content_ceiling_overrides:
+            object.__setattr__(
+                instance,
+                "content_ceiling_overrides",
+                {
+                    field_name: parsed.raw_value
+                    for field_name, parsed in content_ceiling_overrides.items()
+                },
+            )
+            for field_name, parsed in content_ceiling_overrides.items():
+                provenance.record(
+                    parsed.env_var_name,
+                    parsed.raw_value,
+                    source_kind="content_ceiling",
                     target_field=field_name,
                 )
 
@@ -1642,6 +1693,28 @@ def apply_content_retention_overrides(
     )
 
 
+def apply_content_ceiling_overrides(
+    config: RuntimeConfig,
+    content_ceiling_overrides: dict[str, str],
+) -> RuntimeConfig:
+    """Apply ``MEDRE_CONTENT_CEILING__<FIELD>`` overrides to *config*.
+
+    Returns a new RuntimeConfig with content-ceiling overrides applied and
+    revalidated as a whole (cross-field rules included, so an enabled
+    ceiling without a declared window fails here too).
+    Raises ConfigValidationError if values fail type coercion or
+    validation.
+    """
+    return _apply_section_env_overrides(
+        config,
+        content_ceiling_overrides,
+        section_attr="content_ceiling",
+        label="content_ceiling",
+        env_prefix=CONTENT_CEILING_ENV_PREFIX,
+        section_class=ContentCeilingConfig,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1797,5 +1870,10 @@ def apply_env_overrides(
     # Content retention policy overrides
     # ------------------------------------------------------------------
     config = apply_content_retention_overrides(config, env.content_retention_overrides)
+
+    # ------------------------------------------------------------------
+    # Content ceiling policy overrides
+    # ------------------------------------------------------------------
+    config = apply_content_ceiling_overrides(config, env.content_ceiling_overrides)
 
     return config
