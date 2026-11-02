@@ -38,7 +38,7 @@ never stands in for a higher one.
 
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
-| G01 | P0 | Exact-destination replay selection and decision | partial | Replay selection remains adapter- and route-scoped (`ReplayRequest`); read-only exact inspection and exact unstarted cancellation exist, and the typed selection key, frozen 14-token observation vocabulary, and metadata-only preview landed in #424. | Shared execution-side selector, audited decision authority, operator command surface, adversarial qualification. |
+| G01 | P0 | Exact-destination replay selection and decision | in flight | `main` has exact inspection, cancellation and the typed #424 preview; open #427 adds execution-side exact selection (not yet on `main`), and open #429 advances audited decision authority. | Merge and qualify the selection and decision changes, then add operator commands and adversarial native qualification. |
 | G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences only unstarted work and no path resolves an uncertain native handoff, and none is inferred; the landed typed preview (#424) classifies the uncertainty states (`awaiting_feedback`, `inspect_native`) without resolving them. | Decision taxonomy and proof under the exact-target authority; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | in flight | Preview and native-start deadline hooks exist but no producer sets either deadline in production, so both gates are dormant; a policy-enforced hard expiry across provider queues and outbox admission is not implemented. The content-availability preview is not that enforcement contract; open #428 documents the enforcement design but does not implement expiry. | Deadline enforcement at the native-submit fence and outbox admission per that design, including pending-outbox cleanup without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the draft plugin branch carries a substantial implementation divergent from current `main` (193 main-only / 19 branch-only commits at the 2026-11-02 snapshot). | Semantic re-audit of capabilities, phase ordering, decision commit, replay qualification, and content grant scope against the merged storage, snapshot retirement, and collection epoch boundaries before any merge. |
@@ -64,7 +64,7 @@ tracks the whole, this section tracks each stage:
    observation vocabulary, metadata-only preview. Landed in #424.
 2. **Shared selector** — one identity selector used by both preview and
    execution admission, rejecting route, recipient, and plan drift before a
-   send is staged. Open.
+   send is staged. In flight in #427; not yet merged.
 3. **Decision authority** — audited compare-and-swap over an observed exact
    target, reusing the attempt and claim fences; no implicit resend of
    queued, in-progress, or uncertain native work. Open.
