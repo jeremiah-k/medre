@@ -6,9 +6,6 @@ same change as the work that moves them, and a gap closes only when its
 behavior is implemented, specified under `docs/spec/`, and qualified on
 `main`; historical evidence never closes a row.
 
-The register is seeded from the 2026-11-02 whole-stack source
-reconciliation (core plus the seven independently distributed adapters) and
-links in-flight change requests inline. The exact-destination recovery work
-stream is broken out per stage beneath the main register. The developer
-documentation index and the development priorities page link to the
-register.
+Developers can find the authoritative status of every known contract gap in
+one place, including what is deliberately deferred and what a gap needs
+before it closes.
