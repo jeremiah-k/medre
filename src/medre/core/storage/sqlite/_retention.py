@@ -468,7 +468,9 @@ class _RetentionMixin:
                 now=now,
             )
         except sqlite3.OperationalError as exc:
-            raise ContentCollectionTransientError("Opening a retention epoch failed") from exc
+            raise ContentCollectionTransientError(
+                "Opening a retention epoch failed"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError("Opening a retention epoch failed") from exc
 
@@ -481,7 +483,9 @@ class _RetentionMixin:
                 self._lock,
             )
         except sqlite3.OperationalError as exc:
-            raise ContentCollectionTransientError("Reading the retention epoch failed") from exc
+            raise ContentCollectionTransientError(
+                "Reading the retention epoch failed"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError("Reading the retention epoch failed") from exc
 
@@ -502,7 +506,9 @@ class _RetentionMixin:
                 now=now,
             )
         except sqlite3.OperationalError as exc:
-            raise ContentCollectionTransientError("Recording the retention heartbeat failed") from exc
+            raise ContentCollectionTransientError(
+                "Recording the retention heartbeat failed"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError("Recording the retention heartbeat failed") from exc
 
@@ -580,6 +586,8 @@ class _RetentionMixin:
                 watermark=watermark,
             )
         except sqlite3.OperationalError as exc:
-            raise ContentCollectionTransientError("Collection candidate paging failed") from exc
+            raise ContentCollectionTransientError(
+                "Collection candidate paging failed"
+            ) from exc
         except sqlite3.Error as exc:
             raise StorageError("Collection candidate paging failed") from exc

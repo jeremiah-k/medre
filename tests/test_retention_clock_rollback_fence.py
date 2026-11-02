@@ -39,9 +39,12 @@ def _epoch(observed: str | None) -> RetentionEpoch:
 
 def test_observation_age_rejects_future_heartbeat_and_invalid_timestamps() -> None:
     assert retention_epoch_observation_age_seconds(_epoch(_NOW.isoformat()), _NOW) == 0
-    assert retention_epoch_observation_age_seconds(
-        _epoch((_NOW - timedelta(seconds=30)).isoformat()), _NOW
-    ) == 30
+    assert (
+        retention_epoch_observation_age_seconds(
+            _epoch((_NOW - timedelta(seconds=30)).isoformat()), _NOW
+        )
+        == 30
+    )
     for value in (
         (_NOW + timedelta(microseconds=1)).isoformat(),
         "bad",
@@ -70,7 +73,9 @@ def test_operator_freshness_does_not_accept_future_timestamp() -> None:
     assert (observation, stale, grace) == ("unknown", None, 3600)
 
 
-async def test_worker_suspends_without_heartbeat_or_candidate_read_on_clock_rollback() -> None:
+async def test_worker_suspends_without_heartbeat_or_candidate_read_on_clock_rollback() -> (
+    None
+):
     clock = FakeClock(_NOW)
     future = _epoch((_NOW + timedelta(hours=1)).isoformat())
     storage = ScriptedStorage(epoch=future, clock=clock)
@@ -93,6 +98,7 @@ async def test_upstream_sqlite_operational_error_is_typed_for_backoff(
     store = SQLiteStorage(str(tmp_path / "transient.db"))
     await store.initialize()
     try:
+
         async def locked(*args, **kwargs):
             raise sqlite3.OperationalError("database is locked")
 
@@ -100,9 +106,7 @@ async def test_upstream_sqlite_operational_error_is_typed_for_backoff(
         with pytest.raises(ContentCollectionTransientError):
             await store.latest_retention_epoch()
         with pytest.raises(ContentCollectionTransientError):
-            await store.page_collection_candidates(
-                after=None, limit=1, watermark=None
-            )
+            await store.page_collection_candidates(after=None, limit=1, watermark=None)
         with pytest.raises(ContentCollectionTransientError):
             await store.observe_retention_heartbeat(epoch=1, now=_NOW)
     finally:
@@ -118,7 +122,8 @@ async def test_candidate_read_transient_uses_bounded_cycle_backoff() -> None:
             raise ContentCollectionTransientError("database is locked")
 
     worker = ContentCollectionWorker(
-        storage, LockedCandidates({}),
+        storage,
+        LockedCandidates({}),
         ContentRetentionPolicy(mode="relay-only", interval_seconds=1),
         now=clock,
     )

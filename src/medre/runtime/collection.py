@@ -648,9 +648,7 @@ class ContentCollectionWorker:
             self._policy.interval_seconds * _TRANSIENT_BACKOFF_CAP_MULTIPLIER,
             self._epoch_staleness_threshold() - self._policy.interval_seconds,
         )
-        self._next_sweep_not_before = self._now() + timedelta(
-            seconds=backoff_seconds
-        )
+        self._next_sweep_not_before = self._now() + timedelta(seconds=backoff_seconds)
         self._record_worker_error("transient", event_id)
         _logger.warning(
             "Content collection deferred after transient SQLite operation "
