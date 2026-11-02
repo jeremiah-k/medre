@@ -104,7 +104,7 @@ async def test_duplicate_activation_two_epochs_are_append_only_and_worker_adopts
         )
         assert [row["epoch"] for row in rows] == [1, 2]
 
-        clock = FakeClock(_utc(2026, 11, 4))
+        clock = FakeClock(_utc(2026, 11, 4, hour=11, minute=45))
         record = Recording(collects=[], pages=[])
         worker = _worker(_recording_storage(store, record), clock)
         await worker.sweep()
@@ -383,7 +383,9 @@ async def test_clock_boundaries_watermark_equality_exclusion_through_worker(
         await _seed(store, "after-watermark", after_instant)
 
         record = Recording(collects=[], pages=[])
-        worker = _worker(_recording_storage(store, record), FakeClock())
+        worker = _worker(
+            _recording_storage(store, record), FakeClock(_utc(2026, 11, 3, hour=1))
+        )
         await worker.sweep()
 
         assert record.collects == ["after-watermark"]
