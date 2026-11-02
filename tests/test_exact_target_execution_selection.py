@@ -551,20 +551,26 @@ async def test_partial_refusal_remains_in_all_capability_suppressed_output(
         RouteTarget(adapter=_ADAPTER, channel=_CHANNEL),
         RouteTarget(adapter=_ADAPTER, channel="ch-sibling"),
     )
+
     def suppress_admitted(event, plans, adapters):
         assert len(plans) == 1
         return replay_delivery._CapabilityFilterResult(
             kept=[],
-            suppressed=[replay_delivery._CapabilitySuppressedPlan(
-                delivery_plan_id=selected_plan,
-                target_adapter=_ADAPTER,
-                capability_level="unsupported",
-                capability_field="message.created",
-                delivery_strategy="direct",
-                reason="unsupported",
-            )],
+            suppressed=[
+                replay_delivery._CapabilitySuppressedPlan(
+                    delivery_plan_id=selected_plan,
+                    target_adapter=_ADAPTER,
+                    capability_level="unsupported",
+                    capability_field="message.created",
+                    delivery_strategy="direct",
+                    reason="unsupported",
+                )
+            ],
         )
-    monkeypatch.setattr(replay_delivery, "_filter_plans_by_capability", suppress_admitted)
+
+    monkeypatch.setattr(
+        replay_delivery, "_filter_plans_by_capability", suppress_admitted
+    )
     request = ReplayRequest(
         mode=ReplayMode.BEST_EFFORT,
         exact_target_selections=(
@@ -575,13 +581,20 @@ async def test_partial_refusal_remains_in_all_capability_suppressed_output(
     result = await _run_deliver(temp_storage, pipeline, request)
     assert result.status == "skipped"
     assert _delivered_plan_ids(pipeline) == []
-    assert result.output["capability_suppressed_plans"][0]["delivery_plan_id"] == selected_plan
+    assert (
+        result.output["capability_suppressed_plans"][0]["delivery_plan_id"]
+        == selected_plan
+    )
     assert result.output["exact_target_refusals"][0]["delivery_plan_id"] == sibling_plan
-    assert result.output["exact_target_refusals"][0]["category"] == "route_or_plan_changed"
+    assert (
+        result.output["exact_target_refusals"][0]["category"] == "route_or_plan_changed"
+    )
     assert result.output["replay_run_id"] is None
 
 
-async def test_all_refused_targets_use_bounded_diagnostic_counter_key(temp_storage) -> None:
+async def test_all_refused_targets_use_bounded_diagnostic_counter_key(
+    temp_storage,
+) -> None:
     await _ensure_event(temp_storage)
     _, pipeline = _route_and_pipeline(RouteTarget(adapter=_ADAPTER, channel=_CHANNEL))
     diagnostic = Diagnostician()
@@ -591,7 +604,9 @@ async def test_all_refused_targets_use_bounded_diagnostic_counter_key(temp_stora
         mode=ReplayMode.BEST_EFFORT,
         exact_target_selections=(_selection(),),
     )
-    deliver = [result async for result in engine.replay(request) if result.stage == "deliver"]
+    deliver = [
+        result async for result in engine.replay(request) if result.stage == "deliver"
+    ]
     assert len(deliver) == 1
     assert deliver[0].error.startswith("exact_target_refused: ambiguous")
     assert diagnostic.replay_skips == {"exact_target_selection_refused": 1}

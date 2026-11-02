@@ -634,9 +634,8 @@ class _ReplayDeliveryMixin:
                     stage="deliver",
                     status="error",
                     error=replay_error,
-                    output=_build_filter_evidence(
-                        _suppressed, refusals, request.run_id
-                    ) or None,
+                    output=_build_filter_evidence(_suppressed, refusals, request.run_id)
+                    or None,
                     duration_ms=_elapsed_ms(t0),
                 )
             _capacity_acquired = True
@@ -702,9 +701,8 @@ class _ReplayDeliveryMixin:
                 stage="deliver",
                 status="error",
                 error=str(exc),
-                output=_build_filter_evidence(
-                    _suppressed, refusals, request.run_id
-                ) or None,
+                output=_build_filter_evidence(_suppressed, refusals, request.run_id)
+                or None,
                 duration_ms=_elapsed_ms(t0),
             )
         finally:
