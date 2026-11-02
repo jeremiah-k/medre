@@ -9,6 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+#: Copies outside canonical logical collection; shared by accounting and policy.
+UNMEASURED_CONTENT_SCOPES = (
+    "provider_native_queues_histories_and_peers",
+    "plugin_state_and_adapter_checkpoints",
+    "sqlite_free_pages_and_wal",
+    "backups_exports_and_snapshots",
+    "application_and_provider_logs",
+    "copies_embedded_in_other_events",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ContentSurface:

@@ -91,6 +91,14 @@ class StorageError(Exception):
     """Base exception for all storage-related errors."""
 
 
+class ContentCollectionEpochChanged(StorageError):
+    """The selected retention epoch is no longer current or owns no such event.
+
+    A worker must restart candidate discovery under the latest activation
+    boundary; it must never classify this as content corruption.
+    """
+
+
 class OutboxSnapshotReadError(StorageError):
     """A snapshot read failed before integrity could be assessed; retry is safe."""
 

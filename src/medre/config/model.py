@@ -22,6 +22,12 @@ from medre.adapter_registry import registered_transports
 from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.routes import RouteConfigSet
+from medre.core.storage.content_retention import (
+    RETENTION_DEFAULT_BATCH,
+    RETENTION_DEFAULT_INTERVAL,
+    RETENTION_POLICY_VERSION,
+    ContentRetentionPolicy,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -349,6 +355,57 @@ class AttachmentConfig:
                 "attachments.max_attachment_bytes cannot exceed "
                 "attachments.max_retained_bytes "
                 f"({self.max_attachment_bytes} > {self.max_retained_bytes})"
+            )
+        return self
+
+
+@dataclass(frozen=True)
+class ContentRetentionConfig:
+    """Operator content-retention policy declaration.
+
+    Disabled by default: an omitted section means no retention collector and
+    no policy. ``mode="retain"`` is a declared, observing policy that never
+    collects; ``mode="relay-only"`` is the explicit opt-in to bounded,
+    guarded logical collection and additionally requires ``enabled=True`` —
+    the ambiguous disabled relay-only scope is refused at load time.
+    """
+
+    enabled: bool = False
+    version: int = RETENTION_POLICY_VERSION
+    mode: str = "retain"
+    interval_seconds: int = RETENTION_DEFAULT_INTERVAL
+    batch_limit: int = RETENTION_DEFAULT_BATCH
+
+    def validate(self) -> Self:
+        """Validate the retention declaration.
+
+        Raises
+        ------
+        ConfigValidationError
+            If a field has the wrong type (in particular, a boolean is not
+            an integer version), the mode is outside the closed vocabulary,
+            a cadence knob is out of bounds, or ``relay-only`` is declared
+            while the section is disabled.
+        """
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError(
+                "content_retention.enabled must be a boolean, got "
+                f"{type(self.enabled).__name__}"
+            )
+        try:
+            ContentRetentionPolicy(
+                version=self.version,
+                mode=self.mode,
+                interval_seconds=self.interval_seconds,
+                batch_limit=self.batch_limit,
+            )
+        except ValueError as exc:
+            raise ConfigValidationError(f"content_retention.{exc}") from exc
+        if self.mode == "relay-only" and not self.enabled:
+            raise ConfigValidationError(
+                "content_retention.mode='relay-only' requires "
+                "content_retention.enabled=true; an ambiguous disabled "
+                "relay-only scope is refused"
             )
         return self
 
@@ -730,5 +787,8 @@ class RuntimeConfig:
     limits: RuntimeLimits = field(default_factory=RuntimeLimits)
     retry: RetryConfig = field(default_factory=RetryConfig)
     attachments: AttachmentConfig = field(default_factory=AttachmentConfig)
+    content_retention: ContentRetentionConfig = field(
+        default_factory=ContentRetentionConfig
+    )
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
     routes: RouteConfigSet = field(default_factory=_default_route_config_set)

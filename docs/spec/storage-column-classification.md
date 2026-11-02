@@ -81,7 +81,11 @@ as `operator_delivery_decisions.observed_updated_at`, which is written once
 with its decision row; timestamps that guarded transitions compare or
 advance on mutable rows (`updated_at`, lease and freshness facts, and
 aggregation anchors such as `inbound_pressure_observations.first_seen_at`)
-are operational authority.
+are operational authority, as are the retention activation boundary facts of
+`content_retention_epochs`: `activated_at` and its `admission_watermark`
+companion bound every retention sweep to events admitted after activation,
+and `last_observed_active_at` is the forward-only heartbeat that guarded
+heartbeat transitions advance and never move backward.
 
 ## 3. Registry requirements
 

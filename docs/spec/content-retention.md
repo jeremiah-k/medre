@@ -138,7 +138,7 @@ See [content-copy-classification.md](content-copy-classification.md) for
 the authoritative blocker/identity distinction, and
 [content-collection-guard.md](content-collection-guard.md) for atomic collection.
 
-## Narrow logical collection (operator initiated only)
+## Narrow logical collection
 
 The storage backend MAY expose `collect_event_content(event_id, dry_run=True)`
 for an **exact event ID**, with a metadata-only result conforming to
@@ -157,6 +157,71 @@ delivery observations, the separated diagnostics side table, attachments,
 provider state, WAL, backups or external copies. Logical removed
 byte counts MUST NOT be presented as disk savings or secure erasure.
 Automatic or periodic collection remains disabled.
+
+## Operator retention policy declaration and activation boundary
+
+The operator retention policy is a strict versioned declaration: the
+`content_retention` configuration section and its matching value object.
+`version` MUST be exactly the integer `1`; booleans are refused.
+`mode` is the closed vocabulary `retain` and `relay-only`. The section is
+disabled by default: an omitted section authorizes no collector and no
+policy. `mode: relay-only` additionally REQUIRES `enabled: true`; the
+ambiguous disabled relay-only scope is refused at load time.
+`enabled: true` with `mode: retain` is valid and declares an observing
+policy that never collects. `interval_seconds` (1–86400, default 300) and
+`batch_limit` (1–100, default 25) bound a retention worker's cadence and
+batch size; they authorize nothing by themselves. The
+`MEDRE_CONTENT_RETENTION__<FIELD>` environment overrides coerce each field
+and revalidate the whole section, including the enabled/mode combination.
+
+Activating `relay-only` MUST durably establish the activation boundary in
+the append-only `content_retention_epochs` table: one immutable row per
+activation carrying the closed `mode`, the `activated_at` timestamp, the
+`admission_watermark`, the `last_observed_active_at` heartbeat, and the
+`activated_by` provenance closed to `runtime-first-start` and `operator`.
+The watermark MUST be the store's maximum local admission `created_at`
+observed inside the same `BEGIN IMMEDIATE` transaction that inserts the
+epoch row (absent only when the store held no events at activation), and
+every retention sweep MUST be bounded to events admitted strictly after
+that watermark, so pre-activation history is never swept. Watermarks are
+monotonic across epochs: an empty store keeps the previous epoch's
+watermark and a lower observation never pulls the boundary backward. The
+heartbeat MUST never move backward; a clock rollback is a no-op by
+construction. Epoch rows are not event-scoped, carry no foreign key, hold
+no content, and are append-only: the heartbeat is the only update and no
+delete exists.
+
+The aggregate policy preview
+(`SQLiteStorage.preview_content_retention`, schema
+[content-retention-preview.schema.json](../schemas/content-retention-preview.schema.json))
+is read-only, bounded, and metadata-only. It MUST examine at most 100
+epoch-scoped events per call in one SQLite read snapshot, MUST run the
+same read-only decision the guarded collector uses, and MUST report only
+per-event outcome counts — `eligible`, `blocked`, `empty`,
+`already_collected`, `inconsistent` — reusing the collector's statuses so
+the preview and the mutation never speak two dialects. It MUST NOT return
+an event ID enumeration, message text, or any content value; the single
+`next_after` `(created_at, event_id)` keyset continuation is the only
+identifier. The read API MUST accept that pair as an optional `after` cursor,
+using the same strict watermark and keyset ordering, so all bounded pages
+can be examined. This exposes one cursor event ID per page, not an event
+ID enumeration; the operator CLI MUST continue to omit this cursor. It MUST set
+`retention_authorized`, `deletion_authorized`, and
+`physical_erasure_claimed` to false and MUST list the unmeasured copy
+scopes. A store with no activation epoch MUST report the distinct
+`no_active_epoch` status with zero counts: collection cannot safely be
+assessed, which is distinct from nothing being eligible. The preview
+never grants mutation authority; the guarded per-event collector with its
+`BEGIN IMMEDIATE` revalidation remains the only mutation boundary.
+
+Retention under a declared relay-only policy is: "Best-effort, bounded
+logical collection of eligible isolated core text after accepted owners
+settle; refused or unmeasured copies are retained and reported." It is
+not physical erasure, a hard privacy deadline, or retention for
+attachments, provider stores, or plugin-held content. No scheduler
+invokes collection automatically, and automatic or periodic collection
+remains disabled; the exact-event `medre storage collect` workflow
+remains the operator's explicit path.
 
 ## Bounded operator workflow
 
@@ -179,3 +244,8 @@ A pre-existing non-SQLite file, including an empty file, MUST be refused by
 apply without initializing a new database. Read-only previews require the
 current validated schema; approved additive predecessors can be upgraded by
 normal writable initialization before a preview campaign.
+
+Admission-watermark comparison MUST exclude equivalent UTC spellings of the
+same instant, including a zero microsecond written with or without a fraction.
+The comparison normalizes the boundary, never the indexed admission column;
+stored facts and cursor keys remain unchanged.

@@ -33,6 +33,11 @@ storage:
 # Durable attachments are disabled until retention and transfer limits are set.
 attachments:
   enabled: false
+# Content retention is disabled by default: retain mode never collects, and
+# relay-only additionally requires enabled: true.
+content_retention:
+  enabled: false
+  mode: retain
 """
 
 _ROUTE_HELP = """\
