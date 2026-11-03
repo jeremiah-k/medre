@@ -186,24 +186,15 @@ this file once they land.
   receipt artifacts. This qualifies local native behavior; core-authorized
   replay acceptance and wider-network/hardware evidence remain open.
 
-- **464 — Typed native-evidence contract.** Native-evidence observations
-  project into one immutable envelope binding the core-authoritative
-  attempt identity to a bounded accepted / definitively_not_submitted /
-  unresolved / not_observed result, scope, tier, and identifier-only
-  attachments with a restart-stable evidence fingerprint
-  (`docs/spec/native-evidence.md`). Additive: existing feedback and
-  authority semantics are wrapped, not changed.
+- **464 — Typed native-evidence contract.** An immutable envelope records
+  attempt identity, result, scope, tier, and selected identifiers with a stable
+  statement fingerprint. Existing feedback and delivery authority remain
+  unchanged; construction does not verify ledger binding or sanitize identifiers.
 
-- **465 — Native-evidence proof boundaries.** The typed native-evidence
-  envelope rejects provider-acceptance and recipient-acceptance claims
-  constructed at synthetic or SDK-contract tiers, and rejects definitive
-  provider non-submission claims from those tiers while preserving
-  separately scoped pre-handoff failure observations. A post-handoff
-  `rejected` state stays unresolved because a later rejection cannot
-  prove the provider never accepted an already-handed-off submission.
-  Direct construction and absence records carry caller-supplied identity
-  distinct from core-provenance-bound projections. The envelope remains
-  observation-only and never grants permission to resend.
+- **465 — Native-evidence proof boundaries.** Synthetic/SDK-contract tiers
+  cannot claim provider or recipient acceptance or provider non-submission.
+  Post-handoff rejection stays unresolved, while a proven pre-handoff failure
+  remains separately scoped. No evidence result authorizes another send.
 
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,

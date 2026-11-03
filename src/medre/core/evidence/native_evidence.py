@@ -25,10 +25,10 @@ Design constraints
   neither path proves ledger binding.  A provider fact is authoritative
   only for the provider-specific claim it can actually establish, and
   independent recipient corroboration never changes a core generation.
-* **Identifiers only** — the envelope carries optional existing receipt
-  and native-reference identifiers.  It has no field for error text,
-  metadata, message text, or any secret-shaped value, so such values
-  cannot be projected even accidentally.
+* **Identifier fields** — projections omit error text and metadata and
+  carry only the selected receipt/native-reference identifier fields.
+  Identifier values are copied as supplied, not redacted or authenticated;
+  callers remain responsible for keeping content and credentials out of them.
 * **No execution authorization** — nothing in this module grants or
   records permission to send.  ``unresolved`` never becomes permission to
   resend, and absence of evidence never proves rejection: the explicit
@@ -296,8 +296,9 @@ class NativeEvidenceObservation:
     claim.  Identity, outbox, and generation fields are consumed as stated
     by the caller; the projection functions take them
     exclusively from the core-issued provenance of the wrapped fact, so a
-    provider payload can never re-state them.  Every field is validated at
-    construction and construction fails closed on malformed input.
+    provider payload can never override those fields independently. Field
+    validation is structural: it does not query the ledger, authenticate the
+    provenance issuer, verify a compatibility pin, or attest the stated tier.
 
     The envelope is a record, not a permit: it never authorizes a send,
     a resend, or any lifecycle transition, and it carries no field that
@@ -502,7 +503,9 @@ class NativeEvidenceObservation:
         them and are never treated as globally unique.  The same native
         message identifier observed under a different delivery identity is
         a correlation-reuse signal, not the same observation; the two
-        envelopes remain distinct and their fingerprints differ.
+        envelopes remain distinct and their fingerprints differ. This helper
+        compares the provider label and native identifier only; it does not
+        establish equality across accounts, profiles, repositories, or pins.
         """
         if not isinstance(other, NativeEvidenceObservation):
             raise TypeError(

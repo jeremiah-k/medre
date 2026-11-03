@@ -609,8 +609,8 @@ def test_expired_content_leaves_no_content_surface() -> None:
     assert _MESSAGE_TEXT not in repr(envelope)
 
 
-def test_secrets_and_message_text_can_never_appear() -> None:
-    """Error text and metadata tokens never surface in any field."""
+def test_error_text_and_metadata_are_not_projected() -> None:
+    """Secrets in excluded error/metadata fields do not enter identifier fields."""
     observation = make_post_handoff_observation(
         event_id="event-1",
         adapter=_PROVIDER,

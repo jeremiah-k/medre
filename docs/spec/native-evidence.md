@@ -42,7 +42,9 @@ excluded deliberately: the fingerprint identifies the observation
 content, so the same provider fact recorded twice, including across a
 persistence or restart boundary, yields the same fingerprint and
 duplicates stay detectable. Equal facts always produce equal
-fingerprints.
+fingerprints. A fingerprint identifies the supplied statement; it does not
+attest that the observation occurred, that a tier or pin is accurate, or that
+the stated attempt is current in the ledger.
 
 ## Result taxonomy
 
@@ -118,6 +120,11 @@ stands in for a higher one.
    take identity fields from the caller, because no wrapped provider fact
    supplies them. These caller-supplied fields require independent ledger
    verification before they are treated as authoritative attempt evidence.
+   Projection constructors preserve typed provenance but do not authenticate
+   its issuer or query the ledger either; their callers must use the existing
+   feedback/provenance validation before treating that binding as authoritative.
+   Provider identity, compatibility pin, source, and tier are caller assertions
+   whose actual observation basis must also be verified independently.
 2. **A provider fact is authoritative only for the provider-specific
    claim it can actually establish.** The projections below are the
    complete mapping; no other claim may be derived from a wrapped fact.
@@ -150,10 +157,13 @@ alone cannot establish proof or authorize any state change.
 
 ## Identifier discipline
 
-The envelope carries identifiers only. It has no field for error text,
-adapter metadata, message text, or any secret-shaped value, so such
-content cannot be projected even accidentally. The `not_observed` result
-forbids all three identifier fields, because none were observed.
+Projections omit the wrapped fact's error text and adapter metadata. The
+selected receipt/native-reference identifiers are copied verbatim: the
+envelope does not inspect or redact their contents, nor does it verify that
+an identifier refers to an existing ledger or provider record. Callers MUST
+supply identifiers without message content or credentials and verify their
+binding before consumption. The `not_observed` result forbids all three
+identifier fields, because none were observed.
 
 ## No execution authorization
 
