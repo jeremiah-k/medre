@@ -94,10 +94,12 @@ running to keep the bridge connected; press **Ctrl+C** to stop it.
 MEDRE stores messages and delivery records locally. Narrow retention
 mechanisms exist today: an opt-in relay-only policy can logically collect
 eligible, already-settled message text, and an explicitly enabled hard
-content ceiling stops new deliveries past its deadline, with the guarded
-retirement sweep for expired unstarted work disabled by default. General
-timed retention profiles and physical erasure are not available, and copies
-held by connected transports and providers are unaffected. See
+content ceiling fences new local native dispatch starts when the deadline
+is observed; work already accepted by a transport may still arrive later.
+The guarded retirement sweep for expired unstarted work is disabled by
+default. General timed retention profiles and physical erasure are not
+available, and copies held by connected transports and providers are
+unaffected. See
 [privacy and message storage](message-storage.md) before using sensitive
 conversations.
 

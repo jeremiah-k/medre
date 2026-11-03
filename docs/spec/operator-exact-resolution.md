@@ -49,20 +49,24 @@ reconciliation. Automatic retry policy and exact replay execution are unchanged.
 ## Prerelease storage compatibility
 
 The additional audit table is part of the **required** prerelease SQLite shape.
-MEDRE deliberately refuses older shapes before running `CREATE TABLE` against
-an existing database, even if they report the same frozen schema version 1.
-**Do not point this candidate at a production or existing development DB.**
-Qualify against separately selected fresh state. Pre-first-release development
-supports one current SQLite shape. The one recognized exception is the exact
-allowlisted single-action `operator_delivery_decisions` predecessor layout: a
-writable open applies its guarded additive migration — a transactional table
-rebuild from the authoritative DDL — and a read-only open of that recognized
+Before schema creation on an existing database, MEDRE validates the complete
+catalog against the current shape or an explicitly allowlisted additive
+predecessor, even when the stored schema version remains `1`. The authoritative
+allowlist is specified in [storage](storage.md#10-pre-release-database-policy).
+For the decision-audit table, the exact single-action
+`operator_delivery_decisions` predecessor is one such allowed shape: a writable
+open applies its guarded additive migration — a transactional table rebuild
+from the authoritative DDL — and a read-only open of that recognized
 predecessor reports that a guarded writable migration is available instead of
-suggesting a reset. Any other earlier development layout MUST still be
-refused with recreation guidance, and review MUST use fresh state rather
-than a migration or compatibility reader. The allowlist is explicit and
-additive, not a general upgrade framework: unsupported catalogs get no
-upgrade path.
+suggesting a reset. Other approved additive changes follow the same guarded
+writable-initialization policy. Any other earlier development layout MUST still
+be refused with recreation guidance. The allowlist is explicit and additive,
+not a general upgrade framework: unsupported catalogs get no upgrade path.
+
+Qualify candidates against separately selected fresh state; test migration and
+rollback against disposable copies, not production or shared development data.
+A writable migration of a known predecessor preserves its data and is distinct
+from resetting an unsupported database.
 
 The required audit shape MUST preserve unique decision IDs and the action,
 observed-status and generation constraints. An audit write failure MUST roll

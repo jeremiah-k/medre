@@ -20,10 +20,15 @@ stored-event, native-metadata, configuration, report, or renderer shape solely
 because an earlier development build produced it.
 
 Breaking development-shape changes update source, schemas, examples, specs, and
-tests together. There is no canonical-event shape-conversion registry and no
-automatic SQLite schema transformation. Incompatible pre-release databases are
-rejected with an actionable error and must be recreated or handled explicitly by
-the operator.
+tests together. There is no canonical-event shape-conversion registry.
+There is no general automatic SQLite schema migration framework. The guarded
+writable initializer
+recognizes only structurally exact additive predecessors explicitly listed in
+[storage](storage.md#10-pre-release-database-policy); these can migrate
+transactionally without discarding their data. Every other incompatible
+pre-release database is refused with an actionable error and requires an
+explicit operator recovery or reset decision. A read-only inspection never
+performs the additive migration itself.
 
 ## 2. Explicitly Retained External Interoperability
 
