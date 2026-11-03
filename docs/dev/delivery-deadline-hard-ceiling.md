@@ -110,7 +110,7 @@ refusal after some packets were accepted preserves the accepted prefix's
 checkpointed handoff facts. A deadline that has elapsed produces the existing
 refusal semantics: `DEADLINE_EXCEEDED` failure evidence with
 `content_authority_denied` where the content leg refused, an
-`AdapterPermanentError` on the delivery path, no transport invocation, and no
+`_AdapterDeliveryError` on the delivery path, no transport invocation, and no
 delivery observation or receipt that could be read as provider acceptance;
 the final dispatch-start fence records the same typed refusal as local
 denial evidence without an attempt receipt, exactly like a refused storage
