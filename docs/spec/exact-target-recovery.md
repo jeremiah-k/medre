@@ -227,6 +227,40 @@ sibling channels; a route or plan drift refusal never falls back to
 re-planning from current router configuration — the refusal is final for
 that admission; and a native handoff is not recipient receipt.
 
+## Qualification boundaries
+
+The exact-target property is qualified on the fake/core tier against real
+on-disk SQLite state: competing writers hold genuine `BEGIN IMMEDIATE`
+transactions on separate connections, storage handles are closed and
+reopened, and scoped replay stages genuine outbox generations and receipts
+through the fake presentation adapter. This qualification proves, and is
+limited to, the transactional and storage-level properties of the contract:
+
+* the write authorities serialize — cancellation and the audited decision
+  observe a typed refusal when a superseding write wins; a recorded
+  decision does not mutate the outbox and therefore does not prevent a
+  later guarded cancellation, while no half-applied state or lost update
+  survives;
+* recorded decisions, persisted outbox state, and the preview's
+  classification survive a storage-handle restart, and the normal
+  claim/attempt fences still refuse superseded observations afterwards;
+* scoped replay refuses named targets whose persisted state drifted,
+  records the bounded `exact_target_selection_refused` evidence, and
+  stages no generation, dispatch, or receipt for refused or excluded
+  siblings of the same event;
+* a stale observation never sends: superseded expectations classify as
+  `stale` evidence only, and execution re-validates persisted state
+  through the shared selector before anything is staged.
+
+This tier does NOT prove native acceptance by any real provider: the fake
+adapter's handoff result is transport simulation, and a fake-tier handoff
+MUST NOT be read as recipient receipt. It does NOT prove independently
+observed recipient delivery, which is reserved for evidence tiers with an
+independent recipient, and it does NOT qualify current-pin provider
+behavior. Native and current-pin qualification of the exact-target
+property remains reserved to those tiers; a lower tier never stands in for
+a higher one.
+
 ## Schema and stability
 
 Preview instances serialize through `to_dict` and MUST conform to

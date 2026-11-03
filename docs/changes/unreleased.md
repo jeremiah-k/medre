@@ -165,6 +165,13 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
+  exercises SQLite writer contention, restart durability, cancellation fencing,
+  and scoped replay without sibling sends. Cancellation preserves its terminal
+  generation; an already-admitted replay can still send as a new generation.
+  Native acceptance and independently observed recipient delivery remain
+  unqualified.
+
 - **Queued delivery outbox correlation.** Exact `outbox_id` /
   `attempt_number` correlation for async queued adapters, stale callback
   protection, terminal queue outcome reporting. Removed
