@@ -128,12 +128,18 @@ reference, and never reclassifies accepted or uncertain attempts as unsent.
 For packetized radio transports the effective bound rides the existing
 one-use grant: every packet start rechecks the bound at its grant
 authorization, a refusal after some packets were accepted preserves the
-accepted prefix's receipts and never fabricates a refusal for the
-already-accepted work, and post-send observation does not require live
+accepted prefix's checkpointed handoff facts and never fabricates a refusal
+for the already-accepted work, and post-send observation does not require live
 content authority. This is a **local dispatch-start fence**, not an atomic
 transaction with remote/native submission: it does not promise that a
 previously accepted native message cannot arrive afterward, and it cannot
 undo a packet already accepted by a transport.
+
+The receipt-free denial described above applies to the direct final clock
+fence and storage authorization. Earlier plan validation retains its existing
+failed-attempt receipt behavior. Radio failures retain whole-attempt receipt
+and checkpoint semantics: an aggregate failure does not erase the accepted
+prefix's persisted handoff facts or turn it into unsent work.
 
 ### Wall-clock enforcement limitation
 

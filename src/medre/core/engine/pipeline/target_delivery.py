@@ -1079,10 +1079,10 @@ class TargetDeliveryService:
             # no await on the proceed path. For packetized radio plans the
             # fence rechecks at every packet-start authorization through the
             # existing one-use grant; a later packet refused after the bound
-            # preserves the receipts of the already-accepted prefix. A
-            # refusal records local denial evidence only - never a synthetic
-            # native receipt - and never reclassifies accepted or uncertain
-            # attempts as unsent.
+            # preserves the checkpointed handoff facts of the accepted prefix.
+            # A direct fence refusal carries local denial evidence without an
+            # attempt receipt. Radio failures keep their existing aggregate
+            # receipt/checkpoint semantics and never turn accepted work unsent.
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(

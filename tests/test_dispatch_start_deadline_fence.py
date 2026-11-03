@@ -777,7 +777,7 @@ async def test_fenced_invoke_refuses_at_equality_and_invokes_before(monkeypatch)
 async def test_radio_packet_start_recheck_refuses_after_accepted_prefix(
     tmp_path, monkeypatch
 ):
-    """A later packet refused after the bound keeps the accepted prefix's receipts."""
+    """A refused radio tail preserves the prefix's checkpointed handoff facts."""
     store = SQLiteStorage(str(tmp_path / "fence-radio.db"))
     await store.initialize()
     try:
@@ -877,7 +877,11 @@ async def test_radio_packet_start_recheck_refuses_after_accepted_prefix(
                 expected_outbox_worker_id="radio-owner",
             )
         # Exactly one native packet start happened; the refused packet never
-        # started, and the accepted prefix keeps its own receipt evidence.
+        # started, and the accepted prefix keeps its checkpointed handoff fact.
+        # The whole-attempt failure receipt does not erase that native history.
+        receipts = await store.list_receipts_for_event(event.event_id)
+        assert len(receipts) == 1
+        assert receipts[0].status == "failed"
         assert adapter.native_starts == 1
         checkpoint = await store.get_radio_attempt(item.outbox_id, 1)
         assert checkpoint.progress.parts[0].state == "accepted"

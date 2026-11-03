@@ -170,7 +170,9 @@ this file once they land.
   rows as native-start authorization, carries it to the adapter invocation
   site, and refuses a new local native submission when the final synchronous
   check observes the deadline elapsed; radio packet starts recheck the bound
-  and accepted prefixes are preserved. Local denial evidence only.
+  and accepted-prefix checkpoint facts are preserved. Direct final-clock
+  denials produce local typed evidence without an attempt receipt; earlier
+  plan-validation and radio-attempt receipt rules remain unchanged.
 
 - **457 — LXMF native qualification asset.** A local SDK scenario observes
   exact destination/source/message hashes and independent recipient callbacks,
