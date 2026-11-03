@@ -346,7 +346,12 @@ jobs:
         run: |
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
             --junit ci-artifacts/core-owned-lxmf-integration/junit.xml \
-            --expect-tests 2
+            --expect-tests 2 \
+            --require-artifact 'ci-artifacts/core-owned-lxmf-integration/pytest-output.txt' \
+            --require-artifact 'ci-artifacts/core-owned-lxmf-integration/pytest-tmp/test_propagated_delivery*/b-ready.json' \
+            --require-artifact 'ci-artifacts/core-owned-lxmf-integration/pytest-tmp/test_propagated_delivery*/b-received.json' \
+            --require-artifact 'ci-artifacts/core-owned-lxmf-integration/pytest-tmp/test_unobserved_exact_dest*/b-ready.json' \
+            --require-artifact 'ci-artifacts/core-owned-lxmf-integration/pytest-tmp/test_unobserved_exact_dest*/b-received.json'
       - name: Upload disposable qualification run artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

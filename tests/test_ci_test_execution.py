@@ -169,3 +169,82 @@ def test_lxmf_required_job_preserves_visible_qualification_artifacts():
     assert upload["with"]["if-no-files-found"] == "error"
     assert any("junit.xml" in path for path in paths)
     assert any("b-received.json" in path for path in paths)
+
+
+@pytest.mark.parametrize(
+    "cases",
+    [
+        "",
+        '<testcase name="one"><skipped/></testcase>'
+        '<testcase name="two"><skipped/></testcase>',
+        '<testcase name="one"><failure/></testcase><testcase name="two"/>',
+        '<testcase name="one"><error/></testcase><testcase name="two"/>',
+        '<testcase name="same"/><testcase name="same"/>',
+    ],
+)
+def test_summary_totals_cannot_hide_missing_or_failed_records(tmp_path, cases):
+    report = tmp_path / "junit.xml"
+    report.write_text(
+        '<testsuites><testsuite tests="2" skipped="0" errors="0" failures="0">'
+        + cases
+        + "</testsuite></testsuites>"
+    )
+    assert _script().check_report(report, 2)
+
+
+@pytest.mark.parametrize("count", ["invalid", "-2"])
+def test_malformed_counters_report_a_reason_instead_of_crashing(tmp_path, count):
+    report = tmp_path / "junit.xml"
+    report.write_text(
+        f'<testsuite tests="{count}" skipped="0" errors="0" failures="0">'
+        '<testcase name="one"/><testcase name="two"/></testsuite>'
+    )
+    problems = _script().check_report(report, 2)
+    assert any("invalid tests total" in problem for problem in problems)
+
+
+def test_one_present_artifact_cannot_mask_another_missing_verdict(tmp_path):
+    report = tmp_path / "junit.xml"
+    report.write_text(
+        '<testsuite tests="2" skipped="0" errors="0" failures="0">'
+        '<testcase name="one"/><testcase name="two"/></testsuite>'
+    )
+    ready = tmp_path / "positive" / "b-ready.json"
+    ready.parent.mkdir()
+    ready.write_text("{}")
+    patterns = (
+        str(tmp_path / "positive*" / "b-ready.json"),
+        str(tmp_path / "negative*" / "b-received.json"),
+    )
+    problems = _script().check_report(report, 2, required_artifacts=patterns)
+    assert len(problems) == 1
+    assert "required qualification artifact is missing" in problems[0]
+    received = tmp_path / "negative" / "b-received.json"
+    received.parent.mkdir()
+    received.write_text("{}")
+    assert _script().check_report(report, 2, required_artifacts=patterns) == []
+
+
+def test_required_lxmf_job_checks_each_scenario_verdict():
+    import shlex
+    import yaml
+
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github/workflows/test-and-coverage.yml"
+    )
+    job = yaml.safe_load(workflow.read_text())["jobs"]["core-owned-lxmf-integration"]
+    enforcement = next(
+        step["run"]
+        for step in job["steps"]
+        if step.get("name") == "Enforce executed-at-pin qualification"
+    )
+    arguments = shlex.split(enforcement.replace(chr(92) + chr(10), " "))
+    patterns = [
+        arguments[index + 1]
+        for index, argument in enumerate(arguments)
+        if argument == "--require-artifact"
+    ]
+    assert len(patterns) == 5
+    for scenario in ("test_propagated_delivery*", "test_unobserved_exact_dest*"):
+        for verdict in ("b-ready.json", "b-received.json"):
+            assert any(f"/{scenario}/{verdict}" in pattern for pattern in patterns)

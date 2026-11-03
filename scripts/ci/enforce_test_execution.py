@@ -13,6 +13,7 @@ the junit report is the only evidence.
 from __future__ import annotations
 
 import argparse
+import glob
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -24,10 +25,15 @@ def _int_total(suite: ET.Element, name: str) -> int:
     raw = suite.get(name)
     if raw is None:
         return 0
-    return int(raw)
+    value = int(raw)
+    if value < 0:
+        raise ValueError(f"{name} must be nonnegative, got {raw!r}")
+    return value
 
 
-def check_report(path: Path, expected_tests: int) -> list[str]:
+def check_report(
+    path: Path, expected_tests: int, *, required_artifacts: tuple[str, ...] = ()
+) -> list[str]:
     """Return every reason the junit report does not prove execution."""
     if not path.is_file():
         return [
@@ -36,16 +42,47 @@ def check_report(path: Path, expected_tests: int) -> list[str]:
         ]
     try:
         root = ET.parse(path).getroot()
-    except ET.ParseError as exc:
+    except (ET.ParseError, OSError) as exc:
         return [f"junit report at {path} is not parseable: {exc}"]
     suites = list(root.iter("testsuite"))
     if not suites:
         return [f"junit report at {path} contains no testsuite element"]
     totals = dict.fromkeys(_SUITE_TOTALS, 0)
-    for suite in suites:
-        for name in _SUITE_TOTALS:
-            totals[name] += _int_total(suite, name)
     problems: list[str] = []
+    identities: set[tuple[str, str]] = set()
+    for suite in suites:
+        cases = suite.findall("testcase")
+        actual = {"tests": len(cases)}
+        for counter, tag in (
+            ("skipped", "skipped"),
+            ("errors", "error"),
+            ("failures", "failure"),
+        ):
+            actual[counter] = sum(case.find(tag) is not None for case in cases)
+        for name in _SUITE_TOTALS:
+            totals[name] += actual[name]
+            try:
+                declared = _int_total(suite, name)
+            except ValueError as exc:
+                problems.append(f"junit has an invalid {name} total: {exc}")
+                continue
+            if declared != actual[name]:
+                problems.append(
+                    f"junit {name} total {declared} contradicts "
+                    f"{actual[name]} testcase record(s)"
+                )
+        for case in cases:
+            identity = (case.get("classname", ""), case.get("name", ""))
+            if not identity[1] or identity in identities:
+                problems.append(
+                    f"junit has a missing or duplicate testcase identity: {identity}"
+                )
+            identities.add(identity)
+    for pattern in required_artifacts:
+        if not any(
+            Path(match).is_file() for match in glob.glob(pattern, recursive=True)
+        ):
+            problems.append(f"required qualification artifact is missing: {pattern}")
     if totals["tests"] <= 0:
         problems.append(
             f"junit records {totals['tests']} tests: the suite did not execute"
@@ -79,8 +116,16 @@ def main() -> None:
         required=True,
         help="exact number of tests the report must show executed",
     )
+    parser.add_argument(
+        "--require-artifact",
+        action="append",
+        default=[],
+        help="file glob that must match a preserved qualification artifact (repeatable)",
+    )
     args = parser.parse_args()
-    problems = check_report(args.junit, args.expect_tests)
+    problems = check_report(
+        args.junit, args.expect_tests, required_artifacts=tuple(args.require_artifact)
+    )
     if problems:
         for problem in problems:
             print(f"::error::{problem}")

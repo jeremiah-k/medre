@@ -171,13 +171,11 @@ this file once they land.
   process group cleans up both instances on timeout or cancellation. Required
   CI collection, wider-topology, Chatmail, and XMPP qualification remain open.
 
-- **461 — Core-owned LXMF native CI collection.** A required CI job installs
-  the pinned lxmf adapter distribution and its exact-pinned RNS/LXMF SDKs and
-  executes the core-owned propagation scenario with independent recipient
-  observation over the loopback-only topology. The job treats a not-collected
-  or skipped run as failure and archives the run artifacts with the pin set.
-  Executed-at-pin status is recorded in the campaign matrix, the exact-target
-  specification, and the register.
+- **461 — Required LXMF native collection.** CI executes the two core-owned
+  propagation scenarios at the manifest-pinned adapter and SDKs, validates
+  actual JUnit testcase records, and requires each scenario's readiness and
+  receipt artifacts. This qualifies local native behavior; core-authorized
+  replay acceptance and wider-network/hardware evidence remain open.
 
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,

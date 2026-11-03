@@ -329,9 +329,11 @@ installs the pinned lxmf adapter distribution together with its
 exact-pinned RNS/LXMF SDKs through the same checkout installer the
 adapter-contract jobs use, and executes this file with
 `-m "local_integration and lxmf_sdk"`. A post-run assertion over the
-junit report fails the job when zero tests ran, when any test was
-skipped, or when collection errored, so an unexecuted qualification can
-never report green. The tier boundary is unchanged: the topology is a
+junit report validates the testcase records against the declared totals
+and fails the job when zero tests ran, any test was skipped or failed, or
+collection errored. Each scenario's readiness and receipt verdict files
+and the pytest log are required separately, so a partial artifact upload
+cannot silently lose the native evidence. The tier boundary is unchanged: the topology is a
 loopback-only UDPInterface pair on one host, the recipient verdict comes
 from a separate process through its own delivery callback, and no
 external-network or hardware rung is claimed. The provider-owned
