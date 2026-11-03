@@ -165,6 +165,15 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **463 — Migration and privacy wording reconciliation.** The exact-target
+  decision and operator-resolution specifications now distinguish
+  allowlisted additive predecessor migration from unsupported catalogs in
+  step with the guarded storage migration; operator guidance states the
+  implemented narrow retention scope (relay-only logical collection, event
+  content ceiling, default-off guarded retirement) and its limits (no
+  general timed profiles, no physical erasure, provider copies unaffected);
+  a docs-consistency guard pins both reconciliations.
+
 - **460 — Final dispatch-start deadline fence.** The pipeline observes the
   earliest applicable effective deadline from the same storage-authoritative
   rows as native-start authorization, carries it to the adapter invocation
