@@ -43,6 +43,13 @@ so this page names SDK packages rather than versions. Claims that cannot
 be verified from the pinned provider repositories alone say so
 explicitly.
 
+The typed vocabulary these observations project into — bounded result,
+scope, tier, and the authority rules binding them to core attempt
+identity — is specified in
+[native-evidence.md](../spec/native-evidence.md) and implemented by
+`src/medre/core/evidence/native_evidence.py`. This page remains the
+per-transport evidence inventory; nothing on it changes meaning.
+
 ## Tier map
 
 | Tier label        | Meaning for this campaign                                            |
