@@ -165,6 +165,12 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **457 — LXMF native qualification asset.** A local SDK scenario observes
+  exact destination/source/message hashes and independent recipient callbacks,
+  while keeping propagation handoff distinct from receipt. Its owned POSIX
+  process group cleans up both instances on timeout or cancellation. Required
+  CI collection, wider-topology, Chatmail, and XMPP qualification remain open.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal

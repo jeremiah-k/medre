@@ -261,6 +261,91 @@ behavior. Native and current-pin qualification of the exact-target
 property remains reserved to those tiers; a lower tier never stands in for
 a higher one.
 
+## Native local-integration qualification
+
+The evidence ladder for this contract is fake/core, local
+SDK/integration, independent recipient, and hardware. The fake/core tier
+above is the first rung. The LXMF propagation scenario targets the native
+local-SDK rung, with a recipient verdict from a separate process when it
+executes successfully. External-network and hardware rungs remain above
+it and are not claimed.
+
+### LXMF propagation leg
+
+`tests/integration/test_lxmf_exact_target_propagation.py` defines a
+qualification scenario on the pinned LXMF/RNS SDKs over a loopback-only
+Reticulum UDPInterface pair. Two process-isolated instances participate:
+the MEDRE side drives the installed adapter distribution's real session
+configured with the exact 16-byte destination hashes the other side
+published at readiness, and the recipient side runs a real propagation
+node on the raw pinned SDKs in its own process, recording its own
+delivery observations. No observation on the recipient side touches
+MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
+receipts.
+
+The scenario checks the following native properties at the pinned SDK
+versions within this local topology:
+
+* **A propagated handoff is not recipient receipt.** The MEDRE side's
+  honest terminal state tops out at `sent` — the propagation node
+  accepted the message — and the scenario asserts that state separately
+  from the recipient verdict. The two observations come from distinct
+  processes; a propagation handoff MUST NOT be reported as recipient
+  receipt anywhere downstream.
+* **Exact destination, independently observed.** The recipient instance
+  observes the message addressed to exactly its announced delivery
+  destination hash, sourced from the MEDRE side's announced delivery
+  destination hash, carried with the propagation delivery method, and
+  delivered exactly once to B, with A's destination silent. Other
+  unobserved destinations are outside this two-instance observation.
+* **Content-addressed identity survives the native path.** The native
+  message identifier the MEDRE side handed off equals the message hash
+  the recipient instance observed.
+* **No handoff without an observed exact destination.** A propagated
+  send to a destination hash the MEDRE side has never observed natively
+  is refused by the native discovery gate. The scenario instruments the
+  SDK `LXMessage` constructor and requires zero constructions, no tracked
+  outbound delivery, and zero recipient callbacks from the separate
+  process. Those signals do not independently measure propagation-node
+  intake, so that stronger negative evidence is not claimed.
+
+This tier does NOT prove delivery through a network of propagation nodes,
+store-and-forward pickup by a destination that is not itself the
+propagation node, propagation peering or sync flows, or delivery over an
+external network or physical radio. The recipient instance and the
+propagation node being one harness instance is a local-tier boundary; a
+multi-node topology is a higher-tier claim.
+
+Collection boundary: the required `transport-local-integration` CI job
+runs provider-owned suites at their pinned revisions and does not collect
+core-owned `local_integration` tests, so this leg's CI execution is not
+wired today. The qualification asset is core-owned and runs on POSIX hosts where the
+pinned SDK extra is installed. Its owned process group terminates the sender
+and receiver on timeout or cancellation. Closing that delta requires either a CI
+step that runs core-owned local-integration tests alongside the provider
+suite, or an equivalent propagation scenario in the provider-owned suite
+at its pin; until one lands, this section records the asset, not a CI
+execution.
+
+### Remaining native legs
+
+This LXMF scenario does not qualify other transports; the Matrix
+Docker/Synapse acceptance scenario is a separate transport leg. Chatmail
+and XMPP are recorded `local_integration: false` in
+the adapter compatibility manifest, and neither provider suite at its pin
+defines a Docker or local-integration tier: both carry only opt-in
+live-marked tests that require private credentials outside the repository
+(a two-profile Chatmail fixture, respectively a two-account XMPP
+configuration with server host, port, JIDs, and MUC domain). A second
+native leg therefore needs, precisely: a CI-executable service tier —
+either a Chatmail or XMPP server in the integration compose with the
+provider harness promoted to a deterministic local-integration scenario,
+or repository-secret-backed private fixtures — and a provider-owned
+scenario at its pin that observes delivery through an independent second
+account, so the exact-target verdict is never MEDRE reading back its own
+receipts. Other transports' native legs and the hardware rungs remain
+outstanding for the full qualification of this property.
+
 ## Schema and stability
 
 Preview instances serialize through `to_dict` and MUST conform to
