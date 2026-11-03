@@ -213,6 +213,15 @@ or future deadline consumes the candidate budget without retirement; it
 MUST NOT cause an unbounded scan or starvation of later expired candidates.
 The budget bounds candidate examination, not elapsed execution time.
 
+The retry worker MAY invoke this transition before claiming due work only
+when `retry.deadline_sweep.enabled` is true. The policy MUST default to false.
+Each due poll performs at most one sweep step with the configured limit and
+cadence; storage alone determines retirement eligibility and samples its own
+clock. A sweep failure MUST be logged and counted without preventing the same
+poll from claiming deliveries; cancellation MUST propagate. Backends that do
+not expose this optional transition remain dormant. Enabling the policy does
+not establish a bound on writer-lock latency or native submission time.
+
 `SQLiteStorage.assess_event_content_release(event_id)` is a strictly read-only,
 metadata-only event-scoped snapshot: it counts candidate text/excerpt copies,
 active work and grants, and content-bearing opaque native, provider, outbox,

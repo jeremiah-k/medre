@@ -204,25 +204,16 @@ this file once they land.
   progress across restart without changing existing delivery evidence.
   Production sweep wiring and native/hardware qualification remain outstanding.
 
-- **455 — Deadline sweep wiring.** The retry worker's poll cycle now runs the
-  guarded deadline sweep behind a default-off `retry.deadline_sweep` policy,
-  so expired provably unstarted work is retired only when an operator enables
-  it. Sweep steps stay bounded per cycle, failures are isolated from the
-  delivery poll, sweep activity is counted on the worker state, and the
-  disabled default leaves poll behavior unchanged. Enablement awaits the
-  writer-latency qualification on large mostly-ineligible queues and
-  native/hardware qualification of the refusal.
+- **455 — Deadline sweep wiring.** An opt-in `retry.deadline_sweep` policy
+  retires expired, provably unstarted work before delivery claims. Steps bound
+  candidate examination and isolate failures from delivery; disabled settings
+  preserve existing behavior. Writer-latency and native/hardware qualification
+  remain outstanding.
 
-- **458 — Deadline sweep configuration and evidence.** Sweep cadence is
-  bounded to 24 hours and scheduling arithmetic failures stay contained
-  inside the retry poll's sweep-failure boundary. The runtime configuration
-  JSON Schema documents the opt-in policy with the same limits as the loader.
-  Process-local sweep run, error, and retired counters surface in the runtime
-  snapshot and the run-session/shutdown diagnostic projections, and a runtime
-  composition test proves the loaded policy reaches the live retry worker
-  through the real app assembly. The sweep remains disabled by default; no
-  measurement-backed enablement or atomic network-submission deadline is
-  claimed.
+- **458 — Deadline sweep configuration and evidence.** Configuration and
+  schema share the 24-hour cadence ceiling. Sweep scheduling errors stay
+  isolated, and process-local run, error, and retirement counters appear in
+  runtime snapshots and run-session/shutdown evidence.
 
 ## Support Bundle Internals
 

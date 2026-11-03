@@ -831,9 +831,9 @@ Before enabling at scale, measure the sweep's writer latency against a queue
 that is large and mostly deadline-free: each step takes the storage write
 lock for one bounded transaction, and a queue in which most candidates carry
 no deadline makes every step examine the full candidate budget without
-retiring anything. The per-step bound keeps any single cycle short; the
-enablement call is about whether that recurring cost is acceptable for the
-deployment's queue shape. A sweep failure is isolated: it is logged and
+retiring anything. The candidate budget does not bound writer waiting time
+or transaction latency; enablement depends on whether that recurring cost is
+acceptable for the deployment's queue shape. A sweep failure is isolated: it is logged and
 counted, and the next poll continues delivery unchanged.
 
 ## XDG Default Paths
