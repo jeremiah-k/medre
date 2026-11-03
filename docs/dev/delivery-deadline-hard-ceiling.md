@@ -15,7 +15,10 @@ retention background is
 
 The ceiling producer leg is implemented: the `content_ceiling` policy feeds
 admission, which installs and validates the ceiling in both content rows, and
-the adoption fence enforces the earlier-of effective deadline.
+the adoption fence enforces the earlier-of effective deadline. The
+native-submit deadline fence and the strictly fenced cleanup transition are
+implemented at the storage boundary; riding the bounded sweep on the retry
+worker's poll cycle and the per-transport refusal qualification remain.
 
 ## Current state
 

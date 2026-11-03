@@ -21,6 +21,10 @@ from medre.core.storage.read_contracts import (
     ContentBodyRead,
     ReplyContextRead,
 )
+from medre.core.storage.sqlite._content_identity import (
+    _utc_microseconds,
+    frozen_plan_deadline,
+)
 from medre.core.storage.sqlite._projections import (
     AUTHORIZED_EVENT_COLUMNS,
     REPLY_BODY_COLUMNS,
@@ -616,9 +620,52 @@ def _native_submission_authorized(
         return False
     if lease <= observed:
         return False
+    if _effective_deadline_elapsed(db, event_id, outbox_id, observed):
+        return False
     if not _requires_content_authority(db, event_id):
         return False
     return _outbox_content_authority(db, event_id, outbox_id, observed)
+
+
+def _effective_deadline_elapsed(
+    db: sqlite3.Connection, event_id: str, outbox_id: str, observed: str
+) -> bool:
+    """Refuse a native start past the earlier-of effective deadline.
+
+    The effective deadline is the earlier of the immutable event ceiling and
+    the frozen delivery-plan deadline riding the row's dispatch snapshot.
+    The adopted target dependency already carries the adoption-time minimum,
+    but a replay generation adopts no dependency and dispatches on the
+    admission hold, so the plan leg needs its own check here. A frozen plan
+    deadline that is present but malformed refuses the submission rather
+    than being treated as an absent bound. With no bound installed the
+    fence stays dormant, exactly like the adoption fence.
+    """
+    bounds: list[str] = []
+    ceiling = db.execute(
+        "SELECT hard_ceiling FROM event_content_access_policies WHERE event_id=?",
+        (event_id,),
+    ).fetchone()
+    if ceiling is not None and ceiling[0] is not None:
+        try:
+            bounds.append(_utc_microseconds(str(ceiling[0]), "Event ceiling"))
+        except ValueError:
+            return True
+    snapshot = db.execute(
+        "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
+        (outbox_id,),
+    ).fetchone()
+    if snapshot is not None:
+        try:
+            context = json.loads(str(snapshot[0]))
+            frozen = frozen_plan_deadline(context)
+            if frozen is not None:
+                bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
+        except (ValueError, TypeError):
+            return True
+    if not bounds:
+        return False
+    return any(bound <= observed for bound in bounds)
 
 
 class _ContentGrantsMixin:
