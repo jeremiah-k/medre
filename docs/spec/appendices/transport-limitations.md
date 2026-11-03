@@ -147,7 +147,7 @@ and SDK pins.
   behavior was live-validated June 2026 against a MeshCore node on Linux
   BlueZ (dated observation evidence; no newer hardware run is recorded at
   the inspected pin). TCP session-layer behavior is exercised by a
-  deterministic local real-SDK integration tier against a local node
+  deterministic local TCP companion-protocol endpoint using the real SDK
   (`medre-adapter-meshcore/tests/test_meshcore_local_integration.py`);
   serial transport has no dedicated non-hardware coverage — the live harness
   supports it only through its hardware-gated environment configuration.
