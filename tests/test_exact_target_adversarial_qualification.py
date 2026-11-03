@@ -431,8 +431,8 @@ async def _run_parked_authority_race(
             started = await asyncio.to_thread(authority_started.wait, 5.0)
         finally:
             # Release the competitor even when the authority fails to start.
+            timeline.append("competitor:commit")
             competitor.execute("COMMIT")
-        timeline.append("competitor:committed")
         try:
             await task
             failure: BaseException | None = None
@@ -471,7 +471,7 @@ async def test_cancel_serializes_behind_a_competing_claim_transaction(
     # committed: BEGIN IMMEDIATE serialized the two write transactions.
     assert (
         timeline.index("authority:begin")
-        < timeline.index("competitor:committed")
+        < timeline.index("competitor:commit")
         < timeline.index("authority:first-txn-read")
     )
     after = await temp_storage.get_outbox_item(row.outbox_id)
@@ -510,7 +510,7 @@ async def test_decision_serializes_behind_a_competing_claim_transaction(
     )
     assert (
         timeline.index("authority:begin")
-        < timeline.index("competitor:committed")
+        < timeline.index("competitor:commit")
         < timeline.index("authority:first-txn-read")
     )
     after = await temp_storage.get_outbox_item(row.outbox_id)
@@ -694,6 +694,23 @@ async def test_claim_and_attempt_fences_hold_after_restart(
             _now_iso(), "worker-after-restart"
         )
         assert [item.outbox_id for item in claimed] == [claimed_row.outbox_id]
+
+        reserved = await reopened.reserve_outbox_attempt(
+            claimed_row.outbox_id, "worker-after-restart", claimed_row.attempt_number
+        )
+        assert reserved == claimed_row.attempt_number + 1
+        persisted = await reopened.get_outbox_item(claimed_row.outbox_id)
+        assert persisted is not None
+        assert persisted.active_attempt == reserved
+        assert persisted.attempt_number == claimed_row.attempt_number
+        assert (
+            await reopened.reserve_outbox_attempt(
+                claimed_row.outbox_id,
+                "worker-after-restart",
+                claimed_row.attempt_number,
+            )
+            is None
+        )
 
         # The pre-restart observation is superseded by the claim: the
         # cancellation authority refuses it with the typed refusal.
