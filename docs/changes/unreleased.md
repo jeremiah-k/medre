@@ -165,6 +165,18 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **456 — Native evidence campaign opens.** A developer page now maps the
+  exact-target native acceptance legs (G01/G02) and the recipient/native
+  verification legs (G05) for all seven transports to the strongest
+  evidence tier each can reach on the current pins, marking which legs
+  CI already automates, which need a local service tier, and which stay
+  operator-run. The first leg landed on the Docker Synapse tier: an
+  authority-authorized exact-target replay send is observed accepted by
+  the real homeserver through a second Matrix client — never by reading
+  MEDRE's own receipts back — and a scoped selection without a persisted
+  generation is refused before anything is staged at the provider.
+  Register rows G02 and G05 record the new evidence map.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
