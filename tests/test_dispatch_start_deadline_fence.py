@@ -885,3 +885,21 @@ async def test_radio_packet_start_recheck_refuses_after_accepted_prefix(
         assert all(part.state == "unsent" for part in checkpoint.progress.parts[1:])
     finally:
         await store.close()
+
+
+def test_effective_dispatch_bound_normalizes_aware_instant_to_utc():
+    """The immutable authority carrier stores a canonical UTC instant."""
+    offset = timezone(timedelta(hours=-5))
+    bound = EffectiveDispatchBound(
+        datetime(2026, 11, 3, 7, 0, tzinfo=offset),
+        "event_content_ceiling",
+    )
+    assert bound.deadline == datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+    assert bound.deadline.tzinfo is timezone.utc
+
+
+def test_effective_dispatch_bound_rejects_unknown_sources_and_naive_instants():
+    with pytest.raises(ValueError, match="Unknown effective dispatch bound source"):
+        EffectiveDispatchBound(_future(120), "unregistered")
+    with pytest.raises(ValueError, match="timezone-aware"):
+        EffectiveDispatchBound(datetime(2026, 11, 3, 12, 0), "event_content_ceiling")

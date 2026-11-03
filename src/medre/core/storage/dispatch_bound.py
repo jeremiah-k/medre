@@ -12,8 +12,8 @@ invocation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Literal, get_args
 
 __all__ = ["EffectiveDispatchBound", "EffectiveDispatchBoundSource"]
 
@@ -49,14 +49,10 @@ class EffectiveDispatchBound:
     def __post_init__(self) -> None:
         if self.deadline.tzinfo is None or self.deadline.utcoffset() is None:
             raise ValueError("Effective dispatch bound must be timezone-aware")
-        allowed_sources: tuple[str, ...] = (
-            "event_content_ceiling",
-            "frozen_plan_deadline",
-            "adopted_target_dependency_deadline",
-            "delivery_plan_deadline",
-        )
+        allowed_sources: tuple[str, ...] = get_args(EffectiveDispatchBoundSource)
         if self.source not in allowed_sources:
             raise ValueError(
                 "Unknown effective dispatch bound source: "
                 f"{self.source!r} (expected one of {list(allowed_sources)})"
             )
+        object.__setattr__(self, "deadline", self.deadline.astimezone(timezone.utc))
