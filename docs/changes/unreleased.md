@@ -204,6 +204,15 @@ this file once they land.
   progress across restart without changing existing delivery evidence.
   Production sweep wiring and native/hardware qualification remain outstanding.
 
+- **455 — Deadline sweep wiring.** The retry worker's poll cycle now runs the
+  guarded deadline sweep behind a default-off `retry.deadline_sweep` policy,
+  so expired provably unstarted work is retired only when an operator enables
+  it. Sweep steps stay bounded per cycle, failures are isolated from the
+  delivery poll, sweep activity is counted on the worker state, and the
+  disabled default leaves poll behavior unchanged. Enablement awaits the
+  writer-latency qualification on large mostly-ineligible queues and
+  native/hardware qualification of the refusal.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads
