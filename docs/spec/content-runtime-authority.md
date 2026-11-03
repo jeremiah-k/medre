@@ -42,6 +42,14 @@ own exact generation dependencies. Completing one target cannot settle another.
 An `append` source has no durable ingress completion marker and remains held
 until an explicit later lifecycle is defined; it is never guessed terminal.
 
+When a runtime declares `content_ceiling`, its direct inline
+`PipelineRunner.handle_ingress` and `PipelineRunner.store_event` paths MUST
+refuse execution: that legacy path
+uses `append` without the atomic ingress deadline/availability-policy write.
+The ceiling-governed path is `PipelineRunner.admit_ingress` followed by durable
+ingress processing. Outbox staging MUST refuse a present non-string frozen
+plan deadline rather than treat malformed input as an absent bound.
+
 An optional UTC `content_deadline` may be given to SQLite ingress admission.
 The deadline is not a default retention rule. An admission that carries one
 MUST also install — or validate against — the immutable event ceiling row

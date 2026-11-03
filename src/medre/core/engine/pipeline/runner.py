@@ -520,6 +520,14 @@ class PipelineRunner:
         list[DeliveryOutcome]
             Per-target delivery outcomes.  Empty when no routes matched.
         """
+        # The inline path stores through append(), which cannot install an
+        # event ceiling and its mandatory dependency inside admission. A
+        # ceiling-governed runner uses admit_ingress() and the durable worker.
+        if self._config.content_ceiling is not None:
+            raise ValueError(
+                "Direct handle_ingress is unavailable with a content ceiling; "
+                "use durable admit_ingress"
+            )
         self._log.debug(
             "Ingress: event_id=%s kind=%s source=%s",
             event.event_id,
@@ -1123,6 +1131,13 @@ class PipelineRunner:
         event:
             The canonical event to store.
         """
+        # Direct storage append has no atomic ceiling producer. The
+        # ceiling-governed entry point is durable ingress admission.
+        if self._config.content_ceiling is not None:
+            raise ValueError(
+                "Direct store_event is unavailable with a content ceiling; "
+                "use durable admit_ingress"
+            )
         self._log.debug(
             "Storing event: event_id=%s kind=%s",
             event.event_id,
