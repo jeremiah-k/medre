@@ -37,6 +37,7 @@ COMPATIBILITY_BOUNDARIES_MD = SPEC_DIR / "compatibility-boundaries.md"
 GETTING_STARTED_MD = OPS_DIR / "getting-started.md"
 MESSAGE_STORAGE_MD = OPS_DIR / "message-storage.md"
 CONTENT_LIFECYCLE_MD = DEV_DIR / "content-lifecycle.md"
+DEVELOPMENT_PRIORITIES_MD = DEV_DIR / "development-priorities.md"
 
 #: Read-only phrasing the reconciled spec pages must carry verbatim (after
 #: whitespace normalization) when describing the recognized predecessor.
@@ -94,8 +95,8 @@ def test_exact_target_decision_keeps_fail_closed_refusal() -> None:
     """Unsupported older shapes stay refused with recreation guidance."""
     text = _normalized(EXACT_TARGET_DECISION_MD)
     assert (
-        "Any other older shape is still refused at initialization with "
-        "recreation guidance" in text
+        "Any other older shape outside the additive allowlist is still refused "
+        "at initialization with recreation guidance" in text
     ), (
         "exact-target-decision.md must keep the fail-closed refusal for "
         "shapes outside the additive allowlist"
@@ -247,3 +248,13 @@ def test_opening_qualifies_general_expiry_against_narrow_collector() -> None:
         "content-lifecycle.md must not blanket-frame automatic expiry as "
         "proposed-only now that the narrow collector is implemented"
     )
+
+
+def test_priorities_distinguishes_constraint_widening_from_narrowing() -> None:
+    """The shared policy permits the exact widening the decision specs describe."""
+    text = _normalized(DEVELOPMENT_PRIORITIES_MD)
+    assert "Renames, altered constraints" not in text
+    assert "constraint narrowing" in text
+    assert "allowlisted constraint widenings follow the guarded additive policy" in text
+    decision = _normalized(EXACT_TARGET_DECISION_MD)
+    assert "PRAGMA foreign_key_check(operator_delivery_decisions)" in decision

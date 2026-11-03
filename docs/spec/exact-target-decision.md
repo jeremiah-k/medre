@@ -129,12 +129,13 @@ remains constrained to `pending`/`retry_wait`. The widening is part of the
 The exact single-action predecessor layout is an allowlisted additive
 predecessor, not an unsupported catalog: a writable open rebuilds the table
 from the authoritative DDL inside the open transaction — guarded row copy,
-preserved row counts, and a clean foreign-key check before commit — and a
-read-only open of that recognized predecessor reports that a guarded
-writable migration is available instead of suggesting a reset. Any other
-older shape is still refused at initialization with recreation guidance,
-qualification uses fresh state, and no general upgrade framework is
-provided.
+preserved row counts, and a clean
+`PRAGMA foreign_key_check(operator_delivery_decisions)` for the rebuilt table
+before commit — and a read-only open of that recognized predecessor reports
+that a guarded writable migration is available instead of suggesting a reset. Any other
+older shape outside the additive allowlist is still refused at initialization
+with recreation guidance; qualification uses fresh state, and no general
+upgrade framework is provided.
 
 ## Local caller boundary
 
