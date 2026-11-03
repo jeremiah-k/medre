@@ -57,9 +57,13 @@ explicitly.
 CI-automatable today means the harness runs in the default gate or the
 Docker/local-integration workflows: `tests/integration/` Docker tests run
 through `scripts/ci/run-docker-integration.sh` in the Docker integration
-workflow, and `local_integration` provider suites run in the
+workflow, `local_integration` provider suites run in the
 transport-local-integration job when the manifest marks the transport
-`local_integration: true` (MeshCore and LXMF).
+`local_integration: true` (MeshCore and LXMF), and the core-owned LXMF
+exact-target propagation scenario runs in the required
+`core-owned-lxmf-integration` job, which installs the pinned lxmf adapter
+distribution and its exact-pinned RNS/LXMF SDKs and fails when the
+scenario is not collected or is skipped.
 
 ## Matrix
 
@@ -117,15 +121,19 @@ Pinned provider: `medre-adapter-lxmf`; SDK packages `lxmf` and `rns`.
 
 | Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                            | Automation                                                |
 | ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| Exact-target native acceptance (G01/G02) | `local_integration`        | Provider-owned `tests/test_lxmf_local_integration.py` runs a process-isolated real Reticulum/LXMRouter lifecycle (marked `local_integration`; the manifest marks the transport `local_integration: true`). Acceptance at this tier is local router acceptance inside the worker process. | CI-automatable now (transport-local-integration job); the exact-target leg over that harness is outstanding |
-| LXMF propagation (G05)                   | `live`                     | Provider-owned `tests/test_lxmf_live.py` at the pinned provider commit; propagated sends need an explicit outbound propagation node and an external peer. Multi-hop mesh delivery is not tested at this pin. | Operator-run (external Reticulum peer or propagation node) |
+| Exact-target native acceptance (G01/G02) | `local_integration`        | Core-owned `tests/integration/test_lxmf_exact_target_propagation.py`: two process-isolated Reticulum instances over a loopback-only UDPInterface pair, the recipient being a real propagation node observed through its own delivery callback in its own process (marked `local_integration` + `lxmf_sdk`). | Collected and executed by the required `core-owned-lxmf-integration` job at the pinned SDKs, which fails on not-collected or skipped runs |
+| LXMF local router acceptance (G01/G02)   | `local_integration`        | Provider-owned `tests/test_lxmf_local_integration.py` runs a process-isolated real Reticulum/LXMRouter lifecycle (marked `local_integration`; the manifest marks the transport `local_integration: true`). Acceptance at this tier is local router acceptance inside the worker process. | CI-automatable now (transport-local-integration job); the exact-target leg over that provider-owned harness is outstanding |
+| LXMF propagation over an external peer (G05) | `live`                | Provider-owned `tests/test_lxmf_live.py` at the pinned provider commit; propagated sends need an explicit outbound propagation node and an external peer. Multi-hop mesh delivery is not tested at this pin. | Operator-run (external Reticulum peer or propagation node) |
 | Physical-interface lifecycle             | `hardware`                 | Provider-owned `tests/test_native_worker_hardware.py` opens workers against a private RNode profile and establishes no delivery or reachability.                                                 | Operator-run (RNode hardware)                             |
 
 Uncertain native handoff after the router call is fenced by the
 provider's handoff journal at this pin (see the transport limitations
-appendix, §2.4); the exact-target acceptance leg over the loopback
-harness therefore proves local router acceptance only, and never
-network arrival.
+appendix, §2.4); the exact-target acceptance legs over the loopback
+harnesses therefore prove local-tier acceptance only, and never network
+arrival. The core-owned scenario's propagated delivery terminates at the
+same loopback instance that runs the propagation node, so it stays a
+local-tier claim: no multi-hop arrival, propagation peering, sync flow,
+external network, or hardware evidence is claimed for it.
 
 ## XMPP
 
@@ -184,12 +192,19 @@ Landed on this campaign so far:
   first landed leg; it records the register evidence for G02's
   per-transport acceptance proof. The leg uses plaintext rooms and does
   not advance encrypted Matrix verification under G05.
+- LXMF exact-target propagation with an independently observed recipient
+  at the `local_integration` tier
+  (`tests/integration/test_lxmf_exact_target_propagation.py`), collected
+  and executed by the required `core-owned-lxmf-integration` job at the
+  pinned adapter SDKs. This records the local rung of the G05 LXMF
+  propagation claim over a loopback-only topology; external-network and
+  hardware rungs remain open.
 
 Outstanding legs, grouped by what each needs:
 
 - CI-automatable now (harness exists on an already-run tier): the
   exact-target acceptance leg over containerized `meshtasticd`; the
-  exact-target acceptance leg over the MeshCore and LXMF
+  exact-target acceptance leg over the MeshCore and LXMF provider-owned
   local-integration endpoints; the encrypted Matrix outbound leg on the
   existing Synapse E2EE environment.
 - Needs a new local service tier: a containerized XMPP server harness,
@@ -198,10 +213,10 @@ Outstanding legs, grouped by what each needs:
   acceptance observation at that tier — to be established before any
   tier is labeled.
 - Operator-run only (hardware or external peer): radio interruption
-  (Meshtastic, MeshCore BLE/serial), LXMF propagation and physical
-  RNode lifecycle, encrypted Matrix continuity under a live account,
-  XMPP and Chatmail recipient verification, and the SimpleX reply
-  observation by an independent peer.
+  (Meshtastic, MeshCore BLE/serial), external LXMF propagation peering
+  and physical RNode lifecycle, encrypted Matrix continuity under a live
+  account, XMPP and Chatmail recipient verification, and the SimpleX
+  reply observation by an independent peer.
 
 Historical campaigns and their reported receipts remain recorded in
 `docs/dev/native-evidence-index.json` as a frozen baseline; they do not

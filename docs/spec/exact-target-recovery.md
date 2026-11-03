@@ -266,9 +266,10 @@ a higher one.
 The evidence ladder for this contract is fake/core, local
 SDK/integration, independent recipient, and hardware. The fake/core tier
 above is the first rung. The LXMF propagation scenario targets the native
-local-SDK rung, with a recipient verdict from a separate process when it
-executes successfully. External-network and hardware rungs remain above
-it and are not claimed.
+local-SDK rung, with a recipient verdict from a separate process; the
+required `core-owned-lxmf-integration` CI job executes it at the pinned
+SDKs (see the collection boundary below). External-network and hardware
+rungs remain above it and are not claimed.
 
 ### LXMF propagation leg
 
@@ -316,16 +317,22 @@ external network or physical radio. The recipient instance and the
 propagation node being one harness instance is a local-tier boundary; a
 multi-node topology is a higher-tier claim.
 
-Collection boundary: the required `transport-local-integration` CI job
-runs provider-owned suites at their pinned revisions and does not collect
-core-owned `local_integration` tests, so this leg's CI execution is not
-wired today. The qualification asset is core-owned and runs on POSIX hosts where the
-pinned SDK extra is installed. Its owned process group terminates the sender
-and receiver on timeout or cancellation. Closing that delta requires either a CI
-step that runs core-owned local-integration tests alongside the provider
-suite, or an equivalent propagation scenario in the provider-owned suite
-at its pin; until one lands, this section records the asset, not a CI
-execution.
+Collection boundary: the required `core-owned-lxmf-integration` job in the
+Tests and Coverage workflow checks out core at the pull-request revision,
+installs the pinned lxmf adapter distribution together with its
+exact-pinned RNS/LXMF SDKs through the same checkout installer the
+adapter-contract jobs use, and executes this file with
+`-m "local_integration and lxmf_sdk"`. A post-run assertion over the
+junit report fails the job when zero tests ran, when any test was
+skipped, or when collection errored, so an unexecuted qualification can
+never report green. The tier boundary is unchanged: the topology is a
+loopback-only UDPInterface pair on one host, the recipient verdict comes
+from a separate process through its own delivery callback, and no
+external-network or hardware rung is claimed. The provider-owned
+local-integration suite continues to run in the
+`transport-local-integration` job. The external-network and hardware
+rungs remain outstanding. The scenario's owned process group terminates
+the sender and receiver on timeout or cancellation.
 
 ### Remaining native legs
 
