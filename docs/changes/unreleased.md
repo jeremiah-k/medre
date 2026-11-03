@@ -165,11 +165,6 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
-- **452 — Deadline enforcement.** Storage retires expired, provably unstarted
-  and unclaimed outbox generations and refuses native submission past the
-  effective deadline. Cleanup limits candidate examination and preserves scan
-  progress across restart without changing existing delivery evidence.
-  Production sweep wiring and native/hardware qualification remain outstanding.
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
@@ -202,6 +197,12 @@ this file once they land.
   with tests that drive the production Matrix `_sync_with_reconnect` and
   LXMF `_reconnect_loop` recovery paths and assert stale reconnect state
   is cleared by production code, not just by setters.
+
+- **452 — Deadline enforcement.** Storage retires expired, provably unstarted
+  and unclaimed outbox generations and refuses native submission past the
+  effective deadline. Cleanup limits candidate examination and preserves scan
+  progress across restart without changing existing delivery evidence.
+  Production sweep wiring and native/hardware qualification remain outstanding.
 
 ## Support Bundle Internals
 
