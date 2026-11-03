@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         DeliveryLifecycleStorage,
     )
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+    from medre.core.storage.sqlite._deadline_cleanup import DeadlineRetirement
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
 
@@ -65,7 +66,12 @@ from medre.core.storage.backend import (
 from medre.core.storage.read_contracts import AuthorizedEventRead
 from medre.runtime.events import RuntimeEventType
 
-__all__ = ["RetryWorker", "RetryWorkerState", "RetryWorkerStorage"]
+__all__ = [
+    "DeadlineSweepStorage",
+    "RetryWorker",
+    "RetryWorkerState",
+    "RetryWorkerStorage",
+]
 
 _logger = logging.getLogger(__name__)
 
@@ -134,6 +140,35 @@ if TYPE_CHECKING:
         """
 
 
+class DeadlineSweepStorage(Protocol):
+    """Optional bounded deadline-cleanup surface some backends provide.
+
+    The guarded terminal transition retires only provably unstarted,
+    unclaimed outbox rows whose effective delivery deadline has elapsed.
+    Backends without the transition simply never expose the attribute; the
+    worker resolves it by name at construction and leaves the sweep dormant
+    when it is absent.
+    """
+
+    async def retire_expired_unstarted_outbox(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list[DeadlineRetirement]: ...
+
+
+class _DeadlineSweepStep(Protocol):
+    """The resolved, backend-bound sweep callable the poll cycle awaits."""
+
+    async def __call__(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list[DeadlineRetirement]: ...
+
+
 @dataclass
 class RetryWorkerState:
     """Snapshot-visible state for the retry worker.
@@ -182,6 +217,9 @@ class RetryWorkerState:
     succeeded: int = 0
     failed: int = 0
     dead_lettered: int = 0
+    deadline_sweep_runs: int = 0
+    deadline_sweep_errors: int = 0
+    deadline_retired: int = 0
 
 
 class RetryWorker:
@@ -240,6 +278,19 @@ class RetryWorker:
         self._max_attempts = (
             max_attempts if max_attempts is not None else config.max_attempts
         )
+        # Deadline-sweep policy: default-off, so an omitted declaration means
+        # the poll cycle never invokes the cleanup transition and prior
+        # behavior is unchanged. The guarded transition is a backend-specific
+        # surface; backends without it leave the sweep dormant even when the
+        # policy is enabled.
+        sweep_policy = config.deadline_sweep
+        self._deadline_sweep_enabled = sweep_policy.enabled
+        self._deadline_sweep_limit = sweep_policy.limit
+        self._deadline_sweep_interval = sweep_policy.interval_seconds
+        self._deadline_sweep: _DeadlineSweepStep | None = getattr(
+            storage, "retire_expired_unstarted_outbox", None
+        )
+        self._next_sweep_at: datetime | None = None
         self._event_buffer = event_buffer
         self._available_target_adapters = (
             None
@@ -670,6 +721,7 @@ class RetryWorker:
                 return
             await self._capture_startup_outbox_evidence()
             self._next_retry_scan = None
+            self._next_sweep_at = None
             self._last_outbox_count_refresh = None
             self._outbox_counts_dirty = False
             self._outbox_count_generation = 0
@@ -952,6 +1004,7 @@ class RetryWorker:
         this method settles one batch for controlled recovery invocations.
         No row is claimed to wait behind an active send for the same adapter.
         """
+        await self._run_deadline_sweep(now)
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1042,6 +1095,49 @@ class RetryWorker:
                 self._cycle_completed = True
             except Exception:
                 _logger.debug("Outbox dispatch: failed to refresh counts")
+
+    async def _run_deadline_sweep(self, now: datetime) -> None:
+        """Run one bounded deadline sweep step when the policy is due.
+
+        Enabled only by the operator's ``deadline_sweep`` declaration; the
+        sweep rides this poll cycle ahead of the claim so deadline-expired
+        rows are retired instead of claimed into a refused native submit. A
+        sweep failure is contained here so the delivery claim in the same
+        cycle still runs. The guarded storage transition alone decides
+        eligibility: claimed, reserved, ``in_progress`` and superseded rows
+        are never retired by the worker, which only reports what the
+        transition committed.
+        """
+        sweep = self._deadline_sweep
+        if not self._deadline_sweep_enabled or sweep is None:
+            return
+        if self._next_sweep_at is not None and now < self._next_sweep_at:
+            return
+        # Cadence is committed before the await so a slow sweep cannot
+        # re-arm itself on every wake while it is still running.
+        self._next_sweep_at = now + timedelta(seconds=self._deadline_sweep_interval)
+        try:
+            retired = await sweep(limit=self._deadline_sweep_limit)
+        except Exception:
+            # A sweep failure must never take the worker or the delivery
+            # poll down: the expired rows stay durable and the next due
+            # sweep step retries them.
+            self.state.deadline_sweep_errors += 1
+            _logger.exception("Outbox dispatch: deadline sweep failed")
+            return
+        self.state.deadline_sweep_runs += 1
+        if retired:
+            self.state.deadline_retired += len(retired)
+            # Retirements change status totals without a local dispatch
+            # completing; mark the snapshot counts stale for this cycle.
+            self._outbox_counts_dirty = True
+            _logger.info(
+                "Outbox dispatch: deadline sweep retired %d expired "
+                "unstarted item(s)",
+                len(retired),
+            )
+        else:
+            _logger.debug("Outbox dispatch: deadline sweep retired nothing")
 
     async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
         """Return only never-reserved claims skipped during shutdown.

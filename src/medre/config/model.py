@@ -232,6 +232,83 @@ class LoggingConfig:
     overrides: dict[str, str] = field(default_factory=dict)
 
 
+#: Upper bound for one deadline sweep invocation, matching the storage
+#: transition's own closed range. A sweep rides the retry worker's poll
+#: cycle, so a single call must stay bounded; larger declarations are
+#: refused at load time.
+DEADLINE_SWEEP_MAX_LIMIT = 500
+
+#: Default per-sweep retirement cap. The storage sweep examines at most
+#: ``max(25, limit)`` candidates per call, so the default keeps one sweep
+#: step comfortably inside a single poll cycle.
+DEADLINE_SWEEP_DEFAULT_LIMIT = 50
+
+#: Default minimum time between deadline sweeps. The sweep rides the
+#: existing retry poll cycle; this cadence only throttles how often a poll
+#: performs one bounded sweep step.
+DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS = 60.0
+
+
+@dataclass(frozen=True)
+class DeadlineSweepConfig:
+    """Operator deadline-sweep policy declaration.
+
+    Disabled by default: an omitted section means the retry worker's poll
+    cycle performs no deadline sweep and prior behavior is unchanged. When
+    enabled, each poll cycle may run at most one bounded
+    ``retire_expired_unstarted_outbox`` step — retiring only provably
+    unstarted, unclaimed work whose effective delivery deadline has
+    elapsed — at least ``interval_seconds`` apart.
+    """
+
+    enabled: bool = False
+    limit: int = DEADLINE_SWEEP_DEFAULT_LIMIT
+    interval_seconds: float = DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS
+
+    def validate(self) -> Self:
+        """Validate the sweep declaration.
+
+        Raises
+        ------
+        ConfigValidationError
+            If ``enabled`` is not a boolean, ``limit`` is declared with a
+            non-integer type (in particular a boolean) or outside the
+            storage transition's closed 1..500 range, or
+            ``interval_seconds`` is not a positive finite number.
+        """
+        if type(self.enabled) is not bool:
+            raise ConfigValidationError(
+                "deadline_sweep.enabled must be a boolean, got "
+                f"{type(self.enabled).__name__}"
+            )
+        if type(self.limit) is not int:
+            raise ConfigValidationError(
+                "deadline_sweep.limit must be an integer, got "
+                f"{type(self.limit).__name__}"
+            )
+        if not 1 <= self.limit <= DEADLINE_SWEEP_MAX_LIMIT:
+            raise ConfigValidationError(
+                "deadline_sweep.limit must be between 1 and "
+                f"{DEADLINE_SWEEP_MAX_LIMIT}, got {self.limit}"
+            )
+        interval = self.interval_seconds
+        if isinstance(interval, bool) or not isinstance(interval, (int, float)):
+            raise ConfigValidationError(
+                "deadline_sweep.interval_seconds must be a positive finite "
+                f"number, got {type(interval).__name__}"
+            )
+        try:
+            finite = math.isfinite(interval)
+        except (OverflowError, ValueError):
+            finite = False
+        if not finite or interval <= 0:
+            raise ConfigValidationError(
+                "deadline_sweep.interval_seconds must be a positive finite "
+                f"number, got {interval!r}"
+            )
+        return self
+
+
 @dataclass(frozen=True)
 class RetryConfig:
     """Retry worker configuration.
@@ -252,6 +329,7 @@ class RetryConfig:
     interval_seconds: float = 10.0
     batch_size: int = 20
     max_attempts: int = 3
+    deadline_sweep: DeadlineSweepConfig = field(default_factory=DeadlineSweepConfig)
 
     def validate(self) -> Self:
         """Reject invalid retry scheduling values for all config entry paths."""
@@ -274,6 +352,7 @@ class RetryConfig:
             raise ConfigValidationError(
                 "retry.interval_seconds must be a positive finite number"
             )
+        self.deadline_sweep.validate()
         return self
 
 
