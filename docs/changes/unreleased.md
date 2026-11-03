@@ -165,18 +165,20 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
-- **457 — Exact-target native legs.** The LXMF propagation leg qualifies the
-  exact-target property on the real pinned LXMF/RNS SDKs: two
+- **457 — Exact-target native legs.** The LXMF propagation scenario supplies
+  a core-owned local-SDK qualification asset on pinned LXMF/RNS SDKs: two
   process-isolated Reticulum instances over a loopback interface pair, with
   the MEDRE side handing off a propagated send through its real session to
   the exact destination hash of an independent propagation-node instance
   that records its own recipient verdict. Handoff state and receipt are
   asserted as distinct evidence, the message identity and both destination
   hashes must match across processes with exactly one delivery, and a send
-  to a never-observed destination is refused before any message is
-  constructed. The Chatmail and XMPP native legs remain gated on a
-  CI-executable service tier; the collection delta for core-owned
-  local-integration tests is recorded in the exact-target specification.
+  to a never-observed destination is refused by discovery, with zero
+  SDK message constructions and no tracked outbound state. The recipient
+  reports zero callbacks; propagation-node intake is not separately
+  instrumented. This core-owned local-integration scenario is not
+  collected by required CI, so its execution is not yet native evidence.
+  Chatmail and XMPP remain gated on CI-executable service tiers.
 
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,

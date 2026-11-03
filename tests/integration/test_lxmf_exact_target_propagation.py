@@ -33,8 +33,10 @@ Exact-target properties qualified at this tier:
 * **Content-addressed identity survives the native path.** The native
   message id A handed off equals the message hash B observed.
 * **No handoff without an observed exact destination.** A propagated send
-  to a destination hash A has never observed natively is refused before
-  any message is constructed, and the propagation node receives nothing.
+  to a destination hash A has never observed natively fails the pinned
+  discovery gate. An SDK-constructor probe records zero message constructions,
+  the sender has no outbound delivery state, and B receives no callback.
+  These observations do not independently count propagation-node intake.
 
 Both Reticulum instances live in child processes: Reticulum is a
 process-wide singleton, so the pytest process itself never constructs one
@@ -103,6 +105,7 @@ base = Path(sys.argv[1]).resolve()
 config_dir = base / "home-b" / ".reticulum"
 stop_path = base / "stop"
 received_path = base / "b-received.json"
+ready_path = base / "b-ready.json"
 
 import LXMF
 import RNS
@@ -111,10 +114,10 @@ _lock = threading.Lock()
 _records = []
 
 
-def _write_json(payload):
-    tmp = received_path.with_suffix(".json.tmp")
+def _write_json(payload, path=received_path):
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-    tmp.replace(received_path)
+    tmp.replace(path)
 
 
 def _method_name(raw):
@@ -159,7 +162,10 @@ delivery_destination = router.register_delivery_identity(
     identity, display_name="medre-exact-target-b", stamp_cost=1
 )
 if delivery_destination is None:
-    _write_json({"received": False, "error": "delivery identity registration failed"})
+    _write_json(
+        {"received": False, "error": "delivery identity registration failed"},
+        ready_path,
+    )
     raise SystemExit(1)
 router.register_delivery_callback(_on_delivery)
 router.enable_propagation()
@@ -170,7 +176,8 @@ _write_json(
         "propagation_hash": router.propagation_destination.hash.hex(),
         "lxmf_version": str(LXMF.__version__),
         "rns_version": str(RNS.__version__),
-    }
+    },
+    ready_path,
 )
 
 deadline = time.monotonic() + 150.0
@@ -329,6 +336,8 @@ def _main():
 
     try:
         ready = _await_json(ready_path, 60.0, child)
+        if "error" in ready:
+            _fail(f"receiver readiness failed: {ready['error']}")
         b_delivery = str(ready["delivery_hash"])
         b_propagation = str(ready["propagation_hash"])
 
@@ -371,6 +380,7 @@ def _main():
                 "a_handoff_error": None,
                 "a_delivery_hash": a_delivery.hex(),
                 "a_inbound_count": len(inbound),
+                "a_native_message_constructions": 0,
             }
             try:
                 if missing_destination is None:
@@ -400,22 +410,41 @@ def _main():
                     # own native discovery gate decides the handoff.
                     target = missing_destination
 
+                # Observe the actual SDK construction boundary for the
+                # missing-destination scenario, not just the adapter result.
+                # The real adapter uses this module object to construct LXMessage.
+                if missing_destination is not None:
+                    _rns, sdk_lxmf = _require_lxmf()
+                    original_constructor = sdk_lxmf.LXMessage
+
+                    class ConstructionObserved(original_constructor):
+                        def __init__(self, *args, **kwargs):
+                            verdict["a_native_message_constructions"] += 1
+                            super().__init__(*args, **kwargs)
+
+                    sdk_lxmf.LXMessage = ConstructionObserved
                 try:
-                    native_id, initial_state = await session.send_text(
-                        target,
-                        content,
-                        title=title,
-                        delivery_method="propagated",
-                    )
-                except LxmfSendError as exc:
-                    if missing_destination is None:
-                        raise
-                    verdict["handoff_refused_unobserved"] = bool(
-                        getattr(exc, "transient", False)
-                    )
-                    verdict["a_inbound_count"] = len(inbound)
-                    await session.stop()
-                    return verdict, content
+                    try:
+                        native_id, initial_state = await session.send_text(
+                            target,
+                            content,
+                            title=title,
+                            delivery_method="propagated",
+                        )
+                    except LxmfSendError as exc:
+                        if missing_destination is None:
+                            raise
+                        assert str(exc) == "Native destination discovery is pending"
+                        assert getattr(exc, "transient", False) is True
+                        assert session.delivery_state_counts() == {}
+                        assert verdict["a_native_message_constructions"] == 0
+                        verdict["handoff_refused_unobserved"] = True
+                        verdict["a_inbound_count"] = len(inbound)
+                        await session.stop()
+                        return verdict, content
+                finally:
+                    if missing_destination is not None:
+                        sdk_lxmf.LXMessage = original_constructor
 
                 verdict["a_native_id"] = native_id
                 verdict["a_initial_state"] = str(
@@ -446,6 +475,20 @@ def _main():
                         f"delivery_state_counts={session.delivery_state_counts()}"
                     )
 
+                if verdict["a_handoff_accepted"]:
+                    # A native handoff is not B's delivery callback. Keep the
+                    # session alive until B independently records the receipt.
+                    receipt_deadline = time.monotonic() + 60.0
+                    while time.monotonic() < receipt_deadline:
+                        try:
+                            received = json.loads(
+                                (base / "b-received.json").read_text(encoding="utf-8")
+                            )
+                            if received.get("received") is True:
+                                break
+                        except (OSError, ValueError):
+                            pass
+                        await asyncio.sleep(0.05)
                 verdict["a_inbound_count"] = len(inbound)
                 await session.stop()
                 return verdict, content
@@ -482,6 +525,9 @@ def _main():
             ),
             "b_delivery_count": int(final.get("delivery_count", 0)),
             "a_inbound_count": int(verdict.get("a_inbound_count", 0)),
+            "a_native_message_constructions": int(
+                verdict["a_native_message_constructions"]
+            ),
         }
     else:
         result = {
@@ -604,9 +650,9 @@ def test_propagated_delivery_reaches_independent_receiver(tmp_path: Path) -> Non
 def test_unobserved_exact_destination_never_hands_off(tmp_path: Path) -> None:
     """A propagated send to an unobserved destination hands off nothing.
 
-    The session refuses before constructing any message while the exact
-    destination is unobserved natively, and the independent propagation
-    node observes no delivery.
+    The pinned native discovery gate refuses before SDK message construction;
+    a constructor probe and an independent recipient callback establish the
+    negative result without treating a transient error as sufficient proof.
     """
     missing = os.urandom(16).hex()
     result = _run_scenario(tmp_path, missing_destination=missing)
@@ -616,5 +662,6 @@ def test_unobserved_exact_destination_never_hands_off(tmp_path: Path) -> None:
     assert result["handoff_refused_unobserved"] is True, (
         "an unobserved destination must produce a transient refusal, " "never a handoff"
     )
-    assert result["b_delivery_count"] == 0, "the propagation node must stay silent"
+    assert result["b_delivery_count"] == 0, "the recipient callback must stay silent"
     assert result["a_inbound_count"] == 0
+    assert result["a_native_message_constructions"] == 0

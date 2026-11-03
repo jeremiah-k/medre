@@ -265,15 +265,15 @@ a higher one.
 
 The evidence ladder for this contract is fake/core, local
 SDK/integration, independent recipient, and hardware. The fake/core tier
-above is the first rung. The LXMF propagation leg supplies the native
-local-SDK rung, with the recipient verdict observed by a genuinely
-independent second instance; external-network and hardware rungs remain
-above it and are not claimed.
+above is the first rung. The LXMF propagation scenario targets the native
+local-SDK rung, with a recipient verdict from a separate process when it
+executes successfully. External-network and hardware rungs remain above
+it and are not claimed.
 
 ### LXMF propagation leg
 
-`tests/integration/test_lxmf_exact_target_propagation.py` qualifies the
-exact-target property on the pinned LXMF/RNS SDKs over a loopback-only
+`tests/integration/test_lxmf_exact_target_propagation.py` defines a
+qualification scenario on the pinned LXMF/RNS SDKs over a loopback-only
 Reticulum UDPInterface pair. Two process-isolated instances participate:
 the MEDRE side drives the installed adapter distribution's real session
 configured with the exact 16-byte destination hashes the other side
@@ -283,14 +283,14 @@ delivery observations. No observation on the recipient side touches
 MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
 receipts.
 
-This tier proves, and is limited to, the following native properties:
+A passing execution at the pinned SDK versions would establish the
+following native properties within this local topology:
 
 * **A propagated handoff is not recipient receipt.** The MEDRE side's
   honest terminal state tops out at `sent` — the propagation node
-  accepted the message — and the qualification asserts that state
-  separately from the recipient verdict. The two facts are recorded in
-  different processes, and the recipient fact is the only receipt
-  evidence; a propagation handoff MUST NOT be reported as recipient
+  accepted the message — and the scenario asserts that state separately
+  from the recipient verdict. The two observations come from distinct
+  processes; a propagation handoff MUST NOT be reported as recipient
   receipt anywhere downstream.
 * **Exact destination, independently observed.** The recipient instance
   observes the message addressed to exactly its announced delivery
@@ -303,9 +303,11 @@ This tier proves, and is limited to, the following native properties:
   the recipient instance observed.
 * **No handoff without an observed exact destination.** A propagated
   send to a destination hash the MEDRE side has never observed natively
-  is refused before any message is constructed, and the propagation node
-  observes nothing. Native discovery of the exact destination gates the
-  handoff.
+  is refused by the native discovery gate. The scenario instruments the
+  SDK `LXMessage` constructor and requires zero constructions, no tracked
+  outbound delivery, and zero recipient callbacks from the separate
+  process. Those signals do not independently measure propagation-node
+  intake, so that stronger negative evidence is not claimed.
 
 This tier does NOT prove delivery through a network of propagation nodes,
 store-and-forward pickup by a destination that is not itself the
