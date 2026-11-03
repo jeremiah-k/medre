@@ -1281,3 +1281,18 @@ _DEADLINE_CLEANUP_INDEX_DDL = _INDEXES[
         "CREATE INDEX IF NOT EXISTS idx_outbox_deadline_cleanup_order"
     ) : _INDEXES.index("-- One-per-adapter claims probe active owners")
 ]
+
+# Exact single-statement DDL for the operator decision table and its
+# dependent index.  The allowlisted additive CHECK-widening rebuild recreates
+# the table from this slice so the stored definition matches the declared
+# catalog byte for byte.
+_OPERATOR_DECISIONS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS operator_delivery_decisions"
+    ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS _medre_schema_meta")
+]
+_OPERATOR_DECISIONS_INDEX_DDL = _INDEXES[
+    _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_operator_decisions_event"
+    ) : _INDEXES.index("CREATE INDEX IF NOT EXISTS idx_outbox_due")
+]

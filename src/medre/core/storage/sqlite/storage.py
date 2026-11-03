@@ -303,8 +303,9 @@ class _SQLiteStorageBase:
         Raises
         ------
         StorageInitializationError
-            If any required table or column is missing.  No automatic schema
-            transformation is performed; the operator must recreate the DB.
+            If any required table or column is missing.  Only strictly
+            allowlisted additive predecessor layouts are migrated by the
+            open path; this validator itself never rewrites a database.
         """
         for table, required in _REQUIRED_COLUMNS.items():
             rows = await self._read_all(f"PRAGMA table_info({table})")

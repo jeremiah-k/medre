@@ -10,6 +10,10 @@ from medre.core.storage.backend import (
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
+from medre.core.storage.sqlite._prerelease_migrate import (
+    apply_prerelease_migrations,
+    known_decision_table_forms,
+)
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
     _COLLECTION_LOG_DDL,
@@ -90,7 +94,8 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
 
 
 def safe_additive_state(db: sqlite3.Connection) -> bool:
-    """Accept only the exact old grant table and allowlisted missing objects.
+    """Accept only the exact old grant table, the exact old decision table,
+    and allowlisted missing objects.
 
     Every unrelated table, index, view and trigger must already match. Called
     read-only at preflight and again after acquiring BEGIN IMMEDIATE.
@@ -110,6 +115,7 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
     if missing - _ADDITIVE_OBJECTS:
         return False
     old, altered = _known_grant_table_forms()
+    legacy_decision = known_decision_table_forms().legacy
     for key, definition in actual.items():
         if key == ("table", "event_content_access_grants"):
             if definition not in {
@@ -117,6 +123,9 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
                 old,
                 altered,
             }:
+                return False
+        elif key == ("table", "operator_delivery_decisions"):
+            if definition not in {expected[key], legacy_decision}:
                 return False
         elif definition != expected[key]:
             return False
@@ -151,6 +160,11 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         == _known_grant_table_forms()[0]
     ):
         db.execute("ALTER TABLE event_content_access_grants ADD COLUMN expired_at TEXT")
+    # Named additive migration steps run last: each detects its exact
+    # allowlisted predecessor form from the same authoritative DDL and
+    # rewrites only what that change requires, inside the caller's
+    # IMMEDIATE transaction.
+    apply_prerelease_migrations(db)
 
 
 def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
