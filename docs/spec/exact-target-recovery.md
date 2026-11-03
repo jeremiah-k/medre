@@ -266,9 +266,10 @@ a higher one.
 The evidence ladder for this contract is fake/core, local
 SDK/integration, independent recipient, and hardware. The fake/core tier
 above is the first rung. The LXMF propagation scenario targets the native
-local-SDK rung, with a recipient verdict from a separate process when it
-executes successfully. External-network and hardware rungs remain above
-it and are not claimed.
+local-SDK rung, with a recipient verdict from a separate process; the
+required `core-owned-lxmf-integration` CI job executes it at the pinned
+SDKs (see the collection boundary below). External-network and hardware
+rungs remain above it and are not claimed.
 
 ### LXMF propagation leg
 
@@ -282,6 +283,12 @@ node on the raw pinned SDKs in its own process, recording its own
 delivery observations. No observation on the recipient side touches
 MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
 receipts.
+
+The scenario calls the pinned `LxmfSession.send_text` directly. It does not
+exercise a core `ReplayRequest` selection or audited operator decision, so
+it qualifies LXMF native propagation/recipient behavior, not G01/G02
+core-authorized exact-target replay acceptance. That authority-to-provider
+leg remains a separate qualification requirement.
 
 The scenario checks the following native properties at the pinned SDK
 versions within this local topology:
@@ -316,16 +323,24 @@ external network or physical radio. The recipient instance and the
 propagation node being one harness instance is a local-tier boundary; a
 multi-node topology is a higher-tier claim.
 
-Collection boundary: the required `transport-local-integration` CI job
-runs provider-owned suites at their pinned revisions and does not collect
-core-owned `local_integration` tests, so this leg's CI execution is not
-wired today. The qualification asset is core-owned and runs on POSIX hosts where the
-pinned SDK extra is installed. Its owned process group terminates the sender
-and receiver on timeout or cancellation. Closing that delta requires either a CI
-step that runs core-owned local-integration tests alongside the provider
-suite, or an equivalent propagation scenario in the provider-owned suite
-at its pin; until one lands, this section records the asset, not a CI
-execution.
+Collection boundary: the required `core-owned-lxmf-integration` job in the
+Tests and Coverage workflow checks out core at the pull-request revision,
+installs the pinned lxmf adapter distribution together with its
+exact-pinned RNS/LXMF SDKs through the same checkout installer the
+adapter-contract jobs use, and executes this file with
+`-m "local_integration and lxmf_sdk"`. A post-run assertion over the
+junit report validates the testcase records against the declared totals
+and fails the job when zero tests ran, any test was skipped or failed, or
+collection errored. Each scenario's readiness and receipt verdict files
+and the pytest log are required separately, so a partial artifact upload
+cannot silently lose the native evidence. The tier boundary is unchanged: the topology is a
+loopback-only UDPInterface pair on one host, the recipient verdict comes
+from a separate process through its own delivery callback, and no
+external-network or hardware rung is claimed. The provider-owned
+local-integration suite continues to run in the
+`transport-local-integration` job. The external-network and hardware
+rungs remain outstanding. The scenario's owned process group terminates
+the sender and receiver on timeout or cancellation.
 
 ### Remaining native legs
 

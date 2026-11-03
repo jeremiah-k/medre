@@ -223,6 +223,7 @@ __marimo__/
 
 # Docker integration test artifacts
 .ci-artifacts/
+ci-artifacts/
 
 # Worktrees
 .worktrees/

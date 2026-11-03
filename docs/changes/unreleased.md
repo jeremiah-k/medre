@@ -171,6 +171,12 @@ this file once they land.
   process group cleans up both instances on timeout or cancellation. Required
   CI collection, wider-topology, Chatmail, and XMPP qualification remain open.
 
+- **461 — Required LXMF native collection.** CI executes the two core-owned
+  propagation scenarios at the manifest-pinned adapter and SDKs, validates
+  actual JUnit testcase records, and requires each scenario's readiness and
+  receipt artifacts. This qualifies local native behavior; core-authorized
+  replay acceptance and wider-network/hardware evidence remain open.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
