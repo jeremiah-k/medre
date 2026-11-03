@@ -392,362 +392,349 @@ async def _stage_pending_generation(
 # ---------------------------------------------------------------------------
 
 
-class TestSynapseExactTargetAcceptance:
-    """Exact-target native acceptance against Docker Synapse (G01/G02 leg).
+async def test_exact_target_replay_send_is_observed_by_synapse(
+    synapse_env: SynapseEnvironment,
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A scoped replay send is accepted by the real homeserver.
 
-    Acceptance is always judged from the provider timeline observed by
-    a second client; MEDRE's own replay outcome and receipt must agree
-    with that observation but can never establish it.
+    Proves:
+    1. The exact-target admission gate resolves one persisted
+       generation (``pending`` preview) for the selected identity.
+    2. The scoped replay delivers through the real Matrix adapter
+       to the real homeserver with the replay provenance recorded.
+    3. The Synapse room timeline — read independently through the
+       test user's client — shows the sent event under the event id
+       the send reported, from the bot sender, in the target room.
+    4. The unselected monitor sibling receives nothing: one exact
+       target never widens into sibling channels.
     """
+    ts = int(time.time())
+    event_id = f"evt-exact-accept-{ts}"
+    body = "MEDRE exact-target acceptance replay " f"(ts={ts} nonce={uuid.uuid4().hex})"
+    room_id = synapse_env.test_room_id
 
-    async def test_exact_target_replay_send_is_observed_by_synapse(
-        self,
-        synapse_env: SynapseEnvironment,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """A scoped replay send is accepted by the real homeserver.
+    # -- Stage: admitted event plus one pending generation -----------
+    await temp_storage.append(_make_event(event_id, body))
+    staged = await _stage_pending_generation(
+        temp_storage, event_id=event_id, room_id=room_id
+    )
 
-        Proves:
-        1. The exact-target admission gate resolves one persisted
-           generation (``pending`` preview) for the selected identity.
-        2. The scoped replay delivers through the real Matrix adapter
-           to the real homeserver with the replay provenance recorded.
-        3. The Synapse room timeline — read independently through the
-           test user's client — shows the sent event under the event id
-           the send reported, from the bot sender, in the target room.
-        4. The unselected monitor sibling receives nothing: one exact
-           target never widens into sibling channels.
-        """
-        ts = int(time.time())
-        event_id = f"evt-exact-accept-{ts}"
-        body = (
-            "MEDRE exact-target acceptance replay "
-            f"(ts={ts} nonce={uuid.uuid4().hex})"
+    selection = ExactTargetSelection(
+        event_id=event_id,
+        delivery_plan_id=staged.delivery_plan_id,
+        target_adapter=_MATRIX_ADAPTER_ID,
+        target_channel=room_id,
+    )
+    preview = await preview_exact_target(temp_storage, selection)
+    assert preview.category == "pending", (
+        "staged generation should classify as pending, got " f"{preview.category!r}"
+    )
+
+    # -- Replay through the real pipeline ----------------------------
+    matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
+    monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
+    runner = PipelineRunner(
+        _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+    )
+    await _start_pipeline(runner, matrix_adapter, monitor)
+
+    run_id = f"exact-accept-{ts}"
+    try:
+        engine = ReplayEngine(
+            storage=cast(StorageBackend, temp_storage),
+            pipeline=runner,
         )
-        room_id = synapse_env.test_room_id
-
-        # -- Stage: admitted event plus one pending generation -----------
-        await temp_storage.append(_make_event(event_id, body))
-        staged = await _stage_pending_generation(
-            temp_storage, event_id=event_id, room_id=room_id
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            correlation_ids=[event_id],
+            run_id=run_id,
+            exact_target_selections=(selection,),
         )
+        results = [result async for result in engine.replay(request)]
+        deliver = _single_deliver_result(event_id, results)
 
-        selection = ExactTargetSelection(
-            event_id=event_id,
-            delivery_plan_id=staged.delivery_plan_id,
-            target_adapter=_MATRIX_ADAPTER_ID,
-            target_channel=room_id,
+        assert deliver.status == "passed", (
+            f"scoped replay deliver should pass, got {deliver.status!r} "
+            f"({deliver.error!r})"
         )
-        preview = await preview_exact_target(temp_storage, selection)
-        assert preview.category == "pending", (
-            "staged generation should classify as pending, got " f"{preview.category!r}"
+        assert deliver.output is not None
+        assert deliver.output["replay"] is True
+        assert "exact_target_refusals" not in deliver.output
+
+        outcome = _outcome_for_adapter(
+            deliver.output["adapter_results"], _MATRIX_ADAPTER_ID
         )
-
-        # -- Replay through the real pipeline ----------------------------
-        matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
-        monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
-        runner = PipelineRunner(
-            _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+        assert outcome is not None, "the exact target must be delivered"
+        assert outcome.status == "success", (
+            f"replay send should succeed, got {outcome.status!r} "
+            f"({outcome.error!r})"
         )
-        await _start_pipeline(runner, matrix_adapter, monitor)
+        receipt = outcome.receipt
+        assert receipt is not None and receipt.status == "sent"
+        assert receipt.source == "replay"
+        assert receipt.replay_run_id == run_id
+        native_event_id = receipt.adapter_message_id
+        assert native_event_id, "the send must report a native event id"
 
-        run_id = f"exact-accept-{ts}"
-        try:
-            engine = ReplayEngine(
-                storage=cast(StorageBackend, temp_storage),
-                pipeline=runner,
-            )
-            request = ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT,
-                correlation_ids=[event_id],
-                run_id=run_id,
-                exact_target_selections=(selection,),
-            )
-            results = [result async for result in engine.replay(request)]
-            deliver = _single_deliver_result(event_id, results)
-
-            assert deliver.status == "passed", (
-                f"scoped replay deliver should pass, got {deliver.status!r} "
-                f"({deliver.error!r})"
-            )
-            assert deliver.output is not None
-            assert deliver.output["replay"] is True
-            assert "exact_target_refusals" not in deliver.output
-
-            outcome = _outcome_for_adapter(
-                deliver.output["adapter_results"], _MATRIX_ADAPTER_ID
-            )
-            assert outcome is not None, "the exact target must be delivered"
-            assert outcome.status == "success", (
-                f"replay send should succeed, got {outcome.status!r} "
-                f"({outcome.error!r})"
-            )
-            receipt = outcome.receipt
-            assert receipt is not None and receipt.status == "sent"
-            assert receipt.source == "replay"
-            assert receipt.replay_run_id == run_id
-            native_event_id = receipt.adapter_message_id
-            assert native_event_id, "the send must report a native event id"
-
-            # -- Independent provider-side acceptance observation --------
-            observed = await _wait_for_body_events(synapse_env, room_id, body)
-            assert len(observed) == 1, (
-                "the provider timeline should show exactly one event for "
-                f"the replayed body, got {len(observed)}"
-            )
-            observed_event = observed[0]
-            assert observed_event.get("event_id") == native_event_id, (
-                f"provider event {observed_event.get('event_id')!r} must match "
-                f"the replay send's native id {native_event_id!r}"
-            )
-            assert observed_event.get("sender") == synapse_env.bot_user_id
-
-            # -- Sibling boundary ----------------------------------------
-            assert (
-                len(monitor.delivered_payloads) == 0
-            ), "the unselected monitor sibling must not receive the replay"
-
-            logger.info(
-                "Exact-target native acceptance: event=%s native_event=%s "
-                "attempt=%s provider_observed=yes",
-                event_id,
-                native_event_id,
-                receipt.attempt_number,
-            )
-            if _RUN_ARTIFACT_DIR is not None:
-                _write_artifact_json(
-                    "synapse-exact-target-acceptance.json",
-                    {
-                        "scenario": "matrix_exact_target_native_acceptance",
-                        "transport": "matrix",
-                        "evidence_level": "docker_provider_observed",
-                        "event_id": event_id,
-                        "native_event_id": native_event_id,
-                        "replay_run_id": run_id,
-                        "attempt_number": receipt.attempt_number,
-                        "observed_event_id": observed_event.get("event_id"),
-                        "observed_sender": observed_event.get("sender"),
-                        "sibling_deliveries": len(monitor.delivered_payloads),
-                        "limitations": [
-                            "Second client shares the CI test user account; "
-                            "not a separate human recipient.",
-                            "Plaintext room; encrypted-room handoff is a "
-                            "separate campaign leg.",
-                            "Docker loopback homeserver, not a federated "
-                            "deployment.",
-                        ],
-                    },
-                )
-                _write_run_metadata(
-                    scenario="synapse_exact_target_acceptance",
-                    containers={"synapse": synapse_env.container_name},
-                    storage_path=temp_storage._db_path,
-                    extras={"event_id": event_id},
-                )
-        finally:
-            await matrix_adapter.stop()
-            await monitor.stop()
-            await runner.stop()
-
-    async def test_completed_target_replay_is_provider_confirmed(
-        self,
-        synapse_env: SynapseEnvironment,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """Replaying a completed live target reaches the provider again.
-
-        The live pipeline delivery sends through the real adapter first;
-        the scoped replay then re-delivers the completed identity.  The
-        provider timeline must independently confirm the event id the
-        replay send reported — whether the pinned adapter's
-        deterministic transaction id falls inside the provider's
-        idempotency window (same event returned) or produces a distinct
-        second event.  The monitor sibling must never be re-sent.
-        """
-        ts = int(time.time())
-        event_id = f"evt-exact-replay-{ts}"
-        body = f"MEDRE exact-target completed replay (ts={ts} nonce={uuid.uuid4().hex})"
-        room_id = synapse_env.test_room_id
-
-        await temp_storage.append(_make_event(event_id, body))
-
-        # -- Live delivery through the real pipeline ----------------------
-        matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
-        monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
-        runner = PipelineRunner(
-            _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+        # -- Independent provider-side acceptance observation --------
+        observed = await _wait_for_body_events(synapse_env, room_id, body)
+        assert len(observed) == 1, (
+            "the provider timeline should show exactly one event for "
+            f"the replayed body, got {len(observed)}"
         )
-        await _start_pipeline(runner, matrix_adapter, monitor)
+        observed_event = observed[0]
+        assert observed_event.get("event_id") == native_event_id, (
+            f"provider event {observed_event.get('event_id')!r} must match "
+            f"the replay send's native id {native_event_id!r}"
+        )
+        assert observed_event.get("sender") == synapse_env.bot_user_id
 
-        run_id = f"exact-replay-{ts}"
-        try:
-            routed_event, plans = await runner.route_event(_make_event(event_id, body))
-            live_outcomes = await runner.deliver_to_targets(
-                routed_event, plans, source="live"
+        # -- Sibling boundary ----------------------------------------
+        assert (
+            len(monitor.delivered_payloads) == 0
+        ), "the unselected monitor sibling must not receive the replay"
+
+        logger.info(
+            "Exact-target native acceptance: event=%s native_event=%s "
+            "attempt=%s provider_observed=yes",
+            event_id,
+            native_event_id,
+            receipt.attempt_number,
+        )
+        if _RUN_ARTIFACT_DIR is not None:
+            _write_artifact_json(
+                "synapse-exact-target-acceptance.json",
+                {
+                    "scenario": "matrix_exact_target_native_acceptance",
+                    "transport": "matrix",
+                    "evidence_level": "docker_provider_observed",
+                    "event_id": event_id,
+                    "native_event_id": native_event_id,
+                    "replay_run_id": run_id,
+                    "attempt_number": receipt.attempt_number,
+                    "observed_event_id": observed_event.get("event_id"),
+                    "observed_sender": observed_event.get("sender"),
+                    "sibling_deliveries": len(monitor.delivered_payloads),
+                    "limitations": [
+                        "Second client shares the CI test user account; "
+                        "not a separate human recipient.",
+                        "Plaintext room; encrypted-room handoff is a "
+                        "separate campaign leg.",
+                        "Docker loopback homeserver, not a federated " "deployment.",
+                    ],
+                },
             )
-            live = _outcome_for_adapter(live_outcomes, _MATRIX_ADAPTER_ID)
-            assert (
-                live is not None and live.status == "success"
-            ), f"live send should succeed, got {getattr(live, 'status', None)!r}"
-            live_receipt = live.receipt
-            assert live_receipt is not None and live_receipt.status == "sent"
-            live_event_id = live_receipt.adapter_message_id
-            assert live_event_id, "the live send must report a native event id"
-
-            live_observed = await _wait_for_body_events(synapse_env, room_id, body)
-            assert [e.get("event_id") for e in live_observed] == [
-                live_event_id
-            ], "the provider timeline should show exactly the live event"
-
-            # -- The completed target is replayed under its identity ------
-            selection = ExactTargetSelection(
-                event_id=event_id,
-                delivery_plan_id=_matrix_plan_id(event_id, room_id),
-                target_adapter=_MATRIX_ADAPTER_ID,
-                target_channel=room_id,
+            _write_run_metadata(
+                scenario="synapse_exact_target_acceptance",
+                containers={"synapse": synapse_env.container_name},
+                storage_path=temp_storage._db_path,
+                extras={"event_id": event_id},
             )
-            preview = await preview_exact_target(temp_storage, selection)
-            assert preview.category == "completed", (
-                "delivered target should classify as completed, got "
-                f"{preview.category!r}"
-            )
+    finally:
+        await matrix_adapter.stop()
+        await monitor.stop()
+        await runner.stop()
 
-            engine = ReplayEngine(
-                storage=cast(StorageBackend, temp_storage),
-                pipeline=runner,
-            )
-            request = ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT,
-                correlation_ids=[event_id],
-                run_id=run_id,
-                exact_target_selections=(selection,),
-            )
-            results = [result async for result in engine.replay(request)]
-            deliver = _single_deliver_result(event_id, results)
 
-            assert deliver.status == "passed", (
-                f"scoped replay deliver should pass, got {deliver.status!r} "
-                f"({deliver.error!r})"
-            )
-            outcome = _outcome_for_adapter(
-                deliver.output["adapter_results"], _MATRIX_ADAPTER_ID
-            )
-            assert (
-                outcome is not None and outcome.status == "success"
-            ), "the replay send should be delivered through the real adapter"
-            receipt = outcome.receipt
-            assert receipt is not None
-            assert receipt.source == "replay"
-            assert receipt.replay_run_id == run_id
-            assert (
-                receipt.attempt_number == live_receipt.attempt_number + 1
-            ), "replay must allocate a fresh generation for a completed target"
-            replay_event_id = receipt.adapter_message_id
-            assert replay_event_id, "the replay send must report a native event id"
+async def test_completed_target_replay_is_provider_confirmed(
+    synapse_env: SynapseEnvironment,
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Replaying a completed live target reaches the provider again.
 
-            # -- Provider-side confirmation of the replay send ------------
-            observed = await _wait_for_body_events(synapse_env, room_id, body)
-            observed_ids = [e.get("event_id") for e in observed]
-            assert replay_event_id in observed_ids, (
-                "the provider timeline must confirm the replay send's event "
-                f"id {replay_event_id!r}; observed {observed_ids!r}"
-            )
-            assert all(e.get("sender") == synapse_env.bot_user_id for e in observed)
-            if replay_event_id == live_event_id:
-                logger.info(
-                    "Completed-target replay: provider idempotency collapsed "
-                    "the replay send into the original event %s",
-                    live_event_id,
-                )
-                assert observed_ids == [live_event_id]
-            else:
-                logger.info(
-                    "Completed-target replay: provider accepted a distinct "
-                    "second event %s (live %s)",
-                    replay_event_id,
-                    live_event_id,
-                )
-                assert sorted(observed_ids) == sorted([live_event_id, replay_event_id])
+    The live pipeline delivery sends through the real adapter first;
+    the scoped replay then re-delivers the completed identity.  The
+    provider timeline must independently confirm the event id the
+    replay send reported — whether the pinned adapter's
+    deterministic transaction id falls inside the provider's
+    idempotency window (same event returned) or produces a distinct
+    second event.  The monitor sibling must never be re-sent.
+    """
+    ts = int(time.time())
+    event_id = f"evt-exact-replay-{ts}"
+    body = f"MEDRE exact-target completed replay (ts={ts} nonce={uuid.uuid4().hex})"
+    room_id = synapse_env.test_room_id
 
-            # -- Sibling boundary ----------------------------------------
-            assert len(monitor.delivered_payloads) == 1, (
-                "the monitor sibling must receive only the live delivery, "
-                "never the exact-target replay"
-            )
-        finally:
-            await matrix_adapter.stop()
-            await monitor.stop()
-            await runner.stop()
+    await temp_storage.append(_make_event(event_id, body))
 
-    async def test_refused_exact_target_stages_no_send(
-        self,
-        synapse_env: SynapseEnvironment,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """A selection without a persisted generation is refused, not sent.
+    # -- Live delivery through the real pipeline ----------------------
+    matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
+    monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
+    runner = PipelineRunner(
+        _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+    )
+    await _start_pipeline(runner, matrix_adapter, monitor)
 
-        The refusal evidence carries the observed category and the
-        homeserver timeline never gains the refused body: the gate
-        refuses before anything is staged at the provider.
-        """
-        ts = int(time.time())
-        event_id = f"evt-exact-refused-{ts}"
-        body = f"MEDRE exact-target refused body (ts={ts} nonce={uuid.uuid4().hex})"
-        room_id = synapse_env.test_room_id
+    run_id = f"exact-replay-{ts}"
+    try:
+        routed_event, plans = await runner.route_event(_make_event(event_id, body))
+        live_outcomes = await runner.deliver_to_targets(
+            routed_event, plans, source="live"
+        )
+        live = _outcome_for_adapter(live_outcomes, _MATRIX_ADAPTER_ID)
+        assert (
+            live is not None and live.status == "success"
+        ), f"live send should succeed, got {getattr(live, 'status', None)!r}"
+        live_receipt = live.receipt
+        assert live_receipt is not None and live_receipt.status == "sent"
+        live_event_id = live_receipt.adapter_message_id
+        assert live_event_id, "the live send must report a native event id"
 
-        # Admitted, but never delivered: no outbox generation exists.
-        await temp_storage.append(_make_event(event_id, body))
+        live_observed = await _wait_for_body_events(synapse_env, room_id, body)
+        assert [e.get("event_id") for e in live_observed] == [
+            live_event_id
+        ], "the provider timeline should show exactly the live event"
 
+        # -- The completed target is replayed under its identity ------
         selection = ExactTargetSelection(
             event_id=event_id,
             delivery_plan_id=_matrix_plan_id(event_id, room_id),
             target_adapter=_MATRIX_ADAPTER_ID,
             target_channel=room_id,
         )
-
-        matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
-        monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
-        runner = PipelineRunner(
-            _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+        preview = await preview_exact_target(temp_storage, selection)
+        assert preview.category == "completed", (
+            "delivered target should classify as completed, got "
+            f"{preview.category!r}"
         )
-        await _start_pipeline(runner, matrix_adapter, monitor)
 
-        try:
-            engine = ReplayEngine(
-                storage=cast(StorageBackend, temp_storage),
-                pipeline=runner,
+        engine = ReplayEngine(
+            storage=cast(StorageBackend, temp_storage),
+            pipeline=runner,
+        )
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            correlation_ids=[event_id],
+            run_id=run_id,
+            exact_target_selections=(selection,),
+        )
+        results = [result async for result in engine.replay(request)]
+        deliver = _single_deliver_result(event_id, results)
+
+        assert deliver.status == "passed", (
+            f"scoped replay deliver should pass, got {deliver.status!r} "
+            f"({deliver.error!r})"
+        )
+        outcome = _outcome_for_adapter(
+            deliver.output["adapter_results"], _MATRIX_ADAPTER_ID
+        )
+        assert (
+            outcome is not None and outcome.status == "success"
+        ), "the replay send should be delivered through the real adapter"
+        receipt = outcome.receipt
+        assert receipt is not None
+        assert receipt.source == "replay"
+        assert receipt.replay_run_id == run_id
+        assert (
+            receipt.attempt_number == live_receipt.attempt_number + 1
+        ), "replay must allocate a fresh generation for a completed target"
+        replay_event_id = receipt.adapter_message_id
+        assert replay_event_id, "the replay send must report a native event id"
+
+        # -- Provider-side confirmation of the replay send ------------
+        observed = await _wait_for_body_events(synapse_env, room_id, body)
+        observed_ids = [e.get("event_id") for e in observed]
+        assert replay_event_id in observed_ids, (
+            "the provider timeline must confirm the replay send's event "
+            f"id {replay_event_id!r}; observed {observed_ids!r}"
+        )
+        assert all(e.get("sender") == synapse_env.bot_user_id for e in observed)
+        if replay_event_id == live_event_id:
+            logger.info(
+                "Completed-target replay: provider idempotency collapsed "
+                "the replay send into the original event %s",
+                live_event_id,
             )
-            request = ReplayRequest(
-                mode=ReplayMode.BEST_EFFORT,
-                correlation_ids=[event_id],
-                run_id=f"exact-refused-{ts}",
-                exact_target_selections=(selection,),
+            assert observed_ids == [live_event_id]
+        else:
+            logger.info(
+                "Completed-target replay: provider accepted a distinct "
+                "second event %s (live %s)",
+                replay_event_id,
+                live_event_id,
             )
-            results = [result async for result in engine.replay(request)]
-            deliver = _single_deliver_result(event_id, results)
+            assert sorted(observed_ids) == sorted([live_event_id, replay_event_id])
 
-            assert (
-                deliver.status == "skipped"
-            ), f"an unstaged identity must be refused, got {deliver.status!r}"
-            assert deliver.error is not None
-            assert deliver.error.startswith(
-                "exact_target_refused: ambiguous"
-            ), f"unexpected refusal reason: {deliver.error!r}"
-            refusals = deliver.output["exact_target_refusals"]
-            assert len(refusals) == 1
-            assert refusals[0]["category"] == "ambiguous"
-            assert refusals[0]["target_adapter"] == _MATRIX_ADAPTER_ID
+        # -- Sibling boundary ----------------------------------------
+        assert len(monitor.delivered_payloads) == 1, (
+            "the monitor sibling must receive only the live delivery, "
+            "never the exact-target replay"
+        )
+    finally:
+        await matrix_adapter.stop()
+        await monitor.stop()
+        await runner.stop()
 
-            # Nothing may reach the provider for the refused target: the
-            # replay completed synchronously, so the provider timeline is
-            # read directly without waiting.
-            observed = _observed_messages_for_body(synapse_env, room_id, body)
-            assert observed == [], "a refused exact target must stage no provider send"
-            assert len(monitor.delivered_payloads) == 0
-        finally:
-            await matrix_adapter.stop()
-            await monitor.stop()
-            await runner.stop()
+
+async def test_refused_exact_target_stages_no_send(
+    synapse_env: SynapseEnvironment,
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A selection without a persisted generation is refused, not sent.
+
+    The refusal evidence carries the observed category and the
+    homeserver timeline never gains the refused body: the gate
+    refuses before anything is staged at the provider.
+    """
+    ts = int(time.time())
+    event_id = f"evt-exact-refused-{ts}"
+    body = f"MEDRE exact-target refused body (ts={ts} nonce={uuid.uuid4().hex})"
+    room_id = synapse_env.test_room_id
+
+    # Admitted, but never delivered: no outbox generation exists.
+    await temp_storage.append(_make_event(event_id, body))
+
+    selection = ExactTargetSelection(
+        event_id=event_id,
+        delivery_plan_id=_matrix_plan_id(event_id, room_id),
+        target_adapter=_MATRIX_ADAPTER_ID,
+        target_channel=room_id,
+    )
+
+    matrix_adapter = MatrixAdapter(_make_matrix_config(synapse_env))
+    monitor = FakeMatrixAdapter(_MONITOR_ADAPTER_ID)
+    runner = PipelineRunner(
+        _make_pipeline(temp_storage, synapse_env, matrix_adapter, monitor)
+    )
+    await _start_pipeline(runner, matrix_adapter, monitor)
+
+    try:
+        engine = ReplayEngine(
+            storage=cast(StorageBackend, temp_storage),
+            pipeline=runner,
+        )
+        request = ReplayRequest(
+            mode=ReplayMode.BEST_EFFORT,
+            correlation_ids=[event_id],
+            run_id=f"exact-refused-{ts}",
+            exact_target_selections=(selection,),
+        )
+        results = [result async for result in engine.replay(request)]
+        deliver = _single_deliver_result(event_id, results)
+
+        assert (
+            deliver.status == "skipped"
+        ), f"an unstaged identity must be refused, got {deliver.status!r}"
+        assert deliver.error is not None
+        assert deliver.error.startswith(
+            "exact_target_refused: ambiguous"
+        ), f"unexpected refusal reason: {deliver.error!r}"
+        refusals = deliver.output["exact_target_refusals"]
+        assert len(refusals) == 1
+        assert refusals[0]["category"] == "ambiguous"
+        assert refusals[0]["target_adapter"] == _MATRIX_ADAPTER_ID
+
+        # Nothing may reach the provider for the refused target: the
+        # replay completed synchronously, so the provider timeline is
+        # read directly without waiting.
+        observed = _observed_messages_for_body(synapse_env, room_id, body)
+        assert observed == [], "a refused exact target must stage no provider send"
+        assert len(monitor.delivered_payloads) == 0
+    finally:
+        await matrix_adapter.stop()
+        await monitor.stop()
+        await runner.stop()
 
 
 def _single_deliver_result(event_id: str, results: list[ReplayResult]) -> ReplayResult:
