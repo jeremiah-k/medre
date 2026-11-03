@@ -143,6 +143,16 @@
           "type": "integer",
           "default": 3,
           "description": "Maximum total delivery attempts before dead-lettering."
+        },
+        "deadline_sweep": {
+          "type": "object",
+          "description": "Opt-in bounded retirement of deadline-expired unstarted outbox work; disabled by default.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+            "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
+          }
         }
       }
     },

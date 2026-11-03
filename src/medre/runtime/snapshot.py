@@ -816,6 +816,11 @@ def build_runtime_snapshot(
         retry_snapshot = {
             "abandoned": getattr(retry_state_obj, "abandoned", False),
             "dead_lettered": getattr(retry_state_obj, "dead_lettered", 0),
+            "deadline_retired": getattr(retry_state_obj, "deadline_retired", 0),
+            "deadline_sweep_errors": getattr(
+                retry_state_obj, "deadline_sweep_errors", 0
+            ),
+            "deadline_sweep_runs": getattr(retry_state_obj, "deadline_sweep_runs", 0),
             "enabled": getattr(retry_state_obj, "enabled", False),
             "failed": getattr(retry_state_obj, "failed", 0),
             "last_run_at": getattr(retry_state_obj, "last_run_at", None),
@@ -832,6 +837,9 @@ def build_runtime_snapshot(
         retry_snapshot = {
             "abandoned": False,
             "dead_lettered": 0,
+            "deadline_retired": 0,
+            "deadline_sweep_errors": 0,
+            "deadline_sweep_runs": 0,
             "enabled": False,
             "failed": 0,
             "last_run_at": None,

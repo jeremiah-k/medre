@@ -65,7 +65,7 @@ async def test_shutdown_status_stopped_after_clean_stop(tmp_path: Path) -> None:
 
 
 async def test_retry_worker_summary_compact_shape(tmp_path: Path) -> None:
-    """retry_worker_summary has the 6 compact fields with correct types."""
+    """retry_worker_summary includes bounded deadline-sweep counters."""
     from medre.runtime.run_session.orchestration import run_bridge_session
 
     db_path = str(tmp_path / "retry.db")
@@ -85,6 +85,9 @@ async def test_retry_worker_summary_compact_shape(tmp_path: Path) -> None:
         "succeeded",
         "failed",
         "dead_lettered",
+        "deadline_retired",
+        "deadline_sweep_errors",
+        "deadline_sweep_runs",
     }
     assert (
         set(rws.keys()) == expected_keys
@@ -95,7 +98,15 @@ async def test_retry_worker_summary_compact_shape(tmp_path: Path) -> None:
     assert isinstance(rws["running"], bool)
 
     # Integer fields
-    for int_key in ("processed", "succeeded", "failed", "dead_lettered"):
+    for int_key in (
+        "processed",
+        "succeeded",
+        "failed",
+        "dead_lettered",
+        "deadline_retired",
+        "deadline_sweep_errors",
+        "deadline_sweep_runs",
+    ):
         assert isinstance(
             rws[int_key], int
         ), f"retry_worker_summary[{int_key!r}] is {type(rws[int_key]).__name__}, expected int"
@@ -126,6 +137,9 @@ async def test_runtime_evidence_json_safe(tmp_path: Path) -> None:
         "succeeded",
         "failed",
         "dead_lettered",
+        "deadline_retired",
+        "deadline_sweep_errors",
+        "deadline_sweep_runs",
     }
 
 

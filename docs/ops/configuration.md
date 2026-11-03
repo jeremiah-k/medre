@@ -794,6 +794,48 @@ retry:
 
 Both the route retry and the global retry need to be enabled for automatic retry to occur.
 
+#### Deadline Sweep (`retry.deadline_sweep`)
+
+Optional policy for retiring outbox work whose effective delivery deadline
+(the earlier of the event ceiling and the frozen plan deadline) has elapsed
+before dispatch started. When enabled, the retry worker's poll cycle runs at
+most one bounded sweep step per interval: storage retires only rows that are
+provably unstarted — exactly `pending` or `retry_wait`, with no claim, lease,
+or attempt reservation — and transitions them to `abandoned` with
+`failure_kind="deadline_exceeded"`. The retirement records its refusal summary
+in the outbox diagnostics side table, so retired work remains visible as
+audit evidence. Claimed, in-progress, reserved, and superseded generations
+are never retired by the sweep.
+
+```yaml
+retry:
+  enabled: true
+  deadline_sweep:
+    enabled: true
+    limit: 50
+    interval_seconds: 60.0
+```
+
+| Field              | Type  | Default | Description                                                                                 |
+| ------------------ | ----- | ------- | ------------------------------------------------------------------------------------------- |
+| `enabled`          | bool  | `false` | Whether the poll cycle runs the deadline sweep at all.                                      |
+| `limit`            | int   | `50`    | Maximum rows retired per sweep step (1–500). Out-of-range values are rejected at load time. |
+| `interval_seconds` | float | `60.0`  | Positive cadence up to 86,400 seconds. Each step examines at most `max(25, limit)` candidates. |
+
+The sweep is disabled by default: an omitted section leaves the poll cycle
+unchanged. The runtime snapshot and run-session evidence expose process-local
+`deadline_sweep_runs`, `deadline_sweep_errors`, and `deadline_retired` counters;
+all remain zero when the sweep is disabled.
+
+Before enabling at scale, measure the sweep's writer latency against a queue
+that is large and mostly deadline-free: each step takes the storage write
+lock for one bounded transaction, and a queue in which most candidates carry
+no deadline makes every step examine the full candidate budget without
+retiring anything. The candidate budget does not bound writer waiting time
+or transaction latency; enablement depends on whether that recurring cost is
+acceptable for the deployment's queue shape. A sweep failure is isolated: it is logged and
+counted, and the next poll continues delivery unchanged.
+
 ## XDG Default Paths
 
 When `MEDRE_HOME` is not set:

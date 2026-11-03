@@ -20,8 +20,9 @@ native-submit deadline fence and the strictly fenced cleanup transition are
 implemented at the storage boundary. Each sweep examines at most
 `max(25, limit)` candidates and retires at most `limit` generations, preserving
 keyset progress across invocations and restart in the same transaction.
-Production retry-worker wiring and per-transport refusal qualification remain
-outstanding.
+The retry worker runs the sweep behind the default-off `retry.deadline_sweep`
+policy. Writer-latency measurements and per-transport refusal qualification
+remain outstanding.
 
 ## Current state
 
@@ -37,13 +38,13 @@ for narrower attempt windows; production planning does not yet supply it.
 | Plan deadline | `DeliveryPlan.deadline` (`src/medre/core/planning/delivery_plan.py:174`), `DEADLINE_EXCEEDED` taxonomy (`delivery_plan.py:320`); checked pre-render and rechecked before native handoff (`src/medre/core/engine/pipeline/target_delivery.py:585-607, 950-977, 1021`) | Refuses a target whose plan deadline passed before rendering and again immediately before handoff, persisting failure evidence each time | No production planner sets a non-None deadline (only constructors at `fallback_resolution.py:89` and `retry_plan.py:568`), so that producer is dormant; externally supplied frozen deadlines are enforced at adoption and native start |
 | Native-start fence | `authorize_native_submission` (`src/medre/core/storage/sqlite/_content_grants.py:560-621`); call sites `target_delivery.py:613-642, 1008-1019` | Fuses in-progress ownership, exact attempt reservation, unexpired lease, newer-sibling exclusion, live content dependency, and the earlier-of event/frozen-plan deadline into one SQLite decision before adapter invocation | A local dispatch-start fence, not atomic with the SDK; the event ceiling can cross after authorization returns |
 | Radio native-start deadline | `_Submission.begin` (`src/medre/core/engine/pipeline/radio_delivery.py:114-137`) and the packet-start checkpoint (`src/medre/core/storage/sqlite/_radio.py:379-391`) | Checks the plan deadline around every packet start and fuses deadline, content authority and claim into one transaction | Uses configured event ceilings and frozen plan bounds; post-send observation intentionally requires no live content authority |
-| Retry-claim cleanup | Retry worker refusal path (`src/medre/runtime/retry.py:1200-1216`) and claim release guard (`_outbox.py:1345-1362`) | A claimed row whose content authority is denied is reconciled against persisted evidence, then abandoned; a reserved attempt is never released back to the queue | Production cleanup remains lazy; the new storage sweep has no runtime caller yet |
+| Retry-claim cleanup | Retry worker refusal path (`src/medre/runtime/retry.py:1200-1216`) and claim release guard (`_outbox.py:1345-1362`) | A claimed row whose content authority is denied is reconciled against persisted evidence, then abandoned; a reserved attempt is never released back to the queue | The default-off `retry.deadline_sweep` policy enables one bounded cleanup step before claims; disabled configurations retain lazy cleanup |
 | Availability preview | `preview_content_access` (`src/medre/core/storage/content_availability.py:181-182`) and the immutable per-event ceiling row (`schema.py:91-99`) | Reports `unavailable/hard_ceiling_elapsed` for held consumers and refuses optional holds past the ceiling | Pure, non-mutating and dispatch-blind; it never blocks a send and is not the enforcement contract |
 
 The producer and storage-boundary enforcement are implemented. The cleanup
 sweep bounds candidate examination and preserves progress across invocations.
-Production runtime wiring and native/hardware refusal qualification remain
-outstanding.
+Runtime wiring is opt-in through `retry.deadline_sweep`; writer-latency
+measurements and native/hardware refusal qualification remain outstanding.
 
 ## Enforcement points
 
@@ -96,7 +97,8 @@ existing refusal semantics: `DEADLINE_EXCEEDED` failure evidence with
 delivery observation or receipt that could be read as provider acceptance.
 
 Pending-outbox cleanup is the third check. The bounded storage sweep is
-implemented; wiring it into the retry worker's poll cycle remains outstanding.
+implemented and runs in the retry worker's poll cycle when
+`retry.deadline_sweep.enabled` is true.
 That worker already owns claim, release and abandonment decisions for outbox
 rows. The cleanup transition follows these lifecycle constraints:
 

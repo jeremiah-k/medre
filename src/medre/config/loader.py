@@ -31,10 +31,13 @@ from medre.config.errors import (
     ConfigValidationError,
 )
 from medre.config.model import (
+    DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS,
+    DEADLINE_SWEEP_DEFAULT_LIMIT,
     AdapterConfigSet,
     AttachmentConfig,
     ContentCeilingConfig,
     ContentRetentionConfig,
+    DeadlineSweepConfig,
     GenericAdapterRuntimeConfig,
     LoggingConfig,
     RetryConfig,
@@ -105,7 +108,12 @@ _KNOWN_TRANSPORTS: frozenset[str] = frozenset(registered_transports())
 #: Per-route retry sections have their own accepted-keys set in
 #: :mod:`medre.config.routes`.
 _GLOBAL_RETRY_KNOWN_KEYS: frozenset[str] = frozenset(
-    {"enabled", "interval_seconds", "batch_size", "max_attempts"}
+    {"enabled", "interval_seconds", "batch_size", "max_attempts", "deadline_sweep"}
+)
+
+#: Keys accepted in the ``[retry.deadline_sweep]`` subsection.
+_RETRY_DEADLINE_SWEEP_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"enabled", "limit", "interval_seconds"}
 )
 
 #: Keys accepted in the top-level ``[runtime]`` section.
@@ -572,11 +580,28 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
     # [retry] section — validated for operator-friendly errors
     retry_data = _get_section_dict(data, "retry")
     _validate_retry_section(retry_data)
+    # [retry.deadline_sweep] subsection (nested under [retry]) — same
+    # pattern as [runtime.limits].
+    sweep_data = _get_section_dict(
+        retry_data, "deadline_sweep", section_path="retry.deadline_sweep"
+    )
+    _reject_unknown_keys(
+        sweep_data,
+        _RETRY_DEADLINE_SWEEP_KNOWN_KEYS,
+        section_path="retry.deadline_sweep",
+    )
     retry = RetryConfig(
         enabled=retry_data.get("enabled", False),
         interval_seconds=retry_data.get("interval_seconds", 10.0),
         batch_size=retry_data.get("batch_size", 20),
         max_attempts=retry_data.get("max_attempts", 3),
+        deadline_sweep=DeadlineSweepConfig(
+            enabled=sweep_data.get("enabled", False),
+            limit=sweep_data.get("limit", DEADLINE_SWEEP_DEFAULT_LIMIT),
+            interval_seconds=sweep_data.get(
+                "interval_seconds", DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS
+            ),
+        ),
     ).validate()
 
     # [adapters.*] sections — validate the type of the adapters section,

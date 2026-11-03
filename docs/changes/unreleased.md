@@ -204,6 +204,17 @@ this file once they land.
   progress across restart without changing existing delivery evidence.
   Production sweep wiring and native/hardware qualification remain outstanding.
 
+- **455 — Deadline sweep wiring.** An opt-in `retry.deadline_sweep` policy
+  retires expired, provably unstarted work before delivery claims. Steps bound
+  candidate examination and isolate failures from delivery; disabled settings
+  preserve existing behavior. Writer-latency and native/hardware qualification
+  remain outstanding.
+
+- **458 — Deadline sweep configuration and evidence.** Configuration and
+  schema share the 24-hour cadence ceiling. Sweep scheduling errors stay
+  isolated, and process-local run, error, and retirement counters appear in
+  runtime snapshots and run-session/shutdown evidence.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads

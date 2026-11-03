@@ -1178,6 +1178,13 @@ The startup retry snapshot distinguishes observation from reclamation:
 - A positive value records how many such rows predated this worker generation;
   each row is still reclaimed only when normal storage claim rules allow it.
 
+The process-local retry snapshot MUST include `deadline_sweep_runs`,
+`deadline_sweep_errors`, and `deadline_retired` as nonnegative integer counters.
+They are zero when the sweep is disabled, and the corresponding run-session and
+shutdown evidence projections use the same names. These counters record
+completed storage transitions and sweep failures, not adapter attempts or
+recipient receipts; they do not establish a bounded SQLite write-lock latency.
+
 ### 20.3 Resumable Shutdown Policy
 
 Graceful shutdown does not cancel pending outbox items or scheduled retries.

@@ -123,6 +123,9 @@ def _derive_shutdown_evidence_from_snapshot(
             "succeeded": retry.get("succeeded", 0),
             "failed": retry.get("failed", 0),
             "dead_lettered": retry.get("dead_lettered", 0),
+            "deadline_retired": retry.get("deadline_retired", 0),
+            "deadline_sweep_errors": retry.get("deadline_sweep_errors", 0),
+            "deadline_sweep_runs": retry.get("deadline_sweep_runs", 0),
         }
 
     # Capacity state.
