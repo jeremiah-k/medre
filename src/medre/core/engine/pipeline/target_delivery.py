@@ -83,6 +83,7 @@ from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.dispatch_bound import EffectiveDispatchBound
 
 # ---------------------------------------------------------------------------
 # Derived constants
@@ -108,6 +109,11 @@ _logger = logging.getLogger(__name__)
 _VALID_DELIVERY_STRATEGIES: dict[str, DeliveryStrategyMethod] = {
     m: m for m in get_args(DeliveryStrategyMethod)
 }
+
+
+#: Refusal vocabulary for a native start whose final pre-invocation clock
+#: observation is at or after the earliest applicable effective deadline.
+_DISPATCH_START_DEADLINE_ERROR = "Delivery deadline exceeded before native submission"
 
 
 def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
@@ -227,6 +233,43 @@ class _AdapterDeliveryError(Exception):
     def failure_kind(self) -> DeliveryFailureKind | None:
         """Return the typed failure classification carried by evidence."""
         return self.evidence.failure_kind
+
+
+class _DispatchStartDeadlineRefused(Exception):
+    """The final dispatch-start fence observed the effective bound elapsed.
+
+    Raised synchronously between the clock observation and the adapter
+    invocation; the adapter is never called. Carries the observed instant
+    and the bound for diagnostics only.
+    """
+
+    def __init__(self, observed: datetime, bound: EffectiveDispatchBound) -> None:
+        super().__init__(_DISPATCH_START_DEADLINE_ERROR)
+        self.observed = observed
+        self.bound = bound
+
+
+async def _dispatch_start_fenced_invoke(
+    deliver_fn: Callable[[RenderingResult], Awaitable[AdapterHandoffResult]],
+    rendering_result: RenderingResult,
+    dispatch_bound: EffectiveDispatchBound | None,
+) -> AdapterHandoffResult:
+    """Invoke the adapter behind the final synchronous dispatch-start fence.
+
+    MEDRE refuses to initiate a new local native submission when the final
+    pre-invocation clock observation is at or after the earliest applicable
+    effective deadline carried from storage authority. The clock observation
+    and the ``deliver_fn`` invocation below are adjacent synchronous
+    statements: no ``await`` may intervene on the proceed path, so awaited
+    work cannot cross the deadline between the observation and the call. A
+    refusal raises :class:`_DispatchStartDeadlineRefused` without invoking
+    the adapter; it records local denial evidence only and never produces a
+    native receipt.
+    """
+    observed = datetime.now(timezone.utc)
+    if dispatch_bound is not None and observed >= dispatch_bound.deadline:
+        raise _DispatchStartDeadlineRefused(observed, dispatch_bound)
+    return await deliver_fn(rendering_result)
 
 
 class _RendererDeliveryError(Exception):
@@ -632,6 +675,16 @@ class TargetDeliveryService:
                     ),
                 ) from None
 
+        # Observe the earliest applicable effective dispatch-start bound from
+        # the same storage-authoritative state the native-start authorization
+        # above just validated, composed with the plan's own deadline, and
+        # carry it through rendering to the adapter invocation site. No later
+        # metadata guess replaces it; the final synchronous fence before the
+        # native call refuses when the local UTC clock reaches this bound.
+        dispatch_bound = await self._observe_dispatch_start_bound(
+            event, plan, outbox_id
+        )
+
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
         # identity instead of adapter-name heuristics.
@@ -940,7 +993,11 @@ class TargetDeliveryService:
 
         # Rendering and relation enrichment may cross the plan deadline.
         # Recheck before native handoff; a pre-render deadline check alone
-        # cannot authorize a later native operation.
+        # cannot authorize a later native operation. The final synchronous
+        # dispatch-start fence below is the last gate before the adapter
+        # call and compares the carried effective bound, which is the
+        # earliest of this plan deadline and the storage-authoritative
+        # bounds observed before rendering.
         async def check_dispatch_deadline() -> None:
             submission_time = datetime.now(timezone.utc)
             if plan.deadline is not None and submission_time >= plan.deadline:
@@ -950,7 +1007,7 @@ class TargetDeliveryService:
                     plan=plan,
                     adapter_id=adapter_id or "",
                     receipt_id=receipt_id,
-                    error="Delivery deadline exceeded before native submission",
+                    error=_DISPATCH_START_DEADLINE_ERROR,
                     failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
                     attempt_number=attempt_number,
                     parent_receipt_id=parent_receipt_id,
@@ -961,7 +1018,7 @@ class TargetDeliveryService:
                 )
                 raise _AdapterDeliveryError(
                     adapter_id or "",
-                    "Delivery deadline exceeded before native submission",
+                    _DISPATCH_START_DEADLINE_ERROR,
                     evidence=evidence,
                 ) from None
 
@@ -1015,8 +1072,17 @@ class TargetDeliveryService:
                             error="content_authority_denied",
                         ),
                     ) from None
-            # Authorization and retained-plan lookup can themselves wait.
-            await check_dispatch_deadline()
+            # Authorization and retained-plan lookup can themselves wait, so
+            # the final dispatch-start fence is synchronous. For the direct
+            # path the clock observation and the adapter invocation are
+            # adjacent statements inside _dispatch_start_fenced_invoke with
+            # no await on the proceed path. For packetized radio plans the
+            # fence rechecks at every packet-start authorization through the
+            # existing one-use grant; a later packet refused after the bound
+            # preserves the receipts of the already-accepted prefix. A
+            # refusal records local denial evidence only - never a synthetic
+            # native receipt - and never reclassifies accepted or uncertain
+            # attempts as unsent.
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(
@@ -1027,11 +1093,25 @@ class TargetDeliveryService:
                     rendering_result,
                     expected_outbox_worker_id,
                     deliver_fn,
-                    deadline=plan.deadline,
+                    deadline=(
+                        dispatch_bound.deadline if dispatch_bound is not None else None
+                    ),
                     resume_from=resume_from,
                 )
             else:
-                raw_result = await deliver_fn(rendering_result)
+                try:
+                    raw_result = await _dispatch_start_fenced_invoke(
+                        deliver_fn, rendering_result, dispatch_bound
+                    )
+                except _DispatchStartDeadlineRefused as refused:
+                    raise _AdapterDeliveryError(
+                        adapter_id or "",
+                        _DISPATCH_START_DEADLINE_ERROR,
+                        evidence=DeliveryExecutionEvidence(
+                            failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                            error=_DISPATCH_START_DEADLINE_ERROR,
+                        ),
+                    ) from refused
             if not isinstance(raw_result, AdapterHandoffResult):
                 raise AdapterPermanentError(
                     f"adapter {adapter_id!r} violated the delivery contract: "
@@ -1218,6 +1298,41 @@ class TargetDeliveryService:
                     )
 
         return receipt
+
+    async def _observe_dispatch_start_bound(
+        self,
+        event: CanonicalEvent,
+        plan: DeliveryPlan,
+        outbox_id: str | None,
+    ) -> EffectiveDispatchBound | None:
+        """Compose the earliest applicable effective dispatch-start bound.
+
+        The storage observation reads the same authoritative rows the
+        native-start authorization checks: the immutable event ceiling, the
+        frozen plan deadline riding the row's dispatch snapshot, and the
+        adopted target dependency deadline. The plan's own deadline rides
+        the composition so a plan shorter than any stored bound still
+        fences, and dispatches without an outbox generation fence on the
+        plan deadline alone. ``None`` leaves the final synchronous fence
+        dormant because no bound is applicable.
+        """
+        bounds: list[EffectiveDispatchBound] = []
+        if plan.deadline is not None:
+            bounds.append(
+                EffectiveDispatchBound(
+                    plan.deadline,
+                    "delivery_plan_deadline",
+                )
+            )
+        if outbox_id is not None:
+            observed = await self._storage.observe_effective_dispatch_bound(
+                event.event_id, outbox_id
+            )
+            if observed is not None:
+                bounds.append(observed)
+        if not bounds:
+            return None
+        return min(bounds, key=lambda bound: bound.deadline)
 
     async def _persist_failure_evidence(
         self,

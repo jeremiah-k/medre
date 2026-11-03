@@ -100,10 +100,12 @@ async def test_deadline_crossed_during_final_authorization_never_invokes_adapter
             )
         assert authorizations == 2
         assert adapter.calls == 0
-        assert (
-            caught.value.receipt.failure_kind
-            == DeliveryFailureKind.DEADLINE_EXCEEDED.value
-        )
+        # The refused native start records local denial evidence only: the
+        # typed deadline refusal, with no attempt receipt or invented
+        # transport evidence, exactly like a refused storage authorization.
+        assert caught.value.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED
+        assert caught.value.receipt is None
+        assert await store.count_receipts() == 0
     finally:
         await store.close()
 

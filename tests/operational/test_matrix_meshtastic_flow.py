@@ -119,6 +119,12 @@ class _FakeStorage(FrozenOutboxSnapshotFakeMixin, CannedContentReads):
         # this flow exercises one authorized attempt at a time.
         return True
 
+    async def observe_effective_dispatch_bound(
+        self, event_id: str, outbox_id: str
+    ) -> None:
+        # This fake installs no effective bound; the fence stays dormant.
+        return None
+
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs[ref.id] = ref
         if ref.native_message_id:
