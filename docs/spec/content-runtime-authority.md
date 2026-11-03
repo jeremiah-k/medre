@@ -200,7 +200,18 @@ table, all in the same transaction. It MUST NOT retire `in_progress` or
 `queued` rows — a claimed pipeline send may be authorized and in flight even
 without a reservation — an unparseable bound skips the row, and it never
 deletes outbox rows, receipts, observations or native references. Terminal
-rows never requalify, so repeated sweeps are idempotent.
+rows never requalify, so repeated sweeps never retire the same generation twice.
+
+Each invocation MUST examine at most `max(25, limit)` unclaimed candidates
+and retire at most `limit` generations (`limit` is an integer from 1 to 500).
+Candidate discovery uses the partial `(created_at, outbox_id)` ordering index.
+The last examined key is persisted under `outbox_deadline_cleanup_cursor` in
+internal metadata in the same transaction as retirement. Later invocations
+resume from that key, including after restart, and wrap at queue end. Rows
+inserted before the key are considered after wrapping. An absent, malformed,
+or future deadline consumes the candidate budget without retirement; it
+MUST NOT cause an unbounded scan or starvation of later expired candidates.
+The budget bounds candidate examination, not elapsed execution time.
 
 `SQLiteStorage.assess_event_content_release(event_id)` is a strictly read-only,
 metadata-only event-scoped snapshot: it counts candidate text/excerpt copies,

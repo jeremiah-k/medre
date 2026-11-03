@@ -54,6 +54,7 @@ DEADLINE_RETIREMENT_SUMMARY: str = (
 #: The sweep is bounded per invocation so it can ride a poll cycle without
 #: holding the write lock unconditionally.
 _DEADLINE_SWEEP_MAX_LIMIT = 500
+_DEADLINE_SWEEP_CURSOR_KEY = "outbox_deadline_cleanup_cursor"
 
 # No newer authoritative generation may exist for the same event-scoped
 # delivery identity: an older generation superseded by replay or a fresh
@@ -72,14 +73,13 @@ _NO_NEWER_GENERATION = """NOT EXISTS (
            COALESCE(delivery_outbox.active_attempt, delivery_outbox.attempt_number)
 )"""
 
-_CANDIDATES_SQL = f"""
+_CANDIDATES_SQL = """
     SELECT outbox_id, event_id, attempt_number, status, updated_at, created_at
-      FROM delivery_outbox
+      FROM delivery_outbox INDEXED BY idx_outbox_deadline_cleanup_order
      WHERE status IN ('pending', 'retry_wait')
        AND active_attempt IS NULL
        AND worker_id IS NULL AND locked_at IS NULL AND lease_until IS NULL
-       AND {_NO_NEWER_GENERATION}
-       AND (created_at > ? OR (created_at = ? AND outbox_id > ?))
+       AND (created_at, outbox_id) > (?, ?)
      ORDER BY created_at ASC, outbox_id ASC
      LIMIT ?
 """  # nosec B608 - static SQL fragments and parameter placeholders only
@@ -204,21 +204,33 @@ def sync_retire_expired_unstarted_outbox(
                     datetime.now(timezone.utc).isoformat(), "Cleanup clock"
                 )
             retired: list[DeadlineRetirement] = []
-            # Page in stable admission order, not just the first *limit*
-            # pending rows: a durable no-deadline row must never starve a
-            # later expired obligation. The public limit bounds transitions;
-            # each query also bounds materialized candidate rows.
-            last_created = ""
-            last_outbox_id = ""
-            page_size = min(100, max(25, limit))
-            while len(retired) < limit:
+            # Persist keyset progress with the transitions, so deadline-free
+            # rows cannot force unbounded work or starve later expired rows.
+            progress = db.execute(
+                "SELECT value FROM _medre_schema_meta WHERE key=?",
+                (_DEADLINE_SWEEP_CURSOR_KEY,),
+            ).fetchone()
+            cursor = json.loads(progress[0]) if progress is not None else ["", ""]
+            if (
+                not isinstance(cursor, list)
+                or len(cursor) != 2
+                or not all(isinstance(value, str) for value in cursor)
+            ):
+                raise StorageError("Invalid deadline cleanup cursor")
+            last_created, last_outbox_id = cursor
+            budget = max(25, limit)
+            examined = 0
+            while len(retired) < limit and examined < budget:
+                page_size = min(100, budget - examined)
                 page = db.execute(
                     _CANDIDATES_SQL,
-                    (last_created, last_created, last_outbox_id, page_size),
+                    (last_created, last_outbox_id, page_size),
                 ).fetchall()
                 if not page:
+                    last_created = last_outbox_id = ""
                     break
                 for row in page:
+                    examined += 1
                     last_created = str(row["created_at"])
                     last_outbox_id = str(row["outbox_id"])
                     outbox_id = str(row["outbox_id"])
@@ -265,6 +277,19 @@ def sync_retire_expired_unstarted_outbox(
                     )
                     if len(retired) >= limit:
                         break
+                if len(page) < page_size and last_outbox_id == str(
+                    page[-1]["outbox_id"]
+                ):
+                    last_created = last_outbox_id = ""
+                    break
+            db.execute(
+                "INSERT INTO _medre_schema_meta(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (
+                    _DEADLINE_SWEEP_CURSOR_KEY,
+                    json.dumps([last_created, last_outbox_id]),
+                ),
+            )
             db.commit()
             return retired
         except BaseException:
@@ -308,8 +333,12 @@ class _DeadlineCleanupMixin:
         Production omits *now* so storage samples UTC after acquiring its
         SQLite transaction; an explicit *now* is available to trusted
         controlled-clock qualification and must be timezone-aware. Returns
-        a metadata-only summary of the generations retired by this call;
-        an identical repeat sweep retires nothing.
+        a metadata-only summary of the generations retired by this call.
+        Each call examines at most ``max(25, limit)`` unclaimed candidates and
+        retires at most *limit* rows. A durable keyset cursor in internal
+        metadata advances in the same transaction and wraps at queue end;
+        later calls continue scanning even when earlier rows have no deadline.
+        Candidate discovery uses the matching partial ordering index.
         """
         deadline_observation = (
             None if now is None else _utc_microseconds(now.isoformat(), "Cleanup clock")

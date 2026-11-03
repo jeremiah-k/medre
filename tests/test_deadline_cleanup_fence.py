@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import threading
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from medre.core.storage.backend import OutboxDispatchSnapshotWrite
@@ -811,3 +813,151 @@ async def test_malformed_frozen_deadline_refuses_the_submit(tmp_path) -> None:
         assert authorized is False
     finally:
         await store.close()
+
+
+async def test_cleanup_budgets_candidates_and_resumes_after_restart(
+    tmp_path, monkeypatch
+) -> None:
+    import medre.core.storage.sqlite._deadline_cleanup as cleanup
+
+    path = str(tmp_path / "bounded-cleanup.db")
+    store = SQLiteStorage(path)
+    await store.initialize()
+    observed = _future(120)
+    checked: list[str] = []
+    original = cleanup._deadline_bounds
+
+    def count_bounds(db, event_id, outbox_id):
+        checked.append(outbox_id)
+        return original(db, event_id, outbox_id)
+
+    monkeypatch.setattr(cleanup, "_deadline_bounds", count_bounds)
+    try:
+        for index in range(51):
+            event_id = f"no-deadline-{index}"
+            await store.admit_ingress(
+                make_storage_event(event_id=event_id), None, "live"
+            )
+            await _stage(store, event_id)
+        await store.admit_ingress(
+            make_storage_event(event_id="expired-tail"),
+            None,
+            "live",
+            content_deadline=_future(60),
+        )
+        expired = await _stage(store, "expired-tail")
+        assert await store.retire_expired_unstarted_outbox(now=observed, limit=1) == []
+        assert len(checked) == 25
+        await store.close()
+        store = SQLiteStorage(path)
+        await store.initialize()
+        checked.clear()
+        assert await store.retire_expired_unstarted_outbox(now=observed, limit=1) == []
+        assert len(checked) == 25
+        checked.clear()
+        retired = await store.retire_expired_unstarted_outbox(now=observed, limit=1)
+        assert [item.outbox_id for item in retired] == [expired]
+        assert len(checked) == 2
+
+        # An arrival before the saved cursor is discovered after wrapping.
+        await store.admit_ingress(
+            make_storage_event(event_id="backdated"),
+            None,
+            "live",
+            content_deadline=_future(60),
+        )
+        backdated = await _stage(store, "backdated")
+        await store._write(
+            "UPDATE delivery_outbox SET created_at=? WHERE outbox_id=?",
+            ("2000-01-01T00:00:00+00:00", backdated),
+        )
+        retired = await store.retire_expired_unstarted_outbox(now=observed, limit=1)
+        assert [item.outbox_id for item in retired] == [backdated]
+    finally:
+        await store.close()
+
+
+async def test_cleanup_cursor_rolls_back_with_retirement(tmp_path) -> None:
+    import medre.core.storage.sqlite._deadline_cleanup as cleanup
+
+    store = SQLiteStorage(str(tmp_path / "cursor-rollback.db"))
+    await store.initialize()
+    try:
+        for index in range(25):
+            event_id = f"prefix-{index}"
+            await store.admit_ingress(
+                make_storage_event(event_id=event_id), None, "live"
+            )
+            await _stage(store, event_id)
+        assert await store.retire_expired_unstarted_outbox(limit=1) == []
+        before = await store._read_one(
+            "SELECT value FROM _medre_schema_meta WHERE key=?",
+            (cleanup._DEADLINE_SWEEP_CURSOR_KEY,),
+        )
+        assert before is not None
+        await store.admit_ingress(
+            make_storage_event(event_id="rollback"),
+            None,
+            "live",
+            content_deadline=_future(60),
+        )
+        outbox_id = await _stage(store, "rollback")
+        connection = store._require_db()
+
+        # Fail after the retirement and cursor update, at commit, so both
+        # writes must be rolled back together.
+        connection.set_authorizer(
+            lambda action, arg1, _arg2, _db, _source: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_TRANSACTION and arg1 == "COMMIT"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        from medre.core.storage.backend import StorageError
+
+        with pytest.raises(StorageError):
+            await store.retire_expired_unstarted_outbox(now=_future(120), limit=1)
+        connection.set_authorizer(None)
+        after = await store._read_one(
+            "SELECT value FROM _medre_schema_meta WHERE key=?",
+            (cleanup._DEADLINE_SWEEP_CURSOR_KEY,),
+        )
+        assert after is not None and after["value"] == before["value"]
+        item = await store.get_outbox_item(outbox_id)
+        assert item is not None and item.status == "pending"
+        retired = await store.retire_expired_unstarted_outbox(now=_future(120), limit=1)
+        assert [item.outbox_id for item in retired] == [outbox_id]
+    finally:
+        store._require_db().set_authorizer(None)
+        await store.close()
+
+
+async def test_cleanup_index_is_added_to_an_existing_database(tmp_path) -> None:
+    from medre.core.storage.sqlite._deadline_cleanup import _CANDIDATES_SQL
+
+    path = str(tmp_path / "cleanup-index-upgrade.db")
+    store = SQLiteStorage(path)
+    await store.initialize()
+    try:
+        await store.admit_ingress(
+            make_storage_event(event_id="preserved"), None, "live"
+        )
+        outbox_id = await _stage(store, "preserved")
+        await store._write("DROP INDEX idx_outbox_deadline_cleanup_order", ())
+    finally:
+        await store.close()
+    reopened = SQLiteStorage(path)
+    await reopened.initialize()
+    try:
+        assert await reopened.get_outbox_item(outbox_id) is not None
+        plan = await reopened._read_all(
+            "EXPLAIN QUERY PLAN " + _CANDIDATES_SQL, ("", "", 25)
+        )
+        detail = " ".join(str(row["detail"]) for row in plan)
+        assert (
+            "SEARCH delivery_outbox USING INDEX idx_outbox_deadline_cleanup_order"
+            in detail
+        )
+        assert "TEMP B-TREE" not in detail
+    finally:
+        await reopened.close()
