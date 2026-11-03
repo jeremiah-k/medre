@@ -237,9 +237,10 @@ through the fake presentation adapter. This qualification proves, and is
 limited to, the transactional and storage-level properties of the contract:
 
 * the write authorities serialize — cancellation and the audited decision
-  observe a typed refusal when a competing write wins, exactly one
-  authority's outcome commits per attempt, and no half-applied state or
-  lost update survives;
+  observe a typed refusal when a superseding write wins; a recorded
+  decision does not mutate the outbox and therefore does not prevent a
+  later guarded cancellation, while no half-applied state or lost update
+  survives;
 * recorded decisions, persisted outbox state, and the preview's
   classification survive a storage-handle restart, and the normal
   claim/attempt fences still refuse superseded observations afterwards;

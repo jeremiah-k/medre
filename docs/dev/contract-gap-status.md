@@ -38,7 +38,7 @@ never stands in for a higher one.
 
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
-| G01 | P0 | Exact-destination replay selection and decision | partial | `main` carries the typed preview, the shared execution-admission selector, the audited decision authority, and the operator command surface for decisions, cancellation, and exact-target replay scoping; fake-tier adversarial qualification covers real-transaction races, restart durability, cancellation fencing, and sibling boundaries on core seams. | Native and current-pin qualification of the exact-target property under the real provider tiers. |
+| G01 | P0 | Exact-destination replay selection and decision | partial | `main` carries the typed preview, the shared execution-admission selector, the audited decision authority, and the operator command surface for decisions, cancellation, and exact-target replay scoping; #435 supplies fake-tier adversarial qualification of real-transaction races, restart durability, cancellation fencing, and sibling boundaries on core seams. | Native and current-pin qualification of the exact-target property under the real provider tiers. |
 | G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences unstarted work and the typed preview classifies uncertainty without resolving it; the landed decision authority (#429) records auditable intent over unstarted work only and cannot decide an uncertain native handoff. | Per-transport native-acceptance proof under the exact-target authority; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | partial | Ceiling producers and admission consistency landed; the fenced cleanup transition and native enforcement qualification remain. The `content_ceiling` policy drives admission, which installs and validates the ceiling in both content rows, and the outbox adoption fence enforces the earlier-of effective deadline. The content-availability preview is not that enforcement contract; the enforcement design is documented in the delivery-deadline page under developer documentation. | The strictly fenced pending-outbox cleanup transition and the native-submit fence qualification per that design, without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the exploratory draft branch is not a reconciliation candidate and any future runtime starts from current `main` primitives under the content-admission, grant-read, and outbox-settlement contracts. | A future runtime contract, if the capability is taken up: stage decisions, grant scope, and derived-event admission designed against current `main` before any execution host opens. |
@@ -74,9 +74,8 @@ tracks the whole, this section tracks each stage:
 5. **Adversarial qualification** — real-transaction races, restart,
    cancellation, and current-pin native evidence for the exact-target
    property. Fake/core-seam qualification — real SQLite transaction races,
-   restart durability, cancellation fencing, and sibling boundaries — is in
-   flight on the exact-target qualification branch; native and current-pin
-   evidence remains outstanding.
+   restart durability, cancellation fencing, and sibling boundaries — is
+   provided by #435; native and current-pin evidence remains outstanding.
 
 Hard boundaries for every stage: native handoff is not recipient receipt; a
 stale observation never permits a send; collected content is never

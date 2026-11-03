@@ -43,11 +43,12 @@ A stale observation never sends. Superseded expectations classify as
 and execution admission — which accepts no caller-supplied expectation —
 re-reads persisted state through the same selector the preview uses and
 refuses to stage for drifted targets. A cancellation committing between an
-admitting observation and delivery never loses: the deliver stage
-re-derives the persisted state and any replay send lands as a new
-generation above the cancelled one.
+admitting observation and delivery is not resurrected or rewritten: the
+cancelled generation stays terminal, while the already-admitted replay send
+still proceeds as a new generation above it. The cancellation does not
+suppress that replay send.
 
-The recovery-observation specification gains a qualification-boundaries
+The exact-target recovery specification gains a qualification-boundaries
 subsection recording what this fake/core-tier qualification proves and
 what it reserves: native acceptance and independently observed recipient
 delivery are not proven here.

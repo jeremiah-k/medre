@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -125,7 +126,9 @@ def _selection(
 ) -> ExactTargetSelection:
     return ExactTargetSelection(
         event_id=event_id,
-        delivery_plan_id=_plan_id(channel, adapter=adapter, index=index),
+        delivery_plan_id=_plan_id(
+            channel, adapter=adapter, event_id=event_id, index=index
+        ),
         target_adapter=adapter,
         target_channel=channel,
     )
@@ -143,7 +146,9 @@ async def _seed_pending_row(
     return await create_outbox_item_with_parent(
         storage,
         make_outbox_item(
-            delivery_plan_id=_plan_id(channel, adapter=adapter, index=index),
+            delivery_plan_id=_plan_id(
+                channel, adapter=adapter, event_id=event_id, index=index
+            ),
             target_adapter=adapter,
             target_channel=channel,
             event_id=event_id,
@@ -308,7 +313,9 @@ async def _seed_binding_refused_row(
     if await storage.get(event_id) is None:
         await storage.append(make_storage_event(event_id=event_id))
     item = make_outbox_item(
-        delivery_plan_id=_plan_id(channel, adapter=adapter, index=index),
+        delivery_plan_id=_plan_id(
+            channel, adapter=adapter, event_id=event_id, index=index
+        ),
         target_adapter=adapter,
         target_channel=channel,
         event_id=event_id,
@@ -405,9 +412,13 @@ async def _run_parked_authority_race(
     competitor = sqlite3.connect(db_path, timeout=10.0)
     timeline: list[str] = []
     connection = storage._require_db()
+    authority_started = threading.Event()
 
     def trace(statement: str) -> None:
         first_line = statement.splitlines()[0]
+        if first_line == "BEGIN IMMEDIATE":
+            timeline.append("authority:begin")
+            authority_started.set()
         if first_line.startswith("SELECT * FROM operator_delivery_decisions"):
             timeline.append("authority:first-txn-read")
 
@@ -416,17 +427,18 @@ async def _run_parked_authority_race(
         competitor.execute("BEGIN IMMEDIATE")
         competitor.execute(competing_update, competing_params)
         task = asyncio.ensure_future(authority())
-        # Let the authority reach its executor thread; whatever point it
-        # has reached, the competitor still owns the write lock.
-        for _ in range(4):
-            await asyncio.sleep(0)
-        competitor.execute("COMMIT")
+        try:
+            started = await asyncio.to_thread(authority_started.wait, 5.0)
+        finally:
+            # Release the competitor even when the authority fails to start.
+            competitor.execute("COMMIT")
         timeline.append("competitor:committed")
         try:
             await task
             failure: BaseException | None = None
         except BaseException as exc:
             failure = exc
+        assert started, "authority did not reach its write transaction"
         return failure, timeline
     finally:
         connection.set_trace_callback(None)
@@ -457,8 +469,10 @@ async def test_cancel_serializes_behind_a_competing_claim_transaction(
     assert str(failure) == ("Stale generation or active attempt; nothing cancelled")
     # The authority's first in-transaction read ran after the competitor
     # committed: BEGIN IMMEDIATE serialized the two write transactions.
-    assert timeline.index("competitor:committed") < timeline.index(
-        "authority:first-txn-read"
+    assert (
+        timeline.index("authority:begin")
+        < timeline.index("competitor:committed")
+        < timeline.index("authority:first-txn-read")
     )
     after = await temp_storage.get_outbox_item(row.outbox_id)
     assert after is not None
@@ -494,8 +508,10 @@ async def test_decision_serializes_behind_a_competing_claim_transaction(
         "In-progress, queued or uncertain native work is not decidable by"
         " this authority"
     )
-    assert timeline.index("competitor:committed") < timeline.index(
-        "authority:first-txn-read"
+    assert (
+        timeline.index("authority:begin")
+        < timeline.index("competitor:committed")
+        < timeline.index("authority:first-txn-read")
     )
     after = await temp_storage.get_outbox_item(row.outbox_id)
     assert after is not None
@@ -731,13 +747,18 @@ async def test_scoped_replay_all_refused_stages_nothing(
     """Every named target refused: bounded evidence, nothing staged."""
     targets = _sibling_targets()
     router = _router(*targets)
-    rows = await _seed_event_with_targets(temp_storage, targets[1])
-    row_b = rows[_CHANNEL_B]
+    await temp_storage.append(make_storage_event(event_id=_EVENT))
+    row_b = await _seed_pending_row(temp_storage, _CHANNEL_B, index=1)
 
     # Drift target A with a contradicting frozen binding and contest B with
     # a second live generation: both named selections must refuse.
     await _seed_binding_refused_row(temp_storage, _CHANNEL_A)
-    await _allocate_replay_generation(temp_storage, row_b)
+    newer_b = await _allocate_replay_generation(temp_storage, row_b)
+    assert newer_b.delivery_plan_id == _selection(_CHANNEL_B, index=1).delivery_plan_id
+    contested = await preview_exact_target(
+        temp_storage, _selection(_CHANNEL_B, index=1)
+    )
+    assert contested.category == "ambiguous"
 
     snapshot = await _snapshot_outbox(temp_storage)
     receipts_before = await temp_storage.list_receipts_for_event(_EVENT)
