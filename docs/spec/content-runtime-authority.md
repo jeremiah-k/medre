@@ -97,27 +97,55 @@ but quote text is unavailable instead of being invented.
 `authorize_native_submission` additionally checks the in-progress outbox
 worker, exact attempt, unexpired lease, newer sibling generations, the
 effective earlier-of deadline and live content dependency just before adapter
-invocation. The effective deadline is the earlier of the immutable event
-ceiling and the frozen delivery-plan deadline riding the row's dispatch
-snapshot, so a replay generation that adopts no target dependency is refused
-on its own plan deadline too. A present but malformed frozen deadline MUST
-refuse the submission rather than be treated as an absent bound, and a refused
-storage-authorized native start produces no attempt receipt, observation or
-native reference. The outbox lifecycle records the terminal refusal as a
-state transition, without inventing transport-attempt evidence. Initial
-pipeline-owned generations use their already-claimed attempt; retry workers
-must own an active reservation. Radio packet grants repeat authority checks
-after pacing, preserving accepted prefixes when a later packet is refused.
-The packet-start checkpoint transaction checks content, exact claim and
-deadline after acquiring SQLite; post-send observation does not require live
-content authority. The frozen plan deadline is rechecked after rendering and
-after awaited pre-submission authorization. The event ceiling is checked in
-the storage authorization transaction, not in a separate synchronous
-wall-clock check after that transaction returns. This is a **local
-dispatch-start fence**, not an atomic transaction with remote/native
-submission: if the ceiling crosses in the gap before the adapter call, the
-storage decision does not prevent that call. It cannot undo a packet already
-accepted by a transport.
+invocation. The effective deadline is the earliest of the immutable event
+ceiling, the frozen delivery-plan deadline riding the row's dispatch
+snapshot, and the adopted target dependency deadline, so a replay generation
+that adopts no target dependency is refused on its own plan deadline too. A
+present but malformed bound MUST refuse the submission rather than be
+treated as an absent bound, and a refused storage-authorized native start
+produces no attempt receipt, observation or native reference. The outbox
+lifecycle records the terminal refusal as a state transition, without
+inventing transport-attempt evidence. Initial pipeline-owned generations use
+their already-claimed attempt; retry workers must own an active reservation.
+
+The delivery pipeline carries the same authoritative bound to the adapter
+invocation site. `observe_effective_dispatch_bound` derives the earliest
+applicable effective deadline — the immutable event ceiling, the frozen plan
+deadline, and the adopted target dependency deadline — from the same
+storage-authoritative rows the native-start authorization just validated,
+composed with the plan's own deadline, and the typed value rides rendering
+to the invocation site; no later metadata guess replaces it. Immediately
+before the direct `deliver_fn` invocation the pipeline observes the local
+UTC wall clock and **MEDRE refuses to initiate a new local native submission
+when the final check observes the deadline elapsed**; the clock observation
+and the invocation are adjacent synchronous statements with no `await`
+between them, so awaited work cannot cross the deadline after the storage
+authorization returns. The fence refuses at exact equality (`now >= bound`)
+and stays dormant when no bound is installed. The refusal records local
+denial evidence only — the typed deadline refusal carried on the raised
+delivery error — and produces no attempt receipt, no observation, no native
+reference, and never reclassifies accepted or uncertain attempts as unsent.
+For packetized radio transports the effective bound rides the existing
+one-use grant: every packet start rechecks the bound at its grant
+authorization, a refusal after some packets were accepted preserves the
+accepted prefix's receipts and never fabricates a refusal for the
+already-accepted work, and post-send observation does not require live
+content authority. This is a **local dispatch-start fence**, not an atomic
+transaction with remote/native submission: it does not promise that a
+previously accepted native message cannot arrive afterward, and it cannot
+undo a packet already accepted by a transport.
+
+### Wall-clock enforcement limitation
+
+Enforcement compares the local UTC wall clock to an absolute deadline
+instant. A durable expiry observation is irreversible: once storage has
+released an expired dependency or tombstoned an expired grant, a later
+backwards wall-clock adjustment cannot resurrect it. However, a
+backwards-adjusted wall clock after that durable observation remains a
+deployment limitation for the synchronous fence: a rolled-back clock reads
+as before the absolute deadline, and no monotonic-clock enforcement across
+restarts is claimed or implemented. Operators who require deadline
+enforcement under clock adjustment must keep the host clock disciplined.
 
 The durable ingress processing path and outbox retry path use owner-bound
 reads through the required storage contract, while the target service gates native
