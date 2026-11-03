@@ -165,6 +165,12 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **463 — Migration and privacy guidance.** Specs distinguish guarded,
+  allowlisted additive migrations (including constraint widening) from
+  unsupported layouts and scoped table-integrity checks. Operator guidance
+  describes implemented logical retention and local submission deadlines,
+  including the limits on physical erasure and already-accepted transport work.
+
 - **460 — Final dispatch-start deadline fence.** The pipeline observes the
   earliest applicable effective deadline from the same storage-authoritative
   rows as native-start authorization, carries it to the adapter invocation
