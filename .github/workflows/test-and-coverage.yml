@@ -334,28 +334,28 @@ jobs:
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --python .venv/bin/python
       - name: Run the core-owned LXMF exact-target propagation suite
         run: |
-          mkdir -p .ci-artifacts/core-owned-lxmf-integration
+          mkdir -p ci-artifacts/core-owned-lxmf-integration
           uv run --no-sync python -m pytest tests/integration/test_lxmf_exact_target_propagation.py \
             -m "local_integration and lxmf_sdk" \
             -v -rA \
-            --basetemp=.ci-artifacts/core-owned-lxmf-integration/pytest-tmp \
-            --junitxml=.ci-artifacts/core-owned-lxmf-integration/junit.xml \
-            2>&1 | tee .ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
+            --basetemp=ci-artifacts/core-owned-lxmf-integration/pytest-tmp \
+            --junitxml=ci-artifacts/core-owned-lxmf-integration/junit.xml \
+            2>&1 | tee ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
       - name: Enforce executed-at-pin qualification
         if: always()
         run: |
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
-            --junit .ci-artifacts/core-owned-lxmf-integration/junit.xml \
+            --junit ci-artifacts/core-owned-lxmf-integration/junit.xml \
             --expect-tests 2
-      - name: Upload redacted run artifacts
+      - name: Upload disposable qualification run artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: core-owned-lxmf-integration-${{ github.sha }}
           path: |
-            .ci-artifacts/core-owned-lxmf-integration/junit.xml
-            .ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
-            .ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-ready.json
-            .ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-received.json
-          if-no-files-found: warn
+            ci-artifacts/core-owned-lxmf-integration/junit.xml
+            ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
+            ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-ready.json
+            ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-received.json
+          if-no-files-found: error
           retention-days: 7

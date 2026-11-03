@@ -284,6 +284,12 @@ delivery observations. No observation on the recipient side touches
 MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
 receipts.
 
+The scenario calls the pinned `LxmfSession.send_text` directly. It does not
+exercise a core `ReplayRequest` selection or audited operator decision, so
+it qualifies LXMF native propagation/recipient behavior, not G01/G02
+core-authorized exact-target replay acceptance. That authority-to-provider
+leg remains a separate qualification requirement.
+
 The scenario checks the following native properties at the pinned SDK
 versions within this local topology:
 

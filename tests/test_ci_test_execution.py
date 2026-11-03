@@ -144,3 +144,28 @@ def test_main_exits_zero_when_execution_is_proven(tmp_path, monkeypatch, capsys)
     )
     module.main()
     assert capsys.readouterr().out.startswith("Execution enforced")
+
+
+def test_lxmf_required_job_preserves_visible_qualification_artifacts():
+    """A passing qualification must leave retrievable CI evidence."""
+    import yaml
+
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github/workflows/test-and-coverage.yml"
+    )
+    definition = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    job = definition["jobs"]["core-owned-lxmf-integration"]
+    upload = next(
+        step
+        for step in job["steps"]
+        if "actions/upload-artifact@" in step.get("uses", "")
+    )
+    paths = upload["with"]["path"].splitlines()
+    assert paths
+    assert all(path.lstrip().startswith("ci-artifacts/") for path in paths)
+    assert all(
+        not segment.startswith(".") for path in paths for segment in path.split("/")
+    )
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert any("junit.xml" in path for path in paths)
+    assert any("b-received.json" in path for path in paths)
