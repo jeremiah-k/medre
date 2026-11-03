@@ -186,6 +186,14 @@ this file once they land.
   receipt artifacts. This qualifies local native behavior; core-authorized
   replay acceptance and wider-network/hardware evidence remain open.
 
+- **464 — Typed native-evidence contract.** Native-evidence observations
+  project into one immutable envelope binding the core-authoritative
+  attempt identity to a bounded accepted / definitively_not_submitted /
+  unresolved / not_observed result, scope, tier, and identifier-only
+  attachments with a restart-stable evidence fingerprint
+  (`docs/spec/native-evidence.md`). Additive: existing feedback and
+  authority semantics are wrapped, not changed.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
