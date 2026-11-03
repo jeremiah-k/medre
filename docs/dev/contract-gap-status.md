@@ -38,7 +38,7 @@ never stands in for a higher one.
 
 | ID | Priority | Gap | Status | Current state and evidence | Next work |
 | --- | --- | --- | --- | --- | --- |
-| G01 | P0 | Exact-destination replay selection and decision | in flight | `main` provides exact inspection, unstarted cancellation, the typed #424 preview, exact-identity replay selection at delivery admission (#427), and audited exact-target decision authority (#429); the read-only guidance and storage authorities are complete; #430 advances operator commands but is not yet merged. | Merge and qualify #430 operator commands, then adversarial native qualification. |
+| G01 | P0 | Exact-destination replay selection and decision | partial | `main` carries the typed preview, the shared execution-admission selector, the audited decision authority, and the operator command surface for decisions, cancellation, and exact-target replay scoping; fake-tier adversarial qualification covers real-transaction races, restart durability, cancellation fencing, and sibling boundaries on core seams. | Native and current-pin qualification of the exact-target property under the real provider tiers. |
 | G02 | P0 | Uncertain-native-handoff remediation | partial | Exact cancellation fences unstarted work and the typed preview classifies uncertainty without resolving it; the landed decision authority (#429) records auditable intent over unstarted work only and cannot decide an uncertain native handoff. | Per-transport native-acceptance proof under the exact-target authority; never infer non-acceptance. |
 | G03 | P1 | Delivery deadline and hard content privacy ceiling | partial | Ceiling producers and admission consistency landed; the fenced cleanup transition and native enforcement qualification remain. The `content_ceiling` policy drives admission, which installs and validates the ceiling in both content rows, and the outbox adoption fence enforces the earlier-of effective deadline. The content-availability preview is not that enforcement contract; the enforcement design is documented in the delivery-deadline page under developer documentation. | The strictly fenced pending-outbox cleanup transition and the native-submit fence qualification per that design, without weakening accepted or uncertain attempt authority. |
 | G04 | P1 | Authorized plugin execution host and stage decisions | open | `src/medre/plugins` is protocol scaffolding; the exploratory draft branch is not a reconciliation candidate and any future runtime starts from current `main` primitives under the content-admission, grant-read, and outbox-settlement contracts. | A future runtime contract, if the capability is taken up: stage decisions, grant scope, and derived-event admission designed against current `main` before any execution host opens. |
@@ -48,7 +48,7 @@ never stands in for a higher one.
 | G08 | P2 | SimpleX reply recipient-side qualification | partial | Native reply exists as a capability fallback; promotion waits on an independently observed quote in a destination client. | Provider vertical with immutable target ledger and independent peer proof. |
 | G09 | P2 | Matrix peer-device trust and principal-aware sends | partial | Own-device signing exists; peer trust policy and principal selection are incomplete. | Separate transport/security vertical; crypto and native IDs require principal scoping. |
 | G10 | P2 | Event enrich, transform, and policy stage conformance | deferred | Six pipeline phases are implemented and executed; plugin policy stages are not executed on `main`. | Lands with a plugin runtime if the capability is taken up (G04). |
-| G11 | P2 | Guided operator recovery and first-run flow | in flight | Several CLI guides exist and #424 supplies the observation model; #430 advances exact-action commands but is not on `main`. A simplified first-run journey remains absent. | Qualify #430 commands, then design the first-run journey separately. |
+| G11 | P2 | Guided operator recovery and first-run flow | partial | The exact-action operator commands — decision, cancellation, and exact-target replay scoping — are landed on `main` with their guides, and the typed observation model supports them; a simplified first-run journey remains absent. | Design the simplified first-run journey separately. |
 | G12 | P2 | Adaptive transport-level rate limiting | partial | Global capacity bounds and adapter-local Meshtastic bounds exist; a general adaptive rate policy does not. | Operational robustness work; retry ownership stays unified. |
 | G13 | P2 | Current seven-provider limitations provenance | open | The known-limitations index was last explicitly checked against the 2026-10-18 six-repo snapshot. | Refresh the index against all seven current adapter commits; historical evidence is not current proof. |
 | G14 | P3 | MMRelay canonical Matrix-shape collaboration | deferred | Current interop is a wire-compatibility boundary; broader shared event adoption is not committed. | Revisit after runtime contract stabilization; keep external compatibility isolated. |
@@ -70,10 +70,13 @@ tracks the whole, this section tracks each stage:
    queued, in-progress, or uncertain native work. Landed in #429.
 4. **Operator command surface** — explicit intent, confirmation, and
    refusal rendering wired to the contract; `medre recover` stays read-only.
-   In flight in #430 (not yet merged).
+   Landed in #430.
 5. **Adversarial qualification** — real-transaction races, restart,
    cancellation, and current-pin native evidence for the exact-target
-   property. Open.
+   property. Fake/core-seam qualification — real SQLite transaction races,
+   restart durability, cancellation fencing, and sibling boundaries — is in
+   flight on the exact-target qualification branch; native and current-pin
+   evidence remains outstanding.
 
 Hard boundaries for every stage: native handoff is not recipient receipt; a
 stale observation never permits a send; collected content is never
