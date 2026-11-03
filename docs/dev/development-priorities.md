@@ -79,13 +79,16 @@ and application-service scope are described in the
 Develop against one current schema and API contract. Reject incompatible
 prerelease state and use fresh state. Initialization applies only explicitly
 allowlisted, structurally exact additive catalog changes in one SQLite write
-transaction after validating the predecessor catalog exactly;
-the allowlist is specified in
+transaction after validating the predecessor catalog exactly; the allowlist
+is specified in
 [storage](../spec/storage.md#10-pre-release-database-policy). Renames, altered
-constraints, data backfills, version bumps and general legacy schema transformations
-stay refused. Provide no legacy readers, version aliases or compatibility shims.
-Version fields identify the supported format and allow strict refusal; they do
-not promise an upgrade path from earlier development formats.
+constraints, data backfills, version bumps and general legacy schema
+transformations stay refused.
+Provide no legacy readers, version aliases or compatibility shims. Version
+fields identify the supported format and allow strict refusal; they promise
+no general upgrade framework. Known allowlisted additive predecessors are
+migrated at writable open; every other earlier development format stays
+refused with recreation guidance.
 
 ## Architecture decisions
 

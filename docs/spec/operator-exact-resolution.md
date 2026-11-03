@@ -53,9 +53,16 @@ MEDRE deliberately refuses older shapes before running `CREATE TABLE` against
 an existing database, even if they report the same frozen schema version 1.
 **Do not point this candidate at a production or existing development DB.**
 Qualify against separately selected fresh state. Pre-first-release development
-supports one current SQLite shape. Incompatible state MUST be refused, and
-review MUST use fresh state rather than a migration or compatibility reader.
-No upgrade path from earlier development layouts is provided.
+supports one current SQLite shape. The one recognized exception is the exact
+allowlisted single-action `operator_delivery_decisions` predecessor layout: a
+writable open applies its guarded additive migration — a transactional table
+rebuild from the authoritative DDL — and a read-only open of that recognized
+predecessor reports that a guarded writable migration is available instead of
+suggesting a reset. Any other earlier development layout MUST still be
+refused with recreation guidance, and review MUST use fresh state rather
+than a migration or compatibility reader. The allowlist is explicit and
+additive, not a general upgrade framework: unsupported catalogs get no
+upgrade path.
 
 The required audit shape MUST preserve unique decision IDs and the action,
 observed-status and generation constraints. An audit write failure MUST roll
