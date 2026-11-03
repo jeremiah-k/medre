@@ -198,6 +198,12 @@ this file once they land.
   LXMF `_reconnect_loop` recovery paths and assert stale reconnect state
   is cleared by production code, not just by setters.
 
+- **456 — Matrix native acceptance.** Exact-target replay has a plaintext
+  Synapse qualification leg with independent timeline observation and sibling
+  isolation. Polling requires the reported event identities, including a
+  distinct replay event; an idempotent identity confirms prior acceptance.
+  Encrypted delivery and independent recipient receipt remain outstanding.
+
 - **452 — Deadline enforcement.** Storage retires expired, provably unstarted
   and unclaimed outbox generations and refuses native submission past the
   effective deadline. Cleanup limits candidate examination and preserves scan
