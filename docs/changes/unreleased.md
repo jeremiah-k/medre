@@ -213,6 +213,17 @@ this file once they land.
   writer-latency qualification on large mostly-ineligible queues and
   native/hardware qualification of the refusal.
 
+- **458 — Deadline sweep configuration and evidence.** Sweep cadence is
+  bounded to 24 hours and scheduling arithmetic failures stay contained
+  inside the retry poll's sweep-failure boundary. The runtime configuration
+  JSON Schema documents the opt-in policy with the same limits as the loader.
+  Process-local sweep run, error, and retired counters surface in the runtime
+  snapshot and the run-session/shutdown diagnostic projections, and a runtime
+  composition test proves the loaded policy reaches the live retry worker
+  through the real app assembly. The sweep remains disabled by default; no
+  measurement-backed enablement or atomic network-submission deadline is
+  claimed.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads

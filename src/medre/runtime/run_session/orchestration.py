@@ -523,6 +523,9 @@ async def run_bridge_session(
         if retry_data is not None:
             retry_worker_summary = {
                 "dead_lettered": retry_data.get("dead_lettered", 0),
+                "deadline_retired": retry_data.get("deadline_retired", 0),
+                "deadline_sweep_errors": retry_data.get("deadline_sweep_errors", 0),
+                "deadline_sweep_runs": retry_data.get("deadline_sweep_runs", 0),
                 "enabled": retry_data.get("enabled", False),
                 "failed": retry_data.get("failed", 0),
                 "processed": retry_data.get("processed", 0),

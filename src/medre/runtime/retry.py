@@ -1115,8 +1115,8 @@ class RetryWorker:
             return
         # Cadence is committed before the await so a slow sweep cannot
         # re-arm itself on every wake while it is still running.
-        self._next_sweep_at = now + timedelta(seconds=self._deadline_sweep_interval)
         try:
+            self._next_sweep_at = now + timedelta(seconds=self._deadline_sweep_interval)
             retired = await sweep(limit=self._deadline_sweep_limit)
         except Exception:
             # A sweep failure must never take the worker or the delivery

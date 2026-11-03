@@ -21,6 +21,7 @@ import pytest
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.model import (
+    DEADLINE_SWEEP_MAX_INTERVAL_SECONDS,
     DEADLINE_SWEEP_MAX_LIMIT,
     DeadlineSweepConfig,
     RetryConfig,
@@ -416,6 +417,7 @@ def test_validation_runs_through_the_retry_section() -> None:
         ("limit: 0\n", "deadline_sweep.limit"),
         ("limit: true\n", "deadline_sweep.limit"),
         ("interval_seconds: 0\n", "deadline_sweep.interval_seconds"),
+        ("interval_seconds: 1e12\n", "deadline_sweep.interval_seconds"),
     ],
 )
 def test_loader_rejects_out_of_range_sweep_declarations(
@@ -451,3 +453,89 @@ def test_loader_parses_an_enabled_sweep_section(tmp_path: Path) -> None:
     assert policy.enabled is True
     assert policy.limit == 500
     assert policy.interval_seconds == 30.0
+
+
+def test_sweep_interval_ceiling_rejects_overflow() -> None:
+    """A policy cannot repeatedly abort the dispatch poll before claiming work."""
+    with pytest.raises(ConfigValidationError, match="deadline_sweep.interval_seconds"):
+        DeadlineSweepConfig(
+            interval_seconds=DEADLINE_SWEEP_MAX_INTERVAL_SECONDS + 1
+        ).validate()
+
+
+def test_config_schema_accepts_enabled_sweep_and_rejects_invalid_bounds() -> None:
+    """Schema-driven authors and the runtime loader accept the same declaration."""
+    import json
+    from jsonschema import Draft202012Validator
+
+    schema_path = Path(__file__).parents[1] / "docs/schemas/runtime-config.schema.json"
+    validator = Draft202012Validator(json.loads(schema_path.read_text()))
+    valid = {
+        "retry": {
+            "deadline_sweep": {
+                "enabled": True,
+                "limit": 500,
+                "interval_seconds": 60,
+            }
+        }
+    }
+    assert not list(validator.iter_errors(valid))
+    invalid_policies = (
+        {"limit": 0},
+        {"limit": 501},
+        {"interval_seconds": 0},
+        {"interval_seconds": 1e12},
+        {"unknown": 1},
+    )
+    for policy in invalid_policies:
+        assert list(validator.iter_errors({"retry": {"deadline_sweep": policy}}))
+
+
+async def test_live_runtime_uses_loaded_deadline_sweep_policy(tmp_path: Path) -> None:
+    """The real app constructor forwards the loaded operator declaration."""
+    from dataclasses import replace
+
+    from medre.config.paths import resolve
+    from tests.helpers.startup_cleanup import (
+        _build_app,
+        _config_with_one_fake_adapter,
+    )
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "retry:\n  deadline_sweep:\n    enabled: true\n"
+        "    limit: 17\n    interval_seconds: 35\n"
+    )
+    loaded, _, _ = load_config(str(config_file))
+    config = replace(_config_with_one_fake_adapter(), retry=loaded.retry)
+    app = _build_app(config, resolve(environ={"MEDRE_HOME": str(tmp_path)}))
+    await app.start()
+    try:
+        worker = app._retry_worker
+        assert worker is not None
+        assert worker._deadline_sweep_enabled is True
+        assert worker._deadline_sweep_limit == 17
+        assert worker._deadline_sweep_interval == 35
+    finally:
+        await app.stop()
+
+
+async def test_sweep_cadence_overflow_isolated_from_delivery_poll(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even an unvalidated oversized interval cannot abort due-work claims."""
+    sweep_spy = AsyncMock(return_value=[])
+    monkeypatch.setattr(temp_storage, "retire_expired_unstarted_outbox", sweep_spy)
+    runner, _, _ = _pipeline(temp_storage)
+    worker = RetryWorker(
+        temp_storage,
+        runner,
+        None,
+        retry_config=RetryConfig(deadline_sweep=DeadlineSweepConfig(enabled=True)),
+        initial_dispatch=True,
+    )
+    worker._deadline_sweep_interval = 1e20
+    await worker._process_due(datetime.now(timezone.utc))
+    assert worker.state.deadline_sweep_errors == 1
+    sweep_spy.assert_not_called()

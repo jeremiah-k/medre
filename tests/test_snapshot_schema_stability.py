@@ -347,6 +347,9 @@ _EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(
     {
         "abandoned",
         "dead_lettered",
+        "deadline_retired",
+        "deadline_sweep_errors",
+        "deadline_sweep_runs",
         "enabled",
         "failed",
         "last_run_at",
@@ -718,6 +721,9 @@ class TestRetrySchemaStability:
         assert retry["succeeded"] == 0
         assert retry["failed"] == 0
         assert retry["dead_lettered"] == 0
+        assert retry["deadline_retired"] == 0
+        assert retry["deadline_sweep_errors"] == 0
+        assert retry["deadline_sweep_runs"] == 0
         assert retry["last_run_at"] is None
         assert retry["previous_run_in_progress"] is None
         assert retry["scope"] == "process_local"
@@ -733,6 +739,9 @@ class TestRetrySchemaStability:
         assert isinstance(retry["succeeded"], int)
         assert isinstance(retry["failed"], int)
         assert isinstance(retry["dead_lettered"], int)
+        assert isinstance(retry["deadline_retired"], int)
+        assert isinstance(retry["deadline_sweep_errors"], int)
+        assert isinstance(retry["deadline_sweep_runs"], int)
         assert retry["last_run_at"] is None or isinstance(retry["last_run_at"], str)
         assert retry["previous_run_in_progress"] is None or isinstance(
             retry["previous_run_in_progress"], int

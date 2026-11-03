@@ -820,12 +820,12 @@ retry:
 | ------------------ | ----- | ------- | ------------------------------------------------------------------------------------------- |
 | `enabled`          | bool  | `false` | Whether the poll cycle runs the deadline sweep at all.                                      |
 | `limit`            | int   | `50`    | Maximum rows retired per sweep step (1–500). Out-of-range values are rejected at load time. |
-| `interval_seconds` | float | `60.0`  | Minimum time between sweep steps. Each step examines at most `max(25, limit)` candidates.   |
+| `interval_seconds` | float | `60.0`  | Positive cadence up to 86,400 seconds. Each step examines at most `max(25, limit)` candidates. |
 
 The sweep is disabled by default: an omitted section leaves the poll cycle
-byte-identical to a runtime without the policy, and sweep activity is counted
-on the retry worker state (`deadline_sweep_runs`, `deadline_sweep_errors`,
-`deadline_retired`) only when enabled.
+unchanged. The runtime snapshot and run-session evidence expose process-local
+`deadline_sweep_runs`, `deadline_sweep_errors`, and `deadline_retired` counters;
+all remain zero when the sweep is disabled.
 
 Before enabling at scale, measure the sweep's writer latency against a queue
 that is large and mostly deadline-free: each step takes the storage write

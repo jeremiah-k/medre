@@ -247,6 +247,7 @@ DEADLINE_SWEEP_DEFAULT_LIMIT = 50
 #: existing retry poll cycle; this cadence only throttles how often a poll
 #: performs one bounded sweep step.
 DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS = 60.0
+DEADLINE_SWEEP_MAX_INTERVAL_SECONDS = 86400.0
 
 
 @dataclass(frozen=True)
@@ -274,7 +275,8 @@ class DeadlineSweepConfig:
             If ``enabled`` is not a boolean, ``limit`` is declared with a
             non-integer type (in particular a boolean) or outside the
             storage transition's closed 1..500 range, or
-            ``interval_seconds`` is not a positive finite number.
+            ``interval_seconds`` is not a positive finite number or exceeds
+            the 24-hour scheduling ceiling.
         """
         if type(self.enabled) is not bool:
             raise ConfigValidationError(
@@ -301,10 +303,15 @@ class DeadlineSweepConfig:
             finite = math.isfinite(interval)
         except (OverflowError, ValueError):
             finite = False
-        if not finite or interval <= 0:
+        if (
+            not finite
+            or interval <= 0
+            or interval > DEADLINE_SWEEP_MAX_INTERVAL_SECONDS
+        ):
             raise ConfigValidationError(
                 "deadline_sweep.interval_seconds must be a positive finite "
-                f"number, got {interval!r}"
+                f"number at most {DEADLINE_SWEEP_MAX_INTERVAL_SECONDS:g}, "
+                f"got {interval!r}"
             )
         return self
 
