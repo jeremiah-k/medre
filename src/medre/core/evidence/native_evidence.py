@@ -17,12 +17,14 @@ Design constraints
   :class:`~medre.core.contracts.delivery.DeferredHandoffFailed` facts.
   Their semantics are unchanged; nothing here competes with the delivery
   feedback pipeline or the delivery-authority resolver.
-* **Core ledger authority** — the attempt identity (event, plan, adapter,
-  channel, outbox, attempt number) always comes from the core-issued
-  :class:`~medre.core.events.delivery.DeliveryAttemptProvenance` carried
-  by the wrapped fact.  A provider fact is authoritative only for the
-  provider-specific claim it can actually establish, and independent
-  recipient corroboration never changes a core generation.
+* **Core ledger authority for projections** — the attempt identity
+  (event, plan, adapter, channel, outbox, attempt number) comes from the
+  core-issued :class:`~medre.core.events.delivery.DeliveryAttemptProvenance`
+  of the wrapped fact.  Direct envelope construction and explicit
+  ``not_observed`` records instead consume caller-supplied identity fields;
+  neither path proves ledger binding.  A provider fact is authoritative
+  only for the provider-specific claim it can actually establish, and
+  independent recipient corroboration never changes a core generation.
 * **Identifiers only** — the envelope carries optional existing receipt
   and native-reference identifiers.  It has no field for error text,
   metadata, message text, or any secret-shaped value, so such values
@@ -42,8 +44,8 @@ Public symbols
   completed deferred hand-off.
 * :func:`native_evidence_from_deferred_failure` — project one deferred
   hand-off that terminated before transport hand-off.
-* :func:`native_evidence_not_observed` — record the explicit absence of
-  a provider observation for one attempt identity.
+* :func:`native_evidence_not_observed` — record that no provider fact is
+  available to the caller for one stated attempt identity.
 """
 
 from __future__ import annotations
@@ -94,7 +96,7 @@ provider submission was established.  ``definitively_not_submitted``
 means the observation establishes the send never became a standing
 provider submission.  ``unresolved`` means the observation does not
 establish either; it never becomes permission to resend.  ``not_observed``
-is the explicit record that no provider observation exists; it stays
+records that the constructing caller has no provider observation; it stays
 distinct as a fact and resolves to ``unresolved`` (absence of evidence
 never proves rejection).
 """
@@ -149,17 +151,25 @@ _DEFINITIVELY_NOT_SUBMITTED_SCOPES: frozenset[str] = frozenset(
     {"provider_acceptance", "native_handoff"}
 )
 
+#: The synthetic pipeline and SDK-contract tiers cannot establish a
+#: provider-side outcome or an independently observed recipient outcome.
+#: A confirmed pre-handoff failure may still describe the core seam at
+#: these tiers; it is not a provider-side negative observation.
+_TIERS_WITHOUT_NATIVE_ACCEPTANCE_PROOF: frozenset[str] = frozenset(
+    {"fake_pipeline", "sdk_contract"}
+)
+
 #: Domain tag inside the fingerprint statement so a durable fingerprint
 #: is never confused with a fingerprint from another vocabulary.
 _FINGERPRINT_DOMAIN = "medre.native_evidence_observation.v1"
 
 #: Result projection for post-handoff transport observation states.  The
-#: mapping is deliberately conservative: ``failed`` and ``cancelled`` do
-#: not establish what happened at the provider, so they project to
-#: ``unresolved`` rather than to a negative claim.
+#: mapping is deliberately conservative: ``rejected``, ``failed`` and
+#: ``cancelled`` are all post-handoff outcomes and cannot establish that
+#: the provider never accepted the submission.
 _POST_HANDOFF_RESULTS: dict[str, NativeEvidenceResult] = {
     "delivered": "accepted",
-    "rejected": "definitively_not_submitted",
+    "rejected": "unresolved",
     "failed": "unresolved",
     "cancelled": "unresolved",
 }
@@ -282,9 +292,9 @@ def _fingerprint(statement: dict[str, object]) -> str:
 class NativeEvidenceObservation:
     """One scoped native-evidence observation.
 
-    The envelope binds the core-authoritative attempt identity to a
-    bounded provider claim.  Identity, outbox, and generation fields are
-    consumed as stated by the caller; the projection functions take them
+    The envelope binds a stated attempt identity to a bounded provider
+    claim.  Identity, outbox, and generation fields are consumed as stated
+    by the caller; the projection functions take them
     exclusively from the core-issued provenance of the wrapped fact, so a
     provider payload can never re-state them.  Every field is validated at
     construction and construction fails closed on malformed input.
@@ -294,7 +304,8 @@ class NativeEvidenceObservation:
     could be read as execution authorization.
     """
 
-    # Core-authoritative attempt identity (a complete DeliveryIdentity).
+    # Complete attempt identity; projections take this from core provenance,
+    # while direct and absence-record construction consumes caller fields.
     event_id: str
     delivery_plan_id: str
     target_adapter: str
@@ -331,10 +342,10 @@ class NativeEvidenceObservation:
                 "target_channel must be a string or None; got "
                 f"{type(self.target_channel).__name__}"
             )
-        if self.target_channel == "":
+        if self.target_channel is not None and not self.target_channel.strip():
             raise ValueError(
-                "target_channel must be a nonempty channel string, or None "
-                "for the deliberate no-channel identity; the empty string "
+                "target_channel must be a nonblank channel string, or None "
+                "for the deliberate no-channel identity; a blank string "
                 "is not a channel decision"
             )
         _require_str(self.outbox_id, field_name="outbox_id")
@@ -389,6 +400,15 @@ class NativeEvidenceObservation:
                 "hand-off-boundary fact alone never establishes acceptance"
             )
         if (
+            self.result == "accepted"
+            and self.tier in _TIERS_WITHOUT_NATIVE_ACCEPTANCE_PROOF
+        ):
+            raise ValueError(
+                f"result='accepted' cannot be established at tier {self.tier!r}: "
+                "synthetic and SDK-contract facts cannot prove provider "
+                "acceptance or an independent recipient observation"
+            )
+        if (
             self.result == "definitively_not_submitted"
             and self.scope not in _DEFINITIVELY_NOT_SUBMITTED_SCOPES
         ):
@@ -397,6 +417,16 @@ class NativeEvidenceObservation:
                 "provider_acceptance or native_handoff scope; got "
                 f"{self.scope!r}: a recipient-side fact cannot establish "
                 "non-submission"
+            )
+        if (
+            self.result == "definitively_not_submitted"
+            and self.scope == "provider_acceptance"
+            and self.tier in _TIERS_WITHOUT_NATIVE_ACCEPTANCE_PROOF
+        ):
+            raise ValueError(
+                "result='definitively_not_submitted' at "
+                "provider_acceptance scope cannot be established at tier "
+                f"{self.tier!r}: a lower tier does not prove a provider refusal"
             )
 
         object.__setattr__(
@@ -570,9 +600,10 @@ def native_evidence_from_post_handoff(
     The post-handoff fact is provider-side transport evidence, so the
     scope is ``provider_acceptance``.  The result mapping produces the
     typed result without inventing facts: ``delivered`` establishes
-    acceptance, ``rejected`` establishes a definitive provider refusal,
-    and ``failed``/``cancelled`` do not establish what happened at the
-    provider, so they stay ``unresolved``.  Only the native message
+    acceptance at a qualifying evidence tier.  A subsequent ``rejected``,
+    ``failed`` or ``cancelled`` state cannot prove that the already-handed-off
+    submission was never accepted, so all three remain ``unresolved``.
+    Only the native message
     identifier is carried; the observation's error text and metadata are
     never projected.
     """
@@ -708,9 +739,10 @@ def native_evidence_not_observed(
 ) -> NativeEvidenceObservation:
     """Record the explicit absence of a provider observation.
 
-    The ``not_observed`` result is an observation fact in its own right:
-    it grounds itself in the fingerprint over the absence statement and
-    carries no identifiers, because none were observed.  It resolves to
+    The ``not_observed`` result records the absence of a provider fact
+    available to the caller, not a provider-wide negative search.  It
+    grounds itself in the fingerprint over that statement and carries
+    no identifiers, because none were observed.  It resolves to
     ``unresolved`` for remediation purposes and never proves rejection.
     """
     return NativeEvidenceObservation(

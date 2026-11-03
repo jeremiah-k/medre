@@ -194,6 +194,17 @@ this file once they land.
   (`docs/spec/native-evidence.md`). Additive: existing feedback and
   authority semantics are wrapped, not changed.
 
+- **465 — Native-evidence proof boundaries.** The typed native-evidence
+  envelope rejects provider-acceptance and recipient-acceptance claims
+  constructed at synthetic or SDK-contract tiers, and rejects definitive
+  provider non-submission claims from those tiers while preserving
+  separately scoped pre-handoff failure observations. A post-handoff
+  `rejected` state stays unresolved because a later rejection cannot
+  prove the provider never accepted an already-handed-off submission.
+  Direct construction and absence records carry caller-supplied identity
+  distinct from core-provenance-bound projections. The envelope remains
+  observation-only and never grants permission to resend.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal

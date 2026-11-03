@@ -21,7 +21,7 @@ same change that introduces the projection.
 Construction fails closed. Malformed input — an incomplete delivery
 identity, an empty-string channel, an unknown tier, scope, or result, a
 naive observation timestamp, an empty or whitespace-bearing identifier
-where a concrete value is required, or a result/scope pairing the
+where a concrete value is required, or a result/scope/tier pairing the
 taxonomy forbids — raises before an envelope exists.
 
 ## Envelope fields
@@ -46,14 +46,15 @@ fingerprints.
 
 ## Result taxonomy
 
-The result is a closed four-token vocabulary:
+The result is a closed four-token vocabulary. No result by itself
+establishes ledger binding or authorizes recovery:
 
 | Result | Meaning |
 | --- | --- |
 | `accepted` | The observation establishes the provider-specific claim that the send stood as a provider submission. |
 | `definitively_not_submitted` | The observation establishes the send never became a standing provider submission. |
 | `unresolved` | The observation establishes neither. It is a real result, not a gap to be filled by inference. |
-| `not_observed` | No provider observation exists for the attempt identity. It is an explicit observation fact with its own fingerprint over the absence statement, and it carries no identifiers. |
+| `not_observed` | No provider observation is available to the constructing caller for this attempt. It is an explicit absence-of-local-evidence statement with its own fingerprint and no identifiers, not proof of a provider-wide negative search. |
 
 The central rule of this contract: **`unresolved` never becomes
 permission to resend, and absence of evidence never proves rejection.**
@@ -76,13 +77,21 @@ polarity: an observation of a provider refusal is still
 | `provider_acceptance` | Facts about how the provider handled the submission. |
 | `recipient_observation` | Facts established by an independent recipient side. |
 
-Two result/scope pairings are forbidden and rejected at construction:
+Construction rejects result/scope and result/tier claims that exceed their
+proof boundary:
 
 - `accepted` at `native_handoff` scope — a hand-off-boundary fact alone
   never establishes acceptance, including under the strongest
   adapter-reported confirmation level;
 - `definitively_not_submitted` at `recipient_observation` scope — a
-  recipient-side fact cannot establish non-submission.
+  recipient-side fact cannot establish non-submission;
+- `accepted` at `fake_pipeline` or `sdk_contract` tier, in either provider
+  or recipient scope — these tiers cannot establish provider acceptance
+  or independent recipient observation;
+- `definitively_not_submitted` at `provider_acceptance` scope with either
+  of those two tiers — synthetic or SDK-contract evidence cannot establish
+  an actual provider refusal. A pre-handoff failure can still establish
+  a `native_handoff`-scoped negative at the boundary it exercised.
 
 ## Tier proof table
 
@@ -102,10 +111,13 @@ stands in for a higher one.
 ## Authority rules
 
 1. **The core delivery ledger is authoritative for attempt identity.**
-   The envelope's identity, outbox, and generation fields come from the
-   core-issued `DeliveryAttemptProvenance` of the wrapped fact. The
-   projection constructors accept no override, so a provider payload can
-   never re-state the attempt it claims to be about.
+   For the three wrapped-fact projections, identity, outbox, and generation
+   come from the core-issued `DeliveryAttemptProvenance`, and those
+   projection constructors accept no identity override. Direct
+   `NativeEvidenceObservation` construction and `native_evidence_not_observed`
+   take identity fields from the caller, because no wrapped provider fact
+   supplies them. These caller-supplied fields require independent ledger
+   verification before they are treated as authoritative attempt evidence.
 2. **A provider fact is authoritative only for the provider-specific
    claim it can actually establish.** The projections below are the
    complete mapping; no other claim may be derived from a wrapped fact.
@@ -117,17 +129,24 @@ stands in for a higher one.
 | Wrapped fact | Scope | Result |
 | --- | --- | --- |
 | `PostHandoffObservation` state `delivered` | `provider_acceptance` | `accepted` |
-| `PostHandoffObservation` state `rejected` | `provider_acceptance` | `definitively_not_submitted` |
+| `PostHandoffObservation` state `rejected` | `provider_acceptance` | `unresolved` |
 | `PostHandoffObservation` state `failed` or `cancelled` | `provider_acceptance` | `unresolved` |
 | `DeferredHandoffCompleted` (any confirmation level) | `native_handoff` | `unresolved` |
 | `DeferredHandoffFailed` (any outcome) | `native_handoff` | `definitively_not_submitted` |
 | No provider observation | caller-selected | `not_observed` |
 
-`failed` and `cancelled` post-handoff states do not establish what
-happened at the provider, so they project to `unresolved` rather than to
-a negative claim. A `DeferredHandoffFailed` fact's own contract is that
-the attempt terminated before transport hand-off, so every outcome
+`rejected`, `failed` and `cancelled` post-handoff states occur after
+successful transport hand-off. They cannot establish that the provider
+never accepted the submission, so they project to `unresolved` rather
+than to a definitive negative claim. A `DeferredHandoffFailed` fact's
+own contract establishes that the attempt terminated before transport
+hand-off, so every outcome
 projects to `definitively_not_submitted`.
+
+The `resolution` projection is a classification, not an authority grant.
+The tier, scope, attempt binding and actual observation basis remain
+necessary for any later reconciliation decision; reading `resolution`
+alone cannot establish proof or authorize any state change.
 
 ## Identifier discipline
 

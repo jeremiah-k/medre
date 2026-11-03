@@ -233,7 +233,7 @@ def test_stale_evidence_is_an_observation_never_a_permission() -> None:
     ("state", "expected_result"),
     [
         ("delivered", "accepted"),
-        ("rejected", "definitively_not_submitted"),
+        ("rejected", "unresolved"),
         ("failed", "unresolved"),
         ("cancelled", "unresolved"),
     ],
@@ -374,7 +374,6 @@ def test_not_observed_stays_unresolved_and_never_proves_rejection() -> None:
 
 def test_accepted_without_native_reference_stays_accepted() -> None:
     """A missing provider identifier never invents one or flips the result."""
-    envelope = _not_observed()
     observation = make_post_handoff_observation(
         event_id="event-1",
         adapter=_PROVIDER,
@@ -787,6 +786,113 @@ def test_not_observed_cannot_carry_identifiers() -> None:
             result="not_observed",
             native_message_id="$invented-1",
         )
+
+
+# ---------------------------------------------------------------------------
+# Evidence tier and post-handoff negative proof boundaries
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tier", ["fake_pipeline", "sdk_contract"])
+@pytest.mark.parametrize("scope", ["provider_acceptance", "recipient_observation"])
+def test_lower_tiers_cannot_claim_native_or_recipient_acceptance(
+    tier: NativeEvidenceTier, scope: NativeEvidenceScope
+) -> None:
+    """A synthetic or SDK-contract statement never claims observed acceptance."""
+    fields = _identity_kwargs()
+    fields.update(provider_repository=None, tier=tier, scope=scope, result="accepted")
+    with pytest.raises(ValueError, match="tier"):
+        NativeEvidenceObservation(**fields)
+
+
+@pytest.mark.parametrize("tier", ["fake_pipeline", "sdk_contract"])
+def test_lower_tiers_cannot_claim_provider_non_submission(
+    tier: NativeEvidenceTier,
+) -> None:
+    """A lower-tier provider refusal is not definitive negative proof."""
+    fields = _identity_kwargs()
+    fields.update(
+        provider_repository=None,
+        tier=tier,
+        scope="provider_acceptance",
+        result="definitively_not_submitted",
+    )
+    with pytest.raises(ValueError, match="tier"):
+        NativeEvidenceObservation(**fields)
+
+
+def test_wrapped_post_handoff_acceptance_respects_the_tier_gate() -> None:
+    """A provider callback cannot promote synthetic evidence by projection."""
+    for tier in ("fake_pipeline", "sdk_contract"):
+        with pytest.raises(ValueError, match="tier"):
+            _project_delivered(tier=tier)
+    assert _project_delivered(tier="local_integration").result == "accepted"
+
+
+def test_rejected_after_handoff_never_proves_non_submission() -> None:
+    """A post-handoff rejection cannot undo an earlier possible acceptance."""
+    observation = make_post_handoff_observation(
+        event_id="event-1",
+        adapter=_PROVIDER,
+        state="rejected",
+        attempt_provenance=make_attempt_provenance(
+            event_id="event-1",
+            target_adapter=_PROVIDER,
+            outbox_id="outbox-1",
+            attempt_number=1,
+            delivery_plan_id="plan-1",
+            target_channel="!room-1",
+        ),
+    )
+    envelope = native_evidence_from_post_handoff(
+        observation,
+        tier="local_integration",
+        provider=_PROVIDER,
+        compatibility_pin=_PIN,
+        observation_source=_SOURCE,
+        observed_at=_OBSERVED_AT,
+    )
+    assert envelope.result == "unresolved"
+    assert envelope.resolution == "unresolved"
+
+
+def test_lower_tiers_keep_the_boundary_between_no_fact_and_pre_handoff() -> None:
+    """Absence and pre-handoff refusal remain distinguishable core-seam facts."""
+    fields = _identity_kwargs()
+    fields["tier"] = "fake_pipeline"
+    absent = native_evidence_not_observed(**fields)
+    assert absent.resolution == "unresolved"
+    observation = make_deferred_failure(
+        event_id="event-1",
+        adapter=_PROVIDER,
+        outcome="cancelled",
+        attempt_provenance=make_attempt_provenance(
+            event_id="event-1",
+            target_adapter=_PROVIDER,
+            outbox_id="outbox-1",
+            attempt_number=1,
+            delivery_plan_id="plan-1",
+            target_channel="!room-1",
+        ),
+    )
+    handoff = native_evidence_from_deferred_failure(
+        observation,
+        tier="fake_pipeline",
+        provider=_PROVIDER,
+        compatibility_pin=_PIN,
+        observation_source=_SOURCE,
+        observed_at=_OBSERVED_AT,
+    )
+    assert handoff.scope == "native_handoff"
+    assert handoff.result == "definitively_not_submitted"
+
+
+def test_whitespace_only_channel_cannot_claim_a_distinct_target() -> None:
+    """A blank-looking channel is not a valid concrete destination."""
+    fields = _identity_kwargs()
+    fields["target_channel"] = "   "
+    with pytest.raises(ValueError, match="target_channel"):
+        native_evidence_not_observed(**fields)
 
 
 # ---------------------------------------------------------------------------
