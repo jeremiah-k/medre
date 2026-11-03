@@ -1,7 +1,11 @@
 # Content lifecycle and consumer retention
 
-Retention profiles, optional plugin holds and automatic expiry remain a
-proposed design, not an implemented configuration. The storage model they
+Retention profiles, optional plugin holds and general automatic expiry
+remain a proposed design, not an implemented configuration. The narrow
+implemented steps in that direction — opt-in relay-only collection (see the
+[privacy and message storage guide](../ops/message-storage.md)), the
+event-level content ceiling, and the default-off guarded retirement sweep —
+are described below. The storage model they
 extend is implemented: canonical body text and relation excerpts are stored
 separately from the immutable event envelope, mandatory content dependencies
 are acquired atomically at admission and outbox staging, then settle with
