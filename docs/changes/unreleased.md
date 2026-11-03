@@ -192,6 +192,16 @@ this file once they land.
   receipt artifacts. This qualifies local native behavior; core-authorized
   replay acceptance and wider-network/hardware evidence remain open.
 
+- **464 — Typed native-evidence contract.** An immutable envelope records
+  attempt identity, result, scope, tier, and selected identifiers with a stable
+  statement fingerprint. Existing feedback and delivery authority remain
+  unchanged; construction does not verify ledger binding or sanitize identifiers.
+
+- **465 — Native-evidence proof boundaries.** Synthetic/SDK-contract tiers
+  cannot claim provider or recipient acceptance or provider non-submission.
+  Post-handoff rejection stays unresolved, while a proven pre-handoff failure
+  remains separately scoped. No evidence result authorizes another send.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
