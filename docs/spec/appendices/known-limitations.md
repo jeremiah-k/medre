@@ -13,24 +13,37 @@ behaviour.
 
 ## Evidence provenance and scope
 
-This index was checked against the **2026-10-18 05:25** six-repository stack.
-These are repository-relative paths, not files in the MEDRE core checkout:
+Adapter-provenance claims in this index are checked against the **seven
+transport pins recorded in `.github/adapter-compatibility.json`** — that
+manifest is the pin authority — plus the MEDRE core revision that carries this
+appendix. These are repository-relative paths, not files in the MEDRE core
+checkout:
 
-| Repository                 | Inspected commit                           |
-| -------------------------- | ------------------------------------------ |
-| `medre`                    | `a63b31dbb250984011e5c475f554c03a933dbabf` |
-| `medre-adapter-matrix`     | `4dd48892b30bca8b8d1b271591a1e1c22a4e3577` |
-| `medre-adapter-meshtastic` | `f3925afb238e257ecd75d66e40041264edc67da8` |
-| `medre-adapter-meshcore`   | `b326a233bb3d51e4168f48713da6c73ad4868d76` |
-| `medre-adapter-lxmf`       | `24f8873e03c83dc9546b3e2216b10456afa14e0a` |
-| `medre-adapter-xmpp`       | `28aab6b5140d4f16bc3b2d39648344324cdd0980` |
+| Repository                   | Inspected commit                           |
+| ---------------------------- | ------------------------------------------ |
+| `medre`                      | `4a8f6c6d13ebb69c58a040913114183ee11c57dc` |
+| `medre-adapter-matrix`       | `7ba5ae7faef9ba53bdd55c54f6c7392b4eba2b69` |
+| `medre-adapter-meshtastic`   | `0a48de78012e71e8129c8ed30899b6e495062d62` |
+| `medre-adapter-meshcore`     | `fc24ce4637ebc6c09c4c5d74bc2bc357d14a95f0` |
+| `medre-adapter-lxmf`         | `39872c0a2a7d0f3528e3035a8f40b40158c4c2ba` |
+| `medre-adapter-xmpp`         | `fc4674a6b92c7d46165318f66f4d1693f7a535ed` |
+| `medre-adapter-chatmail`     | `a5cfdca7e5f8b0db48bdbc412cfe1ccdacc798f5` |
+| `medre-adapter-simplexchat`  | `33638d4c4e051d478ea00971385b6565bd0a06a1` |
+
+Native SDK pins are declared by each provider's own package metadata at the
+inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,
+`slixmpp`, `deltachat-rpc-client` with `deltachat-rpc-server`,
+`simplex-chat`); that metadata is the version authority, so claims below name
+the SDK package rather than repeat its pin.
 
 Core-owned test references use `tests/...`; provider-owned references name the
 repository explicitly. A **test path records where a claim is exercised**, not
-proof it passed on these five commits. Historical pass counts and hardware
+proof it passed on these commits. Historical pass counts and hardware
 observations below are dated evidence, _not_ an automatic current-tree native
 qualification. Re-run the relevant opt-in tiers with the exact provider pins
-and record environment, SDK revisions, and raw evidence for a new claim.
+and record environment, SDK revisions, and raw evidence for a new claim. Where
+a claim cannot be verified from the pinned provider repositories alone, the
+entry says so explicitly.
 
 ## 1. Meshtastic → Matrix Live Inbound Evidence
 
@@ -82,7 +95,13 @@ paper-specific entry.
   eight-name map (`GENERATING`, `OUTBOUND`, `SENDING`, `SENT`,
   `DELIVERED`, `FAILED`, `REJECTED`, `CANCELLED`), the state mapping
   returns `UNMAPPED`. Paper-mode state reports fall in this gap by
-  design — paper-mode is a delivery method, not a delivery state.
+  design: the pinned SDK's `LXMessage.PAPER` (`0x05`) is a delivery
+  METHOD constant that `__mark_paper_generated` assigns to `state`, and
+  because it is not in `LXMessage.states` the provider deliberately maps
+  it to `UNMAPPED` (see the state-map note in
+  `medre-adapter-lxmf/src/medre/adapters/lxmf/session.py`). Paper mode
+  is a config-selectable default delivery method in the provider's
+  configuration model; it is not a delivery state.
 - **Direction:** When paper-mode delivery adds its own state reporting,
   the state map must be extended. Until then, paper-mode delivery is
   distinguished only at the method level (see
@@ -107,17 +126,24 @@ upstream mmrelay in four known ways:
    vocabulary.
 
 3. **Reaction body byte-format differences vs upstream MMR.** MEDRE
-   emits the mmrelay reaction body with the local encoding. The
-   byte-for-byte reaction payload may differ from upstream mmrelay;
-   consumers must accept the MEDRE shape rather than expect identical
-   bytes.
+   emits the mmrelay reaction body with the local encoding
+   (`medre-adapter-matrix/src/medre/adapters/matrix/codec.py`,
+   `_mmrelay_reaction`, including the `meshtastic_reaction_key`
+   compatibility handling). The byte-for-byte reaction payload may
+   differ from upstream mmrelay; consumers must accept the MEDRE shape
+   rather than expect identical bytes.
 
 4. **Hardcoded `TEXT_MESSAGE_APP` portnum in mmrelay-compat Matrix
    metadata.** The Matrix adapter embeds a hardcoded
    `"TEXT_MESSAGE_APP"` port number in the mmrelay-compatibility
-   metadata. See `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py` (`embed_*`)
-   for the injection site. Multi-portnum or non-text packet types are
-   not currently exposed through this metadata block.
+   metadata. See `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py`
+   (`_inject_mmrelay_metadata` assigns `KEY_PORTNUM = PORTNUM_TEXT`) for
+   the injection site; the wire key names live in the core-owned
+   `medre.interop.mmrelay` module. Multi-portnum or non-text packet
+   types are not currently exposed through this metadata block. The
+   Meshtastic provider's `mmrelay_compatibility` flag independently
+   adds the legacy `meshtastic_*` Matrix content fields
+   (`medre-adapter-matrix` README at the inspected pin).
 
 - **Source tests:** `tests/test_matrix_reaction_mmrelay.py` and the
   `tests/conformance/fixtures/meshtastic/*.json` fixtures, which
@@ -132,28 +158,39 @@ upstream mmrelay in four known ways:
 
 `LxmfAdapter.health_check()` reports local session/router liveness —
 `healthy` only while the adapter is started and the owned session
-reports its router running and connected, `failed` when that local
-session is missing or torn down, `unknown` when not started. It is not
-a peer-reachability claim: the pinned LXMF/RNS SDKs expose no supported
-peer-liveness API, and MEDRE never probes merely to answer health, so
-`diagnostics()` reports `peer_reachability="unknown"` explicitly and
-separately (`health_scope="local_session_and_router"`). Reticulum also
-exposes no transport-down event, so a silently lost transport is first
-noticed on the next outbound send. Operators MUST NOT read `healthy`
-as peer reachability.
+reports its router running and connected, `degraded` while a worker
+status probe is delayed (recovered native status returns it to
+`healthy`), `failed` when that local session is missing or torn down,
+`unknown` when not started. It is not a peer-reachability claim: the
+pinned LXMF/RNS SDKs expose no supported peer-liveness API, and MEDRE
+never probes merely to answer health, so `diagnostics()` reports
+`peer_reachability="unknown"` explicitly and separately
+(`health_scope="local_session_and_router"`). Reticulum also exposes no
+transport-down event, so a silently lost transport is first noticed on
+the next outbound send. Operators MUST NOT read `healthy` as peer
+reachability.
 
-- **Source:** `medre-adapter-lxmf/src/medre/adapters/lxmf/adapter.py::health_check`;
-  `medre-adapter-lxmf/tests/test_lxmf_health_lifecycle.py`.
+- **Source:** `medre-adapter-lxmf/src/medre/adapters/lxmf/adapter.py::health_check`
+  and `docs/spec/native-worker.md` ("Native health notifications") at the
+  inspected pin; `medre-adapter-lxmf/tests/test_lxmf_health_lifecycle.py`.
 
-### 5.2 MeshCore and Matrix expose no outbound queue evidence
+### 5.2 Only Meshtastic exposes outbound queue evidence
 
-The outbound-queue diagnostic keys (`queue_pending`, `queue_total_sent`,
-`queue_total_failed`) exist only on the Meshtastic adapter. MeshCore and
-Matrix diagnostics have no equivalent queue-depth surface.
+The outbound-queue diagnostic keys — `queue_pending` plus the
+`queue_total_*` family (`sent`, `failed`, `enqueued`, `dequeued`,
+`rejected`, `requeued`, `exhausted`, `permanent_failed`) and the
+`queue_pressure_state`/`queue_utilization_pct` health fields — exist
+only on the Meshtastic adapter. Matrix, MeshCore, XMPP, Chatmail, and
+SimpleX Chat diagnostics expose no equivalent queue-depth surface at
+their pins (Chatmail and SimpleX Chat do keep bounded native/local
+queues; their diagnostics report other operational counters).
 
 - **Source:** `medre-adapter-meshtastic/src/medre/adapters/meshtastic/adapter.py`
-  (keys present); `medre-adapter-matrix/src/medre/adapters/matrix/adapter.py`
-  and `medre-adapter-meshcore/src/medre/adapters/meshcore/adapter.py`
+  (keys present); `medre-adapter-matrix/src/medre/adapters/matrix/adapter.py`,
+  `medre-adapter-meshcore/src/medre/adapters/meshcore/adapter.py`,
+  `medre-adapter-xmpp/src/medre/adapters/xmpp/adapter.py`,
+  `medre-adapter-chatmail/src/medre/adapters/chatmail/adapter.py`, and
+  `medre-adapter-simplexchat/src/medre/adapters/simplexchat/adapter.py`
   (the corresponding diagnostics do not expose those queue keys).
 
 ## 6. LXMF Envelope Relation Fidelity
@@ -161,19 +198,24 @@ Matrix diagnostics have no equivalent queue-depth surface.
 Inbound LXMF relations are reconstructed at decode time from the `0xFD`
 (`FIELD_CUSTOM_META`) management-envelope fields via
 `_reconstruct_relations`. A reproducible, fully local two-instance
-regression harness now covers relation preservation across a real
+regression harness covers relation preservation across a real
 pinned-SDK hop: instance A renders a relation-bearing event through
 `LxmfRenderer` and its real `LxmfAdapter`, and distinct process B
 decodes through the real inbound adapter/codec path over a loopback
 Reticulum `UDPInterface` pair
-(`medre-adapter-lxmf/tests/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`).
-That harness passed on the declared pinned SDKs in a locked disposable venv
-at the 2026-09-18 gate: 3/3 local-integration tests were green, and
+(`medre-adapter-lxmf/tests/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`,
+marked `local_integration` + `lxmf_sdk` at the inspected pin). That
+harness is part of the provider's local-integration tier, which core's
+required local-integration job runs against the pinned adapter
+revision (`medre-adapter-lxmf` README at the inspected pin; the
+compatibility manifest marks LXMF `local_integration: true`). A dated
+pass exists from the 2026-09-18 gate: 3/3 local-integration tests were
+green in a locked disposable venv on the then-declared pinned SDKs, and
 the provider-owned
 `medre-adapter-lxmf/tests/medre_lxmf_tests/helpers/lxmf_local_probe.py`
-probe
-exited 0 with every verdict true and the runtime-resolved SDK versions recorded
-in the result payload. The passing run is still
+probe exited 0 with every verdict true and the runtime-resolved SDK
+versions recorded in the result payload; that run remains dated
+evidence, not a current-tree proof. Any passing run is still
 local-SDK loopback evidence only: external interoperability (real
 multi-hop meshes, other MEDRE deployments, live hardware) remains
 unproven, and no live-network or hardware bridge proof is claimed from

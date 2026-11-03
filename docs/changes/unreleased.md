@@ -7,6 +7,13 @@ consolidates the numbered-fragment era (150–185). Record new in-flight changes
 as numbered fragments under `docs/changes/unreleased/`; consolidate them into
 this file once they land.
 
+## Recent changes
+
+- **454 — Adapter limitations provenance.** Refresh the limitation indexes
+  against all seven pinned transports, including XMPP, Chatmail, and SimpleX
+  Chat. Correct source-verifiable behavior and retain explicit evidence ages
+  and qualification gaps for native, live-service, and hardware claims.
+
 ---
 
 ## Breaking Changes
