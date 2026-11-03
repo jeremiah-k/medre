@@ -32,8 +32,9 @@ SQLite cannot `ALTER` a `CHECK`, so the rebuild renames the legacy rows
 aside, recreates the table from the declared DDL, copies every row with an
 explicit column list, drops the legacy table, and recreates its index — all
 inside the same `BEGIN IMMEDIATE` transaction as the other additive steps,
-with preserved row counts and a clean `PRAGMA foreign_key_check` asserted
-before commit. No table references `operator_delivery_decisions`, so no
+with preserved row counts and a clean
+`PRAGMA foreign_key_check(operator_delivery_decisions)` asserted for the
+rebuilt table before commit. No table references `operator_delivery_decisions`, so no
 foreign-key rewriting is required. The predecessor definition is derived
 from the authoritative DDL, never hand-written, and must match the stored
 catalog byte for byte; any other layout difference still refuses to start.

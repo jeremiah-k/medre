@@ -1941,7 +1941,9 @@ partial index and the widened `operator_delivery_decisions` action-vocabulary
 `CHECK`. A widening cannot be `ALTER`ed in place: it is applied by a guarded
 table rebuild that recreates the table from the declared DDL, copies the
 legacy rows with an explicit column list, and asserts preserved row counts
-and a clean `PRAGMA foreign_key_check` before commit. This does not authorize
+and a clean `PRAGMA foreign_key_check(operator_delivery_decisions)` for
+that rebuilt table before commit. Unrelated pre-existing foreign-key
+violations are not attributed to this localized migration. This does not authorize
 renames, constraint narrowing, data backfills, or general legacy schema
 transformations. The `initialize()` method **MUST** validate the old catalog
 against one exact allowlisted predecessor before any DDL and validate the

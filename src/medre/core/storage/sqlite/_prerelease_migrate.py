@@ -130,9 +130,10 @@ def rebuild_operator_delivery_decisions(db: sqlite3.Connection) -> None:
     ``delivery_outbox``.
 
     Raises :class:`StorageInitializationError` when the rebuilt row count
-    differs from the original or ``PRAGMA foreign_key_check`` reports any
-    violation.  The caller's transaction then rolls back and the database
-    is left unchanged.
+    differs from the original or the scoped
+    ``PRAGMA foreign_key_check(operator_delivery_decisions)`` reports a
+    violation. The caller rolls back the transaction, leaving the database
+    unchanged.
     """
     if not operator_decision_rebuild_applies(db):
         return
@@ -161,7 +162,7 @@ def rebuild_operator_delivery_decisions(db: sqlite3.Connection) -> None:
             f"changed the operator decision row count: {before} before, "
             f"{after} after; the rebuild was rolled back."
         )
-    violations = db.execute("PRAGMA foreign_key_check").fetchall()
+    violations = db.execute(f"PRAGMA foreign_key_check({_DECISION_TABLE})").fetchall()
     if violations:
         raise StorageInitializationError(
             f"Pre-release migration '{_WIDEN_DECISION_ACTIONS_STEP}' left "

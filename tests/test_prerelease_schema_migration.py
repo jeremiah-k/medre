@@ -15,7 +15,10 @@ from pathlib import Path
 
 import pytest
 
-from medre.core.storage.backend import PreReleaseSchemaConstraintMismatchError
+from medre.core.storage.backend import (
+    PreReleaseSchemaConstraintMismatchError,
+    StorageInitializationError,
+)
 import medre.core.storage.sqlite._prerelease_migrate as _prerelease_migrate
 from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
@@ -439,3 +442,102 @@ async def test_drift_window_objects_exist_after_migration(tmp_path: Path) -> Non
         raw.close()
     assert actions == ["cancel_unstarted", "resolve_uncertain"]
     _assert_foreign_keys_clean(db_path)
+
+
+async def test_readonly_known_additive_layout_requires_writable_migration(
+    tmp_path: Path,
+) -> None:
+    """Inspection refuses a legacy layout without suggesting evidence deletion."""
+    db_path = _create_old_shape_db(tmp_path / "readonly-legacy.sqlite")
+    event_id = _populate_delivery_history(db_path, decisions=1)
+    before = _catalog(db_path)
+    with pytest.raises(StorageInitializationError) as exc_info:
+        await SQLiteStorage.open_readonly(str(db_path))
+    message = str(exc_info.value)
+    assert "recognized additive" in message
+    assert "writable" in message
+    assert "instead of resetting" in message
+    assert _catalog(db_path) == before
+
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+    finally:
+        await storage.close()
+    reader = await SQLiteStorage.open_readonly(str(db_path))
+    try:
+        assert len(await reader.list_operator_decisions(event_id)) == 1
+    finally:
+        await reader.close()
+
+
+def test_rebuild_scopes_foreign_key_check_to_rebuilt_table(tmp_path: Path) -> None:
+    """An unrelated pre-existing orphan is not caused by a local rebuild."""
+    db_path = _create_old_shape_db(tmp_path / "unrelated-fk.sqlite")
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute(
+            "INSERT INTO delivery_outbox (outbox_id, event_id, delivery_plan_id,"
+            " target_adapter, created_at, updated_at)"
+            " VALUES ('unrelated-orphan', 'missing-event', 'plan-1',"
+            " 'test-adapter', '2026-01-01T00:00:00+00:00',"
+            " '2026-01-01T00:00:00+00:00')"
+        )
+        raw.commit()
+        assert raw.execute("PRAGMA foreign_key_check").fetchall()
+        raw.execute("BEGIN IMMEDIATE")
+        _prerelease_migrate.rebuild_operator_delivery_decisions(raw)
+        raw.commit()
+        assert (
+            raw.execute(
+                "PRAGMA foreign_key_check(operator_delivery_decisions)"
+            ).fetchall()
+            == []
+        )
+        assert raw.execute("PRAGMA foreign_key_check").fetchall()
+    finally:
+        raw.close()
+    assert (
+        _catalog(db_path)[("table", "operator_delivery_decisions")]
+        == known_decision_table_forms().current
+    )
+
+
+def test_rebuild_foreign_key_failure_rolls_back_legacy_rows(tmp_path: Path) -> None:
+    """An orphan in the rebuilt table leaves the old catalog and rows intact."""
+    db_path = _create_old_shape_db(tmp_path / "decision-orphan.sqlite")
+    _populate_delivery_history(db_path, decisions=1)
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute(
+            "UPDATE operator_delivery_decisions SET event_id='missing-event' "
+            "WHERE decision_id='decision-0000'"
+        )
+        raw.commit()
+        before_sql = raw.execute(
+            "SELECT sql FROM sqlite_master WHERE name='operator_delivery_decisions'"
+        ).fetchone()[0]
+        before_rows = raw.execute(
+            "SELECT * FROM operator_delivery_decisions"
+        ).fetchall()
+        raw.execute("BEGIN IMMEDIATE")
+        with pytest.raises(StorageInitializationError, match="foreign-key violation"):
+            _prerelease_migrate.rebuild_operator_delivery_decisions(raw)
+        raw.rollback()
+        after_sql = raw.execute(
+            "SELECT sql FROM sqlite_master WHERE name='operator_delivery_decisions'"
+        ).fetchone()[0]
+        assert after_sql == before_sql
+        assert (
+            raw.execute("SELECT * FROM operator_delivery_decisions").fetchall()
+            == before_rows
+        )
+        assert (
+            raw.execute(
+                "SELECT name FROM sqlite_master WHERE name=?",
+                (_prerelease_migrate._LEGACY_DECISION_TABLE,),
+            ).fetchone()
+            is None
+        )
+    finally:
+        raw.close()

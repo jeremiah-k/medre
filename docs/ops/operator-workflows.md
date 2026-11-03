@@ -58,7 +58,20 @@ such a database must be reset manually.
 
 ### How to tell if your database is stale
 
-Run `medre storage status --storage-path <path>` to check the database path and schema state. Use `medre paths` to discover the resolved state directory, then pass `{state}/medre.sqlite` as the storage path. If the database needs a change outside the additive migration policy, the command reports which tables have missing columns.
+Run `medre storage status --storage-path <path>` to check the database
+path, schema version, and required columns. Use `medre paths` to discover
+the resolved state directory, then pass `{state}/medre.sqlite` as the storage
+path. **A healthy storage status is not a complete schema-catalog check**:
+CHECK constraints, foreign-key definitions, and index identities are validated
+at storage open, not fully by this command. A database can therefore report
+healthy status and still be refused by strict startup validation.
+
+If inspection refuses a recognized additive predecessor (including the older
+operator-decision CHECK), **do not reset the database on that message**. Stop
+all other MEDRE database users, preserve a backup if state matters, then
+perform one normal writable MEDRE startup to apply the allowlisted atomic
+migration. Read-only inspection cannot run that migration. Other, unsupported
+layouts require a deliberate recovery or reset decision.
 
 Alternatively, if MEDRE fails to start with an error like:
 

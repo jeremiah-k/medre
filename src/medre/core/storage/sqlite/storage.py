@@ -90,7 +90,10 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
 )
-from medre.core.storage.sqlite.schema_validation import validate_schema_definition
+from medre.core.storage.sqlite.schema_validation import (
+    safe_additive_state,
+    validate_schema_definition,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -413,6 +416,28 @@ class _SQLiteStorageBase:
             await instance._open_connection(sync_open_readonly)
             # Validate metadata and shape without writing anything.
             await instance._verify_schema_version_readonly()
+            # A read-only handle cannot run an otherwise safe additive update.
+            # Diagnose an exact allowlisted predecessor before the strict
+            # constraints check suggests discarding preservable evidence.
+            if await instance._run_in_thread(
+                safe_additive_state, instance._require_db()
+            ):
+                try:
+                    await instance._run_in_thread(
+                        validate_schema_definition, instance._require_db(), db_path
+                    )
+                except (
+                    PreReleaseSchemaMismatchError,
+                    PreReleaseSchemaConstraintMismatchError,
+                ) as exc:
+                    raise StorageInitializationError(
+                        "This database has a recognized additive pre-release "
+                        "layout update, but a read-only inspection cannot "
+                        "apply it. Stop other MEDRE database users and start "
+                        "MEDRE once with a normal writable storage open to "
+                        "perform the guarded migration; preserve the database "
+                        "and its pending delivery evidence instead of resetting it."
+                    ) from exc
             await instance._validate_schema_shape()
             await instance._validate_schema_foreign_keys()
             await instance._validate_schema_unique_constraints()
