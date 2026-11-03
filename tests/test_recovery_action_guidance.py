@@ -485,3 +485,58 @@ async def test_retry_wait_does_not_emit_best_effort_warning(temp_storage, sample
         "replay" not in shlex.split(command)
         for command in runbook["recommended_commands"]
     )
+
+
+async def test_channel_scoped_preview_names_the_exact_target_replay_flag(
+    temp_storage, sample_event
+):
+    """The adapter/route warning stays; the exact-target flag is named too."""
+    from datetime import datetime, timezone
+
+    await temp_storage.append(sample_event)
+    row = DeliveryOutboxItem(
+        outbox_id="channeled",
+        event_id=sample_event.event_id,
+        delivery_plan_id="plan",
+        route_id="route",
+        target_adapter="destination",
+        target_channel="!room:example.org",
+    )
+    await temp_storage.create_outbox_item(row)
+    claimed = await temp_storage.claim_due_outbox_items(
+        now=datetime.now(timezone.utc).isoformat(),
+        worker_id="guidance-test",
+        lease_seconds=30,
+        limit=1,
+    )
+    assert len(claimed) == 1
+    receipt = DeliveryReceipt(
+        receipt_id="failed-attempt",
+        receipt_kind="attempt",
+        event_id=sample_event.event_id,
+        delivery_plan_id="plan",
+        outbox_id="channeled",
+        target_adapter="destination",
+        target_channel="!room:example.org",
+        status="failed",
+        failure_kind="retry_exhausted",
+    )
+    await temp_storage.append_receipt(receipt)
+    assert await temp_storage.mark_outbox_dead_lettered(
+        "channeled", receipt_id="failed-attempt", failure_kind="retry_exhausted"
+    )
+    runbook = await _build_event_recovery_runbook(
+        temp_storage, sample_event.event_id, storage_path="fixture.sqlite"
+    )
+    warnings = runbook["warnings"]
+    assert any(
+        warning.startswith(
+            "Replay filters select adapters and routes, not individual channels."
+        )
+        for warning in warnings
+    )
+    assert any(
+        "--exact-target EVENT:PLAN:ADAPTER:CHANNEL" in warning
+        and "--exact-no-channel EVENT:PLAN:ADAPTER" in warning
+        for warning in warnings
+    )

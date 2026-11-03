@@ -762,6 +762,30 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         metavar="RUN_ID",
         help="Operator-assigned identifier for this replay execution",
     )
+    replay_p.add_argument(
+        "--exact-target",
+        action="append",
+        default=None,
+        metavar="EVENT:PLAN:ADAPTER[:CHANNEL]",
+        help=(
+            "Restrict delivery admission to one exact target (repeatable). "
+            "Three components name the no-channel identity; a fourth names "
+            "the channel. An empty channel component is rejected. "
+            "In dry_run, selection is not evaluated; only best_effort "
+            "checks exact-target admission"
+        ),
+    )
+    replay_p.add_argument(
+        "--exact-no-channel",
+        action="append",
+        default=None,
+        metavar="EVENT:PLAN:ADAPTER",
+        help=(
+            "Restrict delivery admission to the exact no-channel identity "
+            "(repeatable); the explicit spelling of the three-component "
+            "--exact-target form"
+        ),
+    )
 
     # recover
     recover_p = sub.add_parser(
@@ -862,6 +886,15 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     resolve_p.add_argument("--actor-label", default=None)
     resolve_p.add_argument(
         "--yes", action="store_true", help="Confirm the exact cancellation"
+    )
+    resolve_p.add_argument(
+        "--action",
+        default=None,
+        choices=("resume_scheduled", "resolve_uncertain"),
+        help=(
+            "Record an audited exact-target decision (preview/apply) instead"
+            " of an unstarted cancellation"
+        ),
     )
 
     # storage (with sub-subcommands)
@@ -1338,6 +1371,8 @@ def main(argv: list[str] | None = None) -> None:
                 route_ids=args.route_ids,
                 limit=args.limit,
                 run_id=args.run_id or "",
+                exact_targets=args.exact_target,
+                exact_no_channel=args.exact_no_channel,
             )
         )
     elif args.command == "recover":

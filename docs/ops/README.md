@@ -23,6 +23,7 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Inspect message evidence or collect diagnostics                | [Operator workflows](operator-workflows.md) and [diagnostics](diagnostics-and-evidence.md)                                                |
 | Inspect exact cancellation audit evidence                      | [Operator decisions](operator-decisions.md)                                                                                               |
 | Cancel one unstarted destination locally                       | [Exact cancellation](exact-cancellation.md)                                                                                               |
+| Record a resume/resolve decision on one exact target           | [Exact-target decisions](exact-target-decisions.md)                                                                                       |
 | Investigate pending sends or replay safely                     | [Recovery and replay](recovery-and-replay.md)                                                                                             |
 | Capture or restore stopped state coherently                    | [Stopped-state snapshots](stopped-state-snapshots.md) and [mixed-installation qualification](mixed-installation-restore-qualification.md) |
 | Derive a stopped-state inventory from provider declarations    | [Provider stopped-state declarations](stopped-state-provider-inventory.md)                                                                |

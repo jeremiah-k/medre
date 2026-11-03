@@ -40,6 +40,11 @@ Read back the durable record with `medre inspect decisions --event EVENT
 Only the storage transaction can authorize cancellation; preview output and
 fingerprints never grant write authority.
 
+The sibling `--action` mode of the same command records an audited
+`resume_scheduled`/`resolve_uncertain` decision over an observed target
+without touching the outbox row; see
+[Exact-target decisions](exact-target-decisions.md).
+
 **Limitations:** This is a first-release local OS owner boundary, not a remote
 multiuser RBAC service. It cannot clear a reserved/uncertain native attempt,
 advance retries, cancel whole events, or infer recipient non-delivery. Backup
