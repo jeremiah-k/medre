@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, Literal
 
 from medre.core.storage.backend import StorageError
 from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
+from medre.core.storage.dispatch_bound import EffectiveDispatchBound
 from medre.core.storage.read_contracts import (
     AuthorizedEventRead,
     ContentBodyRead,
     ReplyContextRead,
 )
 from medre.core.storage.sqlite._content_identity import (
-    _utc_microseconds,
     frozen_plan_deadline,
 )
 from medre.core.storage.sqlite._projections import (
@@ -627,53 +627,124 @@ def _native_submission_authorized(
     return _outbox_content_authority(db, event_id, outbox_id, observed)
 
 
-def _effective_deadline_elapsed(
-    db: sqlite3.Connection, event_id: str, outbox_id: str, observed: str
-) -> bool:
-    """Refuse a native start past the earlier-of effective deadline.
+def _parse_bound_instant(value: str) -> datetime:
+    """Parse an authoritative bound into an aware UTC instant.
 
-    The effective deadline is the earlier of the immutable event ceiling and
-    the frozen delivery-plan deadline riding the row's dispatch snapshot.
-    The adopted target dependency already carries the adoption-time minimum,
-    but a replay generation adopts no dependency and dispatches on the
-    admission hold, so the plan leg needs its own check here. A frozen plan
-    deadline that is present but malformed refuses the submission rather
-    than being treated as an absent bound. With no bound installed the
-    fence stays dormant, exactly like the adoption fence.
+    Naive or unparseable bound text raises ``ValueError``: a present but
+    malformed bound refuses the submission rather than being treated as an
+    absent bound.
     """
-    bounds: list[str] = []
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Effective deadline bounds must be timezone-aware")
+    return parsed.astimezone(timezone.utc)
+
+
+def _effective_dispatch_bounds(
+    db: sqlite3.Connection, event_id: str, outbox_id: str
+) -> tuple[EffectiveDispatchBound, ...]:
+    """Derive the typed bounds for one native dispatch start.
+
+    This is the same derivation the native-start fence enforces: the
+    immutable event ceiling, the frozen delivery-plan deadline riding the
+    row's dispatch snapshot (falling back to historical inline metadata),
+    and the adopted target dependency deadline. A present but malformed
+    bound raises ``ValueError`` so callers refuse the submission rather
+    than treat it as an absent bound. With no bound installed the
+    dispatch-start fence stays dormant, exactly like the adoption fence.
+    """
+    bounds: list[EffectiveDispatchBound] = []
     ceiling = db.execute(
         "SELECT hard_ceiling FROM event_content_access_policies WHERE event_id=?",
         (event_id,),
     ).fetchone()
     if ceiling is not None and ceiling[0] is not None:
-        try:
-            bounds.append(_utc_microseconds(str(ceiling[0]), "Event ceiling"))
-        except ValueError:
-            return True
+        bounds.append(
+            EffectiveDispatchBound(
+                _parse_bound_instant(str(ceiling[0])),
+                "event_content_ceiling",
+            )
+        )
     snapshot = db.execute(
         "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
         (outbox_id,),
     ).fetchone()
+    if snapshot is not None:
+        context = json.loads(str(snapshot[0]))
+    else:
+        # Existing inline-context rows have no snapshot; their frozen
+        # plan deadline remains authoritative for native submission.
+        inline = db.execute(
+            "SELECT metadata FROM delivery_outbox WHERE outbox_id=?",
+            (outbox_id,),
+        ).fetchone()
+        context = json.loads(str(inline[0])) if inline is not None else {}
+    frozen = frozen_plan_deadline(context)
+    if frozen is not None:
+        bounds.append(
+            EffectiveDispatchBound(
+                _parse_bound_instant(frozen),
+                "frozen_plan_deadline",
+            )
+        )
+    dependency = db.execute(
+        "SELECT deadline FROM event_content_dependencies WHERE event_id=? "
+        "AND owner_kind='outbox' AND owner_id=? AND released_at IS NULL LIMIT 1",
+        (event_id, outbox_id),
+    ).fetchone()
+    if dependency is not None and dependency[0] is not None:
+        bounds.append(
+            EffectiveDispatchBound(
+                _parse_bound_instant(str(dependency[0])),
+                "adopted_target_dependency_deadline",
+            )
+        )
+    return tuple(bounds)
+
+
+def sync_observe_effective_dispatch_bound(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    event_id: str,
+    outbox_id: str,
+) -> EffectiveDispatchBound | None:
+    """Return the earliest applicable dispatch-start bound, read-only.
+
+    The typed bound is derived from the same storage-authoritative rows the
+    native-submission fence checks. The observation performs no expiry write
+    and grants no authority; the native-start fence still rechecks the exact
+    worker, attempt, lease and live content dependency inside its own
+    transaction. ``None`` means no bound is installed and the dispatch-start
+    fence stays dormant.
+    """
+    with lock:
+        bounds = _effective_dispatch_bounds(db, event_id, outbox_id)
+    if not bounds:
+        return None
+    return min(bounds, key=lambda bound: bound.deadline)
+
+
+def _effective_deadline_elapsed(
+    db: sqlite3.Connection, event_id: str, outbox_id: str, observed: str
+) -> bool:
+    """Refuse a native start past the earlier-of effective deadline.
+
+    The effective deadline is the earliest of the immutable event ceiling,
+    the frozen delivery-plan deadline riding the row's dispatch snapshot,
+    and the adopted target dependency deadline; a replay generation adopts
+    no dependency and dispatches on the admission hold, so the plan leg
+    needs its own check here. A present but malformed bound refuses the
+    submission rather than being treated as an absent bound. With no bound
+    installed the fence stays dormant, exactly like the adoption fence.
+    """
     try:
-        if snapshot is not None:
-            context = json.loads(str(snapshot[0]))
-        else:
-            # Existing inline-context rows have no snapshot; their frozen
-            # plan deadline remains authoritative for native submission.
-            inline = db.execute(
-                "SELECT metadata FROM delivery_outbox WHERE outbox_id=?",
-                (outbox_id,),
-            ).fetchone()
-            context = json.loads(str(inline[0])) if inline is not None else {}
-        frozen = frozen_plan_deadline(context)
-        if frozen is not None:
-            bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
+        bounds = _effective_dispatch_bounds(db, event_id, outbox_id)
+        observed_instant = datetime.fromisoformat(observed)
     except (ValueError, TypeError):
         return True
     if not bounds:
         return False
-    return any(bound <= observed for bound in bounds)
+    return any(bound.deadline <= observed_instant for bound in bounds)
 
 
 class _ContentGrantsMixin:
@@ -798,6 +869,33 @@ class _ContentGrantsMixin:
             worker_id,
             attempt_number,
             now,
+        )
+
+    async def observe_effective_dispatch_bound(
+        self, event_id: str, outbox_id: str
+    ) -> EffectiveDispatchBound | None:
+        """Observe the earliest applicable dispatch-start bound, read-only.
+
+        The typed value is derived from the same storage-authoritative rows
+        the native-start fence checks: the immutable event ceiling, the
+        frozen plan deadline riding the row's dispatch snapshot, and the
+        adopted target dependency deadline. This is a metadata observation,
+        not an authorization; callers still fence the native start through
+        :meth:`authorize_native_submission`. ``None`` means no bound is
+        installed and the dispatch-start fence stays dormant. A present but
+        malformed bound raises rather than being treated as an absent bound.
+        """
+        if (
+            not isinstance(event_id, str)
+            or not event_id
+            or not isinstance(outbox_id, str)
+            or not outbox_id
+        ):
+            raise ValueError("An event and outbox identity are required")
+        return await self._run_grant_op(
+            sync_observe_effective_dispatch_bound,
+            event_id,
+            outbox_id,
         )
 
     async def list_mandatory_content_dependencies(

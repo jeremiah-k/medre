@@ -39,6 +39,7 @@ from medre.core.ingress import (
     StoredAttachmentContent,
 )
 from medre.core.rendering.radio_text import RadioTextPlan
+from medre.core.storage.dispatch_bound import EffectiveDispatchBound
 from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
 from medre.core.storage.read_contracts import AuthorizedEventRead, ReplyContextRead
 
@@ -1028,6 +1029,22 @@ class StorageBackend(Protocol):
         now: datetime | None = None,
     ) -> bool:
         """Fence native start by the exact live worker, attempt and lease."""
+        ...
+
+    async def observe_effective_dispatch_bound(
+        self, event_id: str, outbox_id: str
+    ) -> EffectiveDispatchBound | None:
+        """Return the earliest applicable dispatch-start bound, or ``None``.
+
+        Read-only metadata observation of the same authoritative rows the
+        native-submission fence checks: the immutable event ceiling, the
+        frozen plan deadline riding the row's dispatch snapshot, and the
+        adopted target dependency deadline. ``None`` means no bound is
+        installed and the dispatch-start fence stays dormant. A present but
+        malformed bound raises rather than being treated as an absent bound.
+        This is not an authorization; native starts still fence through
+        :meth:`authorize_native_submission`.
+        """
         ...
 
     # -- Content lifecycle --------------------------------------------------
