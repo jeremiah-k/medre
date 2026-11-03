@@ -172,8 +172,9 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
             f"Pre-release schema shape mismatch: table '{table}': "
             f"{reason}.{path_hint} "
             f"The database does not match the current pre-release shape. "
-            f"Please recreate the database; MEDRE does not automatically "
-            f"transform pre-release database layouts."
+            f"MEDRE automatically applies known additive pre-release layout "
+            f"migrations; a database requiring changes outside that policy "
+            f"must be recreated."
         )
 
 
@@ -194,8 +195,9 @@ class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
             f"Pre-release schema constraint mismatch: table '{table}' is "
             f"missing required constraints {sorted(missing_constraints)}.{path_hint} "
             "The database does not match the current pre-release shape. "
-            "Please recreate the database; MEDRE does not automatically "
-            "transform pre-release database layouts."
+            "MEDRE automatically applies known additive pre-release layout "
+            "migrations; a database requiring changes outside that policy "
+            "must be recreated."
         )
 
 

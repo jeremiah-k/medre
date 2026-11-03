@@ -46,27 +46,46 @@ For the normative per-table ownership rules, see
 ## Pre-Release Storage Reset
 
 MEDRE is prerelease software. The schema version is frozen at 1, but the
-column shape (which tables and columns exist) can change between builds. When
-you upgrade to a newer prerelease build that adds or renames columns, the
-existing database will be rejected at startup with a
-`PreReleaseSchemaMismatchError`. MEDRE does not transform the existing database
-automatically. You need to reset it manually.
+layout (which tables, columns, and indexes exist, and which constraint
+vocabularies are allowed) can change between builds. When you upgrade to a
+newer prerelease build, MEDRE automatically applies the known additive layout
+migrations to the existing database at startup: new allowlisted tables,
+columns, and indexes, and constraint widenings rebuilt under row-count and
+foreign-key integrity checks. Changes outside that additive policy — renames,
+removals, narrowed constraints — are still rejected at startup with a
+`PreReleaseSchemaMismatchError` or `PreReleaseSchemaConstraintMismatchError`;
+such a database must be reset manually.
 
 ### How to tell if your database is stale
 
-Run `medre storage status --storage-path <path>` to check the database path and schema state. Use `medre paths` to discover the resolved state directory, then pass `{state}/medre.sqlite` as the storage path. If the database was created by an older prerelease build, the command reports which tables have missing columns.
+Run `medre storage status --storage-path <path>` to check the database
+path, schema version, and required columns. Use `medre paths` to discover
+the resolved state directory, then pass `{state}/medre.sqlite` as the storage
+path. **A healthy storage status is not a complete schema-catalog check**:
+CHECK constraints, foreign-key definitions, and index identities are validated
+at storage open, not fully by this command. A database can therefore report
+healthy status and still be refused by strict startup validation.
+
+If inspection refuses a recognized additive predecessor (including the older
+operator-decision CHECK), **do not reset the database on that message**. Stop
+all other MEDRE database users, preserve a backup if state matters, then
+perform one normal writable MEDRE startup to apply the allowlisted atomic
+migration. Read-only inspection cannot run that migration. Other, unsupported
+layouts require a deliberate recovery or reset decision.
 
 Alternatively, if MEDRE fails to start with an error like:
 
 ```text
 PreReleaseSchemaMismatchError: Pre-release schema shape mismatch: table
-'delivery_outbox' is missing required columns ['failure_kind_detail'].
-(database: /home/user/.local/state/medre/medre.sqlite) The database was
-likely created by an older pre-release build.  Please recreate the database
-— automatic schema transformation is not provided.
+'delivery_outbox': missing required columns ['failure_kind_detail'].
+(database: /home/user/.local/state/medre/medre.sqlite) The database does not
+match the current pre-release shape. MEDRE automatically applies known
+additive pre-release layout migrations; a database requiring changes outside
+that policy must be recreated.
 ```
 
-then the database is stale and needs a reset.
+then the database needs a change outside the additive migration policy and
+requires a reset.
 
 ### Step-by-step reset procedure
 
