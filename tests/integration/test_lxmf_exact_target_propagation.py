@@ -51,15 +51,18 @@ The scenario scripts are materialised into the test's temporary directory
 and executed with the running interpreter, so they run against exactly the
 installed adapter distribution and the SDK versions it pins.
 
-CI collection note: the required ``transport-local-integration`` workflow
-job runs the provider-owned suite at the pinned revision inside the
-checked-out adapter directory, so this core-owned file is not collected by
-that job today. The test runs on POSIX hosts where the pinned SDK extra is installed
+CI collection note: the required ``core-owned-lxmf-integration`` workflow
+job installs the pinned adapter distribution and its exact-pinned
+RNS/LXMF SDKs, executes this file with ``-m "local_integration and
+lxmf_sdk"``, and fails when the scenario is not collected, is skipped, or
+falls short of its expected execution count, so a pass on that job is
+executed-at-pin native evidence for this loopback topology. The test also
+runs on any POSIX host where the pinned SDK extra is installed
 (``pip install 'medre-adapter-lxmf'``) via
 ``pytest tests/integration/test_lxmf_exact_target_propagation.py -m
-"local_integration and not soak" -v``; wiring core-owned local-integration
-tests into a CI job is the recorded provider-side/CI delta and is tracked
-in the exact-target recovery specification's qualification section.
+"local_integration and not soak" -v``; external-network and hardware
+rungs remain outstanding and are tracked in the exact-target recovery
+specification's qualification section.
 """
 
 from __future__ import annotations
