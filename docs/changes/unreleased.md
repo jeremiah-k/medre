@@ -171,6 +171,14 @@ this file once they land.
   process group cleans up both instances on timeout or cancellation. Required
   CI collection, wider-topology, Chatmail, and XMPP qualification remain open.
 
+- **461 — Core-owned LXMF native CI collection.** A required CI job installs
+  the pinned lxmf adapter distribution and its exact-pinned RNS/LXMF SDKs and
+  executes the core-owned propagation scenario with independent recipient
+  observation over the loopback-only topology. The job treats a not-collected
+  or skipped run as failure and archives the run artifacts with the pin set.
+  Executed-at-pin status is recorded in the campaign matrix, the exact-target
+  specification, and the register.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal
