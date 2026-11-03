@@ -17,8 +17,11 @@ The ceiling producer leg is implemented: the `content_ceiling` policy feeds
 admission, which installs and validates the ceiling in both content rows, and
 the adoption fence enforces the earlier-of effective deadline. The
 native-submit deadline fence and the strictly fenced cleanup transition are
-implemented at the storage boundary; riding the bounded sweep on the retry
-worker's poll cycle and the per-transport refusal qualification remain.
+implemented on this branch at the storage boundary. The sweep limits terminal
+transitions, but still examines every candidate under one write transaction
+when rows have no elapsed deadline. Bounding that examination while preserving
+progress, production retry-worker wiring, and per-transport refusal qualification
+remain outstanding.
 
 ## Current state
 
@@ -37,12 +40,10 @@ policy source.
 | Retry-claim cleanup | Retry worker refusal path (`src/medre/runtime/retry.py:1200-1216`) and claim release guard (`_outbox.py:1345-1362`) | A claimed row whose content authority is denied is reconciled against persisted evidence, then abandoned; a reserved attempt is never released back to the queue | Cleanup is lazy: a `pending` or `retry_wait` row sits until a dispatcher claims it, and nothing sweeps unclaimed rows when content expires |
 | Availability preview | `preview_content_access` (`src/medre/core/storage/content_availability.py:181-182`) and the immutable per-event ceiling row (`schema.py:91-99`) | Reports `unavailable/hard_ceiling_elapsed` for held consumers and refuses optional holds past the ceiling | Pure, non-mutating and dispatch-blind; it never blocks a send and is not the enforcement contract |
 
-The gap in one sentence: the existing hooks provide much of the enforcement
-machinery, but the policy-derived deadlines have no production producer and
-several authority edges still require implementation. In particular, content
-availability, outbox adoption, native submission and cleanup must agree on
-the same immutable ceiling and effective per-plan deadline before the design
-is safe to implement.
+The producer and storage-boundary enforcement are implemented on this branch.
+The cleanup sweep still needs a bounded candidate-examination budget with
+progress across invocations before runtime wiring. Native and hardware refusal
+qualification remains outstanding.
 
 ## Enforcement points
 
@@ -80,8 +81,7 @@ transition is new and requires independent race qualification.
 Outbox admission is the first check. `insert_outbox_dependency` remains the
 content-adoption gate. Its transaction now enforces the **earlier of** the
 frozen plan deadline, immutable event ceiling, and source dependency deadline.
-A generation
-staged after the effective deadline may remain an auditable obligation, but
+A generation staged after the effective deadline may remain an auditable obligation, but
 must not adopt content authority or reach native submission. The resulting
 refusal and terminal cleanup remain governed by existing lifecycle evidence.
 

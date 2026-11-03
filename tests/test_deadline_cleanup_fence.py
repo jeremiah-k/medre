@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 
 from medre.core.storage.backend import OutboxDispatchSnapshotWrite
@@ -554,6 +555,18 @@ async def test_cleanup_serializes_with_a_concurrent_claim_under_begin_immediate(
         # inside its own BEGIN IMMEDIATE transaction before committing.
         claimant = sqlite3.connect(path)
         claimant.row_factory = sqlite3.Row
+        sweep_started = threading.Event()
+        timeline: list[str] = []
+        connection = store._require_db()
+
+        def trace(statement: str) -> None:
+            if statement == "BEGIN IMMEDIATE":
+                timeline.append("sweep:begin")
+                sweep_started.set()
+            if statement.lstrip().startswith("SELECT outbox_id, event_id"):
+                timeline.append("sweep:read")
+
+        connection.set_trace_callback(trace)
         try:
             claimant.execute("BEGIN IMMEDIATE")
             now = datetime.now(timezone.utc).isoformat()
@@ -571,19 +584,27 @@ async def test_cleanup_serializes_with_a_concurrent_claim_under_begin_immediate(
             sweep = asyncio.create_task(
                 store.retire_expired_unstarted_outbox(now=_future(120))
             )
-            for _ in range(10):
-                await asyncio.sleep(0)
-            # The sweep cannot enter its transaction while the claimant holds
-            # the write lock, so nothing is retired from stale evidence.
-            assert not sweep.done()
-            claimant.execute("COMMIT")
+            try:
+                started = await asyncio.to_thread(sweep_started.wait, 5.0)
+                assert not sweep.done()
+            finally:
+                # Mark the release before SQLite can wake the sweep thread.
+                timeline.append("claimant:commit")
+                claimant.execute("COMMIT")
             assert await sweep == []
+            assert started, "sweep did not attempt its write transaction"
+            assert (
+                timeline.index("sweep:begin")
+                < timeline.index("claimant:commit")
+                < timeline.index("sweep:read")
+            )
 
             item = await store.get_outbox_item(outbox_id)
             assert item is not None
             assert item.status == "in_progress"
             assert item.worker_id == "claimant"
         finally:
+            connection.set_trace_callback(None)
             claimant.close()
     finally:
         await store.close()

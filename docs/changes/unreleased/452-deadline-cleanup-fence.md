@@ -1,7 +1,7 @@
-# Retire deadline-expired unstarted delivery work
+# Deadline cleanup and native submission fence
 
-The strictly fenced cleanup transition `retire_expired_unstarted_outbox` retires delivery-outbox generations whose effective earlier-of deadline — the immutable event ceiling, the frozen delivery-plan deadline riding the dispatch snapshot, and the row's adopted target deadline — has elapsed, and which are provably unstarted and unclaimed: exactly `pending` or `retry_wait`, with no worker claim, lease or `active_attempt` reservation and no newer authoritative generation. The transition executes in one `BEGIN IMMEDIATE` transaction, revalidates the observed status, generation and row timestamp by compare-and-set, and retires nothing on stale evidence or an unparseable bound.
-
-The retirement is the guarded terminal `abandoned` status carrying the `deadline_exceeded` failure kind plus a deadline refusal summary in the append-only outbox diagnostics side table; the same transaction releases the row's own target content dependency and retires its frozen dispatch context. Claimed, reserved, `in_progress` and `queued` rows are never retired, no outbox row, receipt, observation or native reference is deleted, and terminal rows never requalify, so repeated sweeps are idempotent.
-
-The native-submit fence enforces the same effective deadline inside the authorization transaction: a storage-authorized native start whose earlier-of deadline has elapsed is refused before adapter invocation without an attempt receipt, observation, native reference or new generation, and a malformed frozen plan deadline refuses the submission instead of counting as an absent bound, so replay generations that adopt no target dependency are bounded by their plan deadline too. With no ceiling and no frozen plan deadline both fences stay dormant.
+Storage can retire expired, provably unstarted and unclaimed outbox generations
+and refuse native submission past the effective deadline. Retirement preserves
+existing delivery evidence and releases only the retired target's content
+dependency. Production sweep wiring and bounded candidate examination remain
+outstanding.
