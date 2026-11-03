@@ -22,13 +22,13 @@ checkout:
 | Repository                   | Inspected commit                           |
 | ---------------------------- | ------------------------------------------ |
 | `medre`                      | `4a8f6c6d13ebb69c58a040913114183ee11c57dc` |
-| `medre-adapter-matrix`       | `7ba5ae7faef9ba53bdd55c54f6c7392b4eba2b69` |
-| `medre-adapter-meshtastic`   | `0a48de78012e71e8129c8ed30899b6e495062d62` |
+| `medre-adapter-matrix`       | `6b03a9431864cb17c56c71eff4df6641962bf1dc` |
+| `medre-adapter-meshtastic`   | `2a447ef52ef3ba6bfc18da0bc6144b7d320a8333` |
 | `medre-adapter-meshcore`     | `fc24ce4637ebc6c09c4c5d74bc2bc357d14a95f0` |
-| `medre-adapter-lxmf`         | `39872c0a2a7d0f3528e3035a8f40b40158c4c2ba` |
-| `medre-adapter-xmpp`         | `fc4674a6b92c7d46165318f66f4d1693f7a535ed` |
-| `medre-adapter-chatmail`     | `a5cfdca7e5f8b0db48bdbc412cfe1ccdacc798f5` |
-| `medre-adapter-simplexchat`  | `33638d4c4e051d478ea00971385b6565bd0a06a1` |
+| `medre-adapter-lxmf`         | `569b90fbe0c1ea9bccc49006058d3261280686ca` |
+| `medre-adapter-xmpp`         | `1286ccccd5f1aead3e7bdb6ee7a8f0a2bac1a832` |
+| `medre-adapter-chatmail`     | `7787aa6f5ca16143a49c25c19022086c35dc5e29` |
+| `medre-adapter-simplexchat`  | `63c9737e7bfd1803daf9e8f766bf67dae71e8039` |
 
 Native SDK pins are declared by each provider's own package metadata at the
 inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,
