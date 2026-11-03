@@ -1936,11 +1936,17 @@ the nullable `event_content_access_grants.expired_at` field, the independent
 `delivery_evidence_diagnostics` table with its `idx_diagnostics_identity`
 index, the typed `event_routing_facts` admission table (Section 4.1.1), and
 the independent `delivery_outbox_snapshots` work-snapshot table
-(Section 4.10.2). This does not authorize renames, altered
-constraints, data backfills, or general legacy schema transformations. The
-`initialize()` method **MUST** validate the old catalog against one exact
-allowlisted predecessor before any DDL and validate the complete resulting
-catalog before commit. All other stale prerelease layouts MUST be rejected:
+(Section 4.10.2), together with the `idx_outbox_deadline_cleanup_order`
+partial index and the widened `operator_delivery_decisions` action-vocabulary
+`CHECK`. A widening cannot be `ALTER`ed in place: it is applied by a guarded
+table rebuild that recreates the table from the declared DDL, copies the
+legacy rows with an explicit column list, and asserts preserved row counts
+and a clean `PRAGMA foreign_key_check` before commit. This does not authorize
+renames, constraint narrowing, data backfills, or general legacy schema
+transformations. The `initialize()` method **MUST** validate the old catalog
+against one exact allowlisted predecessor before any DDL and validate the
+complete resulting catalog before commit. All other stale prerelease layouts
+MUST be rejected:
 
 ### 10.1 Schema Version Check
 

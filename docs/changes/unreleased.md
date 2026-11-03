@@ -227,6 +227,14 @@ this file once they land.
   isolated, and process-local run, error, and retirement counters appear in
   runtime snapshots and run-session/shutdown evidence.
 
+- **459 — Pre-release additive schema migration.** Opening a database from
+  an earlier pre-release shape now applies the known additive layout
+  migrations (new tables, columns, and indexes, plus constraint widenings
+  via a guarded rebuild) automatically in one transaction with row-count and
+  foreign-key integrity checks. Mismatches outside the additive policy still
+  refuse to start with recreation guidance; the recreate-everything era ends
+  for additive drift.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads
