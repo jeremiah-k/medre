@@ -94,13 +94,13 @@ and SDK pins.
   `medre adapter matrix auth login` command with `--reset-cross-signing`
   (browser-approved OAuth or fresh password); the reset replaces the account
   identity and requires re-verification in other clients.
-- A persisted access token is validated against the homeserver at startup only
-  when the configured `device_id` is absent: plaintext startup always resolves
-  the device via `whoami()` before `restore_login()` (raising on
-  authentication failure or user mismatch), and E2EE/durable startup does the
-  same whenever no device ID is configured. With a configured `device_id`,
-  `restore_login()` performs no eager server-side validation; an invalid token
-  surfaces from the first sync response (`session.py::_discover_device_id`,
+- Startup token validation depends on session mode: plaintext startup always
+  resolves the device via `whoami()` before `restore_login()` (raising on
+  authentication failure or user mismatch). E2EE/durable startup does the same
+  when no device ID is configured. In E2EE/durable mode with a configured
+  `device_id`, `restore_login()` performs no eager server-side validation; an
+  invalid token surfaces from the first sync response
+  (`session.py::_discover_device_id`,
   `_start_plaintext`, `_start_e2ee_required`, and the durable start path).
 - The durable SDK store requires POSIX file leases; Windows production
   sessions are not supported by the pinned store (`medre-adapter-matrix`
