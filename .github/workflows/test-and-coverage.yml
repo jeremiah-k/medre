@@ -29,13 +29,14 @@ jobs:
         test,
         adapter-contract,
         transport-local-integration,
+        core-owned-lxmf-integration,
       ]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every qualification tier
         env:
-          REQUIRED_JOBS_PASSED: ${{ needs.adapter-merge-gate.result == 'success' && needs.quality.result == 'success' && needs.adapter-plan.result == 'success' && needs.core.result == 'success' && needs.test.result == 'success' && needs.adapter-contract.result == 'success' }}
+          REQUIRED_JOBS_PASSED: ${{ needs.adapter-merge-gate.result == 'success' && needs.quality.result == 'success' && needs.adapter-plan.result == 'success' && needs.core.result == 'success' && needs.test.result == 'success' && needs.adapter-contract.result == 'success' && needs.core-owned-lxmf-integration.result == 'success' }}
           LOCAL_JOBS_PASSED: ${{ needs.transport-local-integration.result == 'success' || (needs.adapter-plan.result == 'success' && needs.adapter-plan.outputs.has_local == 'false' && needs.transport-local-integration.result == 'skipped') }}
         run: |
           if [[ "$REQUIRED_JOBS_PASSED" != "true" || "$LOCAL_JOBS_PASSED" != "true" ]]; then
@@ -88,6 +89,7 @@ jobs:
       adapters: ${{ steps.plan.outputs.adapters }}
       contract_matrix: ${{ steps.plan.outputs.contract_matrix }}
       compatibility_matrix: ${{ steps.plan.outputs.compatibility_matrix }}
+      by_transport: ${{ steps.plan.outputs.by_transport }}
       local_adapters: ${{ steps.plan.outputs.local_adapters }}
       has_local: ${{ steps.plan.outputs.has_local }}
     steps:
@@ -300,3 +302,60 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: .adapter
         run: ../.venv/bin/python -m pytest -v -m "local_integration and soak"
+
+  core-owned-lxmf-integration:
+    name: Core-owned LXMF native integration
+    needs: adapter-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout the pinned lxmf adapter at the shared snapshot revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ fromJSON(needs.adapter-plan.outputs.by_transport).lxmf.repository }}
+          ref: ${{ fromJSON(needs.adapter-plan.outputs.by_transport).lxmf.ref }}
+          path: .adapter
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: .tool-versions
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install core and the pinned lxmf adapter SDKs
+        run: |
+          uv sync --locked --extra dev
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --python .venv/bin/python
+      - name: Run the core-owned LXMF exact-target propagation suite
+        run: |
+          mkdir -p .ci-artifacts/core-owned-lxmf-integration
+          uv run --no-sync python -m pytest tests/integration/test_lxmf_exact_target_propagation.py \
+            -m "local_integration and lxmf_sdk" \
+            -v -rA \
+            --basetemp=.ci-artifacts/core-owned-lxmf-integration/pytest-tmp \
+            --junitxml=.ci-artifacts/core-owned-lxmf-integration/junit.xml \
+            2>&1 | tee .ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
+      - name: Enforce executed-at-pin qualification
+        if: always()
+        run: |
+          uv run --no-sync python scripts/ci/enforce_test_execution.py \
+            --junit .ci-artifacts/core-owned-lxmf-integration/junit.xml \
+            --expect-tests 2
+      - name: Upload redacted run artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-owned-lxmf-integration-${{ github.sha }}
+          path: |
+            .ci-artifacts/core-owned-lxmf-integration/junit.xml
+            .ci-artifacts/core-owned-lxmf-integration/pytest-output.txt
+            .ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-ready.json
+            .ci-artifacts/core-owned-lxmf-integration/pytest-tmp/**/b-received.json
+          if-no-files-found: warn
+          retention-days: 7
