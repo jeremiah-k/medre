@@ -79,6 +79,7 @@ _CANDIDATES_SQL = f"""
        AND active_attempt IS NULL
        AND worker_id IS NULL AND locked_at IS NULL AND lease_until IS NULL
        AND {_NO_NEWER_GENERATION}
+       AND (created_at > ? OR (created_at = ? AND outbox_id > ?))
      ORDER BY created_at ASC, outbox_id ASC
      LIMIT ?
 """  # nosec B608 - static SQL fragments and parameter placeholders only
@@ -158,14 +159,22 @@ def _deadline_bounds(
         "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
         (outbox_id,),
     ).fetchone()
-    if snapshot is not None:
-        try:
+    try:
+        if snapshot is not None:
             context = json.loads(str(snapshot[0]))
-            frozen = frozen_plan_deadline(context)
-            if frozen is not None:
-                bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
-        except (ValueError, TypeError):
-            return None
+        else:
+            # Rows predating snapshots retain their creation-time dispatch
+            # context in the outbox metadata column. Never infer a later plan.
+            inline = db.execute(
+                "SELECT metadata FROM delivery_outbox WHERE outbox_id=?",
+                (outbox_id,),
+            ).fetchone()
+            context = json.loads(str(inline[0])) if inline is not None else {}
+        frozen = frozen_plan_deadline(context)
+        if frozen is not None:
+            bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
+    except (ValueError, TypeError):
+        return None
     return bounds
 
 
@@ -195,46 +204,67 @@ def sync_retire_expired_unstarted_outbox(
                     datetime.now(timezone.utc).isoformat(), "Cleanup clock"
                 )
             retired: list[DeadlineRetirement] = []
-            for row in db.execute(_CANDIDATES_SQL, (limit,)).fetchall():
-                outbox_id = str(row["outbox_id"])
-                event_id = str(row["event_id"])
-                bounds = _deadline_bounds(db, event_id, outbox_id)
-                if not bounds:
-                    continue
-                effective = min(bounds)
-                if observed < effective:
-                    continue
-                cursor = db.execute(
-                    _RETIRE_CAS_SQL,
-                    (
-                        DEADLINE_RETIREMENT_FAILURE_KIND,
+            # Page in stable admission order, not just the first *limit*
+            # pending rows: a durable no-deadline row must never starve a
+            # later expired obligation. The public limit bounds transitions;
+            # each query also bounds materialized candidate rows.
+            last_created = ""
+            last_outbox_id = ""
+            page_size = min(100, max(25, limit))
+            while len(retired) < limit:
+                page = db.execute(
+                    _CANDIDATES_SQL,
+                    (last_created, last_created, last_outbox_id, page_size),
+                ).fetchall()
+                if not page:
+                    break
+                for row in page:
+                    last_created = str(row["created_at"])
+                    last_outbox_id = str(row["outbox_id"])
+                    outbox_id = str(row["outbox_id"])
+                    event_id = str(row["event_id"])
+                    bounds = _deadline_bounds(db, event_id, outbox_id)
+                    if not bounds:
+                        continue
+                    effective = min(bounds)
+                    if observed < effective:
+                        continue
+                    cursor = db.execute(
+                        _RETIRE_CAS_SQL,
+                        (
+                            DEADLINE_RETIREMENT_FAILURE_KIND,
+                            observed,
+                            outbox_id,
+                            str(row["status"]),
+                            int(row["attempt_number"]),
+                            str(row["updated_at"]),
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        continue
+                    _settle_outbox_content_dependency(db, outbox_id, event_id, observed)
+                    db.execute(_RETIRE_OUTBOX_SNAPSHOT, (outbox_id,))
+                    for op_sql, op_params in outbox_diagnostic_ops(
+                        {
+                            "failure_kind_detail": "",
+                            "error_summary": DEADLINE_RETIREMENT_SUMMARY,
+                        },
                         observed,
                         outbox_id,
-                        str(row["status"]),
-                        int(row["attempt_number"]),
-                        str(row["updated_at"]),
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    continue
-                _settle_outbox_content_dependency(db, outbox_id, event_id, observed)
-                db.execute(_RETIRE_OUTBOX_SNAPSHOT, (outbox_id,))
-                for op_sql, op_params in outbox_diagnostic_ops(
-                    {"error_summary": DEADLINE_RETIREMENT_SUMMARY},
-                    observed,
-                    outbox_id,
-                ):
-                    db.execute(op_sql, op_params)
-                retired.append(
-                    DeadlineRetirement(
-                        outbox_id=outbox_id,
-                        event_id=event_id,
-                        attempt_number=int(row["attempt_number"]),
-                        prior_status=str(row["status"]),
-                        effective_deadline=effective,
-                        retired_at=observed,
+                    ):
+                        db.execute(op_sql, op_params)
+                    retired.append(
+                        DeadlineRetirement(
+                            outbox_id=outbox_id,
+                            event_id=event_id,
+                            attempt_number=int(row["attempt_number"]),
+                            prior_status=str(row["status"]),
+                            effective_deadline=effective,
+                            retired_at=observed,
+                        )
                     )
-                )
+                    if len(retired) >= limit:
+                        break
             db.commit()
             return retired
         except BaseException:

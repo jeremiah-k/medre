@@ -413,3 +413,55 @@ async def test_outbox_dispatch_without_exact_claim_is_denied_before_rendering():
             _make_event(), route, plan, outbox_id="obox-unclaimed"
         )
     assert calls == []
+    # A rejected authorization never represented a transport attempt.
+    # The lifecycle owns terminal outbox settlement without an attempt receipt.
+    assert service._storage.receipts == []
+
+
+async def test_storage_refusal_after_render_does_not_create_an_attempt_receipt():
+    """A refused second native start has no provider-attempt evidence."""
+    import pytest
+
+    from medre.core.engine.pipeline.target_delivery import _AdapterDeliveryError
+    from tests.helpers.target_delivery import (
+        _FakeAdapter,
+        _FakeStorage,
+        _make_event,
+        _make_route_and_plan,
+        _make_service,
+    )
+
+    class RefuseSecondStart(_FakeStorage):
+        def __init__(self):
+            super().__init__()
+            self.authorizations = 0
+
+        async def authorize_native_submission(
+            self, event_id, outbox_id, *, worker_id, attempt_number, now=None
+        ):
+            self.authorizations += 1
+            return self.authorizations == 1
+
+    class RecordingAdapter(_FakeAdapter):
+        calls = 0
+
+        async def deliver(self, rendering_result):
+            self.calls += 1
+            return await super().deliver(rendering_result)
+
+    storage = RefuseSecondStart()
+    adapter = RecordingAdapter()
+    service, _ = _make_service(adapters={"test_adapter": adapter}, storage=storage)
+    route, plan = _make_route_and_plan()
+    with pytest.raises(_AdapterDeliveryError, match="content_authority_denied"):
+        await service.deliver_to_target(
+            _make_event(),
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            expected_outbox_worker_id="test-worker",
+            reserved_attempt_number=1,
+        )
+    assert storage.authorizations == 2
+    assert adapter.calls == 0
+    assert storage.receipts == []

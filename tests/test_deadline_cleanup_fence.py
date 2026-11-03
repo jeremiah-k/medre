@@ -233,6 +233,110 @@ async def test_an_obligation_row_staged_after_its_plan_deadline_is_retired(
         await store.close()
 
 
+async def test_sweep_pages_past_older_ineligible_work_with_limit_one(tmp_path) -> None:
+    store = SQLiteStorage(str(tmp_path / "sweep-page.db"))
+    await store.initialize()
+    try:
+        await store.admit_ingress(
+            make_storage_event(event_id="no-deadline"), None, "live"
+        )
+        older = await _stage(store, "no-deadline")
+        await store.admit_ingress(
+            make_storage_event(event_id="past-deadline"),
+            None,
+            "live",
+            content_deadline=_future(30),
+        )
+        expired = await _stage(store, "past-deadline")
+        # Make the order independent of same-second UUID allocation.
+        await store._write_rowcount(
+            "UPDATE delivery_outbox SET created_at=? WHERE outbox_id=?",
+            ("2001-01-01T00:00:00+00:00", older),
+        )
+        retired = await store.retire_expired_unstarted_outbox(now=_future(90), limit=1)
+        assert [row.outbox_id for row in retired] == [expired]
+        untouched = await store.get_outbox_item(older)
+        assert untouched is not None and untouched.status == "pending"
+    finally:
+        await store.close()
+
+
+async def test_historical_inline_plan_deadline_fences_cleanup_and_native_start(
+    tmp_path,
+) -> None:
+    store = SQLiteStorage(str(tmp_path / "sweep-inline.db"))
+    await store.initialize()
+    try:
+        await store.admit_ingress(
+            make_storage_event(event_id="inline-plan"),
+            None,
+            "live",
+            content_deadline=_future(3600),
+        )
+        item = make_outbox_item(event_id="inline-plan")
+        item.metadata = {"plan": {"deadline": _future(30).isoformat()}}
+        created = await store.create_outbox_item(item)
+        assert (
+            await store._read_one(
+                "SELECT 1 FROM delivery_outbox_snapshots WHERE outbox_id=?",
+                (created.outbox_id,),
+            )
+            is None
+        )
+        await _claim(store, created.outbox_id, "pipeline:inline")
+        assert not await store.authorize_native_submission(
+            "inline-plan",
+            created.outbox_id,
+            worker_id="pipeline:inline",
+            attempt_number=1,
+            now=_future(60),
+        )
+        assert await store.mark_outbox_retry_wait(
+            created.outbox_id, next_attempt_at=_future(30).isoformat()
+        )
+        retired = await store.retire_expired_unstarted_outbox(now=_future(60))
+        assert [row.outbox_id for row in retired] == [created.outbox_id]
+    finally:
+        await store.close()
+
+
+async def test_retirement_clears_prior_failure_detail_for_same_attempt(
+    tmp_path,
+) -> None:
+    store = SQLiteStorage(str(tmp_path / "sweep-clear.db"))
+    await store.initialize()
+    try:
+        await store.admit_ingress(
+            make_storage_event(event_id="sweep-clear"),
+            None,
+            "live",
+            content_deadline=_future(30),
+        )
+        outbox_id = await _stage(store, "sweep-clear")
+        await _claim(store, outbox_id, "retry:clear")
+        assert await store.mark_outbox_retry_wait(
+            outbox_id,
+            next_attempt_at=_future(20).isoformat(),
+            failure_kind_detail="prior transient failure",
+            error_summary="prior diagnostic",
+        )
+        retired = await store.retire_expired_unstarted_outbox(now=_future(90))
+        assert len(retired) == 1
+        settled = await store.get_outbox_item(outbox_id)
+        assert settled is not None
+        assert settled.failure_kind_detail is None
+        assert settled.error_summary == DEADLINE_RETIREMENT_SUMMARY
+        diagnostics = await _diagnostics(store, outbox_id)
+        assert [row["diagnostic"] for row in diagnostics] == [
+            "prior transient failure",
+            "prior diagnostic",
+            "",
+            DEADLINE_RETIREMENT_SUMMARY,
+        ]
+    finally:
+        await store.close()
+
+
 # ---------------------------------------------------------------------------
 # The earlier-of effective deadline, both directions
 # ---------------------------------------------------------------------------

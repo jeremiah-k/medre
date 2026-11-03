@@ -191,11 +191,12 @@ def _normalize_mapping(value: Any) -> Any:
 
 
 class _AdapterDeliveryError(Exception):
-    """Raised after adapter-facing failure evidence has been persisted.
+    """Raised with typed delivery-failure evidence.
 
-    The validated :class:`DeliveryExecutionEvidence` object is the sole
-    receipt/failure payload crossing into orchestration. ``original`` is kept
-    only for exception classification fallback and diagnostics.
+    A refused native start has no attempted handoff and carries no receipt;
+    its outbox outcome is committed by the lifecycle authority. Executed
+    attempts carry persisted evidence. ``original`` is retained only for
+    exception classification and diagnostics.
     """
 
     def __init__(
@@ -622,23 +623,13 @@ class TargetDeliveryService:
                     attempt_number=reserved_attempt_number,
                 )
             ):
-                evidence = await self._persist_failure_evidence(
-                    event=event,
-                    route=route,
-                    plan=plan,
-                    adapter_id=adapter_id or "",
-                    receipt_id=receipt_id,
-                    error="content_authority_denied",
-                    failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
-                    attempt_number=attempt_number,
-                    parent_receipt_id=parent_receipt_id,
-                    source=source,
-                    replay_run_id=replay_run_id,
-                    outbox_id=outbox_id,
-                    created_at=now,
-                )
                 raise _AdapterDeliveryError(
-                    adapter_id or "", "content_authority_denied", evidence=evidence
+                    adapter_id or "",
+                    "content_authority_denied",
+                    evidence=DeliveryExecutionEvidence(
+                        failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                        error="content_authority_denied",
+                    ),
                 ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
@@ -1016,7 +1007,14 @@ class TargetDeliveryService:
                         attempt_number=reserved_attempt_number,
                     )
                 ):
-                    raise AdapterPermanentError("content_authority_denied")
+                    raise _AdapterDeliveryError(
+                        adapter_id or "",
+                        "content_authority_denied",
+                        evidence=DeliveryExecutionEvidence(
+                            failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
+                            error="content_authority_denied",
+                        ),
+                    ) from None
             # Authorization and retained-plan lookup can themselves wait.
             await check_dispatch_deadline()
             if rendering_result.radio_plan is not None:

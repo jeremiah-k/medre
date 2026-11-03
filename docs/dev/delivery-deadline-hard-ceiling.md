@@ -29,7 +29,7 @@ policy source.
 | Hook | Location | What it enforces today | What it does not |
 | --- | --- | --- | --- |
 | Mandatory dependency deadline | `event_content_dependencies.deadline` (`src/medre/core/storage/sqlite/schema.py:84`); validated at `admit_ingress` (`src/medre/core/storage/sqlite/_ingress.py:160-192`) | An optional operator-supplied `content_deadline` written at admission; expiry is observed durably and cannot be undone by clock rollback | No production caller passes `content_deadline` (`src/medre/core/engine/pipeline/runner.py:820`, `src/medre/runtime/app.py:3137`), so the column is NULL in live admission and the gate is dormant |
-| Outbox adoption fence | `insert_outbox_dependency` (`src/medre/core/storage/sqlite/_content_identity.py:112-144`) inside the `create_outbox_item` transaction (`src/medre/core/storage/sqlite/_outbox.py:449-452, 483-485`) | A generation staged after its source deadline elapsed receives no content dependency; the adoption copies the source deadline into the target row | With a NULL source deadline there is nothing to compare; the fence exists but never fires in production |
+| Outbox adoption fence | `insert_outbox_dependency` (`src/medre/core/storage/sqlite/_content_identity.py:112-144`) inside the `create_outbox_item` transaction (`src/medre/core/storage/sqlite/_outbox.py:449-452, 483-485`) | A generation staged after its source deadline elapsed receives no content dependency; the adoption enforces the earlier-of bound in the target row | With a NULL source deadline there is nothing to compare; the fence exists but never fires in production |
 | Durable expiry observation | `_observe_mandatory_expiry` (`src/medre/core/storage/sqlite/_content_grants.py:44-58`) | Releases expired source and target dependencies logically and durably; every authorized read and native fence observes it first | Observation is a permission transition; it removes no bytes and cancels no obligation rows |
 | Plan deadline | `DeliveryPlan.deadline` (`src/medre/core/planning/delivery_plan.py:174`), `DEADLINE_EXCEEDED` taxonomy (`delivery_plan.py:320`); checked pre-render and rechecked before native handoff (`src/medre/core/engine/pipeline/target_delivery.py:585-607, 950-977, 1021`) | Refuses a target whose plan deadline passed before rendering and again immediately before handoff, persisting failure evidence each time | No production planner sets a non-None deadline (only constructors at `fallback_resolution.py:89` and `retry_plan.py:568`), so the hook is also dormant; outbox admission does not consult it |
 | Native-start fence | `authorize_native_submission` (`src/medre/core/storage/sqlite/_content_grants.py:560-621`); call sites `target_delivery.py:613-642, 1008-1019` | Fuses in-progress ownership, exact attempt reservation, unexpired lease, newer-sibling exclusion and live content dependency into one SQLite decision just before adapter invocation | A local dispatch-start fence, not atomic with the SDK; with a NULL dependency deadline the content leg cannot refuse |
@@ -78,10 +78,9 @@ transition is new and requires independent race qualification.
   (`retry_plan.py:534-552`), so a restart or reclaim cannot lose it.
 
 Outbox admission is the first check. `insert_outbox_dependency` remains the
-content-adoption gate, but its producer and transaction must enforce the
-**earlier of** the frozen plan deadline and immutable event ceiling. Today it
-only copies the source deadline; implementing the policy without changing
-this contract would allow staging after the plan deadline. A generation
+content-adoption gate. Its transaction now enforces the **earlier of** the
+frozen plan deadline, immutable event ceiling, and source dependency deadline.
+A generation
 staged after the effective deadline may remain an auditable obligation, but
 must not adopt content authority or reach native submission. The resulting
 refusal and terminal cleanup remain governed by existing lifecycle evidence.

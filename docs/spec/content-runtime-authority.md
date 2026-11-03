@@ -102,16 +102,22 @@ ceiling and the frozen delivery-plan deadline riding the row's dispatch
 snapshot, so a replay generation that adopts no target dependency is refused
 on its own plan deadline too. A present but malformed frozen deadline MUST
 refuse the submission rather than be treated as an absent bound, and a refused
-submission produces no receipt, observation or native reference. Initial
+storage-authorized native start produces no attempt receipt, observation or
+native reference. The outbox lifecycle records the terminal refusal as a
+state transition, without inventing transport-attempt evidence. Initial
 pipeline-owned generations use their already-claimed attempt; retry workers
 must own an active reservation. Radio packet grants repeat authority checks
 after pacing, preserving accepted prefixes when a later packet is refused.
 The packet-start checkpoint transaction checks content, exact claim and
 deadline after acquiring SQLite; post-send observation does not require live
-content authority. Deadlines are rechecked after rendering and after awaited
-pre-submission authorization. It is a
-**local dispatch-start fence**, not an atomic transaction with remote/native
-submission. It cannot undo a packet already accepted by a transport.
+content authority. The frozen plan deadline is rechecked after rendering and
+after awaited pre-submission authorization. The event ceiling is checked in
+the storage authorization transaction, not in a separate synchronous
+wall-clock check after that transaction returns. This is a **local
+dispatch-start fence**, not an atomic transaction with remote/native
+submission: if the ceiling crosses in the gap before the adapter call, the
+storage decision does not prevent that call. It cannot undo a packet already
+accepted by a transport.
 
 The durable ingress processing path and outbox retry path use owner-bound
 reads through the required storage contract, while the target service gates native

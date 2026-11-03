@@ -29,7 +29,14 @@ async def test_expiry_observed_during_render_prevents_adapter_submission(
     await dispatcher._process_due(datetime.now(timezone.utc))
     assert all(not adapter.delivered_payloads for adapter in adapters.values())
     receipts = await temp_storage.list_receipts_for_event("event")
-    assert receipts
+    assert receipts == []
+    # A refused start is not a transport attempt. The lifecycle still settles
+    # its exact outbox obligation and retains the refusal diagnostics.
+    items = await temp_storage.list_outbox_items_for_event("event")
+    assert items
     assert any(
-        "content_authority_denied" in (receipt.error or "") for receipt in receipts
+        item.status == "dead_lettered"
+        and item.failure_kind == "deadline_exceeded"
+        and item.error_summary == "content_authority_denied"
+        for item in items
     )

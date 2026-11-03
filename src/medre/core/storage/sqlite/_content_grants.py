@@ -655,14 +655,22 @@ def _effective_deadline_elapsed(
         "SELECT context_json FROM delivery_outbox_snapshots WHERE outbox_id=?",
         (outbox_id,),
     ).fetchone()
-    if snapshot is not None:
-        try:
+    try:
+        if snapshot is not None:
             context = json.loads(str(snapshot[0]))
-            frozen = frozen_plan_deadline(context)
-            if frozen is not None:
-                bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
-        except (ValueError, TypeError):
-            return True
+        else:
+            # Existing inline-context rows have no snapshot; their frozen
+            # plan deadline remains authoritative for native submission.
+            inline = db.execute(
+                "SELECT metadata FROM delivery_outbox WHERE outbox_id=?",
+                (outbox_id,),
+            ).fetchone()
+            context = json.loads(str(inline[0])) if inline is not None else {}
+        frozen = frozen_plan_deadline(context)
+        if frozen is not None:
+            bounds.append(_utc_microseconds(frozen, "Frozen plan deadline"))
+    except (ValueError, TypeError):
+        return True
     if not bounds:
         return False
     return any(bound <= observed for bound in bounds)
