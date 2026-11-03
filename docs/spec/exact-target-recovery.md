@@ -283,8 +283,8 @@ delivery observations. No observation on the recipient side touches
 MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
 receipts.
 
-A passing execution at the pinned SDK versions would establish the
-following native properties within this local topology:
+The scenario checks the following native properties at the pinned SDK
+versions within this local topology:
 
 * **A propagated handoff is not recipient receipt.** The MEDRE side's
   honest terminal state tops out at `sent` — the propagation node
@@ -296,8 +296,8 @@ following native properties within this local topology:
   observes the message addressed to exactly its announced delivery
   destination hash, sourced from the MEDRE side's announced delivery
   destination hash, carried with the propagation delivery method, and
-  delivered exactly once — no duplicate and no widening to any other
-  destination.
+  delivered exactly once to B, with A's destination silent. Other
+  unobserved destinations are outside this two-instance observation.
 * **Content-addressed identity survives the native path.** The native
   message identifier the MEDRE side handed off equals the message hash
   the recipient instance observed.
@@ -319,8 +319,9 @@ multi-node topology is a higher-tier claim.
 Collection boundary: the required `transport-local-integration` CI job
 runs provider-owned suites at their pinned revisions and does not collect
 core-owned `local_integration` tests, so this leg's CI execution is not
-wired today. The qualification asset is core-owned and runs wherever the
-pinned SDK extra is installed. Closing that delta requires either a CI
+wired today. The qualification asset is core-owned and runs on POSIX hosts where the
+pinned SDK extra is installed. Its owned process group terminates the sender
+and receiver on timeout or cancellation. Closing that delta requires either a CI
 step that runs core-owned local-integration tests alongside the provider
 suite, or an equivalent propagation scenario in the provider-owned suite
 at its pin; until one lands, this section records the asset, not a CI
@@ -328,8 +329,9 @@ execution.
 
 ### Remaining native legs
 
-No other transport currently offers a CI-executable native tier for this
-property. Chatmail and XMPP are recorded `local_integration: false` in
+This LXMF scenario does not qualify other transports; the Matrix
+Docker/Synapse acceptance scenario is a separate transport leg. Chatmail
+and XMPP are recorded `local_integration: false` in
 the adapter compatibility manifest, and neither provider suite at its pin
 defines a Docker or local-integration tier: both carry only opt-in
 live-marked tests that require private credentials outside the repository

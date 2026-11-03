@@ -4,7 +4,9 @@
 Evidence tier: real pinned LXMF/RNS SDKs on this machine, two independent
 Reticulum instances wired only by a loopback ``UDPInterface`` pair
 (127.0.0.1, per-run free ports, per-process ``HOME`` and router storage).
-No external network, no retained identity material, no hardware. This is
+The sender and receiver share an owned POSIX group that is terminated even
+when the outer scenario times out or its test task is cancelled.
+Only disposable test identities are used; no external network or hardware. This is
 local SDK/integration evidence with an independently observed recipient
 instance; it is not external-network or hardware evidence.
 
@@ -29,7 +31,8 @@ Exact-target properties qualified at this tier:
 * **Exact destination, independently observed.** B observes the message
   addressed to exactly B's announced delivery destination hash, sourced
   from A's announced delivery destination, with the propagation delivery
-  method — and exactly one delivery, no duplicates and no widening.
+  method — and exactly one delivery to B. A's own destination remains silent;
+  unobserved destinations are outside this two-instance observation.
 * **Content-addressed identity survives the native path.** The native
   message id A handed off equals the message hash B observed.
 * **No handoff without an observed exact destination.** A propagated send
@@ -51,7 +54,7 @@ installed adapter distribution and the SDK versions it pins.
 CI collection note: the required ``transport-local-integration`` workflow
 job runs the provider-owned suite at the pinned revision inside the
 checked-out adapter directory, so this core-owned file is not collected by
-that job today. The test runs wherever the pinned SDK extra is installed
+that job today. The test runs on POSIX hosts where the pinned SDK extra is installed
 (``pip install 'medre-adapter-lxmf'``) via
 ``pytest tests/integration/test_lxmf_exact_target_propagation.py -m
 "local_integration and not soak" -v``; wiring core-owned local-integration
@@ -70,6 +73,8 @@ from typing import Any
 
 import pytest
 
+from tests.helpers.lxmf_scenario import run_owned_scenario
+
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF
 except ImportError:
@@ -79,6 +84,7 @@ except ImportError:
     HAS_LXMF = False
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "posix", reason="POSIX process-group ownership"),
     pytest.mark.local_integration,
     pytest.mark.lxmf_sdk,
     pytest.mark.skipif(
@@ -347,7 +353,6 @@ def _main():
             config = LxmfConfig(
                 adapter_id="medre-exact-target-a",
                 connection_type="reticulum",
-                identity_path=str(base / "a" / "identity"),
                 storage_path=str(base / "a" / "router"),
                 announce_interval_seconds=0,
                 message_delay_seconds=0,
@@ -575,7 +580,7 @@ def _materialise(workdir: Path) -> tuple[Path, Path]:
     return sender, receiver
 
 
-def _run_scenario(
+async def _run_scenario(
     workdir: Path, missing_destination: str | None = None
 ) -> dict[str, Any]:
     """Run the two-instance propagation scenario in isolated processes."""
@@ -585,14 +590,12 @@ def _run_scenario(
         command.append(missing_destination)
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=_SCENARIO_TIMEOUT,
-        env=env,
-    )
+    try:
+        completed = await run_owned_scenario(
+            command, timeout=_SCENARIO_TIMEOUT, env=env
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"LXMF scenario timed out after {_SCENARIO_TIMEOUT}s")
     if completed.returncode != 0:
         pytest.fail(
             "LXMF exact-target propagation scenario failed with exit code "
@@ -615,14 +618,14 @@ def _run_scenario(
     return json.loads(result_line[len(_RESULT_PREFIX) :])
 
 
-def test_propagated_delivery_reaches_independent_receiver(tmp_path: Path) -> None:
+async def test_propagated_delivery_reaches_independent_receiver(tmp_path: Path) -> None:
     """A propagated handoff reaches the independent second instance.
 
     Evidence layers stay distinct in the verdict: A's ``sent`` state is the
     propagation node accepting the handoff (native acceptance, not receipt);
     every recipient fact comes from B's own callback in B's own process.
     """
-    result = _run_scenario(tmp_path)
+    result = await _run_scenario(tmp_path)
 
     assert result["b_ready"] is True
     assert result["a_started"] is True
@@ -640,14 +643,14 @@ def test_propagated_delivery_reaches_independent_receiver(tmp_path: Path) -> Non
     assert result["b_destination_hash"] == result["b_delivery_hash"]
     assert result["b_source_hash"] == result["a_delivery_hash"]
     assert result["b_message_hash"] == result["a_native_id"]
-    assert result["b_delivery_count"] == 1, "exactly one delivery, no widening"
+    assert result["b_delivery_count"] == 1, "exactly one delivery to B"
 
     assert result["a_lxmf_version"] == result["b_lxmf_version"]
     assert result["a_rns_version"] == result["b_rns_version"]
     assert result["a_lxmf_version"] and result["a_rns_version"]
 
 
-def test_unobserved_exact_destination_never_hands_off(tmp_path: Path) -> None:
+async def test_unobserved_exact_destination_never_hands_off(tmp_path: Path) -> None:
     """A propagated send to an unobserved destination hands off nothing.
 
     The pinned native discovery gate refuses before SDK message construction;
@@ -655,7 +658,7 @@ def test_unobserved_exact_destination_never_hands_off(tmp_path: Path) -> None:
     negative result without treating a transient error as sufficient proof.
     """
     missing = os.urandom(16).hex()
-    result = _run_scenario(tmp_path, missing_destination=missing)
+    result = await _run_scenario(tmp_path, missing_destination=missing)
 
     assert result["b_ready"] is True
     assert result["a_started"] is True
