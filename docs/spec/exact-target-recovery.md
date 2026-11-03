@@ -261,6 +261,87 @@ behavior. Native and current-pin qualification of the exact-target
 property remains reserved to those tiers; a lower tier never stands in for
 a higher one.
 
+## Native local-integration qualification
+
+The evidence ladder for this contract is fake/core, local
+SDK/integration, independent recipient, and hardware. The fake/core tier
+above is the first rung. The LXMF propagation leg supplies the native
+local-SDK rung, with the recipient verdict observed by a genuinely
+independent second instance; external-network and hardware rungs remain
+above it and are not claimed.
+
+### LXMF propagation leg
+
+`tests/integration/test_lxmf_exact_target_propagation.py` qualifies the
+exact-target property on the pinned LXMF/RNS SDKs over a loopback-only
+Reticulum UDPInterface pair. Two process-isolated instances participate:
+the MEDRE side drives the installed adapter distribution's real session
+configured with the exact 16-byte destination hashes the other side
+published at readiness, and the recipient side runs a real propagation
+node on the raw pinned SDKs in its own process, recording its own
+delivery observations. No observation on the recipient side touches
+MEDRE code, so the recipient verdict cannot be MEDRE reading back its own
+receipts.
+
+This tier proves, and is limited to, the following native properties:
+
+* **A propagated handoff is not recipient receipt.** The MEDRE side's
+  honest terminal state tops out at `sent` — the propagation node
+  accepted the message — and the qualification asserts that state
+  separately from the recipient verdict. The two facts are recorded in
+  different processes, and the recipient fact is the only receipt
+  evidence; a propagation handoff MUST NOT be reported as recipient
+  receipt anywhere downstream.
+* **Exact destination, independently observed.** The recipient instance
+  observes the message addressed to exactly its announced delivery
+  destination hash, sourced from the MEDRE side's announced delivery
+  destination hash, carried with the propagation delivery method, and
+  delivered exactly once — no duplicate and no widening to any other
+  destination.
+* **Content-addressed identity survives the native path.** The native
+  message identifier the MEDRE side handed off equals the message hash
+  the recipient instance observed.
+* **No handoff without an observed exact destination.** A propagated
+  send to a destination hash the MEDRE side has never observed natively
+  is refused before any message is constructed, and the propagation node
+  observes nothing. Native discovery of the exact destination gates the
+  handoff.
+
+This tier does NOT prove delivery through a network of propagation nodes,
+store-and-forward pickup by a destination that is not itself the
+propagation node, propagation peering or sync flows, or delivery over an
+external network or physical radio. The recipient instance and the
+propagation node being one harness instance is a local-tier boundary; a
+multi-node topology is a higher-tier claim.
+
+Collection boundary: the required `transport-local-integration` CI job
+runs provider-owned suites at their pinned revisions and does not collect
+core-owned `local_integration` tests, so this leg's CI execution is not
+wired today. The qualification asset is core-owned and runs wherever the
+pinned SDK extra is installed. Closing that delta requires either a CI
+step that runs core-owned local-integration tests alongside the provider
+suite, or an equivalent propagation scenario in the provider-owned suite
+at its pin; until one lands, this section records the asset, not a CI
+execution.
+
+### Remaining native legs
+
+No other transport currently offers a CI-executable native tier for this
+property. Chatmail and XMPP are recorded `local_integration: false` in
+the adapter compatibility manifest, and neither provider suite at its pin
+defines a Docker or local-integration tier: both carry only opt-in
+live-marked tests that require private credentials outside the repository
+(a two-profile Chatmail fixture, respectively a two-account XMPP
+configuration with server host, port, JIDs, and MUC domain). A second
+native leg therefore needs, precisely: a CI-executable service tier —
+either a Chatmail or XMPP server in the integration compose with the
+provider harness promoted to a deterministic local-integration scenario,
+or repository-secret-backed private fixtures — and a provider-owned
+scenario at its pin that observes delivery through an independent second
+account, so the exact-target verdict is never MEDRE reading back its own
+receipts. Other transports' native legs and the hardware rungs remain
+outstanding for the full qualification of this property.
+
 ## Schema and stability
 
 Preview instances serialize through `to_dict` and MUST conform to
