@@ -165,6 +165,15 @@ this file once they land.
 
 ## Adapter Lifecycle & Delivery
 
+- **460 — Final dispatch-start deadline fence.** The pipeline observes the
+  earliest applicable effective deadline from the same storage-authoritative
+  rows as native-start authorization, carries it to the adapter invocation
+  site, and refuses a new local native submission when the final synchronous
+  check observes the deadline elapsed; radio packet starts recheck the bound
+  and accepted-prefix checkpoint facts are preserved. Direct final-clock
+  denials produce local typed evidence without an attempt receipt; earlier
+  plan-validation and radio-attempt receipt rules remain unchanged.
+
 - **457 — LXMF native qualification asset.** A local SDK scenario observes
   exact destination/source/message hashes and independent recipient callbacks,
   while keeping propagation handoff distinct from receipt. Its owned POSIX

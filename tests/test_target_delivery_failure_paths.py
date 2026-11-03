@@ -58,6 +58,10 @@ class _FakeStorage:
             and attempt_number == 1
         )
 
+    async def observe_effective_dispatch_bound(self, event_id, outbox_id) -> None:
+        """Fake storages install no effective bound; the fence stays dormant."""
+        return None
+
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self.receipts.append(receipt)
 

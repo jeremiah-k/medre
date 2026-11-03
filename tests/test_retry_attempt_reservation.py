@@ -1298,6 +1298,12 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
             # fixture drives one authorized attempt.
             return True
 
+        async def observe_effective_dispatch_bound(
+            self, event_id: str, outbox_id: str
+        ) -> None:
+            # This fixture installs no effective bound; the fence stays dormant.
+            return None
+
     class _StaticRenderingPipeline:
         async def render(self, event, target_adapter, target_channel=None, **_):
             return RenderingResult(

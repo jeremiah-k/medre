@@ -55,6 +55,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
+import medre.core.storage.sqlite._content_identity as _content_identity
 from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
@@ -63,6 +64,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from medre.core.storage.dispatch_bound import EffectiveDispatchBound
 from tests.helpers.content_reads import inspection_rows
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
@@ -150,6 +152,42 @@ class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
     async def count_native_refs(self) -> int:
         """Return the number of stored native refs."""
         return len(self._native_refs)
+
+    async def observe_effective_dispatch_bound(
+        self, event_id: str, outbox_id: str
+    ) -> EffectiveDispatchBound | None:
+        """Mirror the storage-layer dispatch-start bound observation.
+
+        The double carries no event ceilings or content dependencies, so
+        the only installable bound is a delivery-plan deadline frozen in
+        the outbox dispatch snapshot, falling back to historical inline
+        metadata exactly like the SQLite path; with none installed the
+        dispatch-start fence stays dormant.
+        """
+        if (
+            not isinstance(event_id, str)
+            or not event_id
+            or not isinstance(outbox_id, str)
+            or not outbox_id
+        ):
+            raise ValueError("An event and outbox identity are required")
+        snapshot = self._dispatch_snapshots.get(outbox_id)
+        if snapshot is not None:
+            context: dict[str, Any] = snapshot.context
+        else:
+            item = self._outbox.get(outbox_id)
+            metadata = item.metadata if item is not None else None
+            context = metadata if isinstance(metadata, dict) else {}
+        frozen = _content_identity.frozen_plan_deadline(context)
+        if frozen is None:
+            return None
+        parsed = datetime.fromisoformat(frozen)
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("Effective deadline bounds must be timezone-aware")
+        return EffectiveDispatchBound(
+            deadline=parsed.astimezone(timezone.utc),
+            source="frozen_plan_deadline",
+        )
 
     async def finalize_deferred_handoff(
         self,
