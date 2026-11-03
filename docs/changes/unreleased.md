@@ -250,6 +250,15 @@ this file once they land.
   refuse to start with recreation guidance; the recreate-everything era ends
   for additive drift.
 
+- **462 — Adapter compatibility pin refresh.** Six adapter pins are promoted
+  to their merged dependency-update heads: a test-dependency bump across
+  five transports, a Matrix SDK dependency update, and a Chatmail RPC
+  client/server update, each named by its adapter release. Every new ref
+  was verified as a descendant of its previous pin; the per-adapter CI
+  jobs at the new refs are the compatibility qualification.
+  Native-evidence claims recorded at earlier pins are marked for
+  re-qualification where the runtime dependency changed.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads
