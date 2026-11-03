@@ -198,6 +198,12 @@ this file once they land.
   LXMF `_reconnect_loop` recovery paths and assert stale reconnect state
   is cleared by production code, not just by setters.
 
+- **452 — Deadline enforcement.** Storage retires expired, provably unstarted
+  and unclaimed outbox generations and refuses native submission past the
+  effective deadline. Cleanup limits candidate examination and preserves scan
+  progress across restart without changing existing delivery evidence.
+  Production sweep wiring and native/hardware qualification remain outstanding.
+
 ## Support Bundle Internals
 
 - **Serializer hardened.** Mixed `msgspec.Struct` and `dataclass` payloads

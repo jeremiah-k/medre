@@ -95,16 +95,29 @@ requires live source authority. Sender presentation falls back to recorded
 identity when source context is unavailable. Once both authorities end, native reply identity remains,
 but quote text is unavailable instead of being invented.
 `authorize_native_submission` additionally checks the in-progress outbox
-worker, exact attempt, unexpired lease, newer sibling generations and live
-content dependency just before adapter invocation. Initial pipeline-owned
-generations use their already-claimed attempt; retry workers must own an
-active reservation. Radio packet grants repeat authority checks after pacing,
-preserving accepted prefixes when a later packet is refused. The packet-start
-checkpoint transaction checks content, exact claim and deadline after acquiring
-SQLite; post-send observation does not require live content authority. Deadlines are
-rechecked after rendering and after awaited pre-submission authorization. It is a
-**local dispatch-start fence**, not an atomic transaction with remote/native
-submission. It cannot undo a packet already accepted by a transport.
+worker, exact attempt, unexpired lease, newer sibling generations, the
+effective earlier-of deadline and live content dependency just before adapter
+invocation. The effective deadline is the earlier of the immutable event
+ceiling and the frozen delivery-plan deadline riding the row's dispatch
+snapshot, so a replay generation that adopts no target dependency is refused
+on its own plan deadline too. A present but malformed frozen deadline MUST
+refuse the submission rather than be treated as an absent bound, and a refused
+storage-authorized native start produces no attempt receipt, observation or
+native reference. The outbox lifecycle records the terminal refusal as a
+state transition, without inventing transport-attempt evidence. Initial
+pipeline-owned generations use their already-claimed attempt; retry workers
+must own an active reservation. Radio packet grants repeat authority checks
+after pacing, preserving accepted prefixes when a later packet is refused.
+The packet-start checkpoint transaction checks content, exact claim and
+deadline after acquiring SQLite; post-send observation does not require live
+content authority. The frozen plan deadline is rechecked after rendering and
+after awaited pre-submission authorization. The event ceiling is checked in
+the storage authorization transaction, not in a separate synchronous
+wall-clock check after that transaction returns. This is a **local
+dispatch-start fence**, not an atomic transaction with remote/native
+submission: if the ceiling crosses in the gap before the adapter call, the
+storage decision does not prevent that call. It cannot undo a packet already
+accepted by a transport.
 
 The durable ingress processing path and outbox retry path use owner-bound
 reads through the required storage contract, while the target service gates native
@@ -171,6 +184,34 @@ Stale workers and already-terminal rows cannot settle another generation's
 hold. `queued` and `retry_wait` are not terminal. Duplicate prevention,
 accepted packet prefixes, native references, and receipts remain persisted.
 `sent` is local handoff, not recipient confirmation.
+
+The deadline cleanup transition
+`SQLiteStorage.retire_expired_unstarted_outbox` is a strictly fenced terminal
+settlement for deadline-expired work. Inside one `BEGIN IMMEDIATE`
+transaction it retires only `pending`/`retry_wait` rows that carry no worker
+claim, lease or `active_attempt` reservation, have no newer authoritative
+generation, and whose effective earlier-of deadline (the immutable event
+ceiling, the frozen delivery-plan deadline riding the dispatch snapshot, and
+the row's adopted target deadline) has elapsed, revalidating the observed
+status, generation and row timestamp by compare-and-set. The retirement
+settles only its own target hold, retires its frozen dispatch context, and
+records its deadline refusal summary through the outbox diagnostics side
+table, all in the same transaction. It MUST NOT retire `in_progress` or
+`queued` rows — a claimed pipeline send may be authorized and in flight even
+without a reservation — an unparseable bound skips the row, and it never
+deletes outbox rows, receipts, observations or native references. Terminal
+rows never requalify, so repeated sweeps never retire the same generation twice.
+
+Each invocation MUST examine at most `max(25, limit)` unclaimed candidates
+and retire at most `limit` generations (`limit` is an integer from 1 to 500).
+Candidate discovery uses the partial `(created_at, outbox_id)` ordering index.
+The last examined key is persisted under `outbox_deadline_cleanup_cursor` in
+internal metadata in the same transaction as retirement. Later invocations
+resume from that key, including after restart, and wrap at queue end. Rows
+inserted before the key are considered after wrapping. An absent, malformed,
+or future deadline consumes the candidate budget without retirement; it
+MUST NOT cause an unbounded scan or starvation of later expired candidates.
+The budget bounds candidate examination, not elapsed execution time.
 
 `SQLiteStorage.assess_event_content_release(event_id)` is a strictly read-only,
 metadata-only event-scoped snapshot: it counts candidate text/excerpt copies,

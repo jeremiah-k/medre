@@ -549,6 +549,11 @@ CREATE INDEX IF NOT EXISTS idx_operator_decisions_event
     ON operator_delivery_decisions(event_id, outbox_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_due
     ON delivery_outbox(status, next_attempt_at);
+-- Deadline cleanup resumes in admission order without sorting the backlog.
+CREATE INDEX IF NOT EXISTS idx_outbox_deadline_cleanup_order
+    ON delivery_outbox(created_at, outbox_id)
+    WHERE status IN ('pending', 'retry_wait') AND active_attempt IS NULL
+      AND worker_id IS NULL AND locked_at IS NULL AND lease_until IS NULL;
 -- One-per-adapter claims probe active owners by adapter before lease expiry.
 CREATE INDEX IF NOT EXISTS idx_outbox_active_adapter
     ON delivery_outbox(target_adapter, status, lease_until);
@@ -1268,4 +1273,11 @@ _ADMISSION_ORDER_INDEX_DDL = _INDEXES[
     _INDEXES.index("-- Retention candidate discovery") : _INDEXES.index(
         "CREATE INDEX IF NOT EXISTS idx_relations_event_id"
     )
+]
+
+# Exact additive index for bounded deadline-cleanup candidate discovery.
+_DEADLINE_CLEANUP_INDEX_DDL = _INDEXES[
+    _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_deadline_cleanup_order"
+    ) : _INDEXES.index("-- One-per-adapter claims probe active owners")
 ]

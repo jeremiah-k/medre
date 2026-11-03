@@ -54,6 +54,7 @@ from medre.core.storage.sqlite._content_grants import _ContentGrantsMixin
 from medre.core.storage.sqlite._content_identity import _ContentIdentityMixin
 from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
+from medre.core.storage.sqlite._deadline_cleanup import _DeadlineCleanupMixin
 from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMixin
 from medre.core.storage.sqlite._event import _EventMixin
 from medre.core.storage.sqlite._ingress import _IngressMixin
@@ -656,6 +657,7 @@ class SQLiteStorage(
     _ObservationMixin,
     _OutboxMixin,
     _OperatorDecisionMixin,
+    _DeadlineCleanupMixin,
     _RadioMixin,
     _PressureMixin,
     _DeliveryFinalizationMixin,

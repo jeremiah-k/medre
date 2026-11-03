@@ -13,3 +13,12 @@ Once a baseline is supported, explicit forward-only additive migrations may be
 introduced without supporting abandoned prerelease layouts.
 See [storage policy](../spec/storage.md#10-pre-release-database-policy) for
 operator recovery and transactional initialization requirements.
+
+The deadline-cleanup ordering index is an approved additive predecessor:
+initialization installs `idx_outbox_deadline_cleanup_order` atomically when
+that index alone (or other explicitly allowlisted additive objects) is absent.
+It indexes `(created_at, outbox_id)` for unclaimed, unreserved `pending` and
+`retry_wait` rows. No table shape or schema-version change is required.
+Internal metadata also stores `outbox_deadline_cleanup_cursor` as a JSON pair
+`[created_at, outbox_id]`; `["", ""]` starts a new pass. Cursor progress commits
+or rolls back with the cleanup transitions and survives restart.
