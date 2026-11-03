@@ -80,7 +80,10 @@ acceptance leg observes — the pinned adapter sends with deterministic
 transaction ids, so a replay of an already-accepted target may collapse
 into the original event — is recorded by the test itself; generalizing
 that behavior across homeservers cannot be verified from the pinned
-provider repositories alone and is not claimed here.
+provider repositories alone and is not claimed here. When replay returns
+an already-accepted event identity, the independent timeline confirms that
+identity's prior acceptance; it does not prove a new provider request or a
+second native delivery.
 
 ## Meshtastic
 
@@ -179,8 +182,8 @@ Landed on this campaign so far:
   (`tests/integration/test_synapse_exact_target_acceptance.py`),
   CI-automatable through the Docker integration workflow. This is the
   first landed leg; it records the register evidence for G02's
-  per-transport acceptance proof and the Synapse basis for G05's
-  encrypted Matrix row.
+  per-transport acceptance proof. The leg uses plaintext rooms and does
+  not advance encrypted Matrix verification under G05.
 
 Outstanding legs, grouped by what each needs:
 
