@@ -116,15 +116,16 @@ refused with recreation guidance.
 
 ## Execution and review
 
-The immediate implementation slice is reproducible native qualification:
-reconcile the executed LXMF core replay, qualify core replay against MeshCore's
-pinned companion-protocol endpoint, and retain source/SDK/attempt-bound proof.
-Keep companion conformance distinct from RF or recipient acceptance. Close the
-ordinary single-packet MeshCore retry boundary before extending the guarded
-multipart no-duplicate claim. Follow with Meshtastic's daemon-local core replay
-and measured producer-side ingress pressure; add a scheduling bound only after
-reproducing that pressure at the SDK callback boundary. Do not combine those
-provider changes with a new recovery authority.
+Reproducible native qualification now covers the executed LXMF core replay and
+MeshCore companion-protocol replay with source/SDK/attempt-bound proof.
+Core-rendered MeshCore single packets share the guarded multipart boundary and
+its retained uncertainty checks. Companion conformance remains distinct from
+RF or recipient acceptance.
+
+Next, qualify Meshtastic's daemon-local core replay and measure producer-side
+ingress pressure. Add a scheduling bound only after reproducing pressure at the
+SDK callback boundary. Keep these provider changes separate from any new
+recovery authority.
 
 Native reconciliation previews remain read-only. A send-capable resolution of
 uncertain work still depends on scoped provider non-submission proof;

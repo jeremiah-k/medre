@@ -293,14 +293,12 @@ async def test_core_replay_companion_acceptance(
             command[0] == 0x03 and command[2] == 2 for command in node.send_commands
         )
         wire_texts = [command[7:].decode("utf-8") for command in node.send_commands]
+        checkpoint = await case.storage.get_radio_attempt(
+            receipt.outbox_id, receipt.attempt_number
+        )
+        assert checkpoint is not None and checkpoint.progress.handoff_complete
+        assert wire_texts == [part.wire_text for part in checkpoint.progress.plan.parts]
         if multipart:
-            checkpoint = await case.storage.get_radio_attempt(
-                receipt.outbox_id, receipt.attempt_number
-            )
-            assert checkpoint is not None and checkpoint.progress.handoff_complete
-            assert wire_texts == [
-                part.wire_text for part in checkpoint.progress.plan.parts
-            ]
             assert len(wire_texts) > 1
         else:
             assert wire_texts == [case.body]
@@ -344,10 +342,13 @@ async def test_core_replay_companion_acceptance(
 
 
 @pytest.mark.parametrize("fault", ["timeout", "disconnect", "cancel"])
-@pytest.mark.parametrize("accepted_prefix", [False, True])
+@pytest.mark.parametrize("shape", ["single", "multipart_first", "multipart_prefix"])
 async def test_uncertain_packet_is_not_replayed_after_restart(
-    companion_class, tmp_path: Path, fault: str, accepted_prefix: bool
+    companion_class, tmp_path: Path, fault: str, shape: str
 ):
+    accepted_prefix = shape == "multipart_prefix"
+    multipart = shape != "single"
+
     def assert_held(results):
         held = next(result for result in results if result.stage == "deliver")
         if fault == "cancel":
@@ -372,7 +373,7 @@ async def test_uncertain_packet_is_not_replayed_after_restart(
     expected_calls = 2 if accepted_prefix else 1
     async with companion as node:
         path = tmp_path / "core.sqlite"
-        async with _case(node, path, multipart=True, command_timeout=0.2) as case:
+        async with _case(node, path, multipart=multipart, command_timeout=0.2) as case:
             running = asyncio.create_task(case.replay())
             await asyncio.wait_for(node.next_send_receipt(), 3)
             if accepted_prefix:
@@ -407,7 +408,7 @@ async def test_uncertain_packet_is_not_replayed_after_restart(
                 assert states[0] == "accepted"
             assert_held(await case.replay())
             assert len(node.send_commands) == expected_calls
-        async with _case(node, path, multipart=True, seed=False) as restarted:
+        async with _case(node, path, multipart=multipart, seed=False) as restarted:
             assert_held(await restarted.replay())
             assert (
                 len(node.send_commands) == expected_calls

@@ -19,7 +19,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "fc24ce4637ebc6c09c4c5d74bc2bc357d14a95f0",
+    "ref": "31df066b817f391e89056d12b45b467b5aa3f747",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"

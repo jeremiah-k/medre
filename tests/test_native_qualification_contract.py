@@ -35,7 +35,7 @@ def test_meshcore_replay_is_in_the_required_local_job():
     )
     assert "always()" in enforce["if"]
     assert "enforce_test_execution.py" in enforce["run"]
-    assert "--expect-tests 12" in enforce["run"]
+    assert "--expect-tests 15" in enforce["run"]
     assert "native_qualification.py" in enforce["run"]
     assert "--expect-records 2" in enforce["run"]
     assert "--allow-dirty" not in enforce["run"]

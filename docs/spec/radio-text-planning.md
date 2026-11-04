@@ -70,7 +70,17 @@ commit but before invocation remains conservatively unknown after restart.
 
 ## Production integration boundary
 
-MeshCore MAY opt into the synchronous guarded handoff described below. A
+MeshCore native rendering MUST use the synchronous guarded handoff described
+below for every packet, including short, clipped and fallback text. A one-part
+plan MUST preserve the final rendered wire text without numbering or additional
+attribution. Empty native wire text MUST fail before dispatch. Core-bound native
+results without a handoff callback MUST be refused before SDK use. Synthetic
+fake single-packet rendering retains its established behavior. For every
+core-bound result, before grant consumption or synthetic handoff, MeshCore MUST
+verify the durable target adapter matches the receiving instance and the native
+channel matches the renderer's resolution of the durable target, including
+configured defaults.
+Native channel resolution MUST NOT rewrite the durable target identity. A
 Meshtastic implementation MAY participate by keeping the dispatch in progress
 while each planned packet waits on its existing paced native queue. Its ordinary
 deferred sends retain their existing behavior. A planned packet MUST NOT release
