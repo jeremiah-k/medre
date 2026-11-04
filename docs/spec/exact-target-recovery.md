@@ -415,3 +415,21 @@ Preview instances serialize through `to_dict` and MUST conform to
 required field set, the fixed scope and authorization values, and the
 snapshot-kind vocabulary are pinned by parity tests against the Python model;
 the three surfaces (model, schema, this page) change together or not at all.
+
+### Meshtastic daemon-local core replay
+
+`tests/native_qualification/test_meshtasticd_exact_target_replay.py` exercises a staged
+exact-target generation through `ReplayRequest`, `PipelineRunner`, the pinned
+Meshtastic adapter/SDK and Docker `meshtasticd`. A selected ordinary packet
+MUST initially be treated as deferred queue admission; only a subsequent
+native feedback transaction MAY finalize its durable sent receipt. A planned
+multipart packet MUST consume the existing synchronous per-part grants and
+retain the resulting local packet handoff state. A missing generation or
+wrong-channel selection MUST stage no radio send or sibling delivery.
+
+The SDK-assigned packet ID and local queue counters are **not** independent
+provider observations and MUST NOT be projected as recipient acceptance, RF
+delivery, or proof of non-submission after interruption. This Docker suite
+qualifies the SDK/transport invocation path only. The native acceptance leg
+remains open pending a separate provider/recipient observer. No uncertain
+handoff is automatically reauthorized by this test.

@@ -61,8 +61,11 @@ limitation instead of relabeling synthetic evidence as integration/live proof.
 
 - Synthetic/wrapper: extensive.
 - Installed SDK: pinned `mtjk` contract matrix.
-- Local integration: Docker `meshtasticd` proves lifecycle and outbound SDK
-  handoff; simulation mode does not prove inbound pubsub relay.
+- Local integration: Docker `meshtasticd` exercises the core-authorized exact
+  replay selector through the pinned SDK, including deferred and planned
+  handoffs and refusal boundaries. The execution gate must run on CI; a local
+  SDK return value is not independent provider acceptance. Simulation mode
+  does not prove inbound pubsub relay or radio/recipient delivery.
 - Hardware: opt-in MEDRE live harness is marked `hardware`; historical radio
   observations do not automatically become current-commit evidence.
 - Soak: opt-in hardware lifecycle soak exists and is `NOT EXECUTED` until run

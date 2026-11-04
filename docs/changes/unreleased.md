@@ -25,6 +25,16 @@ this file once they land.
   harness and witness digests; verified artifacts retain a 90-day review window.
   Protocol conformance does not imply RF delivery or authorize uncertain resend.
 
+- **472 — Meshtastic daemon-local core-replay qualification.** The
+  Docker-gated exact-target suite executes deferred ordinary sends and
+  synchronous planned multipart packets through the pinned adapter and a
+  containerized `meshtasticd` daemon. Missing generations and wrong-channel
+  selections refuse before any radio use; stale claimed generations are
+  fenced against the competing worker. Required CI enforces five executed
+  cases and retains the success-gated JUnit report for 90 days. A local SDK
+  packet ID does not prove daemon, RF or recipient acceptance, and no
+  uncertainty authorizes resend.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages

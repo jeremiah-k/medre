@@ -122,10 +122,13 @@ Core-rendered MeshCore single packets share the guarded multipart boundary and
 its retained uncertainty checks. Companion conformance remains distinct from
 RF or recipient acceptance.
 
-Next, qualify Meshtastic's daemon-local core replay and measure producer-side
-ingress pressure. Add a scheduling bound only after reproducing pressure at the
-SDK callback boundary. Keep these provider changes separate from any new
-recovery authority.
+The Docker-gated Meshtastic core-replay suite now covers selected and refused
+native submissions through the pinned adapter. A separate observer is still
+needed for native acceptance claims beyond local SDK submission. Next measure
+producer-side ingress pressure under held publication for both radio adapters.
+Choose an explicit overload policy before adding scheduling limits; dropping
+inbound packets without accounting is not a permissible silent optimization.
+Keep any provider changes separate from new recovery authority.
 
 Native reconciliation previews remain read-only. A send-capable resolution of
 uncertain work still depends on scoped provider non-submission proof;
