@@ -126,6 +126,15 @@ async def test_storage_errors_propagate_without_downgrading_to_an_outcome() -> N
         await assess_native_evidence_ledger_binding(storage, _observation())
 
 
+async def test_receipt_history_read_errors_propagate_without_downgrading() -> None:
+    storage = _storage()
+    storage.list_receipts_for_outbox.side_effect = OSError(
+        "receipt history unavailable"
+    )
+    with pytest.raises(OSError, match="receipt history unavailable"):
+        await assess_native_evidence_ledger_binding(storage, _observation())
+
+
 async def test_absence_statement_can_bind_an_identity_but_never_proves_a_send() -> None:
     storage = _storage()
     absence = _observation(
