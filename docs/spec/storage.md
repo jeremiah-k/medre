@@ -1459,39 +1459,39 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
 );
 ```
 
-Durable pre-admission pressure aggregates — the only durable trace of
-arrivals the inbound admission gate turned away before canonical
-admission, and of producer-side staging that never reached it. One row
-per `(window_start, source, outcome)`; `window_start` is a fixed
-60-second aligned epoch window, `source` is the adapter id (or the
-`<anonymous>` sentinel), and `outcome` is drawn from a closed
-six-value vocabulary spanning two halves. The admission-gate half
-carries core facts observed at the bounded admission boundary: typed
-counted loss (`rejected`), admission-timeout loss (`timed_out`), and
-cursor-safe deferral (`deferred`). The producer-side half carries
-adapter-reported pre-admission facts observed where messages are
-produced: a callback staged toward admission (`scheduled`), a
-producer-side staging refusal (`overflow`), and staged work dropped
-before any admission attempt (`cancelled_before_admission`). The three
-gate outcomes remain a strict subset of the vocabulary; databases at the
-exact three-value predecessor layout upgrade through the allowlisted
-additive prerelease migration (guarded table rebuild, rows preserved,
-idempotent). Rows are upserted from
-the runtime gate's batched pressure counters and the producer sink's
-coalesced reports (one count-carrying upsert per key per flush). Writes are append-only upserts per §5 — no row is ever deleted —
-and growth is inherently rate-bounded: at most one row per
-(window, source, outcome) per minute, and only while pressure is actually
-occurring. `first_seen_at` and `last_seen_at` retain the chronological
-observation bounds for the aggregate: batched writes carry both times and
-conflict upserts keep the minimum first-seen and maximum last-seen value.
-Readers bound their views (windowed queries; the evidence
-section caps its listing). The table stores counters and timestamps only —
-never payloads, sender identity, or transport-native content — and it is
-operational evidence: rows never become canonical events, receipts, or
-outbox state, and pressure history deliberately spans runtime restarts.
-No outcome in either half claims durable admission. This table is
-required by the strict prerelease schema. Initialization MUST reject a
-database that omits it before executing any schema DDL.
+Durable pre-admission pressure aggregates — the durable trace of arrivals
+refused by the admission gate before canonical admission and of producer
+callback staging. One row per `(window_start, source, outcome)`;
+`window_start` is a fixed 60-second aligned epoch window, `source` is the
+adapter id (or the `<anonymous>` sentinel), and `outcome` is drawn from a
+closed six-value vocabulary spanning two halves. The admission-gate half
+carries core facts observed at the bounded admission boundary: counted
+loss (`rejected`), admission-timeout loss (`timed_out`), and cursor-safe
+deferral (`deferred`). The producer-side half carries adapter-reported
+pre-admission facts: a callback staged toward admission (`scheduled`), a
+producer-side staging refusal (`overflow`), and staged work dropped before
+an admission attempt (`cancelled_before_admission`). `scheduled` does not
+imply that the callback subsequently failed admission; it can describe
+healthy traffic. The gate outcomes remain a strict subset of the vocabulary.
+Databases at the exact three-value predecessor layout upgrade through the
+allowlisted additive prerelease migration (guarded table rebuild, rows
+preserved, idempotent). Rows are upserted from the runtime gate's batched
+pressure counters and the producer sink's coalesced reports (one
+count-carrying upsert per key per flush). Writes are append-only upserts
+per §5 — no row is ever deleted — and growth is rate-bounded: at most one
+row per `(window, source, outcome)` per minute when that outcome occurs.
+The SQLite signed-integer ceiling saturates extreme aggregate counts rather
+than corrupting later pressure writes. `first_seen_at` and `last_seen_at`
+retain the chronological observation bounds for the aggregate: batched
+writes carry both times and conflict upserts keep the minimum first-seen
+and maximum last-seen value. Readers bound their views (windowed queries;
+the evidence section caps its listing). The table stores counters and
+timestamps only — never payloads, sender identity, or transport-native
+content — and it is operational evidence: rows never become canonical
+events, receipts, or outbox state, and pressure history deliberately spans
+runtime restarts. No outcome in either half claims durable admission. This
+table is required by the strict prerelease schema. Initialization MUST
+reject a database that omits it before executing any schema DDL.
 
 ### 4.16 Index Policy
 

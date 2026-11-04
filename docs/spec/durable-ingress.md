@@ -113,7 +113,9 @@ delivery or replay authority.
 coalesces producer reports into a bounded in-memory buffer — documented
 constant, oldest keys dropped on overflow of the accounting itself — and
 folds them into the same pending store and single-flight flush the gate
-refusal path uses, so reporting costs at most one scheduled loop callback
+refusal path uses. Producer keys retained during a storage outage are
+bounded by the same limit; an old producer key is dropped with an explicit
+log marker if that limit is exhausted, without evicting gate-refusal keys, so reporting costs at most one scheduled loop callback
 per empty-to-nonempty epoch and never one task per report. The sink is
 callable from any SDK reader thread, never blocks on storage, and never
 raises into the adapter. This staging is deliberately **not** lossless:
@@ -125,6 +127,12 @@ reported as admitted. A durable spill journal for producer reports
 disk-failure proof to stay honest, and is deliberately not taken; if a
 future design needs lossless producer accounting it must be specified
 and proven separately.
+
+A producer report's `reason` is checked for token shape only. It is never
+persisted or used as an aggregation dimension; adapters MUST NOT insert
+sensitive information that happens to match the machine-token pattern.
+Shutdown MUST fence newly arriving producer reports before the final drain;
+late SDK-thread absorb callbacks MUST NOT reopen storage writes after it.
 
 The coalescing writer **MUST** preserve the first and last refusal times for
 each aggregate window. A transient pressure-write failure **MUST NOT** discard

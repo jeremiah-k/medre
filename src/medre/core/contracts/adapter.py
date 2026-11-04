@@ -291,9 +291,9 @@ class ProducerPressureReport:
     asyncio task per packet) report what happened to staged work *before*
     any admission attempt through
     :attr:`AdapterContext.report_producer_pressure`.  A report is
-    operational accounting only: it never claims durable admission, never
-    grants a receipt, and never carries message content, sender identity,
-    or key material.
+    operational accounting only: it never claims durable admission or
+    grants a receipt. Adapters must not populate token fields with message
+    content, sender identity, or key material; validation is shape-only.
 
     Attributes
     ----------
@@ -309,11 +309,14 @@ class ProducerPressureReport:
         was dropped before any admission attempt).
     count:
         Coalesced burst count for identical outcomes observed at once.
-        Defaults to ``1``.
+        Defaults to ``1``; bounded to SQLite's signed 64-bit integer range.
     reason:
-        Optional short closed-vocabulary machine token such as
-        ``"callback_capacity"`` — never free text.  ``None`` when the
-        outcome needs no further qualification.
+        Optional short machine-token value such as ``"callback_capacity"``.
+        The type validates only its shape, not its meaning: adapters MUST
+        not put message content, sender identity, or secrets in a token.
+        The runtime validates but does not persist ``reason``: reports
+        differing only in reason coalesce into the same
+        ``(window, adapter, outcome)`` aggregate.
 
     Raises
     ------
@@ -332,15 +335,20 @@ class ProducerPressureReport:
     def __post_init__(self) -> None:
         if not isinstance(self.adapter_id, str) or not self.adapter_id.strip():
             raise ValueError("adapter_id must be a non-empty string")
-        if self.outcome not in PRODUCER_PRESSURE_OUTCOMES:
+        if (
+            not isinstance(self.outcome, str)
+            or self.outcome not in PRODUCER_PRESSURE_OUTCOMES
+        ):
             raise ValueError(
                 f"invalid producer pressure outcome {self.outcome!r}; "
                 f"expected one of {sorted(PRODUCER_PRESSURE_OUTCOMES)}"
             )
         if not isinstance(self.count, int) or isinstance(self.count, bool):
             raise ValueError(f"count must be a positive integer, got {self.count!r}")
-        if self.count < 1:
-            raise ValueError(f"count must be a positive integer, got {self.count!r}")
+        if not 1 <= self.count <= (1 << 63) - 1:
+            raise ValueError(
+                f"count must be a positive integer within SQLite range, got {self.count!r}"
+            )
         if self.reason is not None:
             if not isinstance(self.reason, str) or not re.fullmatch(
                 PRODUCER_PRESSURE_REASON_PATTERN, self.reason

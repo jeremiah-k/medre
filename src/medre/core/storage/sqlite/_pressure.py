@@ -10,8 +10,8 @@ Authority surface:
     counters).  Counters and timestamps only — never payloads, sender
     identity, or transport-native content.  Writes are append-only
     upserts (no deletes, per the storage module's append-only invariant);
-    growth is rate-bounded to one row per key per minute and only while
-    pressure occurs.
+    growth is rate-bounded to one row per key per minute whenever that
+    outcome occurs, including healthy producer-side `scheduled` staging.
   - list_inbound_pressure_observations: **list** (read-only), ordered by
     window; ``limit`` bounds the result in SQL to the newest windows.
 
@@ -48,12 +48,21 @@ _VALID_OUTCOMES = frozenset(
     }
 )
 
-_UPSERT_OBSERVATION = """
+# SQLite stores nonnegative pressure counts as signed 64-bit integers.  A
+# repeated upsert must never promote an overflowing sum to REAL or fail a
+# subsequent writer; saturation is the explicit extreme-count boundary.
+SQLITE_MAX_PRESSURE_COUNT: int = (1 << 63) - 1
+
+_UPSERT_OBSERVATION = f"""
 INSERT INTO inbound_pressure_observations (
     window_start, source, outcome, count, first_seen_at, last_seen_at
 ) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(window_start, source, outcome) DO UPDATE SET
-    count = count + excluded.count,
+    count = CASE
+        WHEN count > {SQLITE_MAX_PRESSURE_COUNT} - excluded.count
+        THEN {SQLITE_MAX_PRESSURE_COUNT}
+        ELSE count + excluded.count
+    END,
     first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
     last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
 """
@@ -105,8 +114,14 @@ class _PressureMixin:
                 f"invalid pressure outcome {outcome!r}; "
                 f"expected one of {sorted(_VALID_OUTCOMES)}"
             )
-        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-            raise ValueError(f"count must be a positive integer, got {count!r}")
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or not 1 <= count <= SQLITE_MAX_PRESSURE_COUNT
+        ):
+            raise ValueError(
+                f"count must be a positive integer within SQLite range, got {count!r}"
+            )
         from datetime import datetime, timezone
 
         if unix_seconds is None:

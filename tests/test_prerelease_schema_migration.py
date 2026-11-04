@@ -574,6 +574,16 @@ def _create_pressure_legacy_shape_db(path: Path) -> Path:
         ).fetchone()
         assert stored is not None
         assert stored[0] == _prerelease_migrate.known_pressure_table_forms().legacy
+        # Independent literal from the pre-widening authoritative schema.
+        assert stored[0] == """CREATE TABLE inbound_pressure_observations (
+    window_start INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred')),
+    count INTEGER NOT NULL CHECK (count > 0),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(window_start, source, outcome)
+)"""
         raw.commit()
     finally:
         raw.close()

@@ -53,7 +53,7 @@ this file once they land.
   callable from any SDK reader thread. The runtime coalesces reports
   through a bounded in-memory staging buffer into the existing
   single-flight pressure flush, so a producer-side refusal becomes counted,
-  possibly irreversible operational evidence without a task per report and
+  best-effort operational evidence without a task per report and
   without a spill journal. The durable pressure table's outcome CHECK
   widens to the six-outcome vocabulary through the allowlisted additive
   prerelease migration; `medre inspect pressure` and the evidence bundle

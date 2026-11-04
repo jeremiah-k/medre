@@ -1,7 +1,7 @@
 {
   "observations": [
     {
-      "window_start": 1800000000,
+      "window_start": 1800007200,
       "source": "meshtastic",
       "outcome": "overflow",
       "count": 12,
@@ -9,7 +9,7 @@
       "last_seen_at": "2027-01-15T10:00:41+00:00"
     },
     {
-      "window_start": 1800000000,
+      "window_start": 1800007200,
       "source": "meshtastic",
       "outcome": "cancelled_before_admission",
       "count": 3,
@@ -17,7 +17,7 @@
       "last_seen_at": "2027-01-15T10:00:38+00:00"
     },
     {
-      "window_start": 1800000000,
+      "window_start": 1800007200,
       "source": "matrix",
       "outcome": "rejected",
       "count": 1,
@@ -25,7 +25,7 @@
       "last_seen_at": "2027-01-15T10:00:22+00:00"
     },
     {
-      "window_start": 1800000060,
+      "window_start": 1800007260,
       "source": "meshtastic",
       "outcome": "scheduled",
       "count": 40,

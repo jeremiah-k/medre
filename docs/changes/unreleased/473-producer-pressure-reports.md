@@ -9,9 +9,9 @@ through.
 The adapter contract gains `ProducerPressureReport`, a frozen content-free
 fact carrying the closed producer outcome vocabulary (`scheduled`,
 `overflow`, `cancelled_before_admission`), a coalesced burst count, and an
-optional machine-token `reason` such as `callback_capacity`; free text,
-message content, sender identity, and key material are rejected by the
-type's own validation. `AdapterContext` gains the optional
+optional machine-token `reason` such as `callback_capacity`. The type enforces token shape only; it cannot
+recognize sensitive values that happen to fit the pattern. Adapter authors
+must not pass message content, sender identity, or key material as `reason`. `AdapterContext` gains the optional
 `report_producer_pressure` sink, callable from any thread including
 non-asyncio SDK reader threads.
 
