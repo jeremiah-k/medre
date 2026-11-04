@@ -102,12 +102,19 @@ Pinned provider: `medre-adapter-meshtastic`; SDK package `mtjk`.
 
 | Leg                                      | Highest tier reached today | Basis                                                                                                                                              | Automation                                     |
 | ---------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Exact-target native acceptance (G01/G02) | `docker`                   | `tests/integration/test_meshtasticd_sdk_bridge.py` proves outbound SDK handoff through containerized `meshtasticd`; a scoped replay send over that tier is the reachable acceptance evidence, because the supported send path requests no acknowledgements (see the transport limitations appendix, §2.2). | Harness exists; the exact-target leg over `meshtasticd` is outstanding |
+| Exact-target native acceptance (G01/G02) | SDK boundary only (`docker`); acceptance open | `tests/integration/test_meshtasticd_sdk_bridge.py` proves outbound SDK handoff through containerized `meshtasticd`; a scoped replay send over that tier yields local SDK submission evidence, not independently observed daemon or recipient acceptance, because the supported send path requests no acknowledgements (see the transport limitations appendix, §2.2). | Core-authorized Docker replay suite is added and execution-gated; independent daemon/recipient acceptance remains outstanding |
 | Radio interruption (G05)                 | `hardware`                 | Provider-owned `tests/test_meshtastic_pair_live.py` and `tests/test_meshtastic_hardware_soak.py` at the pinned provider commit, hardware/live-marked; recorded radio observations are dated evidence, not current-pin qualification. | Operator-run (physical radios; never transmits from the default suite) |
 
-Acceptance at the `meshtasticd` tier proves the local node accepted the
-packet, not mesh arrival: no observable routing result qualifies as
-remote or end-to-end delivery evidence at this pin.
+`tests/native_qualification/test_meshtasticd_exact_target_replay.py` now exercises the
+core exact-target selector through the pinned real TCP SDK, a containerized
+`meshtasticd` daemon and the durable outbox. It tests deferred ordinary sends, synchronous guarded planned
+packets, excluded siblings, stale-generation worker fencing, and invalid
+selections. Its explicit CI gate
+rejects skipped or missing execution. The SDK's returned packet ID is a
+**local submission** fact, not independent confirmation that the daemon or
+any radio peer accepted the packet. Therefore the `accepted` native-evidence
+leg remains **open** until a separate observer supplies a corroborating fact.
+No observable routing result currently qualifies as remote/end-to-end delivery.
 
 ## MeshCore
 
@@ -242,8 +249,10 @@ actual SDK versions and exact attempt identity without uploading message bodies.
 Outstanding legs, grouped by what each needs:
 
 - CI-automatable now (harness exists on an already-run tier): the
-  exact-target acceptance leg over containerized `meshtasticd` and the
-  encrypted Matrix outbound leg on the existing Synapse E2EE environment.
+  core-authorized Meshtastic submission leg over containerized `meshtasticd`
+  (no independent acceptance observer) and encrypted Matrix outbound on the
+  existing Synapse E2EE environment. Native Meshtastic acceptance still needs
+  an actual provider-side or recipient-side observation.
 - Needs a new local service tier: a containerized XMPP server harness,
   a containerized Chatmail relay harness, and a local two-profile
   SimpleX tier, each only if the pinned SDK can honestly produce an
