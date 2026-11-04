@@ -129,14 +129,22 @@ Pinned provider: `medre-adapter-lxmf`; SDK packages `lxmf` and `rns`.
 | Leg                                                    | Highest tier reached today | Basis                                                                                                                                                                                                                                                                                                       | Automation                                                                                                                                |
 | ------------------------------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | LXMF local propagation and recipient observation (G05) | `local_integration`        | Core-owned `tests/integration/test_lxmf_exact_target_propagation.py`: two process-isolated Reticulum instances over a loopback-only UDPInterface pair, the recipient being a real propagation node observed through its own delivery callback in its own process (marked `local_integration` + `lxmf_sdk`). | Collected and executed by the required `core-owned-lxmf-integration` job at the pinned SDKs, which fails on not-collected or skipped runs |
+| Core-authorized exact-target LXMF replay (G01/G02) | Not yet qualified | New gated `tests/integration/test_lxmf_core_exact_target_replay.py` launches the real core `ReplayRequest` through `PipelineRunner` and the pinned `LxmfAdapter` worker, checks one durable generation and receipt, and compares the native hash to an independent recipient callback. The test binds its typed observation back to that exact attempt. This is a source-level candidate until executed successfully at the manifest pin; it does not exercise uncertain-handoff remediation. | Manually dispatchable via `lxmf-core-native-qualification.yml`; **not** a required CI success or closed contract claim |
 | LXMF local router acceptance (G05)                     | `local_integration`        | Provider-owned `tests/test_lxmf_local_integration.py` runs a process-isolated real Reticulum/LXMRouter lifecycle (marked `local_integration`; the manifest marks the transport `local_integration: true`). Acceptance at this tier is local router acceptance inside the worker process.                    | CI-automatable now (transport-local-integration job); the exact-target leg over that provider-owned harness is outstanding                |
 | LXMF propagation over an external peer (G05)           | `live`                     | Provider-owned `tests/test_lxmf_live.py` at the pinned provider commit; propagated sends need an explicit outbound propagation node and an external peer. Multi-hop mesh delivery is not tested at this pin.                                                                                                | Operator-run (external Reticulum peer or propagation node)                                                                                |
 | Physical-interface lifecycle                           | `hardware`                 | Provider-owned `tests/test_native_worker_hardware.py` opens workers against a private RNode profile and establishes no delivery or reachability.                                                                                                                                                            | Operator-run (RNode hardware)                                                                                                             |
 
-These local SDK scenarios exercise native session and recipient behavior,
-not MEDRE's core exact-target replay or audited decision authority. G02's
-LXMF authority-authorized acceptance and uncertain-handoff remediation remain
-open until a distinct core-to-provider scenario proves them.
+The existing executed local SDK propagation scenario exercises native session
+and recipient behavior, not MEDRE's core replay or audited decision authority.
+The additional core-to-provider scenario is authored and has a manually
+dispatched, pin-resolved CI qualification workflow, but has not produced a
+successful pinned qualification. Local execution reaches durable handoff while
+the native worker stalls during SDK stamp generation, and the independent
+recipient callback times out. The direct-session propagation control passes;
+it does not qualify the worker path. The candidate advances no evidence tier.
+Local replay acceptance and uncertain-handoff remediation are separate
+contracts; a successful replay does not permit another attempt after
+uncertainty.
 
 Uncertain native handoff after the router call is fenced by the
 provider's handoff journal at this pin (see the transport limitations

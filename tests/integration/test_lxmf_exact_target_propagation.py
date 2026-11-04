@@ -153,6 +153,7 @@ def _on_delivery(message):
             _write_json(
                 {
                     "received": True,
+                    "delivery_count": len(_records),
                     "deliveries_so_far": len(_records),
                     "lxmf_version": str(LXMF.__version__),
                     "rns_version": str(RNS.__version__),

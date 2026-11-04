@@ -342,6 +342,29 @@ local-integration suite continues to run in the
 rungs remain outstanding. The scenario's owned process group terminates
 the sender and receiver on timeout or cancellation.
 
+### LXMF core-authorized replay candidate
+
+`tests/integration/test_lxmf_core_exact_target_replay.py` drives a persisted
+outbox generation through an actual `ReplayRequest`, `PipelineRunner`, and the
+pinned `LxmfAdapter` worker to a separate loopback recipient instance. It
+checks the exact target and an excluded sibling, and uses the recipient's
+independent callback to corroborate a typed `recipient_observation` against
+the durable receipt and outbox. Unlike the existing `LxmfSession.send_text`
+scenario, this exercises the core replay admission authority.
+
+This test is a **gated, unqualified candidate**. Its manifest-pinned workflow
+is opt-in rather than required CI. Its source
+presence does not raise the current-pin evidence rung or establish native
+acceptance. It MUST run successfully in the pinned local-integration tier
+before the register or this specification may record that proof as landed.
+Local execution currently reaches durable handoff but times out before the
+independent recipient callback; a receipt alone MUST NOT count as acceptance.
+Success artifacts are published only after clean receiver exit and a final
+count of exactly one delivery, including deliveries observed during teardown.
+The receiver is also its own propagation node: no external peer, multihop
+propagation, or hardware claim follows. None of these observations authorizes
+resolution of a genuinely uncertain native handoff.
+
 ### Remaining native legs
 
 This LXMF scenario does not qualify other transports; the Matrix
