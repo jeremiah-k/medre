@@ -206,11 +206,14 @@ this file once they land.
   compares a typed native-evidence observation with its exact outbox row, every
   persisted generation of the complete delivery identity, and the immutable
   attempt receipts, classifying the binding as current, historical, or unbound
-  with closed reasons and no execution authority. The Synapse exact-target
-  qualification binds its independently observed provider events through this
-  assessment; a reused Matrix native event ID leaves the new replay attempt
-  unresolved rather than accepted, and earlier evidence stays attributable as
-  historical.
+  with closed reasons and no execution authority. A lower attempt number
+  without a matching durable attempt receipt stays unbound, and a native
+  identifier already recorded for an earlier attempt leaves a later accepted
+  observation unbound rather than proving new acceptance. The Synapse
+  exact-target qualification binds its independently observed provider events
+  through this assessment; a reused Matrix native event ID leaves the new
+  replay attempt unresolved rather than accepted, and earlier evidence stays
+  attributable as historical.
 
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,

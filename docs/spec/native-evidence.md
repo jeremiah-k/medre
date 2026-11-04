@@ -209,7 +209,13 @@ and, when it contains a receipt or native-message identifier, with that
 outbox's immutable attempt receipts. It returns one of `current`,
 `historical`, or `unbound` and a closed reason. Contradictory identities,
 unknown generations, missing receipt identifiers, or unmatched native IDs
-fail closed to `unbound`. Positive native claims without any receipt or native
+fail closed to `unbound`. A lower attempt number without a matching durable
+attempt receipt is `unbound`, not automatically historical. An `accepted`
+observation cannot bind to a new attempt when the same native reference appears
+on an earlier attempt receipt for the exact identity; this is
+`unbound`/`native_reference_reused`. A later replay reusing a native identifier
+does not retroactively invalidate an earlier attempt's distinct historical
+binding. Positive native claims without any receipt or native
 correlation identifier also remain `unbound`, even if their row identity exists.
 Matrix replay may receive an idempotently reused native event identifier. The
 independent timeline then corroborates the earlier event's acceptance but MUST

@@ -52,6 +52,7 @@ def _storage(**row_changes: object) -> SimpleNamespace:
     )
     row.update(row_changes)
     receipt = SimpleNamespace(
+        outbox_id="outbox",
         event_id="evt",
         delivery_plan_id="plan",
         target_adapter="matrix-ci",
@@ -66,6 +67,7 @@ def _storage(**row_changes: object) -> SimpleNamespace:
         get_outbox_item=AsyncMock(return_value=item),
         list_outbox_items_for_delivery=AsyncMock(return_value=[item]),
         list_receipts_for_outbox=AsyncMock(return_value=[receipt]),
+        list_receipts_for_delivery=AsyncMock(return_value=[receipt]),
     )
 
 
@@ -85,8 +87,8 @@ def _storage(**row_changes: object) -> SimpleNamespace:
                 "native_message_id": None,
             },
             {},
-            "historical",
-            "attempt_superseded",
+            "unbound",
+            "attempt_unrecognized",
         ),
         ({"observed_row_updated_at": "old"}, {}, "historical", "row_changed"),
     ],
@@ -203,3 +205,168 @@ async def test_history_backend_errors_propagate() -> None:
     storage.list_outbox_items_for_delivery.side_effect = OSError("history unavailable")
     with pytest.raises(OSError, match="history unavailable"):
         await assess_native_evidence_ledger_binding(storage, _observation())
+
+
+async def test_lower_attempt_with_matching_durable_receipt_is_historical() -> None:
+    storage = _storage()
+    previous = SimpleNamespace(
+        outbox_id="outbox",
+        event_id="evt",
+        delivery_plan_id="plan",
+        target_adapter="matrix-ci",
+        target_channel="!room:local",
+        attempt_number=1,
+        receipt_kind="attempt",
+        receipt_id="receipt-1",
+        adapter_message_id="$earlier",
+    )
+    storage.list_receipts_for_outbox.return_value = [previous]
+    observation = _observation(
+        attempt_number=1,
+        result="unresolved",
+        receipt_id=None,
+        native_message_id=None,
+    )
+    result = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (result.state, result.reason) == ("historical", "attempt_superseded")
+
+
+async def test_lower_attempt_without_proof_cannot_be_historical() -> None:
+    storage = _storage()
+    storage.list_receipts_for_outbox.return_value = []
+    observation = _observation(
+        attempt_number=0,
+        result="not_observed",
+        receipt_id=None,
+        native_message_id=None,
+    )
+    result = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (result.state, result.reason) == ("unbound", "attempt_unrecognized")
+
+
+@pytest.mark.parametrize("same_row", [False, True])
+@pytest.mark.parametrize("omit_native_reference", [False, True])
+async def test_accepted_native_reference_reused_by_prior_attempt_is_unbound(
+    same_row: bool, omit_native_reference: bool
+) -> None:
+    storage = _storage()
+    prior = SimpleNamespace(
+        outbox_id="outbox" if same_row else "older-outbox",
+        event_id="evt",
+        delivery_plan_id="plan",
+        target_adapter="matrix-ci",
+        target_channel="!room:local",
+        attempt_number=1,
+        receipt_kind="attempt",
+        receipt_id="receipt-1",
+        adapter_message_id="$native",
+    )
+    if not same_row:
+        storage.list_outbox_items_for_delivery.return_value.append(
+            SimpleNamespace(
+                outbox_id="older-outbox", attempt_number=1, active_attempt=None
+            )
+        )
+    storage.list_receipts_for_delivery.return_value = [
+        prior,
+        *storage.list_receipts_for_outbox.return_value,
+    ]
+    observation = _observation(
+        native_message_id=None if omit_native_reference else "$native"
+    )
+    result = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (result.state, result.reason) == ("unbound", "native_reference_reused")
+    storage.list_receipts_for_delivery.assert_awaited_once_with(observation.identity)
+
+
+async def test_later_reuse_does_not_erase_earlier_historical_binding() -> None:
+    storage = _storage(attempt_number=1)
+    older = SimpleNamespace(
+        outbox_id="outbox",
+        event_id="evt",
+        delivery_plan_id="plan",
+        target_adapter="matrix-ci",
+        target_channel="!room:local",
+        attempt_number=1,
+        receipt_kind="attempt",
+        receipt_id="receipt-1",
+        adapter_message_id="$native",
+    )
+    storage.list_receipts_for_outbox.return_value = [older]
+    storage.list_receipts_for_delivery.return_value = [
+        older,
+        SimpleNamespace(
+            event_id="evt",
+            delivery_plan_id="plan",
+            target_adapter="matrix-ci",
+            target_channel="!room:local",
+            attempt_number=2,
+            receipt_kind="attempt",
+            receipt_id="receipt-2",
+            adapter_message_id="$native",
+        ),
+    ]
+    storage.list_outbox_items_for_delivery.return_value.append(
+        SimpleNamespace(
+            outbox_id="replay-outbox", attempt_number=2, active_attempt=None
+        )
+    )
+    observation = _observation(attempt_number=1, receipt_id="receipt-1")
+    result = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (result.state, result.reason) == ("historical", "attempt_superseded")
+
+
+async def test_reused_reference_ledger_read_error_propagates() -> None:
+    storage = _storage()
+    storage.list_receipts_for_delivery.side_effect = OSError(
+        "receipt ledger unavailable"
+    )
+    with pytest.raises(OSError, match="receipt ledger unavailable"):
+        await assess_native_evidence_ledger_binding(storage, _observation())
+
+
+async def test_receipt_from_another_outbox_does_not_bind() -> None:
+    storage = _storage()
+    receipt = storage.list_receipts_for_outbox.return_value[0]
+    receipt.outbox_id = "different-outbox"
+    result = await assess_native_evidence_ledger_binding(storage, _observation())
+    assert (result.state, result.reason) == ("unbound", "receipt_missing")
+
+
+async def test_native_reference_from_different_identity_does_not_collide() -> None:
+    storage = _storage()
+    storage.list_receipts_for_delivery.return_value.insert(
+        0,
+        SimpleNamespace(
+            event_id="evt",
+            delivery_plan_id="plan",
+            target_adapter="matrix-ci",
+            target_channel="!other:local",
+            attempt_number=1,
+            receipt_kind="attempt",
+            receipt_id="different-channel",
+            adapter_message_id="$native",
+        ),
+    )
+    result = await assess_native_evidence_ledger_binding(storage, _observation())
+    assert (result.state, result.reason) == ("current", "exact")
+
+
+async def test_accepted_receipt_only_still_checks_native_reference_reuse() -> None:
+    storage = _storage()
+    storage.list_receipts_for_delivery.return_value.insert(
+        0,
+        SimpleNamespace(
+            event_id="evt",
+            delivery_plan_id="plan",
+            target_adapter="matrix-ci",
+            target_channel="!room:local",
+            attempt_number=1,
+            receipt_kind="attempt",
+            receipt_id="earlier",
+            adapter_message_id="$native",
+        ),
+    )
+    observation = _observation(native_message_id=None)
+    result = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (result.state, result.reason) == ("unbound", "native_reference_reused")
