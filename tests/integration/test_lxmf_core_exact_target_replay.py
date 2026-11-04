@@ -41,11 +41,20 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
 ) -> None:
     receiver = tmp_path / "receiver.py"
     receiver.write_text(_RECEIVER_SOURCE, encoding="utf-8")
-    sender = Path(__file__).resolve().parents[1] / "helpers/lxmf_core_replay_sender.py"
+    project_root = Path(__file__).resolve().parents[2]
+    pythonpath = os.pathsep.join(
+        part for part in (str(project_root), os.environ.get("PYTHONPATH")) if part
+    )
     try:
         completed = await run_owned_scenario(
-            [sys.executable, str(sender), str(tmp_path), str(receiver)],
-            env={**os.environ, "PYTHONUTF8": "1"},
+            [
+                sys.executable,
+                "-m",
+                "tests.helpers.lxmf_core_replay_sender",
+                str(tmp_path),
+                str(receiver),
+            ],
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONPATH": pythonpath},
             timeout=300.0,
         )
     except subprocess.TimeoutExpired:
@@ -63,6 +72,15 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
     evidence = json.loads(matching[0])
     assert evidence["scenario"] == "lxmf_core_authorized_exact_target_replay"
     assert evidence["tier"] == "local_integration"
+    manifest = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
+        ).read_text(encoding="utf-8")
+    )
+    pinned = [row for row in manifest if row["transport"] == "lxmf"]
+    assert len(pinned) == 1
+    assert evidence["provider_repository"] == pinned[0]["repository"]
+    assert evidence["compatibility_pin"] == pinned[0]["ref"]
     assert evidence["scope"] == "recipient_observation"
     assert evidence["result"] == "accepted"
     assert evidence["binding"] == "current"
@@ -74,7 +92,9 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
     assert evidence["sibling_deliveries"] == 0
     assert len(evidence["native_evidence_fingerprint"]) == 64
     assert (tmp_path / "b-ready.json").is_file()
-    assert (tmp_path / "b-received.json").is_file()
+    received = json.loads((tmp_path / "b-received.json").read_text(encoding="utf-8"))
+    assert received["received"] is True
+    assert received["delivery_count"] == 1
     verdict_path = tmp_path / "recipient-verdict.json"
     published = json.loads(verdict_path.read_text(encoding="utf-8"))
     assert published["received"] is True

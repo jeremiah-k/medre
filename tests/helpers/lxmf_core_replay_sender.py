@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from tests.helpers.async_utils import wait_until
+
 import msgspec
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
@@ -90,34 +92,25 @@ def _ports() -> tuple[int, int]:
 
 
 async def _await_json(path: Path, timeout: float) -> dict[str, Any]:
-    # This module also runs as a standalone owned-group script, where the
-    # repository root is not on sys.path; bootstrap it so the sanctioned
-    # polling helper is importable in that subprocess context.
-    root = str(Path(__file__).resolve().parents[1])
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from tests.helpers.async_utils import wait_until
+    published: dict[str, Any] | None = None
 
-    value: dict[str, Any] | None = None
+    def read_published_json() -> bool:
+        nonlocal published
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(value, dict):
+            return False
+        published = value
+        return True
 
-    def _published() -> bool:
-        nonlocal value
-        if path.is_file():
-            try:
-                parsed = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                return False
-            if isinstance(parsed, dict):
-                value = parsed
-                return True
-        return False
-
-    if not await wait_until(_published, timeout=timeout):
+    if not await wait_until(read_published_json, timeout=timeout):
         raise AssertionError(
             f"native peer did not publish {path.name} within {timeout}s"
         )
-    assert value is not None
-    return value
+    assert published is not None
+    return published
 
 
 def _event(event_id: str, body: str) -> CanonicalEvent:
@@ -297,7 +290,7 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
         assert len(monitor.delivered_payloads) == 0
         received = await _await_json(base / "b-received.json", 90.0)
         assert received.get("received") is True, received
-        assert received.get("delivery_count", received.get("deliveries_so_far")) == 1
+        assert received.get("delivery_count") == 1
         assert received.get("destination_hash") == target
         assert received.get("message_hash") == receipt.adapter_message_id
         assert received.get("body") == body
@@ -307,7 +300,10 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
                 / ".github/adapter-compatibility.json"
             ).read_text(encoding="utf-8")
         )
-        pin = next(row["ref"] for row in manifest if row["transport"] == "lxmf")
+        providers = [row for row in manifest if row["transport"] == "lxmf"]
+        assert len(providers) == 1, "one manifest-authorized LXMF provider is required"
+        provider = providers[0]
+        pin = provider["ref"]
         evidence = NativeEvidenceObservation(
             event_id=receipt.event_id,
             delivery_plan_id=receipt.delivery_plan_id,
@@ -317,7 +313,7 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
             attempt_number=receipt.attempt_number,
             observed_row_updated_at=None,
             provider="lxmf",
-            provider_repository="jeremiah-k/medre-adapter-lxmf",
+            provider_repository=provider["repository"],
             compatibility_pin=pin,
             observation_source="independent_lxmf_receiver_callback",
             tier="local_integration",
@@ -347,6 +343,8 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
         return {
             "scenario": "lxmf_core_authorized_exact_target_replay",
             "provider": evidence.provider,
+            "provider_repository": evidence.provider_repository,
+            "compatibility_pin": evidence.compatibility_pin,
             "tier": evidence.tier,
             "scope": evidence.scope,
             "result": evidence.result,

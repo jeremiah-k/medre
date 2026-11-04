@@ -140,7 +140,7 @@ The additional core-to-provider scenario is authored and has a manually
 dispatched, pin-resolved CI qualification workflow, but has not been executed
 at its pin, so it does not advance an evidence tier yet. The eventual local
 replay acceptance proof and the still-separate uncertain-handoff remediation
-contract MUST be evaluated independently; a successful replay send does not
+contract are evaluated independently; a successful replay send does not
 permit a second attempt after uncertainty.
 
 Uncertain native handoff after the router call is fenced by the
