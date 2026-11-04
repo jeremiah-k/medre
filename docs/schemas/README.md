@@ -54,6 +54,12 @@ indexes are checked against the authoritative SQLite DDL.
 
 ## Examples
 
+`native-qualification.schema.json` describes content-free CI qualification
+records for the core-owned MeshCore and LXMF replay tests. It is test data,
+not a new runtime observation API. Source/SDK/harness checks additionally run
+through `scripts/ci/native_qualification.py`; see
+[native qualification](../dev/native-qualification.md).
+
 The `examples/` directory contains representative JSON payloads validated
 against these schemas.
 

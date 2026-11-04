@@ -20,6 +20,7 @@ import pytest
 
 from tests.helpers.lxmf_scenario import run_owned_scenario
 from tests.integration.test_lxmf_exact_target_propagation import _RECEIVER_SOURCE
+from scripts.ci.native_qualification import build_record, sha256
 
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF
@@ -109,3 +110,19 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
         "destination_matches",
         "evidence_fingerprint",
     }
+    record = build_record(
+        project_root,
+        Path(os.environ.get("MEDRE_LXMF_PROVIDER_ROOT", project_root / ".adapter")),
+        transport="lxmf",
+        observation=evidence["observation"],
+        binding=(evidence["binding"], "exact"),
+        observer_kind="recipient_callback",
+        witness_hashes=[sha256(verdict_path.read_bytes())],
+        harnesses=[
+            ("core", "tests/integration/test_lxmf_core_exact_target_replay.py"),
+            ("core", "tests/helpers/lxmf_core_replay_sender.py"),
+            ("core", "tests/integration/test_lxmf_exact_target_propagation.py"),
+            ("provider", "src/medre/adapters/lxmf/native_worker.py"),
+        ],
+    )
+    (tmp_path / "qualification.json").write_text(json.dumps(record, indent=2) + "\n")

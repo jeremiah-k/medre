@@ -342,7 +342,7 @@ local-integration suite continues to run in the
 rungs remain outstanding. The scenario's owned process group terminates
 the sender and receiver on timeout or cancellation.
 
-### LXMF core-authorized replay candidate
+### LXMF core-authorized replay
 
 `tests/integration/test_lxmf_core_exact_target_replay.py` drives a persisted
 outbox generation through an actual `ReplayRequest`, `PipelineRunner`, and the
@@ -352,7 +352,7 @@ independent callback to corroborate a typed `recipient_observation` against
 the durable receipt and outbox. Unlike the existing `LxmfSession.send_text`
 scenario, this exercises the core replay admission authority.
 
-This test is a **gated, qualified candidate**. Its manifest-pinned workflow
+This test is **qualified at its local-integration boundary**. Its manifest-pinned workflow
 is opt-in rather than required CI. It has executed successfully at its
 manifest pin: the pinned LXMF adapter worker carried a core-authorized
 exact-target replay, and the independent recipient observed exactly one
@@ -363,6 +363,31 @@ a receipt alone MUST NOT count as acceptance.
 The receiver is also its own propagation node: no external peer, multihop
 propagation, or hardware claim follows. None of these observations authorizes
 resolution of a genuinely uncertain native handoff.
+
+### MeshCore core-authorized companion protocol
+
+`tests/integration/test_meshcore_exact_target_replay.py` runs the pinned SDK and
+the provider-owned deterministic TCP companion endpoint through core replay.
+It checks single and multipart channel sends, exact receipt/generation binding,
+same-adapter channel siblings and a separate monitor, invalid selections, fresh
+generation allocation after a stale preview, and rejection of the old worker's
+submission authority. A clean reconnect precedes one tested replay.
+
+Timeout, disconnect and cancellation after a multipart grant retain blocking
+uncertainty, including after an accepted prefix. Explicit replay and storage/
+adapter restart MUST NOT repeat an accepted or uncertain packet. These cases
+exercise the existing packet authority; they introduce no recovery grant.
+The no-internal-retry claim is limited to granted multipart invocations;
+ordinary single-packet SDK retry behavior is outside that claim.
+
+The observation ceiling is controlled-companion protocol acceptance, with no
+native channel message ID, physical-radio proof, or recipient acknowledgement.
+`local_integration` is the test/typed-envelope tier; the runtime evidence level
+remains conformance. The required MeshCore local-integration job enforces all
+12 cases and both positive qualification records, rejecting missing or skipped
+execution and source/SDK drift. Successful records follow
+[native qualification](../dev/native-qualification.md); CI execution at the
+merged pair remains the qualification gate for `main`.
 
 ### Remaining native legs
 

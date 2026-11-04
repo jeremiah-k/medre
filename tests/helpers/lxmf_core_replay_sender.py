@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from tests.helpers.async_utils import wait_until
+from scripts.ci.native_qualification import observation_summary
 
 import msgspec
 
@@ -337,6 +338,7 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
             "result": evidence.result,
             "native_evidence_fingerprint": evidence.evidence_fingerprint,
             "binding": binding.state,
+            "observation": observation_summary(evidence),
             "source": receipt.source,
             "attempt_number": receipt.attempt_number,
             "native_id_matches_receiver": True,

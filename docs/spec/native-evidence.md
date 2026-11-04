@@ -194,12 +194,33 @@ two working native implementations exist.
   local router acceptance harness
   (`tests/test_lxmf_local_integration.py`) is `local_integration`-tier,
   `provider_acceptance`-scoped evidence of local router acceptance only.
-- **LXMF provider-level scenario.** The loopback scenario invokes the
-  provider send surface directly rather than the core replay selector or
-  decision authority, so it is provider-level evidence and NOT
-  core-authorized: it does not project a core-authorized exact-target
-  acceptance claim, and LXMF core-authorized native acceptance remains
-  open work recorded in the campaign page and the gap register.
+- **LXMF core-authorized replay.** The separate
+  `tests/integration/test_lxmf_core_exact_target_replay.py` scenario executes
+  `ReplayRequest` through the pipeline and pinned native worker. Its independent
+  recipient callback corroborates the exact durable attempt at
+  `local_integration`/`recipient_observation` scope. This leg has executed
+  successfully through the opt-in qualification workflow; that workflow is
+  distinct from the required provider-level propagation job. The recipient is
+  also the loopback propagation node: no external-network, multihop, hardware,
+  or uncertain-handoff recovery authority follows.
+- **MeshCore companion protocol.**
+  `tests/integration/test_meshcore_exact_target_replay.py` executes real pinned
+  SDK commands through core replay into the provider-owned deterministic TCP
+  companion endpoint. Independent endpoint command bytes corroborate the
+  selected channel and complete wire plan; a receipt alone is insufficient.
+  Its typed `local_integration`/`provider_acceptance` observation is limited to
+  that controlled companion's protocol acceptance. Under
+  [transport realism](appendices/transport-realism.md), the runtime evidence
+  level remains conformance: this is not a physical companion, RF transmission,
+  or recipient ACK. Channel `OK` responses assign no native message ID; the
+  observation MUST retain `None` rather than manufacture one.
+
+The versioned [qualification artifact](../dev/native-qualification.md) records
+the exact source pair, declared SDK versions, harness and witness digests, and
+attempt identity for these two core-owned scenarios. It is test data, not a
+runtime observation serialization API or an authorization token. Its schema is
+`docs/schemas/native-qualification.schema.json`; digests establish consistency,
+not observer authenticity or an independent proof that a recorded claim occurred.
 
 ## Read-only ledger corroboration
 
