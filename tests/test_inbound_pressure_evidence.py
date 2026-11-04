@@ -204,6 +204,39 @@ class TestPressureStorageContract:
         finally:
             await storage.close()
 
+    async def test_producer_outcomes_persist_and_survive_restart(
+        self, tmp_path: Path
+    ) -> None:
+        db = str(tmp_path / "pressure.db")
+        storage = SQLiteStorage(db)
+        await storage.initialize()
+        try:
+            base = 1_800_000_000
+            await storage.record_inbound_pressure(
+                "radio", "scheduled", unix_seconds=base
+            )
+            await storage.record_inbound_pressure(
+                "radio", "overflow", count=4, unix_seconds=base
+            )
+            await storage.record_inbound_pressure(
+                "meshcore", "cancelled_before_admission", unix_seconds=base
+            )
+        finally:
+            await storage.close()
+
+        reopened = SQLiteStorage(db)
+        await reopened.initialize()
+        try:
+            rows = await reopened.list_inbound_pressure_observations()
+            by_key = {(r["source"], r["outcome"]): r["count"] for r in rows}
+            assert by_key == {
+                ("radio", "scheduled"): 1,
+                ("radio", "overflow"): 4,
+                ("meshcore", "cancelled_before_admission"): 1,
+            }
+        finally:
+            await reopened.close()
+
 
 class _RecordingRunner(_FakeRunner):
     """Fake runner whose admissions hold a slot for controlled spans."""

@@ -2,16 +2,23 @@
 
 Authority surface:
   - record_inbound_pressure: **upsert**.  One aggregate row per (window,
-    source, outcome); each pre-admission rejection, timeout, or cursor-safe
-    deferral increments the row for the current fixed window (or adds a
-    batched ``count`` at once when the runtime flushes aggregated
-    in-memory counters).  Counters and timestamps only — never payloads,
-    sender identity, or transport-native content.  Writes are append-only
+    source, outcome); each pre-admission admission-gate refusal
+    (``rejected``, ``timed_out``, ``deferred``) or producer-side staging
+    fact (``scheduled``, ``overflow``, ``cancelled_before_admission``)
+    increments the row for the current fixed window (or adds a batched
+    ``count`` at once when the runtime flushes aggregated in-memory
+    counters).  Counters and timestamps only — never payloads, sender
+    identity, or transport-native content.  Writes are append-only
     upserts (no deletes, per the storage module's append-only invariant);
     growth is rate-bounded to one row per key per minute and only while
     pressure occurs.
   - list_inbound_pressure_observations: **list** (read-only), ordered by
     window; ``limit`` bounds the result in SQL to the newest windows.
+
+The outcome vocabulary is closed with two halves.  Admission-gate
+outcomes are core facts observed at the bounded admission boundary;
+producer outcomes are adapter-reported pre-admission facts observed where
+messages are produced.  Neither half ever claims durable admission.
 
 Observations are operational evidence, not delivery evidence: they never
 become canonical events, receipts, or outbox state, and they survive
@@ -27,7 +34,19 @@ from typing import TYPE_CHECKING, Any
 #: deterministic and comparable across restarts.
 PRESSURE_WINDOW_SECONDS: int = 60
 
-_VALID_OUTCOMES = frozenset({"rejected", "timed_out", "deferred"})
+#: Closed pressure outcome vocabulary: the three admission-gate outcomes
+#: recorded by the runtime gate plus the three producer-side outcomes
+#: reported by adapters through the producer pressure sink.
+_VALID_OUTCOMES = frozenset(
+    {
+        "rejected",
+        "timed_out",
+        "deferred",
+        "scheduled",
+        "overflow",
+        "cancelled_before_admission",
+    }
+)
 
 _UPSERT_OBSERVATION = """
 INSERT INTO inbound_pressure_observations (
@@ -69,7 +88,9 @@ class _PressureMixin:
         """Aggregate pressure events into durable storage.
 
         ``source`` is the adapter id (or the anonymous-source sentinel);
-        ``outcome`` is one of ``rejected``, ``timed_out``, ``deferred``;
+        ``outcome`` is one of the admission-gate outcomes ``rejected``,
+        ``timed_out``, ``deferred`` or one of the producer-side outcomes
+        ``scheduled``, ``overflow``, ``cancelled_before_admission``;
         ``count`` batches multiple events of one key into a single upsert
         (the runtime flushes aggregated in-memory counters this way).
         ``unix_seconds`` and ``last_unix_seconds`` bound that batch's actual

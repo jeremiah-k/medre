@@ -62,5 +62,7 @@ class GateAppDouble:
     _record_inbound_pressure_loss = _MedreApp._record_inbound_pressure_loss
     _flush_inbound_pressure = _MedreApp._flush_inbound_pressure
     _drain_inbound_pressure_flush = _MedreApp._drain_inbound_pressure_flush
+    _producer_pressure_reporter = _MedreApp._producer_pressure_reporter
+    _absorb_producer_pressure = _MedreApp._absorb_producer_pressure
     _make_admit_inbound = _MedreApp._make_admit_inbound
     _make_publish_inbound = _MedreApp._make_publish_inbound

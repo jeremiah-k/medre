@@ -13,6 +13,7 @@ Definitions:
 * :class:`AdapterCapabilities` – feature flags describing what an adapter supports.
 * :class:`AdapterInfo` – runtime metadata about a running adapter instance.
 * :class:`AdapterContext` – the runtime context injected into every adapter on start-up.
+* :class:`ProducerPressureReport` – content-free producer-side pressure fact.
 * :class:`AdapterCodec` – optional inbound decode helper that adapters may expose.
 * :class:`AdapterContract` – abstract base class that every adapter must implement.
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -263,6 +265,92 @@ class AdapterInfo:
     health: str = "unknown"
 
 
+#: Closed producer-side pressure outcome vocabulary.  These are
+#: pre-admission facts observed where messages are produced (SDK callback
+#: scheduling, callback capacity refusal, cancellation before admission);
+#: they are distinct from the admission-gate outcomes (``rejected``,
+#: ``timed_out``, ``deferred``) recorded by the runtime gate, and neither
+#: vocabulary ever claims durable admission.
+PRODUCER_PRESSURE_OUTCOMES: frozenset[str] = frozenset(
+    {"scheduled", "overflow", "cancelled_before_admission"}
+)
+
+#: ``reason`` is a short machine token, never free text and never message
+#: content, sender identity, or key material.  The shape (lowercase snake
+#: token, bounded length) is enforced mechanically; the documented example
+#: vocabulary lives in ``docs/spec/durable-ingress.md``.
+PRODUCER_PRESSURE_REASON_PATTERN = "^[a-z0-9_]{1,64}$"
+
+
+@dataclass(frozen=True)
+class ProducerPressureReport:
+    """Content-free producer-side pressure fact reported by an adapter.
+
+    Adapters whose SDKs stage inbound callbacks outside MEDRE's bounded
+    admission gate (for example one coroutine-scheduling submission or one
+    asyncio task per packet) report what happened to staged work *before*
+    any admission attempt through
+    :attr:`AdapterContext.report_producer_pressure`.  A report is
+    operational accounting only: it never claims durable admission, never
+    grants a receipt, and never carries message content, sender identity,
+    or key material.
+
+    Attributes
+    ----------
+    adapter_id:
+        Unique identifier of the reporting adapter instance.  Must match
+        the adapter the context was created for; the core sink drops
+        mismatched reports rather than misattributing pressure.
+    outcome:
+        One of the closed producer vocabulary
+        :data:`PRODUCER_PRESSURE_OUTCOMES`: ``"scheduled"`` (a callback was
+        staged toward admission), ``"overflow"`` (producer-side staging
+        refused the work), or ``"cancelled_before_admission"`` (staged work
+        was dropped before any admission attempt).
+    count:
+        Coalesced burst count for identical outcomes observed at once.
+        Defaults to ``1``.
+    reason:
+        Optional short closed-vocabulary machine token such as
+        ``"callback_capacity"`` — never free text.  ``None`` when the
+        outcome needs no further qualification.
+
+    Raises
+    ------
+    ValueError
+        If *outcome* is outside :data:`PRODUCER_PRESSURE_OUTCOMES`,
+        *count* is not a positive integer, *reason* is not a machine token
+        matching ``PRODUCER_PRESSURE_REASON_PATTERN`` (or ``None``), or
+        *adapter_id* is empty.
+    """
+
+    adapter_id: str
+    outcome: str
+    count: int = 1
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.adapter_id, str) or not self.adapter_id.strip():
+            raise ValueError("adapter_id must be a non-empty string")
+        if self.outcome not in PRODUCER_PRESSURE_OUTCOMES:
+            raise ValueError(
+                f"invalid producer pressure outcome {self.outcome!r}; "
+                f"expected one of {sorted(PRODUCER_PRESSURE_OUTCOMES)}"
+            )
+        if not isinstance(self.count, int) or isinstance(self.count, bool):
+            raise ValueError(f"count must be a positive integer, got {self.count!r}")
+        if self.count < 1:
+            raise ValueError(f"count must be a positive integer, got {self.count!r}")
+        if self.reason is not None:
+            if not isinstance(self.reason, str) or not re.fullmatch(
+                PRODUCER_PRESSURE_REASON_PATTERN, self.reason
+            ):
+                raise ValueError(
+                    "reason must be a short machine token matching "
+                    f"{PRODUCER_PRESSURE_REASON_PATTERN}, got {self.reason!r}"
+                )
+
+
 @dataclass
 class AdapterContext:
     """Runtime context injected into an adapter on start-up.
@@ -317,6 +405,15 @@ class AdapterContext:
         The sink requires an AdapterInfo for this context's adapter_id with
         health ``healthy``, ``degraded`` or ``failed``; otherwise it raises
         ValueError. SDK-thread callers must contain observer exceptions.
+    report_producer_pressure:
+        Optional thread-safe sink for the closed
+        :class:`ProducerPressureReport` vocabulary — pre-admission facts
+        about work an adapter's SDK staged toward admission. Callable from
+        any thread, including non-asyncio SDK reader threads. The
+        core-supplied sink is non-blocking, never raises into the adapter,
+        and is best-effort: telemetry may be lost on store failure or
+        buffer overflow, and a report never claims admission, grants a
+        receipt, or authorizes retry or resend.
     attachments:
         Optional runtime-wide attachment seam (policy snapshot, bounded
         transfer permits, and content access). Protocol adapters use it to
@@ -338,6 +435,8 @@ class AdapterContext:
     attachments: AttachmentRuntimeSeam | None = None
     publish_typing: Callable[[TypingSignal], Awaitable[bool]] | None = None
     report_health: Callable[[AdapterInfo], None] | None = None
+    # Appended so existing positional context arguments retain their meaning.
+    report_producer_pressure: Callable[[ProducerPressureReport], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +725,8 @@ class AdapterContract(ABC):
 
 
 __all__ = [
+    "PRODUCER_PRESSURE_OUTCOMES",
+    "PRODUCER_PRESSURE_REASON_PATTERN",
     "AdapterCapabilities",
     "AdapterCodec",
     "AdapterContext",
@@ -636,4 +737,5 @@ __all__ = [
     "AdapterRole",
     "AdapterSendError",
     "DeliveryFeedback",
+    "ProducerPressureReport",
 ]
