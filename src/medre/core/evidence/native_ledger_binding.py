@@ -148,10 +148,13 @@ async def assess_native_evidence_ledger_binding(
         # Two separate read projections disagree about the same row. The
         # diagnostic must not present their combination as a current fact.
         return assessed("unbound", "generation_ambiguous")
-    # A lower attempt counter is not evidence that a particular attempt
-    # existed. A finalized attempt receipt, rather than a later counter alone,
-    # must establish that lower generation before it can be called historical.
-    if observation.attempt_number < item.attempt_number:
+    # Neither a finalized counter, an in-flight reservation, nor a newer
+    # replay row proves that a particular earlier attempt existed. Require a
+    # durable receipt before calling any superseded attempt historical.
+    highest_generation = max(
+        max(entry.attempt_number, entry.active_attempt or 0) for entry in history
+    )
+    if observation.attempt_number < highest_generation:
         if receipts is None:
             receipts = await storage.list_receipts_for_outbox(observation.outbox_id)
         if not any(

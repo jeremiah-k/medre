@@ -56,6 +56,7 @@ import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -743,6 +744,14 @@ async def test_completed_target_replay_is_provider_confirmed(
             "attempt_superseded",
         ), "prior native evidence must remain attributable but never current"
         if reused_native_event:
+            would_be_accepted = replace(replay_evidence, result="accepted")
+            guard = await assess_native_evidence_ledger_binding(
+                temp_storage, would_be_accepted
+            )
+            assert (guard.state, guard.reason) == (
+                "unbound",
+                "native_reference_reused",
+            ), "the durable ledger must independently reject reused acceptance"
             logger.info(
                 "Completed-target replay: provider idempotency collapsed "
                 "the replay send into the original event %s",

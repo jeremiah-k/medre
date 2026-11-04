@@ -12,6 +12,9 @@ from medre.core.evidence.native_evidence import NativeEvidenceObservation
 from medre.core.evidence.native_ledger_binding import (
     assess_native_evidence_ledger_binding,
 )
+from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
 def _observation(**changes: object) -> NativeEvidenceObservation:
@@ -242,6 +245,84 @@ async def test_lower_attempt_without_proof_cannot_be_historical() -> None:
     )
     result = await assess_native_evidence_ledger_binding(storage, observation)
     assert (result.state, result.reason) == ("unbound", "attempt_unrecognized")
+
+
+@pytest.mark.parametrize("newer_row", [False, True])
+@pytest.mark.parametrize("has_receipt", [False, True])
+@pytest.mark.parametrize("result", ["not_observed", "unresolved"])
+async def test_superseded_attempt_requires_receipt_for_every_generation_path(
+    newer_row: bool, has_receipt: bool, result: str
+) -> None:
+    storage = _storage(active_attempt=None if newer_row else 3)
+    if newer_row:
+        storage.list_outbox_items_for_delivery.return_value.append(
+            SimpleNamespace(
+                outbox_id="replay-outbox", attempt_number=3, active_attempt=None
+            )
+        )
+    if not has_receipt:
+        storage.list_receipts_for_outbox.return_value = []
+    observation = _observation(result=result, receipt_id=None, native_message_id=None)
+    binding = await assess_native_evidence_ledger_binding(storage, observation)
+    expected = (
+        ("historical", "attempt_superseded")
+        if has_receipt
+        else ("unbound", "attempt_unrecognized")
+    )
+    assert (binding.state, binding.reason) == expected
+    storage.list_receipts_for_outbox.assert_awaited_once_with("outbox")
+
+
+@pytest.mark.parametrize("has_receipt", [False, True])
+async def test_reserved_sqlite_attempt_does_not_prove_the_finalized_counter(
+    temp_storage: SQLiteStorage, sample_event: CanonicalEvent, has_receipt: bool
+) -> None:
+    await temp_storage.append(sample_event)
+    await temp_storage.create_outbox_item(
+        DeliveryOutboxItem(
+            outbox_id="outbox",
+            event_id=sample_event.event_id,
+            delivery_plan_id="plan",
+            target_adapter="matrix-ci",
+            target_channel="!room:local",
+            route_id="route",
+            attempt_number=2,
+            status="in_progress",
+            worker_id="worker",
+        )
+    )
+    if has_receipt:
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="receipt-2",
+                event_id=sample_event.event_id,
+                delivery_plan_id="plan",
+                target_adapter="matrix-ci",
+                target_channel="!room:local",
+                route_id="route",
+                attempt_number=2,
+                status="sent",
+                outbox_id="outbox",
+                created_at=datetime.now(UTC),
+            )
+        )
+    assert await temp_storage.reserve_outbox_attempt("outbox", "worker", 2) == 3
+    binding = await assess_native_evidence_ledger_binding(
+        temp_storage,
+        _observation(
+            event_id=sample_event.event_id,
+            result="not_observed",
+            receipt_id=None,
+            native_message_id=None,
+            observed_row_updated_at=None,
+        ),
+    )
+    expected = (
+        ("historical", "attempt_superseded")
+        if has_receipt
+        else ("unbound", "attempt_unrecognized")
+    )
+    assert (binding.state, binding.reason) == expected
 
 
 @pytest.mark.parametrize("same_row", [False, True])

@@ -209,8 +209,11 @@ and, when it contains a receipt or native-message identifier, with that
 outbox's immutable attempt receipts. It returns one of `current`,
 `historical`, or `unbound` and a closed reason. Contradictory identities,
 unknown generations, missing receipt identifiers, or unmatched native IDs
-fail closed to `unbound`. A lower attempt number without a matching durable
-attempt receipt is `unbound`, not automatically historical. An `accepted`
+fail closed to `unbound`. An attempt below the highest known generation for
+the identity requires a matching durable attempt receipt before it can be
+classified as historical. This includes an in-flight `active_attempt` above
+the finalized counter and a newer generation on a separate replay row. Without
+that receipt, it is `unbound`/`attempt_unrecognized`. An `accepted`
 observation cannot bind to a new attempt when the same native reference appears
 on an earlier attempt receipt for the exact identity; this is
 `unbound`/`native_reference_reused`. A later replay reusing a native identifier
