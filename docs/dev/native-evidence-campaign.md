@@ -115,8 +115,18 @@ Pinned provider: `medre-adapter-meshcore`; SDK package `meshcore`.
 
 | Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                                                       | Automation                                       |
 | ---------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Exact-target native acceptance (G01/G02) | `local_integration`        | Provider-owned `tests/test_meshcore_local_integration.py` drives the real SDK through a deterministic TCP companion-protocol endpoint (marked `local_integration` + `meshcore_sdk`; the manifest marks the transport `local_integration: true`). | CI-automatable now (transport-local-integration job); the exact-target leg over that endpoint is outstanding |
+| Exact-target native acceptance (G01/G02) | `local_integration`        | Provider-owned `tests/test_meshcore_local_integration.py` drives the real SDK through a deterministic TCP companion-protocol endpoint (marked `local_integration` + `meshcore_sdk`; the manifest marks the transport `local_integration: true`). | Required transport-local-integration job also runs the core-owned exact-target companion suite; physical radio/recipient proof remains outstanding |
 | Radio interruption / BLE hardware (G05)  | `hardware`                 | Provider-owned `tests/test_meshcore_live.py` at the pinned provider commit; BLE session-layer evidence is a dated live observation (see the known-limitations index), and serial transport has no non-hardware coverage.       | Operator-run (pre-paired BLE node or serial radio) |
+
+The core-owned `tests/native_qualification/test_meshcore_exact_target_replay.py` now
+exercises core replay against this same pinned companion endpoint. It covers
+single/multipart selected-channel commands, excluded siblings, invalid targets,
+stale-preview generation fencing, reconnect, and guarded multipart uncertainty
+before/after an accepted prefix across restart. The required MeshCore
+local-integration job enforces all 12 cases and their positive proof records.
+The local SDK run is protocol conformance, not physical companion or recipient
+RF proof; channel `OK` does not assign a native message ID. Ordinary ungranted
+single-packet retries are outside the multipart no-retry claim.
 
 MeshCore has no store-and-forward and no native reply mechanism at this
 pin, so recipient-side verification beyond radio-level interruption
@@ -221,20 +231,26 @@ Landed on this campaign so far:
   propagation claim over a loopback-only topology; external-network and
   hardware rungs remain open.
 
+The core-authorized LXMF replay has also executed at its manifest pin through
+its opt-in workflow. The required propagation job remains a different scenario.
+MeshCore core replay has local real-SDK companion conformance coverage; this does
+not close its physical-radio or recipient claims. Both core-owned replay suites
+emit [revision-bound qualification records](native-qualification.md), preserving
+actual SDK versions and exact attempt identity without uploading message bodies.
+
 Outstanding legs, grouped by what each needs:
 
 - CI-automatable now (harness exists on an already-run tier): the
-  exact-target acceptance leg over containerized `meshtasticd`; the
-  exact-target acceptance leg over the MeshCore and LXMF provider-owned
-  local-integration endpoints; the encrypted Matrix outbound leg on the
-  existing Synapse E2EE environment.
+  exact-target acceptance leg over containerized `meshtasticd` and the
+  encrypted Matrix outbound leg on the existing Synapse E2EE environment.
 - Needs a new local service tier: a containerized XMPP server harness,
   a containerized Chatmail relay harness, and a local two-profile
   SimpleX tier, each only if the pinned SDK can honestly produce an
   acceptance observation at that tier — to be established before any
   tier is labeled.
 - Operator-run only (hardware or external peer): radio interruption
-  (Meshtastic, MeshCore BLE/serial), external LXMF propagation peering
+  (Meshtastic, MeshCore BLE/serial), native MeshCore physical-companion
+  acceptance beyond protocol conformance, external LXMF propagation peering
   and physical RNode lifecycle, encrypted Matrix continuity under a live
   account, XMPP and Chatmail recipient verification, and the SimpleX
   reply observation by an independent peer.

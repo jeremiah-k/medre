@@ -298,6 +298,44 @@ jobs:
       - name: Run deterministic local integration
         working-directory: .adapter
         run: ../.venv/bin/python -m pytest -v -m "local_integration and not soak"
+      - name: Qualify core-authorized MeshCore replay
+        if: matrix.transport == 'meshcore'
+        run: |
+          mkdir -p ci-artifacts/meshcore-native
+          set -o pipefail
+          uv run --no-sync python -m pytest tests/native_qualification/test_meshcore_exact_target_replay.py \
+            -m "local_integration and meshcore_sdk" -v -rA \
+            --basetemp=ci-artifacts/meshcore-native/pytest-tmp \
+            --junitxml=ci-artifacts/meshcore-native/junit.xml \
+            2>&1 | tee ci-artifacts/meshcore-native/pytest-output.txt
+      - name: Enforce MeshCore execution and proof provenance
+        if: always() && matrix.transport == 'meshcore'
+        run: |
+          uv run --no-sync python scripts/ci/enforce_test_execution.py \
+            --junit ci-artifacts/meshcore-native/junit.xml --expect-tests 12 \
+            --require-artifact 'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc0/qualification.json' \
+            --require-artifact 'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc1/qualification.json'
+          uv run --no-sync python scripts/ci/native_qualification.py \
+            'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc[01]/qualification.json' \
+            --expect-records 2
+      - name: Upload verified MeshCore proof
+        if: success() && matrix.transport == 'meshcore'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meshcore-native-proof-${{ github.sha }}
+          path: ci-artifacts/meshcore-native/pytest-tmp/**/qualification.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload MeshCore qualification diagnostics
+        if: always() && matrix.transport == 'meshcore'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meshcore-native-diagnostics-${{ github.sha }}
+          path: |
+            ci-artifacts/meshcore-native/junit.xml
+            ci-artifacts/meshcore-native/pytest-output.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Run opt-in local soak
         if: github.event_name == 'workflow_dispatch'
         working-directory: .adapter

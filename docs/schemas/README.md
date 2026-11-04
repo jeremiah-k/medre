@@ -31,6 +31,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `runtime-snapshot.schema.json`                   | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                                                                          |
 | `diagnostics.schema.json`                        | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                                                                  |
 | `evidence-bundle.schema.json`                    | Dict shape                                                      | `medre evidence` bundle structure                                                                                             |
+| `native-qualification.schema.json`               | Dict shape (`scripts/ci/native_qualification.py`)               | Content-free, revision-bound CI proof for MeshCore and LXMF core replay; not a runtime API                                      |
 | `adapter-config.schema.json`                     | Per-transport configs                                           | Adapter configuration shapes                                                                                                  |
 | `routing-config.schema.json`                     | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                                                                           |
 | `runtime-config.schema.json`                     | `RuntimeConfig` (`src/medre/config/model.py`)                   | Shared runtime configuration across runtime, logging, storage, retry, limits, adapters, and routes                            |
@@ -53,6 +54,11 @@ published as `event-routing-facts.schema.sql`,
 indexes are checked against the authoritative SQLite DDL.
 
 ## Examples
+
+The `native-qualification.schema.json` entry above describes CI test evidence,
+not a runtime observation API. See
+[native qualification](../dev/native-qualification.md) for its independent
+source, SDK, and harness checks.
 
 The `examples/` directory contains representative JSON payloads validated
 against these schemas.
