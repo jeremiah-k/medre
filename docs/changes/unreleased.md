@@ -202,6 +202,16 @@ this file once they land.
   Post-handoff rejection stays unresolved, while a proven pre-handoff failure
   remains separately scoped. No evidence result authorizes another send.
 
+- **466 — Native-evidence ledger corroboration.** A read-only ledger assessment
+  compares a typed native-evidence observation with its exact outbox row, every
+  persisted generation of the complete delivery identity, and the immutable
+  attempt receipts, classifying the binding as current, historical, or unbound
+  with closed reasons and no execution authority. The Synapse exact-target
+  qualification binds its independently observed provider events through this
+  assessment; a reused Matrix native event ID leaves the new replay attempt
+  unresolved rather than accepted, and earlier evidence stays attributable as
+  historical.
+
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
   and scoped replay without sibling sends. Cancellation preserves its terminal

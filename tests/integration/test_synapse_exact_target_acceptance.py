@@ -54,6 +54,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -72,6 +73,14 @@ from medre.core.engine.pipeline.retry_plan import OutboxDispatchContext
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.canonical import DeliveryReceipt
+from medre.core.evidence.native_evidence import (
+    NativeEvidenceObservation,
+    NativeEvidenceResult,
+)
+from medre.core.evidence.native_ledger_binding import (
+    assess_native_evidence_ledger_binding,
+)
 from medre.core.events.bus import EventBus
 from medre.core.events.metadata import RoutingMetadata
 from medre.core.observability.exact_target import (
@@ -314,6 +323,58 @@ def _outcome_for_adapter(outcomes: Any, adapter_id: str) -> Any:
     return None
 
 
+async def _assert_provider_observation_bound(
+    storage: SQLiteStorage,
+    receipt: DeliveryReceipt,
+    *,
+    native_event_id: str,
+    observed_event: dict[str, Any],
+    result: NativeEvidenceResult = "accepted",
+) -> NativeEvidenceObservation:
+    """Cross-check a second-client provider fact against durable attempt data.
+
+    The independent timeline check precedes envelope construction. Ledger
+    corroboration validates the identity and identifiers, not the observer's
+    token, the provider pin, or authority to send again.
+    """
+    assert observed_event.get("event_id") == native_event_id
+    assert receipt.outbox_id and receipt.receipt_id
+    manifest = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
+        ).read_text(encoding="utf-8")
+    )
+    pin = next(row["ref"] for row in manifest if row["transport"] == "matrix")
+    observation = NativeEvidenceObservation(
+        event_id=receipt.event_id,
+        delivery_plan_id=receipt.delivery_plan_id,
+        target_adapter=receipt.target_adapter,
+        target_channel=receipt.target_channel,
+        outbox_id=receipt.outbox_id,
+        attempt_number=receipt.attempt_number,
+        observed_row_updated_at=None,
+        provider="matrix",
+        provider_repository="jeremiah-k/medre-adapter-matrix",
+        compatibility_pin=pin,
+        observation_source="synapse_second_client_timeline",
+        tier="docker",
+        scope="provider_acceptance",
+        observed_at=datetime.now(UTC),
+        result=result,
+        receipt_id=receipt.receipt_id,
+        native_message_id=native_event_id,
+        evidence_reference=None,
+    )
+    binding = await assess_native_evidence_ledger_binding(storage, observation)
+    assert (binding.state, binding.reason) == ("current", "exact"), (
+        "provider fact must name the current persisted attempt, got "
+        f"{binding.state}/{binding.reason}"
+    )
+    assert binding.evidence_fingerprint == observation.evidence_fingerprint
+    assert observation.resolution == result
+    return observation
+
+
 # ---------------------------------------------------------------------------
 # Staged-generation scaffolding (test A)
 # ---------------------------------------------------------------------------
@@ -482,6 +543,12 @@ async def test_exact_target_replay_send_is_observed_by_synapse(
             f"the replay send's native id {native_event_id!r}"
         )
         assert observed_event.get("sender") == synapse_env.bot_user_id
+        observation = await _assert_provider_observation_bound(
+            temp_storage,
+            receipt,
+            native_event_id=native_event_id,
+            observed_event=observed_event,
+        )
 
         # -- Sibling boundary ----------------------------------------
         assert (
@@ -506,6 +573,10 @@ async def test_exact_target_replay_send_is_observed_by_synapse(
                     "native_event_id": native_event_id,
                     "replay_run_id": run_id,
                     "attempt_number": receipt.attempt_number,
+                    "native_evidence_fingerprint": observation.evidence_fingerprint,
+                    "native_evidence_scope": observation.scope,
+                    "native_evidence_tier": observation.tier,
+                    "native_evidence_result": observation.result,
                     "observed_event_id": observed_event.get("event_id"),
                     "observed_sender": observed_event.get("sender"),
                     "sibling_deliveries": len(monitor.delivered_payloads),
@@ -579,6 +650,13 @@ async def test_completed_target_replay_is_provider_confirmed(
         assert [e.get("event_id") for e in live_observed] == [
             live_event_id
         ], "the provider timeline should show exactly the live event"
+        live_evidence = await _assert_provider_observation_bound(
+            temp_storage,
+            live_receipt,
+            native_event_id=live_event_id,
+            observed_event=live_observed[0],
+        )
+        assert live_evidence.result == "accepted"
 
         # -- The completed target is replayed under its identity ------
         selection = ExactTargetSelection(
@@ -640,7 +718,31 @@ async def test_completed_target_replay_is_provider_confirmed(
             f"id {replay_event_id!r}; observed {observed_ids!r}"
         )
         assert all(e.get("sender") == synapse_env.bot_user_id for e in observed)
-        if replay_event_id == live_event_id:
+        reused_native_event = replay_event_id == live_event_id
+        replay_result: NativeEvidenceResult = (
+            "unresolved" if reused_native_event else "accepted"
+        )
+        replay_evidence = await _assert_provider_observation_bound(
+            temp_storage,
+            receipt,
+            native_event_id=replay_event_id,
+            observed_event=next(
+                event for event in observed if event.get("event_id") == replay_event_id
+            ),
+            # A reused Matrix transaction id confirms the earlier accepted
+            # event, not an independent acceptance for the replay generation.
+            result=replay_result,
+        )
+        assert replay_evidence.result == replay_result
+        assert replay_evidence.attempt_number == live_evidence.attempt_number + 1
+        historical = await assess_native_evidence_ledger_binding(
+            temp_storage, live_evidence
+        )
+        assert (historical.state, historical.reason) == (
+            "historical",
+            "attempt_superseded",
+        ), "prior native evidence must remain attributable but never current"
+        if reused_native_event:
             logger.info(
                 "Completed-target replay: provider idempotency collapsed "
                 "the replay send into the original event %s",

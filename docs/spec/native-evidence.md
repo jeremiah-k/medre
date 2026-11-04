@@ -200,3 +200,32 @@ two working native implementations exist.
   core-authorized: it does not project a core-authorized exact-target
   acceptance claim, and LXMF core-authorized native acceptance remains
   open work recorded in the campaign page and the gap register.
+
+## Read-only ledger corroboration
+
+`assess_native_evidence_ledger_binding` compares an envelope with its exact
+outbox row, every persisted generation of that complete delivery identity,
+and, when it contains a receipt or native-message identifier, with that
+outbox's immutable attempt receipts. It returns one of `current`,
+`historical`, or `unbound` and a closed reason. Contradictory identities,
+unknown generations, missing receipt identifiers, or unmatched native IDs
+fail closed to `unbound`. Positive native claims without any receipt or native
+correlation identifier also remain `unbound`, even if their row identity exists.
+Matrix replay may receive an idempotently reused native event identifier. The
+independent timeline then corroborates the earlier event's acceptance but MUST
+NOT promote the new replay attempt to `accepted`; its distinct attempt is
+`unresolved` unless a separate native acceptance fact is independently observed.
+An earlier attempt remains `historical` when a newer replay has allocated a
+separate outbox row for the same target; an equal competing generation is
+`unbound` rather than arbitrarily current. A previously identified row version
+is likewise `historical`, not rewritten as current. Storage failures MUST propagate; no
+error is converted to a negative provider fact. Reads are metadata-only where
+supported, and the assessor returns no content and performs no write; receipt history reads
+may contain diagnostic fields that this projection never returns.
+
+The assessment is **not a transactional authorization**, an authentication of
+the external observer, or proof of the compatibility pin. In particular a
+`current` assessment of a caller-supplied `not_observed` record does not turn
+its `unresolved` resolution into non-acceptance. A write authority MUST repeat
+identity, attempt, ownership, and proof checks inside its own transaction;
+this API exposes no send permit or recovery decision.
