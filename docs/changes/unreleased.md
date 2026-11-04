@@ -9,6 +9,11 @@ this file once they land.
 
 ## Recent changes
 
+- **468 — Superseded native-evidence proof.** Historical attempt binding requires
+  a matching durable receipt when an in-flight reservation or a separate replay
+  row advances the delivery generation. A newer counter alone leaves the earlier
+  attempt unbound; the assessment grants no execution authority.
+
 - **469 — LXMF core-replay qualification executed.** The opt-in qualification
   workflow installs the manifest-pinned Matrix monitor beside the LXMF
   provider, and a dispatched run at the manifest pin executed the
@@ -24,6 +29,12 @@ this file once they land.
   MeshCore and LXMF emit schema-checked, revision-bound proof records with SDK,
   harness and witness digests; verified artifacts retain a 90-day review window.
   Protocol conformance does not imply RF delivery or authorize uncertain resend.
+
+- **471 — Guarded MeshCore single-packet handoffs.** Short, clipped and fallback
+  native text uses the durable one-packet grant. Adapter and channel identity
+  checks precede native use, uncertain progress blocks resubmission across
+  restart, and the required replay suite covers 15 cases. Wire text stays exact;
+  physical RF delivery and recipient acknowledgment remain separate claims.
 
 - **472 — Meshtastic daemon-local core-replay qualification.** The
   Docker-gated exact-target suite executes deferred ordinary sends and
