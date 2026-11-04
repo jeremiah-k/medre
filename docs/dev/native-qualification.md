@@ -59,7 +59,7 @@ From the core checkout, for a MeshCore provider at `/path/to/meshcore`:
 uv sync --locked --extra dev
 uv run --no-sync medre dev sync --sdk meshcore --editable meshcore=/path/to/meshcore
 MEDRE_MESHCORE_PROVIDER_ROOT=/path/to/meshcore uv run --no-sync python -m pytest \
-  tests/integration/test_meshcore_exact_target_replay.py \
+  tests/native_qualification/test_meshcore_exact_target_replay.py \
   -m 'local_integration and meshcore_sdk' -q \
   --basetemp=/tmp/meshcore-proof --junitxml=/tmp/meshcore-proof-junit.xml
 uv run --no-sync python scripts/ci/enforce_test_execution.py \

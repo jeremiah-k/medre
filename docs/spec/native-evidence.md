@@ -204,7 +204,7 @@ two working native implementations exist.
   also the loopback propagation node: no external-network, multihop, hardware,
   or uncertain-handoff recovery authority follows.
 - **MeshCore companion protocol.**
-  `tests/integration/test_meshcore_exact_target_replay.py` executes real pinned
+  `tests/native_qualification/test_meshcore_exact_target_replay.py` executes real pinned
   SDK commands through core replay into the provider-owned deterministic TCP
   companion endpoint. Independent endpoint command bytes corroborate the
   selected channel and complete wire plan; a receipt alone is insufficient.

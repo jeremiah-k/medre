@@ -23,7 +23,10 @@ def test_meshcore_replay_is_in_the_required_local_job():
         if step.get("name") == "Qualify core-authorized MeshCore replay"
     )
     assert "matrix.transport == 'meshcore'" in execute["if"]
-    assert "tests/integration/test_meshcore_exact_target_replay.py" in execute["run"]
+    assert (
+        "tests/native_qualification/test_meshcore_exact_target_replay.py"
+        in execute["run"]
+    )
     assert "local_integration and meshcore_sdk" in execute["run"]
     enforce = next(
         step
@@ -42,6 +45,15 @@ def test_meshcore_replay_is_in_the_required_local_job():
     assert "success()" in upload["if"]
     assert upload["with"]["retention-days"] == "90"
     assert "qualification.json" in upload["with"]["path"]
+
+
+def test_meshcore_proof_stays_outside_docker_test_collection():
+    """Docker's directory selection imports tests before marker deselection."""
+    runner = (_ROOT / "scripts/ci/run-docker-integration.sh").read_text()
+    assert "pytest tests/integration/" in runner
+    native = _ROOT / "tests/native_qualification/test_meshcore_exact_target_replay.py"
+    assert native.is_file()
+    assert not native.is_relative_to(_ROOT / "tests/integration")
 
 
 def test_lxmf_stays_opt_in_but_requires_verified_provenance():

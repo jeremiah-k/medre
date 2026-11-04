@@ -366,7 +366,7 @@ resolution of a genuinely uncertain native handoff.
 
 ### MeshCore core-authorized companion protocol
 
-`tests/integration/test_meshcore_exact_target_replay.py` runs the pinned SDK and
+`tests/native_qualification/test_meshcore_exact_target_replay.py` runs the pinned SDK and
 the provider-owned deterministic TCP companion endpoint through core replay.
 It checks single and multipart channel sends, exact receipt/generation binding,
 same-adapter channel siblings and a separate monitor, invalid selections, fresh

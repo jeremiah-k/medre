@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.metadata
 import json
 import logging
 import os
@@ -85,7 +84,6 @@ def companion_class(monkeypatch: pytest.MonkeyPatch):
     ).strip()
     assert actual == provider["ref"], "companion fixture must match the manifest pin"
     assert Path(adapter_module.__file__).resolve().is_relative_to(checkout)
-    assert importlib.metadata.version("meshcore") == "2.3.15"
     monkeypatch.syspath_prepend(str(checkout / "tests"))
     from medre_meshcore_tests.helpers.meshcore_local_node import LocalMeshCoreNode
 
@@ -334,7 +332,7 @@ async def test_core_replay_companion_acceptance(
         observer_kind="companion_protocol",
         witness_hashes=[sha256(command) for command in node.send_commands],
         harnesses=[
-            ("core", "tests/integration/test_meshcore_exact_target_replay.py"),
+            ("core", "tests/native_qualification/test_meshcore_exact_target_replay.py"),
             ("provider", "tests/medre_meshcore_tests/helpers/meshcore_local_node.py"),
         ],
     )

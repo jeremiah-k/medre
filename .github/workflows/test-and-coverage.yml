@@ -303,7 +303,7 @@ jobs:
         run: |
           mkdir -p ci-artifacts/meshcore-native
           set -o pipefail
-          uv run --no-sync python -m pytest tests/integration/test_meshcore_exact_target_replay.py \
+          uv run --no-sync python -m pytest tests/native_qualification/test_meshcore_exact_target_replay.py \
             -m "local_integration and meshcore_sdk" -v -rA \
             --basetemp=ci-artifacts/meshcore-native/pytest-tmp \
             --junitxml=ci-artifacts/meshcore-native/junit.xml \
