@@ -19,6 +19,7 @@ from urllib.request import url2pathname
 import jsonschema  # type: ignore[import-untyped]
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
+
 from medre.core.evidence.native_evidence import NativeEvidenceObservation
 
 _SCHEMA = "docs/schemas/native-qualification.schema.json"

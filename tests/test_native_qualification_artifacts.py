@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.ci.native_qualification import build_record, check_record
 from scripts.ci import native_qualification as qualification
+from scripts.ci.native_qualification import build_record, check_record
 
 
 def _commit(root: Path) -> str:
