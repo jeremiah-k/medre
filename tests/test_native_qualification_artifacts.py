@@ -184,12 +184,21 @@ def test_altered_proof_is_refused(proof, change: str, expected: str):
     assert any(expected in error for error in check_record(root, provider, record))
 
 
-@pytest.mark.parametrize("owner", ["core", "provider"])
-def test_actual_harness_changes_invalidate_an_existing_record(proof, owner: str):
+def test_core_harness_bytes_are_digest_checked(proof):
     root, provider, record = proof
-    checkout = root if owner == "core" else provider
-    (checkout / "harness.py").write_text("# changed after observation\n")
-    assert check_record(root, provider, record)
+    (root / "harness.py").write_text("# changed after observation\n")
+    assert "harness digest differs" in check_record(
+        root, provider, record, require_clean=False
+    )
+
+
+def test_modified_provider_checkout_invalidates_a_record(proof):
+    root, provider, record = proof
+    (provider / "harness.py").write_text("# changed after observation\n")
+    assert any(
+        "modified or untracked" in error
+        for error in check_record(root, provider, record)
+    )
 
 
 def test_ci_execution_identity_cannot_be_reused(proof, monkeypatch: pytest.MonkeyPatch):
