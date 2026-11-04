@@ -65,6 +65,12 @@ _SOURCE = "native-proof-source"
 _EVENT = "meshcore-native-replay"
 
 
+def _provider_checkout() -> Path:
+    return Path(
+        os.environ.get("MEDRE_MESHCORE_PROVIDER_ROOT", _ROOT / ".adapter")
+    ).resolve()
+
+
 def _provider_row():
     rows = json.loads((_ROOT / ".github/adapter-compatibility.json").read_text())
     selected = [row for row in rows if row["transport"] == "meshcore"]
@@ -76,9 +82,7 @@ def _provider_row():
 def companion_class(monkeypatch: pytest.MonkeyPatch):
     """Reuse the provider-owned endpoint from the exact installed manifest pin."""
     provider = _provider_row()
-    checkout = Path(
-        os.environ.get("MEDRE_MESHCORE_PROVIDER_ROOT", _ROOT / ".adapter")
-    ).resolve()
+    checkout = _provider_checkout()
     actual = subprocess.check_output(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
     ).strip()
@@ -322,7 +326,7 @@ async def test_core_replay_companion_acceptance(
         binding = await assess_native_evidence_ledger_binding(case.storage, evidence)
         assert (binding.state, binding.reason) == ("current", "exact")
     # Cleanup exceptions prevent publication, even after a successful command.
-    checkout = Path(os.environ.get("MEDRE_MESHCORE_PROVIDER_ROOT", _ROOT / ".adapter"))
+    checkout = _provider_checkout()
     record = build_record(
         _ROOT,
         checkout,
