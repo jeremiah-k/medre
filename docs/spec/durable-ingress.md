@@ -87,6 +87,45 @@ Operators read the aggregates via `medre inspect pressure` and the evidence
 bundle's storage section; this is runtime pressure evidence, not transport
 health.
 
+### Producer-side pressure reporting
+
+The pressure vocabulary is closed at six outcomes spanning two halves. The
+admission-gate outcomes above are core facts observed at the bounded
+admission boundary. The producer-side outcomes — `scheduled`,
+`overflow`, and `cancelled_before_admission` — are adapter-reported
+pre-admission facts observed where messages are produced: a radio SDK
+that stages one coroutine-scheduling submission or one asyncio task per
+packet from its own reader thread can refuse or drop staged work before
+any admission attempt, and that refusal is invisible to the gate.
+Adapters report it through the optional `report_producer_pressure`
+context sink as a content-free `ProducerPressureReport` (adapter id,
+outcome, coalesced count, and an optional short machine-token reason
+such as `callback_capacity` — never message content, sender identity,
+or key material). Producer outcomes are pre-admission facts; core
+outcomes are admission-gate facts; `admitted` remains the only durable
+ingress fact, and no pressure outcome — from either half — claims
+admission, grants a receipt, or authorizes retry or resend. A refused or
+overflowed callback is never admitted through a side door: there is no
+second delivery queue, no adapter SQLite access, and no change to native
+delivery or replay authority.
+
+**Decision (bounded producer staging, loss-honest).** The core sink
+coalesces producer reports into a bounded in-memory buffer — documented
+constant, oldest keys dropped on overflow of the accounting itself — and
+folds them into the same pending store and single-flight flush the gate
+refusal path uses, so reporting costs at most one scheduled loop callback
+per empty-to-nonempty epoch and never one task per report. The sink is
+callable from any SDK reader thread, never blocks on storage, and never
+raises into the adapter. This staging is deliberately **not** lossless:
+telemetry staged while the owner loop cannot absorb it, or arriving after
+the loop stopped, is lost, and the loss is honest — counts either appear
+in the durable aggregates or are simply absent, and they are never
+reported as admitted. A durable spill journal for producer reports
+(policy B) would require its own write-ahead log, idempotency keys, and
+disk-failure proof to stay honest, and is deliberately not taken; if a
+future design needs lossless producer accounting it must be specified
+and proven separately.
+
 The coalescing writer **MUST** preserve the first and last refusal times for
 each aggregate window. A transient pressure-write failure **MUST NOT** discard
 the unwritten in-memory batch: it remains eligible for a later refusal-triggered
