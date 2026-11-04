@@ -214,6 +214,13 @@ this file once they land.
   through this assessment; a reused Matrix native event ID leaves the new
   replay attempt unresolved rather than accepted, and earlier evidence stays
   attributable as historical.
+- **467 — LXMF core-replay qualification candidate.** A gated, process-owned
+  loopback scenario drives a persisted outbox generation through a real replay
+  request, the pinned LXMF adapter's native worker, and a separate recipient
+  process whose independent callback corroborates a typed recipient observation
+  against the durable receipt and outbox. A manually dispatched workflow at the
+  manifest pin requires executed recipient evidence before any tier claim, and
+  uncertain-handoff remediation authority is unchanged.
 
 - **453 — Exact-target recovery qualification.** Fake/core-tier coverage now
   exercises SQLite writer contention, restart durability, cancellation fencing,
