@@ -9,6 +9,15 @@ this file once they land.
 
 ## Recent changes
 
+- **469 — LXMF core-replay qualification executed.** The opt-in qualification
+  workflow installs the manifest-pinned Matrix monitor beside the LXMF
+  provider, and a dispatched run at the manifest pin executed the
+  core-authorized replay scenario successfully: the independent recipient
+  observed exactly one delivery, and the six-field content-free verdict was
+  published only after clean receiver exit at the recorded manifest pins.
+  The leg reaches `local_integration`; uncertain-handoff remediation
+  authority is unchanged.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
