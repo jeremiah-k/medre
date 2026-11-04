@@ -1,0 +1,44 @@
+{
+  "observations": [
+    {
+      "window_start": 1800000000,
+      "source": "meshtastic",
+      "outcome": "overflow",
+      "count": 12,
+      "first_seen_at": "2027-01-15T10:00:00+00:00",
+      "last_seen_at": "2027-01-15T10:00:41+00:00"
+    },
+    {
+      "window_start": 1800000000,
+      "source": "meshtastic",
+      "outcome": "cancelled_before_admission",
+      "count": 3,
+      "first_seen_at": "2027-01-15T10:00:05+00:00",
+      "last_seen_at": "2027-01-15T10:00:38+00:00"
+    },
+    {
+      "window_start": 1800000000,
+      "source": "matrix",
+      "outcome": "rejected",
+      "count": 1,
+      "first_seen_at": "2027-01-15T10:00:22+00:00",
+      "last_seen_at": "2027-01-15T10:00:22+00:00"
+    },
+    {
+      "window_start": 1800000060,
+      "source": "meshtastic",
+      "outcome": "scheduled",
+      "count": 40,
+      "first_seen_at": "2027-01-15T10:01:02+00:00",
+      "last_seen_at": "2027-01-15T10:01:59+00:00"
+    }
+  ],
+  "count": 4,
+  "source_filter": null,
+  "outcome_totals": {
+    "rejected": 1,
+    "scheduled": 40,
+    "overflow": 12,
+    "cancelled_before_admission": 3
+  }
+}

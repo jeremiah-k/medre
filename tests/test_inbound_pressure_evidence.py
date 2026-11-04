@@ -396,6 +396,83 @@ class TestPressureSurfacing:
         }
         assert by_outcome == {("radio", "rejected"): 2, ("matrix", "deferred"): 1}
 
+    def test_inspect_pressure_cli_distinguishes_producer_outcomes(
+        self, tmp_path: Path
+    ) -> None:
+        """Producer staging facts surface as distinct outcomes and totals."""
+        from tests.helpers.cli import _run_cli
+
+        async def _seed() -> None:
+            storage = await _open_storage(tmp_path)
+            try:
+                await storage.record_inbound_pressure("radio", "overflow", count=4)
+                await storage.record_inbound_pressure(
+                    "radio", "overflow", count=3, unix_seconds=60
+                )
+                await storage.record_inbound_pressure("radio", "scheduled", count=2)
+                await storage.record_inbound_pressure("matrix", "deferred")
+            finally:
+                await storage.close()
+
+        asyncio.run(_seed())
+        out = _run_cli(
+            "inspect",
+            "pressure",
+            "--storage-path",
+            str(tmp_path / "pressure.db"),
+        )
+        payload = json.loads(out)
+        assert payload["outcome_totals"] == {
+            "deferred": 1,
+            "scheduled": 2,
+            "overflow": 7,
+        }
+        assert {(r["source"], r["outcome"]) for r in payload["observations"]} == {
+            ("radio", "overflow"),
+            ("radio", "scheduled"),
+            ("matrix", "deferred"),
+        }
+
+    def test_inspect_pressure_cli_matches_published_schema(
+        self, tmp_path: Path
+    ) -> None:
+        """The CLI payload validates against docs/schemas inbound-pressure."""
+        from importlib.util import find_spec
+        from pathlib import Path as _Path
+
+        from tests.helpers.cli import _run_cli
+
+        async def _seed() -> None:
+            storage = await _open_storage(tmp_path)
+            try:
+                await storage.record_inbound_pressure("radio", "overflow", count=3)
+                await storage.record_inbound_pressure("radio", "rejected")
+            finally:
+                await storage.close()
+
+        asyncio.run(_seed())
+        out = _run_cli(
+            "inspect",
+            "pressure",
+            "--storage-path",
+            str(tmp_path / "pressure.db"),
+        )
+        payload = json.loads(out)
+        schema_path = (
+            _Path(__file__).resolve().parents[1]
+            / "docs"
+            / "schemas"
+            / "inbound-pressure.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        if find_spec("jsonschema") is not None:
+            import jsonschema
+
+            jsonschema.validate(payload, schema)
+        else:  # pragma: no cover - jsonschema is a dev dependency
+            for key in schema["required"]:
+                assert key in payload
+
     async def test_evidence_storage_section_carries_pressure(
         self, tmp_path: Path
     ) -> None:
@@ -415,6 +492,33 @@ class TestPressureSurfacing:
             assert pressure[0]["outcome"] == "timed_out"
             assert pressure[0]["source"] == "radio"
             assert pressure[0]["count"] == 1
+        finally:
+            await storage.close()
+
+    async def test_evidence_storage_section_carries_producer_outcomes(
+        self, tmp_path: Path
+    ) -> None:
+        """Producer staging facts reach the evidence bundle as distinct rows."""
+        from medre.runtime.evidence._storage_sections import (
+            _collect_storage_data_from_backend,
+        )
+
+        storage = await _open_storage(tmp_path)
+        try:
+            await storage.record_inbound_pressure("meshtastic", "overflow", count=7)
+            await storage.record_inbound_pressure(
+                "meshtastic", "cancelled_before_admission", count=2
+            )
+            section = await _collect_storage_data_from_backend(
+                storage, str(tmp_path / "pressure.db"), None, None
+            )
+            pressure = section["data"]["inbound_pressure"]
+            assert isinstance(pressure, list)
+            assert {(r["outcome"], r["count"]) for r in pressure} == {
+                ("overflow", 7),
+                ("cancelled_before_admission", 2),
+            }
+            assert {r["source"] for r in pressure} == {"meshtastic"}
         finally:
             await storage.close()
 

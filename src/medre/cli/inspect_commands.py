@@ -191,6 +191,33 @@ async def _inspect_native_ref(
         sys.exit(_exit_code)
 
 
+#: The closed pressure outcome vocabulary: three admission-gate outcomes
+#: recorded by the runtime gate plus three producer-side outcomes reported
+#: by adapters before any admission attempt.
+_PRESSURE_OUTCOME_ORDER: tuple[str, ...] = (
+    "rejected",
+    "timed_out",
+    "deferred",
+    "scheduled",
+    "overflow",
+    "cancelled_before_admission",
+)
+
+
+def _pressure_outcome_totals(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum the listed rows' counts per outcome in vocabulary order.
+
+    Derived, content-free rollup over the returned window only — rows stay
+    the durable evidence; the totals make the admission-gate and
+    producer-side halves of the vocabulary distinct at a glance.
+    """
+    totals = {outcome: 0 for outcome in _PRESSURE_OUTCOME_ORDER}
+    for row in rows:
+        outcome = str(row.get("outcome", ""))
+        totals[outcome] = totals.get(outcome, 0) + int(row.get("count", 0))
+    return {outcome: total for outcome, total in totals.items() if total}
+
+
 async def _inspect_pressure(
     *,
     storage_path: str,
@@ -201,8 +228,10 @@ async def _inspect_pressure(
 
     Read-only listing of ``inbound_pressure_observations`` rows — the only
     durable trace of arrivals the inbound admission gate rejected, timed
-    out, or deferred before canonical admission.  Rows carry window,
-    source, outcome, and counters; never payloads.
+    out, or deferred before canonical admission, and of producer-side
+    staging facts reported before any admission attempt.  Rows carry
+    window, source, outcome, and counters; never payloads.  The payload
+    adds an ``outcome_totals`` rollup over the returned rows.
     """
     storage = await _open_readonly_storage(storage_path)
     try:
@@ -215,6 +244,7 @@ async def _inspect_pressure(
                     "observations": rows,
                     "count": len(rows),
                     "source_filter": source,
+                    "outcome_totals": _pressure_outcome_totals(rows),
                 }
             )
         )
