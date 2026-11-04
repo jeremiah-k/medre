@@ -137,11 +137,14 @@ Pinned provider: `medre-adapter-lxmf`; SDK packages `lxmf` and `rns`.
 The existing executed local SDK propagation scenario exercises native session
 and recipient behavior, not MEDRE's core replay or audited decision authority.
 The additional core-to-provider scenario is authored and has a manually
-dispatched, pin-resolved CI qualification workflow, but has not been executed
-at its pin, so it does not advance an evidence tier yet. The eventual local
-replay acceptance proof and the still-separate uncertain-handoff remediation
-contract are evaluated independently; a successful replay send does not
-permit a second attempt after uncertainty.
+dispatched, pin-resolved CI qualification workflow, but has not produced a
+successful pinned qualification. Local execution reaches durable handoff while
+the native worker stalls during SDK stamp generation, and the independent
+recipient callback times out. The direct-session propagation control passes;
+it does not qualify the worker path. The candidate advances no evidence tier.
+Local replay acceptance and uncertain-handoff remediation are separate
+contracts; a successful replay does not permit another attempt after
+uncertainty.
 
 Uncertain native handoff after the router call is fenced by the
 provider's handoff journal at this pin (see the transport limitations

@@ -327,19 +327,6 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
         binding = await assess_native_evidence_ledger_binding(storage, evidence)
         assert (binding.state, binding.reason) == ("current", "exact"), binding
         assert evidence.resolution == "accepted"
-        # Only a bounded, content-free summary is eligible for uploaded CI
-        # evidence. Raw recipient payloads stay inside the owned test directory.
-        recipient_verdict = {
-            "received": True,
-            "delivery_count": 1,
-            "body_matches": True,
-            "native_id_matches": True,
-            "destination_matches": True,
-            "evidence_fingerprint": evidence.evidence_fingerprint,
-        }
-        (base / "recipient-verdict.json").write_text(
-            json.dumps(recipient_verdict, sort_keys=True), encoding="utf-8"
-        )
         return {
             "scenario": "lxmf_core_authorized_exact_target_replay",
             "provider": evidence.provider,
@@ -364,15 +351,17 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
             ],
         }
     finally:
-        if started:
-            try:
-                await adapter.stop()
-            finally:
+        try:
+            if started:
                 try:
-                    await monitor.stop()
+                    await adapter.stop()
                 finally:
-                    await runner.stop()
-        await storage.close()
+                    try:
+                        await monitor.stop()
+                    finally:
+                        await runner.stop()
+        finally:
+            await storage.close()
 
 
 async def _main(base: Path, receiver: Path) -> None:
@@ -410,10 +399,28 @@ async def _main(base: Path, receiver: Path) -> None:
         except TimeoutError:
             child.kill()
             await child.wait()
-        receiver_log.close()
+            raise AssertionError("receiver did not exit within its deadline") from None
+        finally:
+            receiver_log.close()
+    assert child.returncode == 0, f"receiver exited with {child.returncode}"
     final = await _await_json(base / "b-received.json", 30.0)
-    assert final.get("received") is True
-    assert final.get("delivery_count") == 1
+    assert final.get("received") is True, "receiver did not confirm delivery"
+    assert (
+        final.get("delivery_count") == 1
+    ), "receiver did not observe exactly one delivery"
+    # Publish success only after both core and receiver cleanup pass. Raw
+    # recipient payloads stay inside the owned test directory.
+    recipient_verdict = {
+        "received": True,
+        "delivery_count": 1,
+        "body_matches": True,
+        "native_id_matches": True,
+        "destination_matches": True,
+        "evidence_fingerprint": verdict["native_evidence_fingerprint"],
+    }
+    (base / "recipient-verdict.json").write_text(
+        json.dumps(recipient_verdict, sort_keys=True), encoding="utf-8"
+    )
     print(_RESULT_PREFIX + json.dumps(verdict, sort_keys=True), flush=True)
 
 

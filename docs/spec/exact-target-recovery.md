@@ -352,11 +352,15 @@ independent callback to corroborate a typed `recipient_observation` against
 the durable receipt and outbox. Unlike the existing `LxmfSession.send_text`
 scenario, this exercises the core replay admission authority.
 
-This test is a **gated, not-yet-executed qualification candidate**. Its
-manifest-pinned workflow is opt-in rather than required CI. Its source
+This test is a **gated, unqualified candidate**. Its manifest-pinned workflow
+is opt-in rather than required CI. Its source
 presence does not raise the current-pin evidence rung or establish native
 acceptance. It MUST run successfully in the pinned local-integration tier
 before the register or this specification may record that proof as landed.
+Local execution currently reaches durable handoff but times out before the
+independent recipient callback; a receipt alone MUST NOT count as acceptance.
+Success artifacts are published only after clean receiver exit and a final
+count of exactly one delivery, including deliveries observed during teardown.
 The receiver is also its own propagation node: no external peer, multihop
 propagation, or hardware claim follows. None of these observations authorizes
 resolution of a genuinely uncertain native handoff.
