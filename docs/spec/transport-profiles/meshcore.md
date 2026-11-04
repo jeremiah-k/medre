@@ -69,8 +69,15 @@ live device information. A later name change MUST update the planning budget.
 Rendering MUST truncate at UTF-8 boundaries and record the effective budget and
 truncation in delivery evidence. The session MUST reject oversized native sends
 permanently before SDK I/O; it MUST NOT let firmware silently clip text or retry
-an intrinsically oversized companion frame. MEDRE does not fragment or reassemble
-MeshCore messages.
+an intrinsically oversized companion frame. `max_text_parts > 1` opts long
+ordinary messages into exact numbered packets under the shared
+[radio text plan](../radio-text-planning.md); inbound reassembly is not provided.
+Native short and clipped messages MUST also use a one-packet durable plan. A
+granted packet MUST make at most one SDK command; timeout, disconnect or
+cancellation after the grant MUST retain uncertainty instead of resubmitting.
+Empty final native text, including a zero-byte effective budget, MUST fail before
+dispatch. Direct unbound session calls retain legacy retry behavior outside this
+core-delivery guarantee.
 
 ---
 

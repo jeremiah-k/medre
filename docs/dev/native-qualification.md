@@ -9,15 +9,16 @@ or observation licenses another send.
 
 | Scenario | Observer | Claim | CI policy |
 | --- | --- | --- | --- |
-| MeshCore core replay | Provider-owned deterministic TCP companion endpoint, independently reading real SDK command frames | Selected-channel protocol acceptance, exact ledger binding, sibling exclusion; guarded multipart uncertainty remains blocked across restart | Required MeshCore local-integration job; 12 executed cases and two positive records |
+| MeshCore core replay | Provider-owned deterministic TCP companion endpoint, independently reading real SDK command frames | Selected-channel protocol acceptance, exact ledger binding, sibling exclusion; single/multipart uncertainty remains blocked across restart | Required MeshCore local-integration job; 15 executed cases and two positive records |
 | LXMF core replay | Separate raw-SDK recipient process, also its loopback propagation node | One core-authorized replay observed by that local recipient after clean teardown | Opt-in native-qualification workflow; one executed case and one positive record |
 
 MeshCore's `local_integration` marker and typed tier do not promote its modeled
 endpoint to a physical companion: runtime evidence remains conformance. Channel
 responses supply no native packet identity. Timeout/cancellation/restart coverage
-does not prove non-submission; the checkpoint holds uncertainty. The guarded
-multipart send owner disables internal retries, while the ordinary single-packet
-session path retains its existing retry semantics outside this qualification.
+does not prove non-submission; the checkpoint holds uncertainty. All core-rendered
+native MeshCore packets use the guarded send owner, including short and clipped
+text. Each grant permits one SDK command. Direct unbound
+session calls retain legacy retries and are outside this qualification.
 
 The native-evidence and exact-target specifications define the authority and
 mapping. This page describes how to reproduce and retain the test artifacts.
@@ -63,7 +64,7 @@ MEDRE_MESHCORE_PROVIDER_ROOT=/path/to/meshcore uv run --no-sync python -m pytest
   -m 'local_integration and meshcore_sdk' -q \
   --basetemp=/tmp/meshcore-proof --junitxml=/tmp/meshcore-proof-junit.xml
 uv run --no-sync python scripts/ci/enforce_test_execution.py \
-  --junit /tmp/meshcore-proof-junit.xml --expect-tests 12
+  --junit /tmp/meshcore-proof-junit.xml --expect-tests 15
 uv run --no-sync python scripts/ci/native_qualification.py \
   '/tmp/meshcore-proof/test_core_replay_companion_acc[01]/qualification.json' \
   --provider /path/to/meshcore --expect-records 2

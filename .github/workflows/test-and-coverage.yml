@@ -312,7 +312,7 @@ jobs:
         if: always() && matrix.transport == 'meshcore'
         run: |
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
-            --junit ci-artifacts/meshcore-native/junit.xml --expect-tests 12 \
+            --junit ci-artifacts/meshcore-native/junit.xml --expect-tests 15 \
             --require-artifact 'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc0/qualification.json' \
             --require-artifact 'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc1/qualification.json'
           uv run --no-sync python scripts/ci/native_qualification.py \

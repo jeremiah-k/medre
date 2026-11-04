@@ -121,12 +121,13 @@ Pinned provider: `medre-adapter-meshcore`; SDK package `meshcore`.
 The core-owned `tests/native_qualification/test_meshcore_exact_target_replay.py` now
 exercises core replay against this same pinned companion endpoint. It covers
 single/multipart selected-channel commands, excluded siblings, invalid targets,
-stale-preview generation fencing, reconnect, and guarded multipart uncertainty
+stale-preview generation fencing, reconnect, and single/multipart uncertainty
 before/after an accepted prefix across restart. The required MeshCore
-local-integration job enforces all 12 cases and their positive proof records.
+local-integration job enforces all 15 cases and their positive proof records.
 The local SDK run is protocol conformance, not physical companion or recipient
-RF proof; channel `OK` does not assign a native message ID. Ordinary ungranted
-single-packet retries are outside the multipart no-retry claim.
+RF proof; channel `OK` does not assign a native message ID. Core-rendered native
+single packets now use the same durable grant. Direct unbound session retries
+remain outside the core-owned no-resubmission claim.
 
 MeshCore has no store-and-forward and no native reply mechanism at this
 pin, so recipient-side verification beyond radio-level interruption
