@@ -1,4 +1,4 @@
-- **469 — Radio replay qualification and reproducible proof.** Core-authorized
+- **470 — Radio replay qualification and reproducible proof.** Core-authorized
   MeshCore replay now has a required pinned-SDK companion-protocol suite,
   including sibling exclusion and guarded multipart uncertainty across restart.
   MeshCore and LXMF emit schema-checked, revision-bound proof records with SDK,

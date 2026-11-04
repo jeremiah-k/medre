@@ -18,6 +18,13 @@ this file once they land.
   The leg reaches `local_integration`; uncertain-handoff remediation
   authority is unchanged.
 
+- **470 — Radio replay qualification and reproducible proof.** Core-authorized
+  MeshCore replay now has a required pinned-SDK companion-protocol suite,
+  including sibling exclusion and guarded multipart uncertainty across restart.
+  MeshCore and LXMF emit schema-checked, revision-bound proof records with SDK,
+  harness and witness digests; verified artifacts retain a 90-day review window.
+  Protocol conformance does not imply RF delivery or authorize uncertain resend.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
