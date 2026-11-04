@@ -31,6 +31,19 @@ jobs:
           print('repository=' + lxmf[0]['repository'])
           print('ref=' + lxmf[0]['ref'])
           PY
+      - name: Select the manifest-authorized Matrix monitor revision
+        id: matrix-pin
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          providers = json.loads(Path('.github/adapter-compatibility.json').read_text())
+          matrix = [item for item in providers if item['transport'] == 'matrix']
+          if len(matrix) != 1:
+              raise SystemExit('Expected one manifest-authorized Matrix provider')
+          print('repository=' + matrix[0]['repository'])
+          print('ref=' + matrix[0]['ref'])
+          PY
       - name: Checkout the pinned LXMF provider
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,16 +51,24 @@ jobs:
           ref: ${{ steps.lxmf-pin.outputs.ref }}
           path: .adapter
           persist-credentials: false
+      - name: Checkout the pinned Matrix monitor provider
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.matrix-pin.outputs.repository }}
+          ref: ${{ steps.matrix-pin.outputs.ref }}
+          path: .adapter-monitor
+          persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version-file: .tool-versions
           python-version: "3.13"
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - name: Install core and pinned LXMF SDKs
+      - name: Install core and the pinned LXMF and monitor SDKs
         run: |
           uv sync --locked --extra dev
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --python .venv/bin/python
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter-monitor --python .venv/bin/python
       - name: Exercise exact-target replay through the native LXMF worker
         run: |
           mkdir -p ci-artifacts/lxmf-core-native
