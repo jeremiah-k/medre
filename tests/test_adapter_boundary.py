@@ -652,7 +652,9 @@ class TestPerAdapterErrorClassification:
         mock_session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))
         adapter._session = mock_session
 
-        result = _make_deferred_rendering_result()
+        result = _make_rendering_result()
+        # The transient mapping is for an unbound session call; a durable
+        # attempt without its native grant is correctly refused before SDK I/O.
         result.payload["text"] = "hello"
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
@@ -797,12 +799,33 @@ class TestPerAdapterErrorClassification:
         mock_session.send_text = AsyncMock(side_effect=MeshCoreSendError("send failed"))
         adapter._session = mock_session
 
-        result = _make_deferred_rendering_result()
+        result = _make_rendering_result()
+        # The transient mapping is for an unbound session call; a durable
+        # attempt without its native grant is correctly refused before SDK I/O.
         result.payload["text"] = "hello"
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
+
+    @pytest.mark.asyncio
+    async def test_meshcore_core_bound_without_grant_never_invokes_sdk(self) -> None:
+        """Durable attempts cannot bypass the native submission checkpoint."""
+        from medre.adapters.meshcore.adapter import MeshCoreAdapter
+        from medre.config.adapters.meshcore import MeshCoreConfig
+
+        adapter = MeshCoreAdapter(MeshCoreConfig(adapter_id="test"))
+        adapter._config = MagicMock()
+        adapter._config.connection_type = "tcp"
+        session = MagicMock()
+        session.send_text = AsyncMock()
+        adapter._session = session
+
+        result = _make_deferred_rendering_result()
+        result.payload.update({"text": "hello", "channel_index": 0})
+        with pytest.raises(AdapterPermanentError, match="native handoff grant"):
+            await adapter.deliver(result)
+        session.send_text.assert_not_awaited()
 
 
 class TestErrorClassificationPipeline:
