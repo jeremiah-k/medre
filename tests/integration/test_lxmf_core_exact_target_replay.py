@@ -101,4 +101,11 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
     assert published["body_matches"] is True
     assert published["native_id_matches"] is True
     assert published["evidence_fingerprint"] == evidence["native_evidence_fingerprint"]
-    assert "body" not in published and "title" not in published
+    assert set(published) == {
+        "received",
+        "delivery_count",
+        "body_matches",
+        "native_id_matches",
+        "destination_matches",
+        "evidence_fingerprint",
+    }
