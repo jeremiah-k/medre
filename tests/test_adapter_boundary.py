@@ -814,9 +814,9 @@ class TestPerAdapterErrorClassification:
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
         from medre.config.adapters.meshcore import MeshCoreConfig
 
-        adapter = MeshCoreAdapter(MeshCoreConfig(adapter_id="test"))
-        adapter._config = MagicMock()
-        adapter._config.connection_type = "tcp"
+        adapter = MeshCoreAdapter(
+            MeshCoreConfig(adapter_id="test", connection_type="tcp", host="localhost")
+        )
         session = MagicMock()
         session.send_text = AsyncMock()
         adapter._session = session

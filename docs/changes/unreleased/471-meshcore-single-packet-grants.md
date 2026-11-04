@@ -15,3 +15,8 @@ checkpoint as well as independent command frames and an exact ledger receipt.
 The shared plan, progress, handoff and qualification schema shapes are unchanged.
 Physical RF delivery, recipient acknowledgment and uncertain-handoff recovery
 remain separate qualification or authority gaps.
+
+The provider also fences prebuilt core-bound packets to the receiving adapter
+and the renderer's selected native channel before grant use or synthetic
+handoff. Signed numeric forms and configured-default targets cannot bypass the
+check or redirect a channel send to a DM. Durable target identity stays exact.
