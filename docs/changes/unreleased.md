@@ -60,6 +60,19 @@ this file once they land.
   surface the producer outcomes distinctly, and no pressure outcome claims
   admission or grants resend authority.
 
+- **474 — Sustained ingress contention qualification.** A deterministic
+  contention suite drives simultaneous sources across grant waves against a
+  periodically held downstream consumer, proving per-source fairness,
+  bounded waiting, and exact outcome accounting; a foreign `BEGIN IMMEDIATE`
+  writer and a sustained storage-failure window exercise the
+  bounded-retention contract (producer-half keys only are evictable, every
+  loss logged) without an exception reaching the admission path, and
+  owner-loop sentinels stay live under full gate saturation. Rows are
+  asserted content-free; `MEDRE_SUSTAINED_INGRESS_REPORT_DIR` opts into
+  content-free JSON measurements. The durable-ingress spec records the
+  qualification boundaries and an open decision on bounding gate-refusal
+  evidence during an extended database outage.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
