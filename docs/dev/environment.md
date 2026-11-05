@@ -76,6 +76,11 @@ uv run --no-sync medre dev sync --sdk 'matrix[e2e]' meshcore
 uv run --no-sync medre dev sync --dry-run
 ```
 
+Adapter SDK CI recipes can generate `sdk-constraints.txt` and
+`sdk-requirements.txt` in their `.core` checkout. These disposable install
+inputs derive from `uv.lock` and provider package metadata; they are ignored
+at the checkout root and must not be committed as dependency authorities.
+
 SDK mode exports constraints from the locked core graph before installing the
 providers and their declared dependencies. A conflicting SDK/core requirement
 fails resolution instead of replacing the editable core or its pinned shared
