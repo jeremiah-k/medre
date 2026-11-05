@@ -14,9 +14,8 @@ Messages (text, images, files) are one `event_kind` among many. The pipeline
 handles telemetry, metrics, presence, system signals, and plugin events
 identically. Adapters decide how to render each event kind for their platform.
 
-No event kind is privileged. A `telemetry` event flows through the same
-ingress, dedup, relation-resolution, storage, routing, and delivery stages
-as a `message.text` event.
+No event kind is privileged. A `telemetry` event and a `message.text`
+event traverse the same implemented `PipelinePhase` stages listed in §4.
 
 ## 2. Immutability
 
@@ -43,10 +42,11 @@ Code that needs to answer "what protocol does this adapter speak?" MUST use the
 
 Events flow through explicit stages. Six phases are implemented, defined by
 the `PipelinePhase` enum in `src/medre/core/engine/phases.py`: `ingress`,
-`dedup`, `resolve_relations`, `store`, `route`, `deliver`. The deliver phase
-covers delivery planning, rendering, adapter execution, and receipts. The
-enrich, transform, and event-policy stages are reserved future extension
-points with no code path today (see [architecture.md](architecture.md)).
+`dedup`, `resolve_relations`, `store`, `route`, `deliver`. The `route` phase
+creates per-target delivery plans; `deliver` handles rendering, adapter
+execution, and receipts. The enrich, transform, and event-policy stages are
+reserved future extension points with no code path today
+(see [architecture.md](architecture.md)).
 Each implemented stage is inspectable, testable, and replaceable. No adapter
 directly calls another adapter. All inter-adapter communication goes through
 the pipeline.

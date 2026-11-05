@@ -70,24 +70,21 @@ def _stated_phases(section: str, token_pattern: str) -> list[str]:
 # ===========================================================================
 
 
-class TestArchitecturePhaseList:
-    """architecture.md §1 must list the `PipelinePhase` members."""
+def test_architecture_lists_enum_member_names_in_order() -> None:
+    """architecture.md §1 must list the implemented enum members."""
+    from medre.core.engine.phases import PipelinePhase
 
-    def test_lists_enum_member_names_in_order(self) -> None:
-        """The implemented-stage sentence must match the enum exactly."""
-        from medre.core.engine.phases import PipelinePhase
-
-        section = _slice_section(
-            _read(_ARCHITECTURE_MD),
-            "## 1. Pipeline Overview",
-            "## 2. Stage Descriptions",
-        )
-        stated = _stated_phases(section, r"`([A-Z_]+)`")
-        expected = [phase.name for phase in PipelinePhase]
-        assert stated == expected, (
-            "architecture.md implemented-stage list does not match "
-            f"PipelinePhase: docs state {stated}, enum defines {expected}"
-        )
+    section = _slice_section(
+        _read(_ARCHITECTURE_MD),
+        "## 1. Pipeline Overview",
+        "## 2. Stage Descriptions",
+    )
+    stated = _stated_phases(section, r"`([A-Z_]+)`")
+    expected = [phase.name for phase in PipelinePhase]
+    assert stated == expected, (
+        "architecture.md implemented-stage list does not match "
+        f"PipelinePhase: docs state {stated}, enum defines {expected}"
+    )
 
 
 # ===========================================================================
@@ -95,38 +92,46 @@ class TestArchitecturePhaseList:
 # ===========================================================================
 
 
-class TestPrinciplesPhaseList:
-    """principles.md §4 must name the `PipelinePhase` values."""
+def test_principles_names_enum_values_in_order() -> None:
+    """principles.md §4 must name the implemented enum values."""
+    from medre.core.engine.phases import PipelinePhase
 
-    def test_names_enum_values_in_order(self) -> None:
-        """The implemented-phase sentence must match the enum exactly."""
-        from medre.core.engine.phases import PipelinePhase
+    section = _slice_section(
+        _read(_PRINCIPLES_MD),
+        "## 4. Pipeline over Callback",
+        "## 5. Versioned Envelope, Explicit Extensions",
+    )
+    stated = _stated_phases(section, r"`([a-z_]+)`")
+    expected = [phase.value for phase in PipelinePhase]
+    assert stated == expected, (
+        "principles.md implemented-phase list does not match "
+        f"PipelinePhase: docs state {stated}, enum defines {expected}"
+    )
 
-        section = _slice_section(
-            _read(_PRINCIPLES_MD),
-            "## 4. Pipeline over Callback",
-            "## 5. Versioned Envelope, Explicit Extensions",
-        )
-        stated = _stated_phases(section, r"`([a-z_]+)`")
-        expected = [phase.value for phase in PipelinePhase]
-        assert stated == expected, (
-            "principles.md implemented-phase list does not match "
-            f"PipelinePhase: docs state {stated}, enum defines {expected}"
-        )
 
-    def test_reserved_stages_labeled_as_not_executing(self) -> None:
-        """Reserved stages must be labeled as future, not executing today."""
-        section = _slice_section(
-            _read(_PRINCIPLES_MD),
-            "## 4. Pipeline over Callback",
-            "## 5. Versioned Envelope, Explicit Extensions",
-        )
-        normalized = " ".join(section.split())
-        assert "reserved future extension points" in normalized, (
-            "principles.md must label the enrich/transform/event-policy "
-            "stages as reserved future extension points"
-        )
-        assert "no code path today" in normalized, (
-            "principles.md must state that the reserved stages have no "
-            "code path today"
-        )
+def test_principles_reserved_stages_labeled_as_not_executing() -> None:
+    """Reserved stages must be labeled as future, not executing today."""
+    section = _slice_section(
+        _read(_PRINCIPLES_MD),
+        "## 4. Pipeline over Callback",
+        "## 5. Versioned Envelope, Explicit Extensions",
+    )
+    normalized = " ".join(section.split())
+    assert "reserved future extension points" in normalized, (
+        "principles.md must label the enrich/transform/event-policy "
+        "stages as reserved future extension points"
+    )
+    assert "no code path today" in normalized, (
+        "principles.md must state that the reserved stages have no "
+        "code path today"
+    )
+
+
+def test_principles_summary_references_guarded_enum() -> None:
+    """Section 1 must point at §4, not duplicate an unguarded phase list."""
+    section = _slice_section(
+        _read(_PRINCIPLES_MD),
+        "## 1. Event-First, Not Message-First",
+        "## 2. Immutability",
+    )
+    assert "implemented `PipelinePhase` stages listed in §4" in section

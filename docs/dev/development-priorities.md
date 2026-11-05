@@ -126,16 +126,19 @@ The Docker-gated Meshtastic core-replay suite now covers selected and refused
 native submissions through the pinned adapter. A separate observer is still
 needed for native acceptance claims beyond local SDK submission.
 
-Producer-side ingress pressure is measured and accounted on `main`. Bounded
-callback admission gates every inbound crossing — one admission per SDK
-callback — with per-source fair shares; refusals carry typed outcomes into
-durable pre-admission pressure evidence, producer-side refusals report
-through the content-free `ProducerPressureReport` sink into the same durable
-evidence, and `medre inspect pressure` reads the aggregates. A deterministic
-sustained-contention suite qualifies simultaneous sources, a blocked SQLite
-writer, and a sustained storage-failure window. Retained gate-refusal evidence during an
-outage is bounded with saturating discard accounting, and the first
-successful flush after the outage persists a durable accounting-gap record.
+Producer-side ingress pressure is measured and accounted on `main`. The
+runtime-wide admission gate bounds admitted work with per-source fair shares;
+Meshtastic and MeshCore also enforce separate adapter-local callback budgets.
+The gate's refusal facts enter durable pressure accounting when storage is
+available. Producer-side refusals pass through the content-free, bounded,
+best-effort `ProducerPressureReport` sink: SDK reports that cannot be staged
+or absorbed by the owner loop are absent from durable aggregates. Neither a
+zero aggregate nor a missing pressure row proves there was no overload.
+`medre inspect pressure` exposes persisted observations and outage gaps.
+A deterministic sustained-contention suite qualifies simultaneous sources,
+a blocked SQLite writer, and a sustained storage-failure window. Retained
+gate-refusal evidence during an outage is bounded with saturating discard
+accounting; recovery persists a durable accounting-gap record.
 Process-lifetime qualification covers the producer pressure collector across
 sequential adapter session binding and the shutdown fence. The
 [durable ingress](../spec/durable-ingress.md) specification records these
