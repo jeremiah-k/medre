@@ -88,6 +88,19 @@ this file once they land.
   durable-ingress spec records the decision with its rejected
   alternatives.
 
+- **477 — Consistent stage and status documentation.** `principles.md`
+  now states the six implemented `PipelinePhase` phases and labels enrich,
+  transform, and event policy as reserved future extension points with no
+  code path, matching `architecture.md`; a docs guard test pins the
+  implemented-phase lists in both spec pages against the enum. The
+  development-priorities execution section records the landed
+  producer-pressure baseline instead of the completed measurement
+  directive. Contract gap register G11 states the existing but incomplete
+  first-run journey — guided native setup forms for three of seven
+  providers, manual provisioning for the rest, readiness and evidence
+  visibility still open — and G12 acknowledges bounded MeshCore callback
+  admission beside Meshtastic.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
