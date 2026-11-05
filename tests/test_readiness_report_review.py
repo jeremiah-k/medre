@@ -120,6 +120,43 @@ def test_route_plan_exception_has_closed_category_and_no_fabricated_counts(
     assert "/secret" not in json.dumps(result)
 
 
+def test_route_plan_failures_block_with_the_expansion_category(
+    monkeypatch,
+) -> None:
+    entries = [
+        SimpleNamespace(error=None, enabled=True),
+        SimpleNamespace(error=RuntimeError("private detail"), enabled=False),
+    ]
+    monkeypatch.setattr(
+        readiness_report,
+        "build_route_plan",
+        lambda _config: SimpleNamespace(routes=entries, conflicts=[]),
+    )
+    result = readiness_report._routes_section(SimpleNamespace())
+    assert result["status"] == "blocked"
+    assert result["error_category"] == "route_expansion_error"
+    assert result["total"] == 2
+    assert result["enabled"] == 1
+    assert result["expansion_failures"] == 1
+    assert "private detail" not in json.dumps(result)
+
+
+def test_route_plan_conflicts_block_with_the_conflict_category(
+    monkeypatch,
+) -> None:
+    entries = [SimpleNamespace(error=None, enabled=True)]
+    monkeypatch.setattr(
+        readiness_report,
+        "build_route_plan",
+        lambda _config: SimpleNamespace(routes=entries, conflicts=["left-right"]),
+    )
+    result = readiness_report._routes_section(SimpleNamespace())
+    assert result["status"] == "blocked"
+    assert result["error_category"] == "route_conflict"
+    assert result["conflicts"] == 1
+    assert result["expansion_failures"] == 0
+
+
 @pytest.mark.parametrize(
     "entries",
     [
@@ -248,6 +285,55 @@ def test_guidance_directs_missing_sdk_and_pure_preparation_separately() -> None:
     assert any("SDK distributions" in step for step in steps)
     assert any("provider-owned configuration preparation" in step for step in steps)
     assert not any("adapters check" in step for step in steps)
+
+
+@pytest.mark.parametrize(
+    "blocked_category", ["transport_unregistered", "transport_broken"]
+)
+def test_guidance_directs_discovery_failures_from_blocked_rows(
+    blocked_category: str,
+) -> None:
+    rows = [{"preflight": "blocked", "blocked_category": blocked_category}]
+    steps = readiness_report._guidance(
+        {"status": "available", "providers": []}, {"status": "valid"}, rows, None
+    )
+    assert any("provider discovery failures" in step for step in steps)
+
+
+def test_guidance_directs_adapter_configuration_errors() -> None:
+    rows = [{"preflight": "blocked", "blocked_category": "config_invalid"}]
+    steps = readiness_report._guidance(
+        {"status": "available", "providers": []}, {"status": "valid"}, rows, None
+    )
+    assert any("adapter configuration errors" in step for step in steps)
+
+
+def test_guidance_directs_blocked_route_plans() -> None:
+    steps = readiness_report._guidance(
+        {"status": "available", "providers": []},
+        {"status": "valid"},
+        [],
+        {"status": "blocked"},
+    )
+    assert any("route plan failures" in step for step in steps)
+
+
+def test_complete_offline_state_reports_completion_and_boundary() -> None:
+    manifest = {
+        "status": "available",
+        "providers": [
+            {
+                "registration": "registered",
+                "distribution": "medre-adapter-matrix",
+                "distribution_status": "installed",
+            }
+        ],
+    }
+    steps = readiness_report._guidance(
+        manifest, {"status": "valid"}, [], {"status": "passed"}
+    )
+    assert any("looks complete" in step for step in steps)
+    assert any("never establish runtime readiness" in step for step in steps)
 
 
 def test_readiness_parser_skips_provider_cli_loading(monkeypatch, capsys) -> None:

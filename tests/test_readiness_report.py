@@ -232,6 +232,40 @@ def test_unparsable_snapshot_fails_closed(
     assert report["manifest"]["status"] == "malformed"
 
 
+def test_packaged_snapshot_is_authoritative_when_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A build-embedded snapshot wins over any source-checkout fallback."""
+
+    class _PackagedSnapshot:
+        def is_file(self) -> bool:
+            return True
+
+        def read_text(self, encoding: str) -> str:
+            return json.dumps([_entry("matrix")])
+
+    class _PackagedRoot:
+        def joinpath(self, *_parts: str) -> _PackagedSnapshot:
+            return _PackagedSnapshot()
+
+    monkeypatch.setattr(readiness_report, "files", lambda _package: _PackagedRoot())
+    monkeypatch.setattr(readiness_report, "_PACKAGE_ROOT", tmp_path)
+    assert readiness_report._load_manifest() == (
+        "available",
+        [
+            {
+                "transport": "matrix",
+                "repository": "example/medre-adapter-matrix",
+                "ref": _REVISION,
+                "extras": None,
+                "distribution": "medre-adapter-matrix",
+                "python_requires": None,
+                "local_integration": False,
+            }
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Configuration and per-adapter section
 # ---------------------------------------------------------------------------
@@ -350,6 +384,62 @@ def test_explicit_missing_config_is_typed(
     assert report["adapters"] == []
 
 
+def test_non_config_error_fails_closed_as_unexpected() -> None:
+    assert (
+        readiness_report._config_error_category(RuntimeError("private detail"))
+        == "unexpected_error"
+    )
+
+
+def test_root_section_path_is_structural_and_preserved() -> None:
+    assert readiness_report._safe_section_path("<root>") == "<root>"
+
+
+def test_unexpected_discovery_error_is_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_find(_path: object) -> None:
+        raise RuntimeError("secret discovery detail")
+
+    monkeypatch.setattr(readiness_report, "find_config", broken_find)
+    section, config = readiness_report._load_effective_config(None)
+    assert config is None
+    assert section["status"] == "unexpected_error"
+    assert section["error_category"] == "unexpected_error"
+    assert "secret" not in json.dumps(section)
+
+
+def test_unexpected_load_error_is_typed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        readiness_report,
+        "find_config",
+        lambda _path: (tmp_path / "bridge.yaml", object()),
+    )
+
+    def broken_load(_path: object) -> None:
+        raise RuntimeError("secret load detail")
+
+    monkeypatch.setattr(readiness_report, "load_config", broken_load)
+    section, config = readiness_report._load_effective_config(None)
+    assert config is None
+    assert section["status"] == "unexpected_error"
+    assert "secret" not in json.dumps(section)
+
+
+def test_registration_category_is_none_without_a_matching_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = AdapterDiscoveryFailure("matrix", "ep:spec", "ValueError: broken")
+    monkeypatch.setattr(
+        adapter_registry,
+        "ADAPTER_REGISTRY",
+        AdapterTypeRegistry((), failures=(failure,)),
+    )
+    assert readiness_report._registration_error_category("meshcore") is None
+
+
 # Defensive adapter-row cases.
 
 # Rows answer truthfully even when the registry diverges from config.
@@ -391,6 +481,56 @@ def test_manifest_provider_distribution_is_visible(
     rows = readiness_report._adapter_rows(_fake_config(), providers)
     assert rows[0]["provider_distribution"] == "medre-adapter-matrix"
     assert rows[0]["provider_distribution_status"] == "installed"
+
+
+def _instance_config(adapter_config: object | None) -> SimpleNamespace:
+    wrapper = SimpleNamespace(enabled=True, adapter_kind="fake", config=adapter_config)
+    return SimpleNamespace(
+        adapters=SimpleNamespace(
+            all_configs=lambda: [("independent_chat", "bot", wrapper)]
+        ),
+        routes=SimpleNamespace(routes=[]),
+    )
+
+
+def test_configless_instance_passes_offline_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_spec(monkeypatch)
+    rows = readiness_report._adapter_rows(_instance_config(None), [])
+    assert rows[0]["config"] == "valid"
+    assert rows[0]["preflight"] == "passed"
+    assert rows[0]["blocked_category"] is None
+
+
+def test_instance_validation_failure_is_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_spec(monkeypatch)
+
+    def reject() -> None:
+        raise RuntimeError("instance rejected this configuration")
+
+    rows = readiness_report._adapter_rows(
+        _instance_config(SimpleNamespace(validate=reject)), []
+    )
+    assert rows[0]["config"] == "actionable_error"
+    assert rows[0]["preflight"] == "blocked"
+    assert rows[0]["blocked_category"] == "config_invalid"
+    assert "instance rejected" not in json.dumps(rows)
+
+
+def test_route_expansion_failure_still_judges_each_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_routes(_routes: object) -> None:
+        raise RuntimeError("route expansion refused")
+
+    monkeypatch.setattr(readiness_report, "build_runtime_routes", broken_routes)
+    monkeypatch.setattr(adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(()))
+    rows = readiness_report._adapter_rows(_fake_config(), [])
+    assert rows[0]["blocked_category"] == "transport_unregistered"
+    assert rows[0]["preflight"] == "blocked"
 
 
 # ---------------------------------------------------------------------------
