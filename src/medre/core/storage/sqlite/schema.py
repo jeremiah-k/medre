@@ -471,6 +471,23 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     PRIMARY KEY(window_start, source, outcome)
 );
 
+-- Accounting-gap records for admission-gate refusal evidence retained
+-- across a detected storage outage.  One append-only row per detected
+-- outage interval: content-free interval bounds and saturating counters
+-- only — no adapter identity, window, payload, sender, or
+-- transport-native content.  The row exists so post-recovery state
+-- distinguishes "zero refusals occurred during the outage" from
+-- "refusals occurred and some retained facts were discarded"; it never
+-- becomes a canonical event, receipt, or outbox entry.
+CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
+    gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL,
+    refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
+    refusals_retained INTEGER NOT NULL CHECK (refusals_retained >= 0),
+    refusals_discarded INTEGER NOT NULL CHECK (refusals_discarded >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -885,6 +902,16 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     ),
     "inbound_pressure_observations": frozenset(
         {"window_start", "source", "outcome", "count", "first_seen_at", "last_seen_at"}
+    ),
+    "inbound_pressure_outage_gaps": frozenset(
+        {
+            "gap_id",
+            "opened_at",
+            "recovered_at",
+            "refusals_observed",
+            "refusals_retained",
+            "refusals_discarded",
+        }
     ),
     "_medre_schema_meta": frozenset(
         {
@@ -1306,5 +1333,16 @@ _OPERATOR_DECISIONS_INDEX_DDL = _INDEXES[
 _PRESSURE_DDL = _SCHEMA[
     _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS inbound_pressure_observations"
+    ) : _SCHEMA.index("-- Accounting-gap records for admission-gate refusal")
+]
+
+# Exact single-statement DDL for the outage accounting-gap table.  The
+# approved additive installation creates the table from this slice when
+# the allowlisted predecessor lacks it, keeping the stored definition
+# identical to the declared catalog.  No index and no foreign key
+# references the table.
+_PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- Accounting-gap records for admission-gate refusal"
     ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS plugin_state")
 ]

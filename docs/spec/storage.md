@@ -1493,6 +1493,43 @@ runtime restarts. No outcome in either half claims durable admission. This
 table is required by the strict prerelease schema. Initialization MUST
 reject a database that omits it before executing any schema DDL.
 
+### 4.15.1 inbound_pressure_outage_gaps
+
+```sql
+CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
+    gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL,
+    refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
+    refusals_retained INTEGER NOT NULL CHECK (refusals_retained >= 0),
+    refusals_discarded INTEGER NOT NULL CHECK (refusals_discarded >= 0)
+);
+```
+
+Durable accounting-gap records for admission-gate refusal evidence
+retained across a detected pressure-storage outage. One append-only row
+per detected outage interval, inserted when the first fully successful
+pressure batch follows the distress. `opened_at` and `recovered_at`
+bound the detected interval (ISO-8601 UTC, derived from the runtime's
+distress-detection and recovery instants); the three counters carry
+saturating refusal facts: `refusals_observed` counts gate refusals
+observed while the gap was open (unconditionally per event),
+`refusals_retained` records the recovery batch's retained refusal-fact
+total, and `refusals_discarded` counts refusal facts removed from
+bounded in-memory retention under the documented key bound. The row is
+the durable distinction between "zero refusals occurred during the
+outage" (`refusals_observed = 0`) and "refusals occurred and some
+retained facts were discarded" — the no-silent-discard guarantee for
+bounded outage retention. Rows store counters and interval timestamps
+only — never adapter identity, windows, payloads, sender identity, or
+transport-native content — and never become canonical events, receipts,
+or outbox state. Writes are plain inserts (append-only per §5); rows are
+never updated or deleted. A database at the exact predecessor layout
+without this table upgrades through the allowlisted additive
+installation (the table is created from the declared DDL slice inside
+the startup transaction); every other layout difference still refuses to
+start.
+
 ### 4.16 Index Policy
 
 All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.

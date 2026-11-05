@@ -38,3 +38,15 @@ rebuilt table before commit. No table references `operator_delivery_decisions`, 
 foreign-key rewriting is required. The predecessor definition is derived
 from the authoritative DDL, never hand-written, and must match the stored
 catalog byte for byte; any other layout difference still refuses to start.
+
+The `inbound_pressure_outage_gaps` accounting-gap table is likewise an
+approved additive predecessor: a stamped, otherwise byte-exact database
+that lacks the table gains it atomically during initialization, created
+from the declared DDL slice inside the same `BEGIN IMMEDIATE` transaction
+as the other additive steps. The table is append-only accounting for
+admission-gate refusal evidence retained across a detected pressure-
+storage outage (see
+[storage.md §4.15.1](../spec/storage.md#4151-inbound_pressure_outage_gaps));
+it declares no dependent index and nothing references it by foreign key,
+so the installation carries no dependent catalog objects. Any other
+layout difference still refuses to start.

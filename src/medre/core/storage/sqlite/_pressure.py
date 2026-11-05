@@ -14,6 +14,14 @@ Authority surface:
     outcome occurs, including healthy producer-side `scheduled` staging.
   - list_inbound_pressure_observations: **list** (read-only), ordered by
     window; ``limit`` bounds the result in SQL to the newest windows.
+  - record_inbound_pressure_outage_gap: **append-only insert**.  One
+    accounting-gap row per detected storage outage: the content-free
+    interval bounds plus saturating refusal counters (observed, retained,
+    discarded).  The row is the durable distinction between "zero
+    refusals occurred during the outage" and "refusals occurred and some
+    retained facts were discarded".
+  - list_inbound_pressure_outage_gaps: **list** (read-only), ordered by
+    insertion; ``limit`` bounds the result in SQL to the newest records.
 
 The outcome vocabulary is closed with two halves.  Admission-gate
 outcomes are core facts observed at the bounded admission boundary;
@@ -193,5 +201,106 @@ class _PressureMixin:
             "LIMIT ?",
             (*params, limit),
         )
+        rows.reverse()
+        return rows
+
+    async def record_inbound_pressure_outage_gap(
+        self,
+        *,
+        opened_unix_seconds: int,
+        recovered_unix_seconds: int,
+        refusals_observed: int,
+        refusals_retained: int,
+        refusals_discarded: int,
+    ) -> None:
+        """Append one accounting-gap record for a detected storage outage.
+
+        The record is content-free accounting: ``opened_unix_seconds`` and
+        ``recovered_unix_seconds`` bound the detected outage interval,
+        and the three counters carry saturating refusal facts — how many
+        gate refusals were observed while the outage was open, how many
+        refusal facts were still retained when recovery persisted (the
+        recovery batch's gate-half total), and how many were discarded
+        from retention under the documented bound.  No adapter identity,
+        window, payload, sender, or transport-native content is stored.
+        The row lets a reader distinguish "zero refusals occurred during
+        the outage" (``refusals_observed = 0``) from "refusals occurred
+        and some retained facts were discarded"; it never becomes a
+        canonical event, receipt, or outbox entry, and it is never
+        updated or deleted (append-only invariant).
+        """
+        counters = {
+            "refusals_observed": refusals_observed,
+            "refusals_retained": refusals_retained,
+            "refusals_discarded": refusals_discarded,
+        }
+        for name, value in counters.items():
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= SQLITE_MAX_PRESSURE_COUNT
+            ):
+                raise ValueError(
+                    f"{name} must be a nonnegative integer within SQLite "
+                    f"range, got {value!r}"
+                )
+        if not isinstance(opened_unix_seconds, int) or isinstance(
+            opened_unix_seconds, bool
+        ):
+            raise ValueError(
+                f"opened_unix_seconds must be an integer, got {opened_unix_seconds!r}"
+            )
+        if not isinstance(recovered_unix_seconds, int) or isinstance(
+            recovered_unix_seconds, bool
+        ):
+            raise ValueError(
+                f"recovered_unix_seconds must be an integer, "
+                f"got {recovered_unix_seconds!r}"
+            )
+        if recovered_unix_seconds < opened_unix_seconds:
+            raise ValueError("recovery timestamp must not precede outage open")
+        from datetime import datetime, timezone
+
+        opened_at = datetime.fromtimestamp(
+            opened_unix_seconds, tz=timezone.utc
+        ).isoformat()
+        recovered_at = datetime.fromtimestamp(
+            recovered_unix_seconds, tz=timezone.utc
+        ).isoformat()
+        await self._write(
+            "INSERT INTO inbound_pressure_outage_gaps ("
+            "opened_at, recovered_at, refusals_observed, refusals_retained, "
+            "refusals_discarded) VALUES (?, ?, ?, ?, ?)",
+            (
+                opened_at,
+                recovered_at,
+                refusals_observed,
+                refusals_retained,
+                refusals_discarded,
+            ),
+        )
+
+    async def list_inbound_pressure_outage_gaps(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return outage-gap records ordered by insertion (ascending).
+
+        Rows carry the content-free accounting shape only (gap_id,
+        opened_at, recovered_at, and the three saturating counters).
+        ``limit`` bounds the result in SQL to the newest records
+        (``ORDER BY ... DESC LIMIT`` reversed back to ascending).
+        """
+        base = (
+            "SELECT gap_id, opened_at, recovered_at, refusals_observed, "
+            "refusals_retained, refusals_discarded "
+            "FROM inbound_pressure_outage_gaps "
+        )
+        if limit is None:
+            return await self._read_all(base + "ORDER BY gap_id")
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        rows = await self._read_all(base + "ORDER BY gap_id DESC LIMIT ?", (limit,))
         rows.reverse()
         return rows
