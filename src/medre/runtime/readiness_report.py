@@ -304,7 +304,11 @@ def _safe_section_path(path: str | None) -> str | None:
         transport = parts[1]
         if not valid_transport_name(transport) or get_adapter_spec(transport) is None:
             return "adapters"
-        return f"adapters.{transport}.instance" if len(parts) >= 3 else f"adapters.{transport}"
+        return (
+            f"adapters.{transport}.instance"
+            if len(parts) >= 3
+            else f"adapters.{transport}"
+        )
     if parts[0] == "routes":
         return "routes.route" if len(parts) >= 2 else "routes"
     if parts[0] == "logging" and len(parts) >= 2 and parts[1] == "overrides":
@@ -558,9 +562,7 @@ def _guidance(
             "prints full validation details."
         )
     blocked = {
-        row["blocked_category"]
-        for row in adapters
-        if row["preflight"] == "blocked"
+        row["blocked_category"] for row in adapters if row["preflight"] == "blocked"
     }
     if blocked & {"transport_unregistered", "transport_broken"}:
         steps.append(

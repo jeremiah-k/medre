@@ -187,7 +187,7 @@ def test_broken_registration_reports_only_a_typed_category(
 
 
 def test_unavailable_snapshot_is_a_typed_outcome(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(readiness_report, "_locate_manifest", lambda: None)
     report = build_readiness_report(None)
@@ -364,9 +364,7 @@ def _fake_config() -> SimpleNamespace:
 
 
 def test_unregistered_transport_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(())
-    )
+    monkeypatch.setattr(adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(()))
     rows = readiness_report._adapter_rows(_fake_config(), [])
     assert rows[0]["blocked_category"] == "transport_unregistered"
     assert rows[0]["preflight"] == "blocked"
@@ -385,11 +383,9 @@ def test_broken_transport_row(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_manifest_provider_distribution_is_visible(
-    monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(())
-    )
+    monkeypatch.setattr(adapter_registry, "ADAPTER_REGISTRY", AdapterTypeRegistry(()))
     providers = [{"transport": "matrix", "distribution": "medre-adapter-matrix"}]
     _stub_distributions(monkeypatch, {"medre-adapter-matrix": "1.2.3"})
     rows = readiness_report._adapter_rows(_fake_config(), providers)
@@ -469,8 +465,7 @@ def test_zero_adapters_installed_lists_every_provider(
     report = json.loads(capsys.readouterr().out)
     assert len(report["manifest"]["providers"]) == 7
     assert all(
-        p["distribution_status"] == "missing"
-        for p in report["manifest"]["providers"]
+        p["distribution_status"] == "missing" for p in report["manifest"]["providers"]
     )
     assert report["config"]["status"] == "config_not_found"
     assert any("adapter-installation.md" in step for step in report["guidance"])

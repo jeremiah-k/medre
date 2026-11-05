@@ -13,7 +13,10 @@ from medre import adapter_registry, dev_environment
 from medre.adapter_registry import AdapterDiscoveryFailure, AdapterTypeRegistry
 from medre.cli.readiness_commands import _routes_line
 from medre.config.errors import (
-    ConfigError, ConfigFileError, ConfigNotFoundError, ConfigValidationError
+    ConfigError,
+    ConfigFileError,
+    ConfigNotFoundError,
+    ConfigValidationError,
 )
 from medre.config.loader import ConfigSource
 from medre.runtime import readiness_report
@@ -209,9 +212,7 @@ def test_validation_location_never_echoes_operator_key(
     )
 
     def broken_find(_: object) -> None:
-        raise ConfigValidationError(
-            "private text", section_path=unsafe_path
-        )
+        raise ConfigValidationError("private text", section_path=unsafe_path)
 
     monkeypatch.setattr(readiness_report, "find_config", broken_find)
     section, config = readiness_report._load_effective_config(None)
@@ -267,7 +268,9 @@ def test_readiness_parser_skips_provider_cli_loading(monkeypatch, capsys) -> Non
     assert json.loads(capsys.readouterr().out)["boundary"]["offline"] is True
 
 
-def test_readiness_never_executes_provider_cli_contributors(monkeypatch, capsys) -> None:
+def test_readiness_never_executes_provider_cli_contributors(
+    monkeypatch, capsys
+) -> None:
     from importlib import import_module
 
     main_module = import_module("medre.cli.main")
@@ -276,7 +279,9 @@ def test_readiness_never_executes_provider_cli_contributors(monkeypatch, capsys)
     def forbidden_registration(_subparsers: object) -> None:
         raise AssertionError("readiness loaded provider CLI contributions")
 
-    monkeypatch.setattr(contributors, "register_adapter_contributors", forbidden_registration)
+    monkeypatch.setattr(
+        contributors, "register_adapter_contributors", forbidden_registration
+    )
     main_module.main(["readiness", "--json"])
     assert json.loads(capsys.readouterr().out)["boundary"]["offline"] is True
 
