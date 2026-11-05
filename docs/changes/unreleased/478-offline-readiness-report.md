@@ -28,3 +28,7 @@ Unregistered transport keys in validation locations are redacted alongside
 instance IDs and other operator-controlled YAML keys.
 The readiness JSON schema fixes the versioned field and category vocabulary
 and requires explicit absence-of-observation tokens at the live boundary.
+Builds derive the packaged compatibility snapshot from the canonical checkout
+manifest, including wheel rebuilds from source distributions. Wheel/resource
+lookups never borrow a different checkout's pins. The discovery-category
+contract also documents its sanitized `provider_error` fallback.

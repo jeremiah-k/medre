@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+from importlib.resources import files
+from importlib.resources.abc import Traversable
 import re
 from pathlib import Path
 from typing import Any
@@ -78,14 +80,22 @@ def _core_version() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _locate_manifest() -> Path | None:
+def _locate_manifest() -> Path | Traversable | None:
     """Find the compatibility snapshot for this installation.
 
-    The running installation's source checkout is authoritative for an
-    editable install. A packaged installation without its own compatibility
-    snapshot MUST report ``not_found``; another checkout discovered from the
-    working directory does not describe the running installation's pins.
+    The built resource is authoritative when present; editable installs
+    otherwise use their own source checkout. An installation without either
+    reports ``not_found``. Another checkout discovered from the working
+    directory never supplies the running installation's pins.
     """
+    packaged = files("medre").joinpath("_data", "adapter-compatibility.json")
+    if packaged.is_file():
+        return packaged
+    # Only the source file's own src-layout checkout can supply a fallback.
+    # Wheel locations must not borrow an incidental parent/cwd snapshot.
+    source = _PACKAGE_ROOT / "src" / "medre" / "runtime" / "readiness_report.py"
+    if source.resolve() != Path(__file__).resolve():
+        return None
     candidate = _PACKAGE_ROOT / _MANIFEST_RELPATH
     return candidate if candidate.is_file() else None
 

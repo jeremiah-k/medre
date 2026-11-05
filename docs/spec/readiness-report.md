@@ -49,8 +49,12 @@ environment produce identical output.
 ### Manifest section
 
 `manifest` reports the compatibility snapshot for the running
-installation. A working-directory checkout is never a fallback for a missing
-installed snapshot, because its pins may describe a different build.
+installation. Builds derive its packaged resource from the canonical
+`.github/adapter-compatibility.json`; source distributions retain that canonical
+input so rebuilding a wheel preserves the same pins. Editable installations
+read their own source checkout when no packaged resource exists. A
+working-directory checkout is never a fallback for a missing installed snapshot,
+because its pins may describe a different build.
 `status` is `available`, `not_found` (no snapshot is
 reachable in the installation, including a file removed before reading),
 or `malformed` (the snapshot exists but fails the structural
