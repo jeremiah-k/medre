@@ -115,7 +115,8 @@ constant, oldest keys dropped on overflow of the accounting itself — and
 folds them into the same pending store and single-flight flush the gate
 refusal path uses. Producer keys retained during a storage outage are
 bounded by the same limit; an old producer key is dropped with an explicit
-log marker if that limit is exhausted, without evicting gate-refusal keys, so reporting costs at most one scheduled loop callback
+log marker if that limit is exhausted, without evicting gate-refusal keys, so
+reporting costs at most one scheduled loop callback
 per empty-to-nonempty epoch and never one task per report. The sink is
 callable from any SDK reader thread, never blocks on storage, and never
 raises into the adapter. This staging is deliberately **not** lossless:
@@ -142,6 +143,64 @@ flush or the final shutdown drain. Normal shutdown and failed-startup cleanup
 deferred cancellation. Persistent storage failure can still prevent operational
 evidence from becoming durable, but that failure never changes the gate's
 refusal/defer outcome.
+
+**Open decision (gate-refusal evidence retention under an extended storage
+outage).** The two pressure halves are bounded asymmetrically: producer keys
+retained during a storage outage are capped by the staging bound and dropped
+with an explicit log marker, while gate-refusal keys — authoritative loss
+accounting — are never evicted from the retained pending store. That asymmetry
+leaves an unresolved question: a storage outage that outlasts a bounded number
+of 60-second windows grows the retained refusal set without limit, one key per
+source, outcome, and window. Candidate directions — a durable spill journal,
+cross-window saturating aggregation, or an explicit cap with a logged
+tombstone — each trade against a hard constraint: refusal accounting MUST NOT
+be silently discarded, per-window first/last-seen evidence MUST stay honest,
+and any spill mechanism would need its own write-ahead log, idempotency keys,
+and disk-failure proof to stay so. No direction is taken; bounding gate-refusal
+retention during an extended outage without silently discarding authoritative
+refusal accounting remains an open decision for a future change.
+
+### Sustained contention qualification
+
+The sustained-ingress property is qualified on the fake/core tier in the
+default test suite (`tests/test_sustained_ingress_contention.py`), against
+real on-disk SQLite state and the production gate, pressure-evidence, and
+producer-sink seams. The scenario is deterministic: bounded grant waves and
+condition polling, never fixed sleeps. Executed and proved there:
+
+- Simultaneous sources — one per ingress seam — drive overlapping bursts while
+  a downstream consumer periodically holds admissions. Both sources gain
+  admission progress in every grant wave, the wait queue stays within the
+  global bound and each source's equal fair share, and admitted plus rejected
+  plus timed_out plus deferred reconcile exactly with submissions per source,
+  against the durable rows and the capacity counters. Producer-side reports
+  arrive from a plain reader-style thread during the same waves.
+- A second SQLite connection holding `BEGIN IMMEDIATE` blocks the pressure
+  flush while the gate keeps issuing typed outcomes. The unwritten batch is
+  retained within the bounded-retention contract, producer-half keys are the
+  only evictable ones, every accounting loss carries an explicit log marker,
+  and no exception reaches the admission path; once the foreign writer
+  leaves, the drain persists every retained key exactly.
+- Storage failure across a sustained reporting window loses only bounded,
+  explicitly logged producer telemetry. Every gate-refusal key survives, no
+  reporter call raises into any thread, and recovery persists the retained
+  keys plus fresh windows exactly.
+- While the gate is saturated, sentinel tasks scheduled on the owner loop
+  complete within a generous bound every round. That bound proves starvation
+  freedom, not a latency SLA.
+
+Every persisted row in the scenario is asserted content-free: adapter
+identity, closed-vocabulary outcome, and counters only. When
+`MEDRE_SUSTAINED_INGRESS_REPORT_DIR` is set the suite emits one content-free
+JSON measurement per scenario (window totals and counts); nothing is written
+by default.
+
+This tier does NOT prove native adapter behavior: arrivals are synthetic, the
+admission-work double simulates downstream consumption, and no real SDK reader
+thread, transport, or radio path participates. It does not measure throughput
+or latency, and no pressure outcome in any scenario claims admission, grants a
+receipt, or authorizes retry or resend. Qualification at provider SDK,
+service, and hardware tiers remains reserved to those tiers.
 
 ## Inbound attachment bytes
 
