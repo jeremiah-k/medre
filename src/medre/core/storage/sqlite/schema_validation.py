@@ -14,6 +14,7 @@ from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
     known_decision_table_forms,
     known_pressure_table_forms,
+    known_outage_gap_table_forms,
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
@@ -23,6 +24,7 @@ from medre.core.storage.sqlite.schema import (
     _DIAGNOSTICS_INDEX_DDL,
     _EXPECTED_SCHEMA_VERSION,
     _INDEXES,
+    _PRESSURE_OUTAGE_GAPS_DDL,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
@@ -86,6 +88,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("table", "delivery_evidence_diagnostics"),
         ("table", "event_routing_facts"),
         ("table", "delivery_outbox_snapshots"),
+        ("table", "inbound_pressure_outage_gaps"),
         ("index", "idx_outbox_deadline_cleanup_order"),
         ("index", "idx_diagnostics_identity"),
         ("index", "idx_events_admission_order"),
@@ -118,6 +121,7 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
     old, altered = _known_grant_table_forms()
     legacy_decision = known_decision_table_forms().legacy
     legacy_pressure = known_pressure_table_forms().legacy
+    legacy_gap = known_outage_gap_table_forms().legacy
     for key, definition in actual.items():
         if key == ("table", "event_content_access_grants"):
             if definition not in {
@@ -131,6 +135,9 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
                 return False
         elif key == ("table", "inbound_pressure_observations"):
             if definition not in {expected[key], legacy_pressure}:
+                return False
+        elif key == ("table", "inbound_pressure_outage_gaps"):
+            if definition not in {expected[key], legacy_gap}:
                 return False
         elif definition != expected[key]:
             return False
@@ -152,6 +159,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _ROUTING_FACTS_DDL)
     if ("table", "delivery_outbox_snapshots") not in current:
         execute_ddl(db, _SNAPSHOTS_DDL)
+    if ("table", "inbound_pressure_outage_gaps") not in current:
+        execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
     if ("index", "idx_outbox_deadline_cleanup_order") not in current:
         execute_ddl(db, _DEADLINE_CLEANUP_INDEX_DDL)
     if ("index", "idx_diagnostics_identity") not in current:

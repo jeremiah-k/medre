@@ -46,6 +46,7 @@ def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
         "event_count": None,
         "incident_summary": None,
         "inbound_pressure": None,
+        "inbound_pressure_outage_gaps": None,
         "native_refs_for_event": None,
         "receipt_count": None,
         "delivery_observation_count": None,
@@ -116,6 +117,18 @@ async def _collect_storage_data_from_backend(
             except Exception as exc:
                 data["inbound_pressure"] = {"error": f"pressure read failed: {exc}"}
                 _pressure_error = f"pressure read failed: {exc}"
+
+        # Outage-gap evidence is separate from ordinary per-window counts:
+        # lost refusal facts must be visible without inventing observations.
+        _list_gaps = getattr(storage, "list_inbound_pressure_outage_gaps", None)
+        if _list_gaps is not None:
+            try:
+                data["inbound_pressure_outage_gaps"] = await _list_gaps(limit=500)
+            except Exception as exc:
+                data["inbound_pressure_outage_gaps"] = {
+                    "error": f"pressure gap read failed: {exc}"
+                }
+                _pressure_error = f"pressure gap read failed: {exc}"
 
         # Optional event lookup.
         if event_id is not None:

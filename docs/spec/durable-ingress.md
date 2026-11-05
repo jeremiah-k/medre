@@ -136,29 +136,68 @@ Shutdown MUST fence newly arriving producer reports before the final drain;
 late SDK-thread absorb callbacks MUST NOT reopen storage writes after it.
 
 The coalescing writer **MUST** preserve the first and last refusal times for
-each aggregate window. A transient pressure-write failure **MUST NOT** discard
-the unwritten in-memory batch: it remains eligible for a later refusal-triggered
-flush or the final shutdown drain. Normal shutdown and failed-startup cleanup
+each aggregate window. A transient pressure-write failure **MUST NOT** silently discard
+the unwritten in-memory batch. Its unpersisted facts MUST be remerged for a
+later flush, subject to the documented finite gate/producer key bounds;
+refusal facts evicted by that bound MUST move into outage-gap counters
+rather than disappear without accounting. Normal shutdown and failed-startup cleanup
 **MUST** attempt that drain before storage closes, including retry after a
 deferred cancellation. Persistent storage failure can still prevent operational
 evidence from becoming durable, but that failure never changes the gate's
 refusal/defer outcome.
 
-**Open decision (gate-refusal evidence retention under an extended storage
-outage).** The two pressure halves are bounded asymmetrically: producer keys
-retained during a storage outage are capped by the staging bound and dropped
-with an explicit log marker, while gate-refusal keys — authoritative loss
-accounting — are never evicted from the retained pending store. That asymmetry
-leaves an unresolved question: a storage outage that outlasts a bounded number
-of 60-second windows grows the retained refusal set without limit, one key per
-source, outcome, and window. Candidate directions — a durable spill journal,
-cross-window saturating aggregation, or an explicit cap with a logged
-tombstone — each trade against a hard constraint: refusal accounting MUST NOT
-be silently discarded, per-window first/last-seen evidence MUST stay honest,
-and any spill mechanism would need its own write-ahead log, idempotency keys,
-and disk-failure proof to stay so. No direction is taken; bounding gate-refusal
-retention during an extended outage without silently discarding authoritative
-refusal accounting remains an open decision for a future change.
+**Decision (bounded gate-refusal retention, outage-gap accounting).** The
+retained gate-refusal half is bounded by the documented
+`INBOUND_PRESSURE_MAX_PENDING_KEYS` constant (1024, mirroring the producer
+staging bound). Healthy operation keeps the retained store near-empty — the
+single-flight flush drains every batch — so the bound is reached only when
+storage cannot persist under sustained, distinct-key refusals. Overflow
+discards the oldest refusal keys, and the discard is never silent or
+unaccounted: every evicted fact moves into saturating counters (the same
+signed-64-bit ceiling as the durable pressure counts), the loss logs
+coalesced — the first discard immediately, then at most one line per
+5-second window, each carrying cumulative counts — and the first fully
+successful flush after the distress persists one durable accounting-gap
+record (`inbound_pressure_outage_gaps`; see
+[storage.md §4.15.1](storage.md#4151-inbound_pressure_outage_gaps))
+carrying the detected outage interval and three content-free counters:
+total refusals observed while the gap was open (including unwritten
+facts at first detection), refusal facts persisted by recovery batches,
+and refusal facts discarded. Surviving aggregates keep
+their exact per-window first/last-seen bounds; eviction removes whole
+oldest keys, and every removed fact is counted exactly. Post-recovery
+durable state therefore lets a reader distinguish "zero refusals occurred
+during the outage" (`refusals_observed = 0`) from "N refusals occurred, M
+were discarded" — that distinction is the no-silent-discard guarantee.
+Counting is unconditional per event while a gap is open, including unwritten
+facts in the first failed batch. A frozen gap snapshot uses an immutable,
+content-free retry token: a SQLite insert that commits after its awaiting task
+is cancelled cannot duplicate that snapshot. Refusals or evictions during the
+insert belong to a following interval. `medre inspect pressure` and the
+evidence bundle MUST show gap rows alongside ordinary pressure aggregates,
+including global gap rows when observations are filtered to one source.
+Neither record family carries packet identifiers or payload.
+Producer-pressure telemetry remains best-effort and is never presented as
+a substitute for authoritative gate evidence; the gap record is
+core-internal accounting and touches no adapter-facing seam.
+
+Rejected alternatives, with reasons:
+
+- **Unbounded retention.** A storage outage outlasting a bounded number of
+  windows grows the retained refusal set without limit — one key per
+  source, outcome, and window — converting an availability incident into
+  unbounded process growth during exactly the most-stressed period.
+- **Durable spill journal beside SQLite.** Lossless on its face, but it
+  creates a new durable-write and recovery authority with its own
+  write-ahead log, idempotency keys, rotation, corruption handling, and
+  merge semantics to stay honest; the program order places this slice
+  before any new recovery authority, so the authority is explicitly
+  deferred rather than smuggled in.
+- **Head-of-line blocking at the gate.** Holding arrivals once retention
+  is full would trade loss accounting for admission availability, and the
+  gate's refusal path is contractually non-blocking; blocking would either
+  stall SDK callbacks or manufacture a second, unbounded admission queue
+  behind the bounded one.
 
 ### Sustained contention qualification
 
@@ -177,14 +216,16 @@ condition polling, never fixed sleeps. Executed and proved there:
   arrive from a plain reader-style thread during the same waves.
 - A second SQLite connection holding `BEGIN IMMEDIATE` blocks the pressure
   flush while the gate keeps issuing typed outcomes. The unwritten batch is
-  retained within the bounded-retention contract, producer-half keys are the
-  only evictable ones, every accounting loss carries an explicit log marker,
-  and no exception reaches the admission path; once the foreign writer
-  leaves, the drain persists every retained key exactly.
+  retained within the bounded-retention contract — producer keys under the
+  staging bound, gate-refusal keys under the refusal bound — every
+  accounting loss carries an explicit log marker, and no exception reaches
+  the admission path; once the foreign writer leaves, the drain persists
+  every retained key exactly.
 - Storage failure across a sustained reporting window loses only bounded,
-  explicitly logged producer telemetry. Every gate-refusal key survives, no
-  reporter call raises into any thread, and recovery persists the retained
-  keys plus fresh windows exactly.
+  explicitly logged producer telemetry. Every gate-refusal key survives the
+  window without reaching the refusal bound, no reporter call raises into
+  any thread, and recovery persists the retained keys plus fresh windows
+  exactly.
 - While the gate is saturated, sentinel tasks scheduled on the owner loop
   complete within a generous bound every round. That bound proves starvation
   freedom, not a latency SLA.

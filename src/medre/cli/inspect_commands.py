@@ -226,18 +226,18 @@ async def _inspect_pressure(
 ) -> None:
     """List durable pre-admission pressure aggregates (counters only).
 
-    Read-only listing of ``inbound_pressure_observations`` rows — the only
-    durable trace of arrivals the inbound admission gate rejected, timed
-    out, or deferred before canonical admission, and of producer-side
-    staging facts reported before any admission attempt.  Rows carry
-    window, source, outcome, and counters; never payloads.  The payload
-    adds an ``outcome_totals`` rollup over the returned rows.
+    Read-only listing of pressure observations and loss-accounting gaps.
+    Observation rows carry window, source, outcome and counters; gap rows
+    show where bounded refusal retention lost facts during an outage.
+    Gaps are global, not source-specific, even when source filters the
+    observation rows. Neither family contains message payloads.
     """
     storage = await _open_readonly_storage(storage_path)
     try:
         rows = await storage.list_inbound_pressure_observations(
             source=source, limit=limit
         )
+        outage_gaps = await storage.list_inbound_pressure_outage_gaps(limit=limit)
         print(
             to_json(
                 {
@@ -245,6 +245,8 @@ async def _inspect_pressure(
                     "count": len(rows),
                     "source_filter": source,
                     "outcome_totals": _pressure_outcome_totals(rows),
+                    "outage_gaps": outage_gaps,
+                    "outage_gap_count": len(outage_gaps),
                 }
             )
         )

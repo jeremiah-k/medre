@@ -73,6 +73,21 @@ this file once they land.
   qualification boundaries and an open decision on bounding gate-refusal
   evidence during an extended database outage.
 
+- **475 — Bounded outage retention for gate-refusal evidence.** The
+  retained admission-gate refusal half gains the documented
+  `INBOUND_PRESSURE_MAX_PENDING_KEYS` bound: overflow discards the oldest
+  refusal keys with exact saturating discard accounting and a coalesced
+  warning, and the first fully successful flush after the outage persists
+  a durable accounting-gap record (`inbound_pressure_outage_gaps`,
+  installed through the allowlisted additive prerelease path) carrying
+  the outage interval and content-free observed/retained/discarded
+  counters, so post-recovery state distinguishes zero refusals during
+  the outage from refusals with discarded retained facts. The frozen
+  producer-pressure seam is untouched; producer telemetry remains
+  best-effort and never substitutes for gate evidence, and the
+  durable-ingress spec records the decision with its rejected
+  alternatives.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
