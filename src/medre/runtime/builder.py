@@ -145,7 +145,10 @@ def _build_source_attribution(
 
 
 def _register_adapter_renderers(
-    pipeline: RenderingPipeline, config: RuntimeConfig | None = None
+    pipeline: RenderingPipeline,
+    config: RuntimeConfig | None = None,
+    *,
+    target_transports: frozenset[str] | None = None,
 ) -> dict[str, SourceAttributionConfig]:
     """Register transport renderers from the authoritative adapter registry.
 
@@ -153,7 +156,9 @@ def _register_adapter_renderers(
     renderer factory receives that transport's runtime configs, the full
     transport-group mapping for cross-transport rendering context, and the
     generic source-attribution map.  The runtime builder contains no
-    transport-specific constructor branches.
+    transport-specific constructor branches. A preview may restrict the
+    factories to its destinations; runtime assembly passes no restriction and
+    still fails startup on any broken registered renderer factory.
     """
     source_attribution = _build_source_attribution(config)
     if config is None:
@@ -163,6 +168,8 @@ def _register_adapter_renderers(
         transport: group for transport, group in config.adapters.groups()
     }
     for spec in iter_adapter_specs():
+        if target_transports is not None and spec.transport not in target_transports:
+            continue
         if spec.renderer_factory is None:
             continue
         # Renderer factories are part of MEDRE and architecture policy keeps

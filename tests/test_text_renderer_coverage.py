@@ -193,3 +193,22 @@ def test_extract_text_thread_without_body() -> None:
     )
     text = TextRenderer._extract_text(event)
     assert text == "[thread: thread-root]"
+
+
+@pytest.mark.parametrize(
+    ("text", "bytes_limit", "expected"),
+    [
+        ("🦉🦉🦉", 9, "🦉🦉"),
+        ("🦉🦉", 0, ""),
+        ("café", 4, "caf"),
+        ("short", 100, "short"),
+    ],
+)
+async def test_generic_text_renderer_enforces_utf8_budget(text, bytes_limit, expected):
+    from dataclasses import replace
+
+    context = replace(_ctx(), max_text_bytes=bytes_limit)
+    result = await _renderer.render(_event(payload={"text": text}), context)
+    assert result.payload["text"] == expected
+    assert result.truncated is (expected != text)
+    assert len(expected.encode("utf-8")) <= bytes_limit

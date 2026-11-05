@@ -75,11 +75,18 @@ Validate the result and exercise one source/context from the displayed plan:
 ```bash
 medre config check --config bridge.yaml
 medre routes plan --config bridge.yaml
+medre config preview-message --config bridge.yaml --route bridge --json
 medre smoke --config bridge.yaml \
   --source-adapter SOURCE_ID --source-context SOURCE_CONTEXT --json
 ```
 
 Replace the last command's source values with an actual leg from the plan.
+The `preview-message` step shows what each configured leg's **actual pure
+renderer** produces for a fixed synthetic text event. Use `--repeat 32` to
+exercise truncation and `--relation reply` to demonstrate an explicitly chosen
+fallback, not a live capability decision. It neither stages delivery nor
+contacts a provider. See [synthetic preview](../spec/synthetic-message-preview.md).
+
 Repeat for the reverse leg and other mappings when present. Fake factories
 that support context selection accept the generic `channel` argument; MEDRE
 rejects a factory that ignores it instead of claiming that context was tested.
@@ -89,8 +96,8 @@ run sessions. Real configurations are rejected by fake smoke.
 
 ## Create native connections without hand-writing adapter fields
 
-For providers that declare an offline native-setup form (currently Matrix,
-Meshtastic and MeshCore), use **`medre config native`** before building routes.
+For providers that declare an offline native-setup form (Matrix, Meshtastic,
+MeshCore, XMPP and LXMF), use **`medre config native`** before building routes.
 It prompts for provider-defined connection fields, validates them through the
 provider's real config model and pure preflight, and creates a new YAML file.
 It never contacts an account, radio, or server. It requires an interactive
@@ -106,10 +113,11 @@ medre config bridge --config connections.yaml --output bridge.yaml
 
 For MeshCore, replace `--transport meshtastic` with `--transport meshcore`.
 The radio form lets you choose TCP, serial, or BLE, then asks only for the
-fields relevant to that connection. LXMF and other providers without a
-native form use the [transport setup guides](transport-setup/README.md)
-and a prepared input configuration. Chatmail and SimpleX profile provisioning
-is available through `medre adapter chatmail` and `medre adapter simplexchat`;
+fields relevant to that connection. XMPP and LXMF expose pure provider-owned
+connection fields; an LXMF identity path refers to an existing identity and
+never creates one. Consult the
+[transport setup guides](transport-setup/README.md) for native preparation.
+Chatmail and SimpleX profile provisioning is available through `medre adapter chatmail` and `medre adapter simplexchat`;
 these commands intentionally contact the native service, unlike `config native`.
 
 **Secrets and privacy:** Matrix's access token is entered through a hidden

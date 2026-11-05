@@ -7,8 +7,9 @@ such as Meshtastic radio transports, SMS gateways, or terminal adapters.
 
 Text is capped at a default of **500 characters** (defined in
 ``text_helpers._DEFAULT_MAX_TEXT_LENGTH``).  The cap is overridden
-by ``RenderingContext.max_text_chars`` from adapter capabilities.  Negative or
-zero caps are clamped to zero, producing empty output.  When truncation
+by ``RenderingContext.max_text_chars`` from adapter capabilities and further
+bounded by ``RenderingContext.max_text_bytes`` when provided. Negative or
+zero caps are clamped to zero, producing empty output. When truncation
 occurs the resulting :class:`~medre.core.rendering.renderer.RenderingResult`
 has its ``truncated`` flag set to ``True`` and the ``metadata`` dict includes
 the original content length.
@@ -32,6 +33,7 @@ from medre.core.rendering.text_helpers import (
     extract_relation_text,
 )
 from medre.core.rendering.text_helpers import truncate_text as _shared_truncate_text
+from medre.core.rendering.text_helpers import truncate_text_bytes
 
 #: Mapping from relation type to the canonical :data:`FallbackApplied` value.
 _RELATION_FALLBACK_MAP: dict[str, FallbackApplied] = {
@@ -136,8 +138,8 @@ class TextRenderer:
         * *thread* — ``"[thread: {target}] {payload_text}"``, degraded
           similarly to reply.
 
-        Text exceeding the character limit is truncated and the ``truncated``
-        flag is set on the result.
+        Text exceeding the character or UTF-8 byte limit is truncated on a
+        character boundary and the ``truncated`` flag is set on the result.
 
         The original event is **never** mutated.
 
@@ -155,7 +157,11 @@ class TextRenderer:
             The rendered text payload wrapped in a standard result.
         """
         raw_text = self._extract_text(event)
-        text, truncated = self._truncate(raw_text, max_text_chars=ctx.max_text_chars)
+        text, truncated_chars = self._truncate(
+            raw_text, max_text_chars=ctx.max_text_chars
+        )
+        text, truncated_bytes, _, _ = truncate_text_bytes(text, ctx.max_text_bytes)
+        truncated = truncated_chars or truncated_bytes
 
         metadata: dict[str, object] = {
             "renderer": self.name,

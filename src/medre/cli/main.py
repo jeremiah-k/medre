@@ -74,6 +74,19 @@ def _recovery_page_limit(value: str) -> int:
     return limit
 
 
+def _preview_repeat(value: str) -> int:
+    """Argparse type for the bounded synthetic preview repetition count."""
+    try:
+        repeat = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "repeat must be an integer from 1 to 32"
+        ) from None
+    if not 1 <= repeat <= 32:
+        raise argparse.ArgumentTypeError("repeat must be between 1 and 32")
+    return repeat
+
+
 def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParser:
     from medre.core.storage.backend import (
         DEFAULT_RECOVERY_PAGE_LIMIT,
@@ -174,6 +187,26 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         "--config", default=None, help="Existing configuration to extend"
     )
     native_p.add_argument("--output", required=True, help="New private YAML path")
+
+    preview_p = config_sub.add_parser(
+        "preview-message",
+        help="Render a synthetic message through the real pure renderer (never sent)",
+    )
+    preview_p.add_argument("--config", default=None, help="Bridge YAML")
+    preview_p.add_argument("--route", required=True, help="Exact configured route ID")
+    preview_p.add_argument(
+        "--repeat",
+        type=_preview_repeat,
+        default=1,
+        help="Repeat synthetic text 1..32 times to inspect truncation",
+    )
+    preview_p.add_argument(
+        "--relation",
+        choices=("none", "reply"),
+        default="none",
+        help="Probe a synthetic reply's explicit fallback-text rendering",
+    )
+    preview_p.add_argument("--json", action="store_true", help="JSON report")
 
     # paths
     sub.add_parser("paths", help="Print resolved MEDRE paths")
@@ -1080,8 +1113,11 @@ def main(argv: list[str] | None = None) -> None:
     # Updating/removing a broken provider and read-only readiness MUST NOT
     # import optional provider CLI modules (which may load native SDKs).
     offline_readiness = bool(arguments) and arguments[0] == "readiness"
+    offline_preview = arguments[:2] == ["config", "preview-message"]
     parser = _build_parser(
-        include_adapter_cli=not (managing_packages or offline_readiness)
+        include_adapter_cli=not (
+            managing_packages or offline_readiness or offline_preview
+        )
     )
     if help_only:
         show_command_help(parser, arguments)
@@ -1172,6 +1208,16 @@ def main(argv: list[str] | None = None) -> None:
             from .native_commands import _config_native
 
             _config_native(args)
+        elif args.config_command == "preview-message":
+            from .message_preview_commands import _config_preview_message
+
+            _config_preview_message(
+                args.config,
+                route_id=args.route,
+                repeat=args.repeat,
+                relation=args.relation,
+                as_json=args.json,
+            )
         elif args.config_command in {"use", "current", "unset"}:
             from .config_commands import _config_selection
 
