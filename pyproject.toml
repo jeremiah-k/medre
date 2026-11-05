@@ -46,7 +46,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-medre = ["py.typed"]
+medre = ["py.typed", "_data/adapter-compatibility.json"]
 
 [tool.uv]
 required-version = ">=0.9.9"

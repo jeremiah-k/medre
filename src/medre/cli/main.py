@@ -178,6 +178,19 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     # paths
     sub.add_parser("paths", help="Print resolved MEDRE paths")
 
+    # readiness
+    readiness_p = sub.add_parser(
+        "readiness",
+        help=(
+            "Compose the read-only offline readiness report "
+            "(no runtime, no network, no writes)"
+        ),
+    )
+    readiness_p.add_argument("--config", default=None, help="Path to config file")
+    readiness_p.add_argument(
+        "--json", action="store_true", default=False, help="Output JSON report"
+    )
+
     # version
     sub.add_parser("version", help="Print MEDRE version")
 
@@ -1064,8 +1077,12 @@ def main(argv: list[str] | None = None) -> None:
         arguments[0] in {"init", "upgrade", "update"}
         or (arguments[0] == "adapters" and adapter_action in package_actions)
     )
-    # Updating or removing a broken provider must not import that provider.
-    parser = _build_parser(include_adapter_cli=not managing_packages)
+    # Updating/removing a broken provider and read-only readiness MUST NOT
+    # import optional provider CLI modules (which may load native SDKs).
+    offline_readiness = bool(arguments) and arguments[0] == "readiness"
+    parser = _build_parser(
+        include_adapter_cli=not (managing_packages or offline_readiness)
+    )
     if help_only:
         show_command_help(parser, arguments)
     args = parser.parse_args(group_help(parser, arguments))
@@ -1163,6 +1180,10 @@ def main(argv: list[str] | None = None) -> None:
         from .config_commands import _paths
 
         _paths()
+    elif args.command == "readiness":
+        from .readiness_commands import _readiness
+
+        _readiness(args)
     elif args.command == "version":
         _version()
     elif args.command == "adapters":

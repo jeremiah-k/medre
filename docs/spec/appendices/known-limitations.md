@@ -25,10 +25,10 @@ checkout:
 | `medre-adapter-matrix`       | `6b03a9431864cb17c56c71eff4df6641962bf1dc` |
 | `medre-adapter-meshtastic`   | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
 | `medre-adapter-meshcore`     | `222a7b574c72bfd15896d62411940c997bd87e1a` |
-| `medre-adapter-lxmf`         | `e449fc608b188a4915cbc973396a17f9f28a6661` |
-| `medre-adapter-xmpp`         | `1286ccccd5f1aead3e7bdb6ee7a8f0a2bac1a832` |
-| `medre-adapter-chatmail`     | `7787aa6f5ca16143a49c25c19022086c35dc5e29` |
-| `medre-adapter-simplexchat`  | `63c9737e7bfd1803daf9e8f766bf67dae71e8039` |
+| `medre-adapter-lxmf`         | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
+| `medre-adapter-xmpp`         | `9d681797725204d3bb6719bcc4089f53882e6c96` |
+| `medre-adapter-chatmail`     | `0ee29c416feb33cd642feec1adbe98e34665a352` |
+| `medre-adapter-simplexchat`  | `75186861cb2e9edc197e421be628265e0dd6b45b` |
 
 Native SDK pins are declared by each provider's own package metadata at the
 inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,

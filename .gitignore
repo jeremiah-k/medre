@@ -233,3 +233,7 @@ ci-artifacts/
 
 # Local CodeRabbit analysis output (not repository documentation)
 coderabbit_*.md
+
+# Generated adapter SDK install inputs; authority is uv.lock/provider metadata
+/sdk-constraints.txt
+/sdk-requirements.txt

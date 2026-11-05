@@ -9,6 +9,16 @@ this file once they land.
 
 ## Recent changes
 
+- **478 — Offline readiness report.** The read-only `medre readiness`
+  command composes the compatibility snapshot, distribution metadata,
+  config validation, provider-owned pure preflight, and offline route-plan
+  expansion into one authoritative report per manifest provider and per
+  configured adapter. Failures are typed categories; no transport SDK is
+  imported, and no provider account or network is contacted or written;
+  the report states its own boundary: offline
+  results never establish runtime readiness, native acceptance, or
+  recipient verification.
+
 - **468 — Superseded native-evidence proof.** Historical attempt binding requires
   a matching durable receipt when an in-flight reservation or a separate replay
   row advances the delivery generation. A newer counter alone leaves the earlier

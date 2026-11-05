@@ -1,0 +1,129 @@
+{
+  "report_version": 1,
+  "medre_version": "0.1.0",
+  "manifest": {
+    "status": "available",
+    "providers": [
+      {
+        "transport": "matrix",
+        "repository": "jeremiah-k/medre-adapter-matrix",
+        "ref": "6b03a9431864cb17c56c71eff4df6641962bf1dc",
+        "extras": "e2e",
+        "distribution": "medre-adapter-matrix",
+        "python_requires": ">=3.12",
+        "local_integration": false,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "provider_guided"
+      },
+      {
+        "transport": "meshtastic",
+        "repository": "jeremiah-k/medre-adapter-meshtastic",
+        "ref": "17a13133e293268ac3d55dc1a3edfa3fd69c136c",
+        "extras": null,
+        "distribution": "medre-adapter-meshtastic",
+        "python_requires": null,
+        "local_integration": false,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "provider_guided"
+      },
+      {
+        "transport": "meshcore",
+        "repository": "jeremiah-k/medre-adapter-meshcore",
+        "ref": "222a7b574c72bfd15896d62411940c997bd87e1a",
+        "extras": null,
+        "distribution": "medre-adapter-meshcore",
+        "python_requires": null,
+        "local_integration": true,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "provider_guided"
+      },
+      {
+        "transport": "lxmf",
+        "repository": "jeremiah-k/medre-adapter-lxmf",
+        "ref": "e449fc608b188a4915cbc973396a17f9f28a6661",
+        "extras": null,
+        "distribution": "medre-adapter-lxmf",
+        "python_requires": null,
+        "local_integration": true,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "provider_guided"
+      },
+      {
+        "transport": "xmpp",
+        "repository": "jeremiah-k/medre-adapter-xmpp",
+        "ref": "1286ccccd5f1aead3e7bdb6ee7a8f0a2bac1a832",
+        "extras": null,
+        "distribution": "medre-adapter-xmpp",
+        "python_requires": null,
+        "local_integration": false,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "provider_guided"
+      },
+      {
+        "transport": "chatmail",
+        "repository": "jeremiah-k/medre-adapter-chatmail",
+        "ref": "2fdd2374640790c64c7da5743f7e7090ca43cfd9",
+        "extras": null,
+        "distribution": "medre-adapter-chatmail",
+        "python_requires": null,
+        "local_integration": false,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "manual_provisioning"
+      },
+      {
+        "transport": "simplexchat",
+        "repository": "jeremiah-k/medre-adapter-simplexchat",
+        "ref": "63c9737e7bfd1803daf9e8f766bf67dae71e8039",
+        "extras": null,
+        "distribution": "medre-adapter-simplexchat",
+        "python_requires": null,
+        "local_integration": false,
+        "distribution_status": "installed",
+        "installed_version": "0.1.0",
+        "registration": "registered",
+        "registration_error_category": null,
+        "native_setup": "manual_provisioning"
+      }
+    ],
+    "provider_count": 7,
+    "installed_count": 7
+  },
+  "config": {
+    "source": null,
+    "section_path": null,
+    "error_category": "config_not_found",
+    "status": "config_not_found",
+    "adapter_count": 0,
+    "enabled_adapter_count": 0,
+    "routes": null
+  },
+  "adapters": [],
+  "boundary": {
+    "offline": true,
+    "runtime": "not_observed",
+    "recipients": "not_observed",
+    "statement": "Offline checks run without SDK sessions, logins, network, or writes. They never observe the live runtime or provider state, never establish native acceptance, and never verify recipients; a passed preflight alone qualifies nothing beyond what it states."
+  },
+  "guidance": [
+    "No configuration found; run 'medre config sample' or author one with 'medre config bridge'.",
+    "Offline results never establish runtime readiness, native acceptance, or recipient verification."
+  ]
+}

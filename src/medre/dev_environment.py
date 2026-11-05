@@ -71,8 +71,24 @@ def _local_path(value: str, relative_to: Path) -> Path:
 
 def _snapshot_sources(root: Path) -> dict[str, str]:
     entries = json.loads((root / ".github/adapter-compatibility.json").read_text())
+    if not isinstance(entries, list) or not entries:
+        raise ToolManagementError("The compatibility snapshot must contain adapters.")
     result = {}
     for entry in entries:
+        if (
+            not isinstance(entry, dict)
+            or not {"transport", "distribution", "repository", "ref"} <= entry.keys()
+        ):
+            raise ToolManagementError(
+                "The compatibility snapshot has an invalid entry."
+            )
+        if any(
+            entry.get(name) is not None and not isinstance(entry[name], str)
+            for name in ("extras", "python_requires")
+        ) or not isinstance(entry.get("local_integration", False), bool):
+            raise ToolManagementError(
+                "The compatibility snapshot has invalid metadata."
+            )
         alias, distribution, repo, ref = (
             entry["transport"],
             entry["distribution"],
@@ -80,13 +96,21 @@ def _snapshot_sources(root: Path) -> dict[str, str]:
             entry["ref"],
         )
         if (
-            not re.fullmatch(r"[a-z][a-z0-9_-]*", alias)
+            not isinstance(alias, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]*", alias)
+            or not isinstance(repo, str)
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            or not isinstance(ref, str)
             or not re.fullmatch(r"[0-9a-f]{40}", ref)
+            or not isinstance(distribution, str)
+            or not re.fullmatch(
+                r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", distribution
+            )
             or alias in result
         ):
             raise ToolManagementError(
-                "The compatibility snapshot requires unique aliases and full commit SHAs."
+                "The compatibility snapshot requires unique aliases and full commit SHAs; "
+                "repository slugs and bare distribution names must also be valid."
             )
         package_name(distribution)
         result[alias] = f"{distribution} @ git+https://github.com/{repo}.git@{ref}"
