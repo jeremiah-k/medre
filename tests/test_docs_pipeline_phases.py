@@ -122,8 +122,7 @@ def test_principles_reserved_stages_labeled_as_not_executing() -> None:
         "stages as reserved future extension points"
     )
     assert "no code path today" in normalized, (
-        "principles.md must state that the reserved stages have no "
-        "code path today"
+        "principles.md must state that the reserved stages have no " "code path today"
     )
 
 
