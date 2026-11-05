@@ -160,6 +160,30 @@ A missing provider is reported without loading any transport SDK or fetching a
 package. Invalid config is reported separately from an absent config without
 echoing config values in the adapter inventory.
 
+## Offline readiness report
+
+`medre readiness` composes the checks above into one read-only report:
+
+```bash
+medre readiness --config bridge.yaml          # short human summary
+medre readiness --config bridge.yaml --json   # machine-readable report
+```
+
+Per compatibility-snapshot provider it lists the pinned repository revision,
+the declared distribution, and whether that distribution is installed and
+registered — every provider appears, installed or not. Per configured adapter
+it reports the provider and SDK distribution states, whether the configuration
+is valid, and whether the offline preflight passed, with typed reasons when
+something is blocked. The command contacts nothing and writes nothing; it
+exits 0 whenever it produces a report, so an installation with zero providers
+installed is a report, not an error.
+
+Offline results never establish runtime readiness, native acceptance, or
+recipient verification: the report states this boundary in its own output.
+Install or repair providers with the guidance in this document, validate with
+`medre config check`, preview routing with `medre routes plan`, and qualify
+native delivery separately.
+
 ## Adapter author contract
 
 A third-party Python distribution must declare:

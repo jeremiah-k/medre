@@ -1381,6 +1381,13 @@ medre diagnostics [--config PATH] [--refresh-health]
     build-time state only. With --refresh-health, starts adapters, polls
     health, then stops.
 
+medre readiness [--config PATH] [--json]
+    Print the read-only offline readiness report: per compatibility-snapshot
+    provider and per configured adapter, what is installed, whether the
+    configuration is valid, and what offline preflight establishes. No
+    runtime, network, or storage use; exits 0 whenever the report is
+    produced. See [readiness](adapter-installation.md#offline-readiness-report).
+
 medre routes validate [--config PATH]
     Validate route configuration (offline, no network I/O).
 
