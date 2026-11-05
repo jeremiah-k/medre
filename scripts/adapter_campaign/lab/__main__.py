@@ -52,6 +52,9 @@ def main(argv: list[str] | None = None) -> int:
             "baseline",
             "encrypted",
             "typing",
+            "reference-oauth",
+            "reference-provision",
+            "reference",
             *NATIVE_STAGES,
         ],
     )

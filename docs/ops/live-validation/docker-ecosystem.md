@@ -105,6 +105,7 @@ Individual stages support investigation without repeating every check:
 | `typing`       | Opt-in native Matrix/XMPP start/stop, bounded silence, permission withdrawal, shutdown clearing, default refusal, and unchanged durable row counts.                                                                         |
 | `encrypted`    | Opt-in native encrypted text/files in both directions, independent decryption and ciphertext witnesses, retained bytes, stable devices, and restart persistence. See [encrypted Matrix qualification](encrypted-matrix.md). |
 | `fidelity`     | Bidirectional Matrix/XMPP native replies, scoped parent correlation, default prefixes, unknown-parent fallback, and stored parents after a runtime restart.                                                                 |
+| `reference`    | Opt-in independently witnessed plaintext Matrix↔XMPP reference bridge, with complete native/SQLite fidelity analysis and a content-free positive-only verdict.                              |
 | `mmrelay`      | The actual MMRelay process, independent Matrix and serial radio peers, default prefixes, HTML/plain-text parity, and UTF-8 truncation.                                                                                      |
 | `recovery`     | Native logout, rejected revoked refresh grants, retained encryption stores/signing keys, and a new device signing without an account reset.                                                                                 |
 | `logs`         | Timestamps on managed runtime records and evidence of unclosed sessions, connectors, or pending tasks; warning/error counts remain available for inspection.                                                                |
@@ -114,6 +115,10 @@ has passed. Without configured Meshtastic hardware, the grouped run records
 MMRelay's RF tier as `not_configured`; its OAuth and recovery tiers still run.
 `results/qualification.json` distinguishes partial coverage from complete
 qualification.
+
+For the scoped two-way [reference bridge](reference-bridge.md), use
+`reference-oauth`, `reference-provision`, then `reference`; the grouped suite
+remains unchanged.
 
 OAuth setup is required before provisioning the campaign's Matrix room. Provision
 before `campaign`, `resilience`, `fidelity`, `presentation`, or `mmrelay`. Run radio campaigns sequentially.
@@ -180,6 +185,8 @@ Commit the harness and sanitized templates, not generated evidence.
   snapshots, runtime generations, native peer streams, and offline analysis.
 - `results/fidelity-*/` contains native reply witnesses, canonical/native
   correlation, both runtime generations, and offline conversation analysis.
+- `results/reference-*/` additionally contains `reference-verdict.json`,
+  written only after a complete independent-peer and SQLite analysis.
 
 The existing analyzer can be run offline against a retained native campaign:
 

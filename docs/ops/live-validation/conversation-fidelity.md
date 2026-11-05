@@ -5,6 +5,9 @@ fallback, Unicode text, and stored-parent correlation across an actual runtime
 restart. Native peers use independent accounts and SDK/client-protocol paths;
 the harness does not inject canonical events or edit stored references.
 
+The dedicated [first live reference bridge](reference-bridge.md) reuses this
+exact native witness/analyzer contract and adds a concise content-free verdict.
+
 ## Docker setup
 
 Prepare and start the [ecosystem lab](docker-ecosystem.md), then run:
