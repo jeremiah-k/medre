@@ -120,6 +120,16 @@ never creates one. Consult the
 Chatmail and SimpleX profile provisioning is available through `medre adapter chatmail` and `medre adapter simplexchat`;
 these commands intentionally contact the native service, unlike `config native`.
 
+Providers that cannot offer a form may instead declare a typed setup journey.
+Running **`medre config native`** against such a provider prints that
+provider-owned journey offline with an `informational_only` classification:
+each step shows the provider's own command verbatim, its purpose, and an
+evidence note stating what the step proves and does not prove. Core never
+runs these commands (they contact the native service) and writes nothing —
+you run them manually, then author the YAML yourself. Completing a step is
+never proof of relay acceptance, delivery, or read receipt, and never grants
+send authority.
+
 **Secrets and privacy:** Matrix's access token is entered through a hidden
 terminal prompt, never a CLI argument, and is saved in the resulting YAML.
 Files are created exclusively (owner-only permissions on POSIX; directory ACLs
