@@ -648,15 +648,26 @@ class TestPackageLayout:
         assert _PYPROJECT_PATH.is_file()
 
     def test_no_setup_py(self) -> None:
-        """Modern project should not need setup.py (src layout + pyproject.toml)."""
+        """setup.py may exist only as the compatibility-pin build hook."""
         setup_py = _REPO_ROOT / "setup.py"
-        # setup.py may exist but should not be required
-        if setup_py.is_file():
-            # If it exists, it should be minimal / deprecated
-            content = setup_py.read_text()
-            assert (
-                len(content) < 200
-            ), "setup.py exists and is non-trivial — prefer pyproject.toml only"
+        # setup.py is not required; when present it must be the pure
+        # setuptools hook that copies the checkout's canonical
+        # compatibility snapshot into build output (medre/_data). All
+        # packaging authority otherwise stays in pyproject.toml.
+        if not setup_py.is_file():
+            return
+        content = setup_py.read_text()
+        assert "Derive packaged compatibility pins" in content
+        assert "adapter-compatibility.json" in content
+        assert '"medre" / "_data"' in content
+        assert (
+            'setup(cmdclass={"build_py": BuildPyWithCompatibility})' in content
+        ), "setup.py must stay a pure build hook — packaging config belongs in pyproject.toml"
+        for forbidden in ("install_requires", "name=", "version="):
+            assert forbidden not in content, (
+                f"setup.py carries packaging metadata ({forbidden!r}) — "
+                "packaging config belongs in pyproject.toml"
+            )
 
     def test_no_setup_cfg_required(self) -> None:
         """setup.cfg should not be needed if pyproject.toml is complete."""
