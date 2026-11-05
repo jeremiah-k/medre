@@ -95,6 +95,26 @@ async def run(stage: str, *, meshcore_repaired: bool = False) -> None:
                 failures.append(owner)
         if failures:
             raise RuntimeError("Native OAuth failed: " + ", ".join(failures))
+    elif stage == "reference-oauth":
+        # The Matrix/XMPP journey uses only MEDRE's OAuth device, never MMRelay.
+        command(
+            ROOT,
+            "reference-oauth-medre",
+            [
+                sys.executable,
+                "/sources/medre/scripts/adapter_campaign/lab/oauth_probe.py",
+                "medre",
+            ],
+            timeout=900,
+        )
+    elif stage == "reference-provision":
+        from .reference import provision
+
+        await provision(ROOT)
+    elif stage == "reference":
+        from .reference import run
+
+        await run(ROOT)
     elif stage == "provision":
         from .provision import provision
 
