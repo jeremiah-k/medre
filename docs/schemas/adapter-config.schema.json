@@ -116,6 +116,12 @@
       "description": "Immutable configuration for the Meshtastic adapter.",
       "type": "object",
       "properties": {
+        "max_pending_ingress_callbacks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum relayable inbound callbacks staged for publication before core admission. A refused callback is counted and reported as producer overflow, never silently dropped or admitted; the default is provisional pending the measured-budget qualification round. Acknowledgment and routing-correlation callbacks are never throttled."
+        },
         "adapter_id": {
           "type": "string",
           "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
@@ -295,6 +301,12 @@
       "description": "Immutable configuration for the MeshCore adapter.",
       "type": "object",
       "properties": {
+        "max_pending_ingress_callbacks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum relayable inbound callbacks staged for publication before core admission. A refused callback is counted and reported as producer overflow, never silently dropped or admitted; the default is provisional pending the measured-budget qualification round. Acknowledgment and routing-correlation callbacks are never throttled."
+        },
         "adapter_id": {
           "type": "string",
           "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
