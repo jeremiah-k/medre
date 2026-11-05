@@ -35,17 +35,19 @@ def _text_projection(result: RenderingResult) -> tuple[str | None, list[str]]:
         if parts:
             return "\n".join(parts), parts
     payload = result.payload
+    if "_matrix_operation" in payload:
+        operation = payload["_matrix_operation"]
+        if isinstance(operation, dict) and operation.get("kind") == "send_event":
+            content = operation.get("content")
+            if isinstance(content, dict):
+                body = content.get("body")
+                if isinstance(body, str):
+                    return body, [body]
+        return None, []
     for key in ("body", "text", "content"):
         value = payload.get(key)
         if isinstance(value, str):
             return value, [value]
-    operation = payload.get("_matrix_operation")
-    if isinstance(operation, dict) and operation.get("kind") == "send_event":
-        content = operation.get("content")
-        if isinstance(content, dict):
-            body = content.get("body")
-            if isinstance(body, str):
-                return body, [body]
     return None, []
 
 
@@ -130,7 +132,15 @@ async def build_message_preview(
         raise ValueError("Route does not permit a synthetic text event")
 
     pipeline = RenderingPipeline()
-    _register_adapter_renderers(pipeline, config)
+    _register_adapter_renderers(
+        pipeline,
+        config,
+        target_transports=frozenset(
+            leg.dest_transport
+            for leg in matches[0].legs
+            if leg.dest_transport is not None
+        ),
+    )
     pipeline.register(TextRenderer(), priority=100)
     known_targets = {
         adapter_id: rtc for _transport, adapter_id, rtc in config.adapters.all_configs()

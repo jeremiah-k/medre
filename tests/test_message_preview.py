@@ -15,6 +15,18 @@ from tests.helpers.bridge_setup import CONFIG, install_provider
 from tests.helpers.cli import _run_cli_raw
 
 
+def _snapshot_test_files(root):
+    """Include nested paths and existing file contents, not just new siblings."""
+    from hashlib import sha256
+
+    return {
+        path.relative_to(root).as_posix(): (
+            "directory" if path.is_dir() else sha256(path.read_bytes()).hexdigest()
+        )
+        for path in root.rglob("*")
+    }
+
+
 @pytest.fixture
 def configured(monkeypatch, tmp_path):
     install_provider(monkeypatch)
@@ -87,10 +99,10 @@ async def test_preview_does_not_write_or_start_runtime(
         "medre.runtime.builder._build_real_adapter",
         lambda *a, **kw: pytest.fail("must not instantiate an adapter"),
     )
-    sentinel = tmp_path / "missing-storage.sqlite3"
+    before = _snapshot_test_files(tmp_path)
     report = await build_message_preview(config, route_id="bridge")
     assert report["status"] == "rendered"
-    assert not sentinel.exists()
+    assert _snapshot_test_files(tmp_path) == before
 
 
 async def test_renderer_exception_message_never_leaks(configured, monkeypatch):
@@ -109,7 +121,7 @@ async def test_renderer_exception_message_never_leaks(configured, monkeypatch):
 
 def test_cli_renders_json_and_has_no_disk_side_effect(configured, tmp_path):
     path, _ = configured
-    before = sorted(x.name for x in tmp_path.iterdir())
+    before = _snapshot_test_files(tmp_path)
     stdout, stderr, code = _run_cli_raw(
         "config",
         "preview-message",
@@ -122,7 +134,7 @@ def test_cli_renders_json_and_has_no_disk_side_effect(configured, tmp_path):
     assert code == 0, stderr
     assert json.loads(stdout)["status"] == "rendered"
     assert "keep-this-private" not in stdout + stderr
-    assert sorted(x.name for x in tmp_path.iterdir()) == before
+    assert _snapshot_test_files(tmp_path) == before
 
 
 def test_cli_refuses_invalid_route_without_leaking(configured):
@@ -212,3 +224,88 @@ async def test_default_policy_does_not_require_explicit_event_filters(configured
     report = await build_message_preview(amended, route_id="bridge")
     assert report["sample_event_kind"] == "message.created"
     assert report["status"] == "rendered"
+
+
+@pytest.mark.parametrize("repeat", ["0", "33", "not-a-number"])
+def test_cli_invalid_repeat_is_an_argument_error(configured, repeat):
+    path, _ = configured
+    stdout, stderr, code = _run_cli_raw(
+        "config",
+        "preview-message",
+        "--config",
+        str(path),
+        "--route",
+        "bridge",
+        "--repeat",
+        repeat,
+    )
+    assert code == 2 and not stdout
+    assert "argument --repeat" in stderr
+    assert "from 1 to 32" in stderr or "between 1 and 32" in stderr
+    assert "configuration or pure renderer check failed" not in stderr
+
+
+def test_file_snapshot_detects_nested_writes_and_rewrites(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    existing = home / "selection.json"
+    existing.write_text("before")
+    baseline = _snapshot_test_files(tmp_path)
+    existing.write_text("after")
+    assert _snapshot_test_files(tmp_path) != baseline
+    existing.write_text("before")
+    assert _snapshot_test_files(tmp_path) == baseline
+    (home / "new.db").write_bytes(b"sqlite")
+    assert _snapshot_test_files(tmp_path) != baseline
+
+
+async def test_preview_ignores_unrelated_broken_renderer_factories(
+    configured, monkeypatch
+):
+    from types import SimpleNamespace
+    from medre.runtime import builder
+
+    _, config = configured
+
+    class BrokenFactory:
+        def load(self):
+            pytest.fail("A renderer for an unrelated transport was loaded")
+
+    monkeypatch.setattr(
+        builder,
+        "iter_adapter_specs",
+        lambda: (
+            SimpleNamespace(transport="unrelated", renderer_factory=BrokenFactory()),
+        ),
+    )
+    report = await build_message_preview(config, route_id="bridge")
+    assert report["status"] == "rendered"
+
+
+async def test_preview_refuses_non_send_matrix_operation_even_with_text(
+    configured, monkeypatch
+):
+    from dataclasses import replace
+    from medre.core.rendering.text import TextRenderer
+
+    _, config = configured
+    original = TextRenderer.render
+
+    async def non_send(self, event, ctx):
+        rendered = await original(self, event, ctx)
+        return replace(
+            rendered,
+            payload={
+                "body": "this must not be shown",
+                "_matrix_operation": {
+                    "kind": "redact_event",
+                    "content": {"body": "no"},
+                },
+            },
+        )
+
+    monkeypatch.setattr(TextRenderer, "render", non_send)
+    report = await build_message_preview(config, route_id="bridge")
+    assert report["status"] == "incomplete"
+    assert all(leg["reason"] == "non_text_payload" for leg in report["legs"])
+    assert "this must not be shown" not in json.dumps(report)

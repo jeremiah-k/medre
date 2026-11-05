@@ -74,6 +74,19 @@ def _recovery_page_limit(value: str) -> int:
     return limit
 
 
+def _preview_repeat(value: str) -> int:
+    """Argparse type for the bounded synthetic preview repetition count."""
+    try:
+        repeat = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "repeat must be an integer from 1 to 32"
+        ) from None
+    if not 1 <= repeat <= 32:
+        raise argparse.ArgumentTypeError("repeat must be between 1 and 32")
+    return repeat
+
+
 def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParser:
     from medre.core.storage.backend import (
         DEFAULT_RECOVERY_PAGE_LIMIT,
@@ -183,7 +196,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     preview_p.add_argument("--route", required=True, help="Exact configured route ID")
     preview_p.add_argument(
         "--repeat",
-        type=int,
+        type=_preview_repeat,
         default=1,
         help="Repeat synthetic text 1..32 times to inspect truncation",
     )
