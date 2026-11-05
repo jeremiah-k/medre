@@ -455,15 +455,16 @@ CREATE TABLE IF NOT EXISTS event_attachment_associations (
 );
 
 -- Pre-admission inbound pressure aggregates.  One row per (window,
--- source, outcome); counters only — a rejected or deferred arrival never
--- persists payload, sender, or transport-native content here.  Written
--- before durable admission, so it is the only durable trace of arrivals
--- the admission gate turned away. Required in the strict prerelease shape,
--- alongside the attachment tables; incompatible state is never repaired.
+-- source, outcome); counters only — no arrival ever persists payload,
+-- sender, or transport-native content here.  Written before durable
+-- admission, so it is the only durable trace of arrivals the admission
+-- gate turned away and of producer-side staging that never reached it.
+-- Required in the strict prerelease shape, alongside the attachment
+-- tables; incompatible state is never repaired.
 CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
     window_start INTEGER NOT NULL,
     source TEXT NOT NULL,
-    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred', 'scheduled', 'overflow', 'cancelled_before_admission')),
     count INTEGER NOT NULL CHECK (count > 0),
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
@@ -1295,4 +1296,15 @@ _OPERATOR_DECISIONS_INDEX_DDL = _INDEXES[
     _INDEXES.index(
         "CREATE INDEX IF NOT EXISTS idx_operator_decisions_event"
     ) : _INDEXES.index("CREATE INDEX IF NOT EXISTS idx_outbox_due")
+]
+
+# Exact single-statement DDL for the pre-admission pressure table.  The
+# allowlisted additive outcome-vocabulary widening rebuild recreates the
+# table from this slice so the stored definition matches the declared
+# catalog byte for byte.  No index and no foreign key references the
+# table, so the rebuild carries no dependent catalog objects.
+_PRESSURE_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS inbound_pressure_observations"
+    ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS plugin_state")
 ]

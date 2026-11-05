@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import threading
 import time as _time
 import uuid
 from dataclasses import dataclass, field, replace
@@ -28,9 +29,14 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from medre.adapter_registry import get_adapter_spec
-from medre.core.contracts.adapter import AdapterInfo
+from medre.core.contracts.adapter import (
+    AdapterInfo,
+    PRODUCER_PRESSURE_OUTCOMES,
+    ProducerPressureReport,
+)
 from medre.core.delivery_authority import effective_generation
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
+from medre.core.storage.sqlite._pressure import SQLITE_MAX_PRESSURE_COUNT
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.health import (
     AdapterLiveHealth,
@@ -154,10 +160,59 @@ def _merge_pressure_pending(
         pending[key] = aggregate
         return
     pending[key] = (
-        existing[0] + aggregate[0],
+        min(SQLITE_MAX_PRESSURE_COUNT, existing[0] + aggregate[0]),
         min(existing[1], aggregate[1]),
         max(existing[2], aggregate[2]),
     )
+
+
+#: Bound on the distinct ``(source, outcome, window)`` keys staged for
+#: producer pressure reports while the owner event loop cannot absorb them
+#: (blocked or already stopped).  Bursts coalesce onto one key, so the
+#: bound is only reached under sustained distinct-key staging.  Overflow of
+#: the accounting itself drops the oldest staged keys: operational
+#: telemetry loss, never message loss, and never a claim of admission.
+PRODUCER_PRESSURE_MAX_PENDING_KEYS: int = 1024
+
+
+def _stage_producer_report(
+    buffer: dict[tuple[str, str, int], tuple[int, int, int]],
+    key: tuple[str, str, int],
+    aggregate: tuple[int, int, int],
+    *,
+    max_keys: int | None = None,
+) -> None:
+    """Stage one producer report, dropping the oldest keys past the bound."""
+    if max_keys is None:
+        max_keys = PRODUCER_PRESSURE_MAX_PENDING_KEYS
+    _merge_pressure_pending(buffer, key, aggregate)
+    while len(buffer) > max_keys:
+        oldest = next(iter(buffer))
+        del buffer[oldest]
+
+
+def _merge_retained_producer_pressure(
+    pending: dict[tuple[str, str, int], tuple[int, int, int]],
+    key: tuple[str, str, int],
+    aggregate: tuple[int, int, int],
+) -> None:
+    """Bound best-effort producer keys without evicting gate refusals.
+
+    Gate losses are separately authoritative.  If SQLite is unavailable
+    long enough to exhaust the producer-key allowance, discard the oldest
+    *producer* observation and make that accounting loss explicit in logs.
+    """
+    if key not in pending:
+        producer_keys = [
+            candidate
+            for candidate in pending
+            if candidate[1] in PRODUCER_PRESSURE_OUTCOMES
+        ]
+        if len(producer_keys) >= PRODUCER_PRESSURE_MAX_PENDING_KEYS:
+            oldest = min(producer_keys, key=lambda item: (item[2], item[0], item[1]))
+            del pending[oldest]
+            _logger.warning("PRODUCER_PRESSURE_ACCOUNTING_DROPPED: retained key bound")
+    _merge_pressure_pending(pending, key, aggregate)
 
 
 def _drain_pending_cancellations() -> int:
@@ -1702,6 +1757,7 @@ class MedreApp:
                 ),
                 report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
                 report_health=self._health_reporter(adapter_id),
+                report_producer_pressure=self._producer_pressure_reporter(adapter_id),
             )
             startup_budget = self.config.runtime.adapter_start_timeout_seconds
             startup_deadline = asyncio.timeout(startup_budget)
@@ -3227,6 +3283,119 @@ class MedreApp:
                 self._flush_inbound_pressure(record)
             )
 
+    def _producer_pressure_reporter(
+        self, adapter_id: str
+    ) -> Callable[[ProducerPressureReport], None] | None:
+        """Bind a bounded, thread-safe producer pressure sink to one adapter.
+
+        Returns ``None`` when storage has no ``record_inbound_pressure``
+        method, so storage-less runtimes and reduced backends keep the
+        ``None`` default every existing adapter and test expects.  The
+        returned sink is callable from any thread, including non-asyncio
+        SDK reader threads; it coalesces reports into an in-memory buffer
+        under a lock and schedules one absorb callback per empty-to-nonempty
+        buffer epoch on the owner event loop.  It is best-effort: it never
+        raises into the adapter, never blocks on storage, and never claims
+        admission — a report is operational accounting that may be lost.
+        """
+        from medre.core.storage.sqlite._pressure import pressure_window_start
+
+        if getattr(self.storage, "record_inbound_pressure", None) is None:
+            return None
+        loop = asyncio.get_running_loop()
+        buffer = getattr(self, "_producer_pressure_buffer", None)
+        if buffer is None:
+            fresh_buffer: dict[tuple[str, str, int], tuple[int, int, int]] = {}
+            buffer = self._producer_pressure_buffer = fresh_buffer
+        lock = getattr(self, "_producer_pressure_lock", None)
+        if lock is None:
+            lock = self._producer_pressure_lock = threading.Lock()
+
+        def report(report_obj: ProducerPressureReport) -> None:
+            """Coalesce one report; never raises, never blocks on storage."""
+            try:
+                if (
+                    not isinstance(report_obj, ProducerPressureReport)
+                    or report_obj.adapter_id != adapter_id
+                ):
+                    # Foreign or misattributed reports are not pressure
+                    # evidence for this adapter; drop without surfacing.
+                    return
+                observed_at = int(_time.time())
+                key = (
+                    report_obj.adapter_id,
+                    report_obj.outcome,
+                    pressure_window_start(observed_at),
+                )
+                aggregate = (report_obj.count, observed_at, observed_at)
+                with lock:
+                    if getattr(self, "_producer_pressure_reports_closed", False):
+                        return
+                    _stage_producer_report(buffer, key, aggregate)
+                    scheduled = getattr(
+                        self, "_producer_pressure_absorb_scheduled", False
+                    )
+                    if not scheduled:
+                        self._producer_pressure_absorb_scheduled = True
+                if not scheduled:
+                    loop.call_soon_threadsafe(self._absorb_producer_pressure)
+            except RuntimeError:
+                # A stopped event loop cannot accept reports from retired
+                # SDKs; the staged-but-unabsorbed telemetry is lost.
+                return
+            except Exception:
+                _logger.debug(
+                    "PRODUCER_PRESSURE_REPORT_DROPPED: adapter=%r", adapter_id
+                )
+
+        return report
+
+    def _absorb_producer_pressure(self, *, final: bool = False) -> None:
+        """Drain staged producer reports into the shared single-flight flush.
+
+        Runs on the owner event loop.  Merging into ``_pressure_pending``
+        folds producer outcomes into the exact flush and shutdown-drain
+        path the admission gate already uses: at most one flush task is in
+        flight, and no task is ever created per report.  Never raises: a
+        failure drops the staged telemetry (operational accounting) rather
+        than breaking the loop.
+        """
+        # A queued SDK-thread callback may fire after the final flush or
+        # after storage closes.  Only the explicit final drain may absorb
+        # while new reports are fenced out.
+        if not getattr(self, "_storage_initialized", True):
+            return
+        if not final and getattr(self, "_producer_pressure_reports_closed", False):
+            return
+        try:
+            lock = getattr(self, "_producer_pressure_lock", None)
+            staged: list[tuple[tuple[str, str, int], tuple[int, int, int]]] = []
+            if lock is not None:
+                buffer = getattr(self, "_producer_pressure_buffer", None)
+                if buffer is None:
+                    buffer = self._producer_pressure_buffer = {}
+                with lock:
+                    staged = list(buffer.items())
+                    buffer.clear()
+                    self._producer_pressure_absorb_scheduled = False
+            if not staged:
+                return
+            record = getattr(self.storage, "record_inbound_pressure", None)
+            if record is None:
+                return
+            pending = getattr(self, "_pressure_pending", None)
+            if pending is None:
+                pending = self._pressure_pending = {}
+            for key, aggregate in staged:
+                _merge_retained_producer_pressure(pending, key, aggregate)
+            flush_task = getattr(self, "_pressure_flush_task", None)
+            if flush_task is None or flush_task.done():
+                self._pressure_flush_task = asyncio.create_task(
+                    self._flush_inbound_pressure(record)
+                )
+        except Exception:
+            _logger.debug("PRODUCER_PRESSURE_ABSORB_FAILED", exc_info=True)
+
     async def _flush_inbound_pressure(self, record: Any) -> None:
         """Write pending pressure counters to storage (single flight).
 
@@ -3259,19 +3428,21 @@ class MedreApp:
                     )
                 except asyncio.CancelledError:
                     for retry_key, retry_aggregate in items[index:]:
-                        _merge_pressure_pending(
-                            self._pressure_pending,
-                            retry_key,
-                            retry_aggregate,
+                        merge = (
+                            _merge_retained_producer_pressure
+                            if retry_key[1] in PRODUCER_PRESSURE_OUTCOMES
+                            else _merge_pressure_pending
                         )
+                        merge(self._pressure_pending, retry_key, retry_aggregate)
                     raise
                 except Exception:
                     for retry_key, retry_aggregate in items[index:]:
-                        _merge_pressure_pending(
-                            self._pressure_pending,
-                            retry_key,
-                            retry_aggregate,
+                        merge = (
+                            _merge_retained_producer_pressure
+                            if retry_key[1] in PRODUCER_PRESSURE_OUTCOMES
+                            else _merge_pressure_pending
                         )
+                        merge(self._pressure_pending, retry_key, retry_aggregate)
                     _logger.exception(
                         "INBOUND_PRESSURE_RECORD_FAILED: source=%r outcome=%s "
                         "count=%d",
@@ -3292,6 +3463,14 @@ class MedreApp:
         record = getattr(self.storage, "record_inbound_pressure", None)
         if record is None:
             return
+        # Close producer staging atomically against SDK threads, then absorb
+        # anything already staged before final SQLite flush/close.  A late
+        # call_soon_threadsafe callback must not start a writer after this.
+        lock = getattr(self, "_producer_pressure_lock", None)
+        if lock is not None:
+            with lock:
+                self._producer_pressure_reports_closed = True
+        self._absorb_producer_pressure(final=True)
         task = getattr(self, "_pressure_flush_task", None)
         if task is not None and not task.done():
             try:

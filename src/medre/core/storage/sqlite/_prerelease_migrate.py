@@ -27,6 +27,7 @@ from medre.core.storage.sqlite.schema import (
     _INDEXES,
     _OPERATOR_DECISIONS_DDL,
     _OPERATOR_DECISIONS_INDEX_DDL,
+    _PRESSURE_DDL,
     _SCHEMA,
 )
 
@@ -43,6 +44,23 @@ _CURRENT_ACTION_CHECK = (
 _LEGACY_ACTION_CHECK = "    CHECK (action = 'cancel_unstarted'),\n"
 
 _WIDEN_DECISION_ACTIONS_STEP = "widen-operator-decision-action-vocabulary"
+
+_PRESSURE_TABLE = "inbound_pressure_observations"
+#: Temporary name holding the legacy rows between rename and copy.
+_LEGACY_PRESSURE_TABLE = "inbound_pressure_observations__prerelease_legacy"
+
+#: Exact current outcome-vocabulary CHECK line in the authoritative DDL.
+_CURRENT_OUTCOME_CHECK = (
+    "    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out',"
+    " 'deferred', 'scheduled', 'overflow', 'cancelled_before_admission')),\n"
+)
+#: Exact predecessor CHECK line it widened (old values are a strict subset).
+_LEGACY_OUTCOME_CHECK = (
+    "    outcome TEXT NOT NULL CHECK (outcome IN"
+    " ('rejected', 'timed_out', 'deferred')),\n"
+)
+
+_WIDEN_PRESSURE_OUTCOMES_STEP = "widen-inbound-pressure-outcome-vocabulary"
 
 
 class _DecisionForms(NamedTuple):
@@ -171,6 +189,96 @@ def rebuild_operator_delivery_decisions(db: sqlite3.Connection) -> None:
         )
 
 
+@lru_cache(maxsize=1)
+def known_pressure_table_forms() -> _DecisionForms:
+    """Derive the exact predecessor and current forms of the pressure table.
+
+    The legacy form is the authoritative DDL with the single allowlisted
+    outcome-vocabulary widening reverted — the same derivation scheme as the
+    decision-table forms — so detection cannot drift from the declared shape.
+    Raises :class:`StorageInitializationError` when the authoritative DDL no
+    longer contains the expected widening, so a future schema edit fails
+    loudly instead of silently treating the current shape as a predecessor.
+    """
+    if _CURRENT_OUTCOME_CHECK not in _SCHEMA:
+        raise StorageInitializationError(
+            "Authoritative DDL no longer contains the expected inbound "
+            "pressure outcome CHECK; the allowlisted additive predecessor "
+            "cannot be derived."
+        )
+    legacy_db = sqlite3.connect(":memory:")
+    try:
+        legacy_db.executescript(
+            _SCHEMA.replace(_CURRENT_OUTCOME_CHECK, _LEGACY_OUTCOME_CHECK) + _INDEXES
+        )
+        legacy = _stored_table_sql(legacy_db, _PRESSURE_TABLE)
+        columns = tuple(
+            str(row[1])
+            for row in legacy_db.execute(f"PRAGMA table_info({_PRESSURE_TABLE})")
+        )
+    finally:
+        legacy_db.close()
+    current_db = sqlite3.connect(":memory:")
+    try:
+        current_db.executescript(_SCHEMA + _INDEXES)
+        current = _stored_table_sql(current_db, _PRESSURE_TABLE)
+    finally:
+        current_db.close()
+    if legacy is None or current is None or legacy == current or not columns:
+        raise StorageInitializationError(
+            "The allowlisted legacy inbound pressure form could not be "
+            "derived from the authoritative DDL."
+        )
+    return _DecisionForms(legacy=legacy, current=current, columns=columns)
+
+
+def inbound_pressure_rebuild_applies(db: sqlite3.Connection) -> bool:
+    """Report whether the stored pressure table is exactly the predecessor."""
+    return _stored_table_sql(db, _PRESSURE_TABLE) == (
+        known_pressure_table_forms().legacy
+    )
+
+
+def rebuild_inbound_pressure_observations(db: sqlite3.Connection) -> None:
+    """Widen the pressure outcome CHECK with a guarded table rebuild.
+
+    SQLite cannot ALTER a CHECK constraint, so the widening rewrites the
+    table: the legacy rows are renamed aside, the table is recreated from
+    the authoritative DDL slice (keeping the stored definition byte-identical
+    to the declared catalog), rows are copied with an explicit column list,
+    and the legacy table is dropped.  Nothing references
+    ``inbound_pressure_observations`` by foreign key and the table declares
+    no dependent index, so the rename and drop cannot orphan catalog objects
+    and no index recreation is required.
+
+    Raises :class:`StorageInitializationError` when the rebuilt row count
+    differs from the original. The caller rolls back the transaction,
+    leaving the database unchanged.
+    """
+    if not inbound_pressure_rebuild_applies(db):
+        return
+    before_row = db.execute(f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}").fetchone()
+    assert before_row is not None  # COUNT(*) always yields one row
+    before = int(before_row[0])
+    db.execute(f"ALTER TABLE {_PRESSURE_TABLE} RENAME TO {_LEGACY_PRESSURE_TABLE}")
+    db.execute(_PRESSURE_DDL)
+    columns = ", ".join(known_pressure_table_forms().columns)
+    db.execute(
+        f"INSERT INTO {_PRESSURE_TABLE} ({columns}) "
+        f"SELECT {columns} FROM {_LEGACY_PRESSURE_TABLE}"
+    )
+    db.execute(f"DROP TABLE {_LEGACY_PRESSURE_TABLE}")
+    after_row = db.execute(f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}").fetchone()
+    assert after_row is not None  # COUNT(*) always yields one row
+    after = int(after_row[0])
+    if after != before:
+        raise StorageInitializationError(
+            f"Pre-release migration '{_WIDEN_PRESSURE_OUTCOMES_STEP}' "
+            f"changed the inbound pressure row count: {before} before, "
+            f"{after} after; the rebuild was rolled back."
+        )
+
+
 @dataclass(frozen=True)
 class _MigrationStep:
     """One named, self-detecting, idempotent additive migration step."""
@@ -188,6 +296,11 @@ _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (
         name=_WIDEN_DECISION_ACTIONS_STEP,
         applies=operator_decision_rebuild_applies,
         apply=rebuild_operator_delivery_decisions,
+    ),
+    _MigrationStep(
+        name=_WIDEN_PRESSURE_OUTCOMES_STEP,
+        applies=inbound_pressure_rebuild_applies,
+        apply=rebuild_inbound_pressure_observations,
     ),
 )
 

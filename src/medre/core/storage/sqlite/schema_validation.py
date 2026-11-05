@@ -13,6 +13,7 @@ from medre.core.storage.backend import (
 from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
     known_decision_table_forms,
+    known_pressure_table_forms,
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
@@ -116,6 +117,7 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
         return False
     old, altered = _known_grant_table_forms()
     legacy_decision = known_decision_table_forms().legacy
+    legacy_pressure = known_pressure_table_forms().legacy
     for key, definition in actual.items():
         if key == ("table", "event_content_access_grants"):
             if definition not in {
@@ -126,6 +128,9 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
                 return False
         elif key == ("table", "operator_delivery_decisions"):
             if definition not in {expected[key], legacy_decision}:
+                return False
+        elif key == ("table", "inbound_pressure_observations"):
+            if definition not in {expected[key], legacy_pressure}:
                 return False
         elif definition != expected[key]:
             return False

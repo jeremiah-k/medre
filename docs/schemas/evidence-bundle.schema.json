@@ -819,6 +819,7 @@
           ]
         },
         "inbound_pressure": {
+          "description": "Pre-admission pressure aggregate rows (counters only; never payloads). Each row carries window_start, source, outcome, count, first_seen_at, last_seen_at; outcome is drawn from the closed six-value vocabulary of admission-gate facts (rejected, timed_out, deferred) and producer-side staging facts (scheduled, overflow, cancelled_before_admission). Rows are listed newest-window-capped; an object with an error key marks a failed pressure read.",
           "oneOf": [
             {
               "type": "null"

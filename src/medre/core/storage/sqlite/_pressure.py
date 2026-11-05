@@ -2,16 +2,23 @@
 
 Authority surface:
   - record_inbound_pressure: **upsert**.  One aggregate row per (window,
-    source, outcome); each pre-admission rejection, timeout, or cursor-safe
-    deferral increments the row for the current fixed window (or adds a
-    batched ``count`` at once when the runtime flushes aggregated
-    in-memory counters).  Counters and timestamps only — never payloads,
-    sender identity, or transport-native content.  Writes are append-only
+    source, outcome); each pre-admission admission-gate refusal
+    (``rejected``, ``timed_out``, ``deferred``) or producer-side staging
+    fact (``scheduled``, ``overflow``, ``cancelled_before_admission``)
+    increments the row for the current fixed window (or adds a batched
+    ``count`` at once when the runtime flushes aggregated in-memory
+    counters).  Counters and timestamps only — never payloads, sender
+    identity, or transport-native content.  Writes are append-only
     upserts (no deletes, per the storage module's append-only invariant);
-    growth is rate-bounded to one row per key per minute and only while
-    pressure occurs.
+    growth is rate-bounded to one row per key per minute whenever that
+    outcome occurs, including healthy producer-side `scheduled` staging.
   - list_inbound_pressure_observations: **list** (read-only), ordered by
     window; ``limit`` bounds the result in SQL to the newest windows.
+
+The outcome vocabulary is closed with two halves.  Admission-gate
+outcomes are core facts observed at the bounded admission boundary;
+producer outcomes are adapter-reported pre-admission facts observed where
+messages are produced.  Neither half ever claims durable admission.
 
 Observations are operational evidence, not delivery evidence: they never
 become canonical events, receipts, or outbox state, and they survive
@@ -27,14 +34,35 @@ from typing import TYPE_CHECKING, Any
 #: deterministic and comparable across restarts.
 PRESSURE_WINDOW_SECONDS: int = 60
 
-_VALID_OUTCOMES = frozenset({"rejected", "timed_out", "deferred"})
+#: Closed pressure outcome vocabulary: the three admission-gate outcomes
+#: recorded by the runtime gate plus the three producer-side outcomes
+#: reported by adapters through the producer pressure sink.
+_VALID_OUTCOMES = frozenset(
+    {
+        "rejected",
+        "timed_out",
+        "deferred",
+        "scheduled",
+        "overflow",
+        "cancelled_before_admission",
+    }
+)
 
-_UPSERT_OBSERVATION = """
+# SQLite stores nonnegative pressure counts as signed 64-bit integers.  A
+# repeated upsert must never promote an overflowing sum to REAL or fail a
+# subsequent writer; saturation is the explicit extreme-count boundary.
+SQLITE_MAX_PRESSURE_COUNT: int = (1 << 63) - 1
+
+_UPSERT_OBSERVATION = f"""
 INSERT INTO inbound_pressure_observations (
     window_start, source, outcome, count, first_seen_at, last_seen_at
 ) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(window_start, source, outcome) DO UPDATE SET
-    count = count + excluded.count,
+    count = CASE
+        WHEN count > {SQLITE_MAX_PRESSURE_COUNT} - excluded.count
+        THEN {SQLITE_MAX_PRESSURE_COUNT}
+        ELSE count + excluded.count
+    END,
     first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
     last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
 """
@@ -69,7 +97,9 @@ class _PressureMixin:
         """Aggregate pressure events into durable storage.
 
         ``source`` is the adapter id (or the anonymous-source sentinel);
-        ``outcome`` is one of ``rejected``, ``timed_out``, ``deferred``;
+        ``outcome`` is one of the admission-gate outcomes ``rejected``,
+        ``timed_out``, ``deferred`` or one of the producer-side outcomes
+        ``scheduled``, ``overflow``, ``cancelled_before_admission``;
         ``count`` batches multiple events of one key into a single upsert
         (the runtime flushes aggregated in-memory counters this way).
         ``unix_seconds`` and ``last_unix_seconds`` bound that batch's actual
@@ -84,8 +114,14 @@ class _PressureMixin:
                 f"invalid pressure outcome {outcome!r}; "
                 f"expected one of {sorted(_VALID_OUTCOMES)}"
             )
-        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
-            raise ValueError(f"count must be a positive integer, got {count!r}")
+        if (
+            not isinstance(count, int)
+            or isinstance(count, bool)
+            or not 1 <= count <= SQLITE_MAX_PRESSURE_COUNT
+        ):
+            raise ValueError(
+                f"count must be a positive integer within SQLite range, got {count!r}"
+            )
         from datetime import datetime, timezone
 
         if unix_seconds is None:

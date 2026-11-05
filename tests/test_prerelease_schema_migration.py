@@ -541,3 +541,133 @@ def test_rebuild_foreign_key_failure_rolls_back_legacy_rows(tmp_path: Path) -> N
         )
     finally:
         raw.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests: inbound pressure outcome-vocabulary widening
+# ---------------------------------------------------------------------------
+
+
+def _create_pressure_legacy_shape_db(path: Path) -> Path:
+    """Create a stamped database at the exact pressure-vocabulary predecessor.
+
+    The decision table already carries the widened action vocabulary (that
+    widening predates this one); only the pressure outcome CHECK is at its
+    predecessor form.  The stored pressure definition is asserted identical
+    to the form derived from the authoritative DDL, so the fixture is the
+    true predecessor layout rather than an approximation.
+    """
+    raw = sqlite3.connect(path)
+    try:
+        assert _prerelease_migrate._CURRENT_OUTCOME_CHECK in _SCHEMA
+        raw.executescript(
+            _SCHEMA.replace(
+                _prerelease_migrate._CURRENT_OUTCOME_CHECK,
+                _prerelease_migrate._LEGACY_OUTCOME_CHECK,
+            )
+            + _INDEXES
+        )
+        raw.execute("INSERT INTO _medre_schema_meta VALUES ('schema_version', '1')")
+        stored = raw.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE name='inbound_pressure_observations'"
+        ).fetchone()
+        assert stored is not None
+        assert stored[0] == _prerelease_migrate.known_pressure_table_forms().legacy
+        # Independent literal from the pre-widening authoritative schema.
+        assert stored[0] == """CREATE TABLE inbound_pressure_observations (
+    window_start INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred')),
+    count INTEGER NOT NULL CHECK (count > 0),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(window_start, source, outcome)
+)"""
+        raw.commit()
+    finally:
+        raw.close()
+    return path
+
+
+def test_derived_legacy_pressure_form_is_the_gate_subset() -> None:
+    """The predecessor vocabulary is exactly the three admission-gate outcomes."""
+    forms = _prerelease_migrate.known_pressure_table_forms()
+    assert forms.legacy != forms.current
+    assert "'scheduled'" not in forms.legacy
+    assert "'overflow'" not in forms.legacy
+    assert "'cancelled_before_admission'" not in forms.legacy
+    for outcome in ("rejected", "timed_out", "deferred"):
+        assert f"'{outcome}'" in forms.legacy
+        assert f"'{outcome}'" in forms.current
+    for outcome in ("scheduled", "overflow", "cancelled_before_admission"):
+        assert f"'{outcome}'" in forms.current
+
+
+async def test_pressure_outcome_widening_preserves_rows(tmp_path: Path) -> None:
+    """A populated predecessor DB opens, widens, and keeps its evidence."""
+    db_path = _create_pressure_legacy_shape_db(tmp_path / "pressure.sqlite")
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute(
+            "INSERT INTO inbound_pressure_observations VALUES "
+            "(1800000000, 'radio', 'rejected', 7, 'first', 'last')"
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+        rows = await storage.list_inbound_pressure_observations()
+        assert len(rows) == 1
+        assert rows[0]["count"] == 7
+        assert rows[0]["outcome"] == "rejected"
+        # The widened vocabulary accepts producer outcomes on the migrated
+        # table without another migration pass.
+        await storage.record_inbound_pressure("radio", "overflow", count=2)
+    finally:
+        await storage.close()
+    assert (
+        _catalog(db_path)[("table", "inbound_pressure_observations")]
+        == _prerelease_migrate.known_pressure_table_forms().current
+    )
+    _assert_foreign_keys_clean(db_path)
+
+
+async def test_pressure_widening_reopen_is_a_no_op(tmp_path: Path) -> None:
+    """A second open after the widening rewrites nothing."""
+    db_path = _create_pressure_legacy_shape_db(tmp_path / "reopen-pressure.sqlite")
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+    finally:
+        await storage.close()
+    migrated_catalog = _catalog(db_path)
+    migrated_counts = _table_counts(db_path)
+
+    reopened = SQLiteStorage(db_path=str(db_path))
+    try:
+        await reopened.initialize()
+    finally:
+        await reopened.close()
+    assert _catalog(db_path) == migrated_catalog
+    assert _table_counts(db_path) == migrated_counts
+
+
+def test_pressure_rebuild_noop_on_current_shape() -> None:
+    """The widening step detects nothing to do on the current table form."""
+    probe = sqlite3.connect(":memory:")
+    try:
+        probe.executescript(_SCHEMA + _INDEXES)
+        assert not _prerelease_migrate.inbound_pressure_rebuild_applies(probe)
+        _prerelease_migrate.rebuild_inbound_pressure_observations(probe)
+        stored = probe.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE name='inbound_pressure_observations'"
+        ).fetchone()
+        assert stored is not None
+        assert stored[0] == _prerelease_migrate.known_pressure_table_forms().current
+    finally:
+        probe.close()

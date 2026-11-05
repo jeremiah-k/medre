@@ -9,6 +9,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    ProducerPressureReport,
 )
 from medre.core.contracts.delivery import (
     ADAPTER_HANDOFF_DISPOSITION_VALUES,
@@ -36,6 +37,7 @@ __all__ = [
     "AdapterPermanentError",
     "AdapterRole",
     "AdapterSendError",
+    "ProducerPressureReport",
     "DeferredFailureOutcome",
     "DeferredHandoffCompleted",
     "DeferredHandoffFailed",

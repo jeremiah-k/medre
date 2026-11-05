@@ -46,6 +46,20 @@ this file once they land.
   packet ID does not prove daemon, RF or recipient acceptance, and no
   uncertainty authorizes resend.
 
+- **473 — Producer pressure joins the durable pre-admission evidence.**
+  The adapter contract gains a content-free `ProducerPressureReport` and an
+  optional `report_producer_pressure` context sink for the closed producer
+  vocabulary (`scheduled`, `overflow`, `cancelled_before_admission`),
+  callable from any SDK reader thread. The runtime coalesces reports
+  through a bounded in-memory staging buffer into the existing
+  single-flight pressure flush, so a producer-side refusal becomes counted,
+  best-effort operational evidence without a task per report and
+  without a spill journal. The durable pressure table's outcome CHECK
+  widens to the six-outcome vocabulary through the allowlisted additive
+  prerelease migration; `medre inspect pressure` and the evidence bundle
+  surface the producer outcomes distinctly, and no pressure outcome claims
+  admission or grants resend authority.
+
 - **454 — Adapter limitations provenance.** Refresh the limitation indexes
   against all seven pinned transports, including XMPP, Chatmail, and SimpleX
   Chat. Correct source-verifiable behavior and retain explicit evidence ages
