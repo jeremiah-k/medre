@@ -124,11 +124,23 @@ RF or recipient acceptance.
 
 The Docker-gated Meshtastic core-replay suite now covers selected and refused
 native submissions through the pinned adapter. A separate observer is still
-needed for native acceptance claims beyond local SDK submission. Next measure
-producer-side ingress pressure under held publication for both radio adapters.
-Choose an explicit overload policy before adding scheduling limits; dropping
-inbound packets without accounting is not a permissible silent optimization.
-Keep any provider changes separate from new recovery authority.
+needed for native acceptance claims beyond local SDK submission.
+
+Producer-side ingress pressure is measured and accounted on `main`. Bounded
+callback admission gates every inbound crossing — one admission per SDK
+callback — with per-source fair shares; refusals carry typed outcomes into
+durable pre-admission pressure evidence, producer-side refusals report
+through the content-free `ProducerPressureReport` sink into the same durable
+evidence, and `medre inspect pressure` reads the aggregates. A deterministic
+sustained-contention suite qualifies simultaneous sources, a blocked SQLite
+writer, and a sustained storage-failure window. Retained gate-refusal evidence during an
+outage is bounded with saturating discard accounting, and the first
+successful flush after the outage persists a durable accounting-gap record.
+Process-lifetime qualification covers the producer pressure collector across
+sequential adapter session binding and the shutdown fence. The
+[durable ingress](../spec/durable-ingress.md) specification records these
+boundaries at their evidence tiers. Keep any provider changes separate from
+new recovery authority.
 
 Native reconciliation previews remain read-only. A send-capable resolution of
 uncertain work still depends on scoped provider non-submission proof;
