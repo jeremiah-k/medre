@@ -19,6 +19,8 @@ __all__ = [
     "DestinationSpec",
     "SymbolRef",
     "NativeSetupField",
+    "NativeSetupStep",
+    "NativeSetupInstructions",
 ]
 
 
@@ -86,6 +88,40 @@ class NativeSetupField:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeSetupStep:
+    """One ordered, provider-owned provisioning action of a setup journey.
+
+    ``command`` is the verbatim provider tooling invocation exactly as the
+    provider contributes it. Core renders it informationally and never
+    executes it: provider setup commands contact native services. The
+    ``evidence_note`` states what observing the completed step proves and
+    what it does NOT prove; a completed provisioning step is never relay
+    acceptance, delivery, or read evidence and grants no send authority.
+    """
+
+    command: str
+    purpose: str
+    evidence_note: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeSetupInstructions:
+    """A provider-owned, machine-readable setup journey for a form-less provider.
+
+    The informational alternative to ``native_setup_fields`` for providers
+    whose provisioning cannot be an offline form. Declarations are ordered
+    and deterministic and carry no secrets, building-machine paths, or
+    timestamps. Rendering is informational only: it never claims that
+    provisioning occurred, never writes configuration, and never becomes
+    provisioning or send authority.
+    """
+
+    title: str
+    summary: str
+    steps: tuple[NativeSetupStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterSpec:
     """Declarative assembly metadata for one installed adapter type.
 
@@ -121,6 +157,7 @@ class AdapterSpec:
     destinations: tuple[DestinationSpec, ...] = ()
     sample_config: SymbolRef | None = None
     native_setup_fields: tuple[NativeSetupField, ...] = ()
+    native_setup_instructions: NativeSetupInstructions | None = None
     logger_levels: tuple[tuple[str, str], ...] = ()
     stopped_state_declaration: SymbolRef | None = None
 

@@ -1046,6 +1046,21 @@ Secret input **MUST NOT** be echoed; any saved secret makes the private YAML
 credential-bearing. This optional metadata does not replace provider-native
 validation, qualification, or SDK setup.
 
+A provider whose provisioning cannot be an offline form **MAY** instead
+declare `native_setup_instructions: NativeSetupInstructions | None`, an
+SDK-free ordered journey of `NativeSetupStep` values, each carrying the
+verbatim provider command, a short purpose, and an evidence note stating
+what the completed step proves and does NOT prove. The seam is strictly
+informational: it **MUST NOT** become provisioning or send authority, core
+**MUST NOT** execute a declared command (provider setup commands contact
+native services), and the offline rendering **MUST NOT** claim that
+provisioning occurred or write any file. Declarations **MUST** be
+deterministic and **MUST NOT** embed secrets, building-machine paths, or
+timestamps; absence of instructions changes nothing. A provider declaring
+both keeps the guided form authoritative. The rendering and truthfulness
+boundary is specified in
+[native-setup-instructions.md](native-setup-instructions.md).
+
 External SDK import roots receive a warning-level logging default; the root
 logger and MEDRE namespace remain controlled by core/operator settings. Providers **MAY**
 declare `logger_levels`, a tuple of dependency logger name / canonical level
