@@ -45,9 +45,9 @@ def test_real_snapshot_lists_every_manifest_provider() -> None:
     for provider in manifest["providers"]:
         assert provider["ref"]
         assert provider["distribution"]
-        if provider["registration"] == "registered":
-            assert provider["distribution_status"] == "installed"
+        if provider["distribution_status"] == "installed":
             assert provider["installed_version"]
+        if provider["registration"] == "registered":
             assert provider["native_setup"] in {
                 "provider_guided",
                 "manual_provisioning",

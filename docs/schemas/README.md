@@ -8,6 +8,7 @@ contract schemas mirror their projection helpers and normative specifications.
 
 | Schema                                           | Source Type                                                     | Description                                                                                                                   |
 | ------------------------------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `readiness-report.schema.json` | `medre readiness --json` | Versioned offline provider/configuration facts and explicit absence of runtime or recipient observations |
 | `canonical-event.schema.json`                    | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                                                                                |
 | `content-inventory.schema.json`                  | `SQLiteStorage.inspect_content_inventory`                       | Read-only logical bytes and consumers without message values                                                                  |
 | `content-retention-preview.schema.json`          | `SQLiteStorage.preview_content_retention`                       | Bounded aggregate preview with outcome counts and one optional (created_at, event_id) continuation; the CLI omits that cursor |

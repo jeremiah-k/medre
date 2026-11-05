@@ -21,3 +21,10 @@ whenever it produces a report. Every runtime and recipient claim is
 reported as `not_observed`, reusing the native-evidence vocabulary:
 offline results never establish runtime readiness, native acceptance, or
 recipient verification.
+
+Installed providers without adapter entry points receive registration-repair
+guidance even when the configuration contains no instances.
+Unregistered transport keys in validation locations are redacted alongside
+instance IDs and other operator-controlled YAML keys.
+The readiness JSON schema fixes the versioned field and category vocabulary
+and requires explicit absence-of-observation tokens at the live boundary.

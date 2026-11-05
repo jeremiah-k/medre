@@ -13,8 +13,9 @@ this file once they land.
   command composes the compatibility snapshot, distribution metadata,
   config validation, provider-owned pure preflight, and offline route-plan
   expansion into one authoritative report per manifest provider and per
-  configured adapter. Failures are typed categories; nothing is imported,
-  contacted, or written, and the report states its own boundary: offline
+  configured adapter. Failures are typed categories; no transport SDK is
+  imported, and no provider account or network is contacted or written;
+  the report states its own boundary: offline
   results never establish runtime readiness, native acceptance, or
   recipient verification.
 

@@ -81,26 +81,19 @@ def _core_version() -> str:
 def _locate_manifest() -> Path | None:
     """Find the compatibility snapshot for this installation.
 
-    The running installation's own checkout is authoritative (editable
-    installs resolve to their source checkout). When the package was not
-    installed from a checkout layout, fall back to a checkout discovered
-    from the working directory. Neither anchor is reported as a path;
-    only availability enters the report.
+    The running installation's source checkout is authoritative for an
+    editable install. A packaged installation without its own compatibility
+    snapshot MUST report ``not_found``; another checkout discovered from the
+    working directory does not describe the running installation's pins.
     """
     candidate = _PACKAGE_ROOT / _MANIFEST_RELPATH
-    if candidate.is_file():
-        return candidate
-    try:
-        from medre.dev_environment import checkout_root
-
-        return checkout_root() / _MANIFEST_RELPATH
-    except Exception:
-        return None
+    return candidate if candidate.is_file() else None
 
 
 _REPOSITORY_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 _REVISION_RE = re.compile(r"[0-9a-f]{40}")
 _DISTRIBUTION_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+_EXCEPTION_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
 
 
 def _load_manifest() -> tuple[str, list[dict[str, Any]]]:
@@ -121,6 +114,8 @@ def _load_manifest() -> tuple[str, list[dict[str, Any]]]:
         return "not_found", []
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "not_found", []
     except (OSError, UnicodeError, ValueError):
         return "malformed", []
     if not isinstance(entries, list) or not entries:
@@ -164,6 +159,11 @@ def _valid_manifest_entry(entry: dict[str, Any], seen: list[dict[str, Any]]) -> 
         distribution
     ):
         return False
+    if any(
+        entry.get(name) is not None and not isinstance(entry[name], str)
+        for name in ("extras", "python_requires")
+    ) or not isinstance(entry.get("local_integration", False), bool):
+        return False
     return all(provider["transport"] != transport for provider in seen)
 
 
@@ -203,7 +203,10 @@ def _registration_error_category(transport: str) -> str | None:
     """
     for failure in adapter_discovery_failures():
         if failure.transport == transport:
-            return failure.reason.split(":", 1)[0].strip() or "provider_error"
+            if ":" not in failure.reason:
+                return "provider_error"
+            head = failure.reason.split(":", 1)[0].strip()
+            return head if _EXCEPTION_NAME_RE.fullmatch(head) else "provider_error"
     return None
 
 
@@ -228,7 +231,8 @@ def _manifest_distribution_of(
     """Return the snapshot's distribution name for *transport*, if declared."""
     for provider in providers:
         if provider["transport"] == transport:
-            return provider["distribution"]
+            distribution = provider.get("distribution")
+            return distribution if isinstance(distribution, str) else None
     return None
 
 
@@ -284,6 +288,41 @@ def _config_error_category(exc: BaseException) -> str:
     return "unexpected_error"
 
 
+def _safe_section_path(path: str | None) -> str | None:
+    """Retain only structural YAML location, never operator-chosen keys.
+
+    Validation exceptions can include arbitrary adapter instance names,
+    route IDs, or logger names in their section path. These are data, not
+    closed schema keys, so do not copy them to the readiness report.
+    """
+    if path is None:
+        return None
+    if path == "<root>":
+        return path
+    parts = path.split(".")
+    if parts[0] == "adapters" and len(parts) >= 2:
+        transport = parts[1]
+        if not valid_transport_name(transport) or get_adapter_spec(transport) is None:
+            return "adapters"
+        return f"adapters.{transport}.instance" if len(parts) >= 3 else f"adapters.{transport}"
+    if parts[0] == "routes":
+        return "routes.route" if len(parts) >= 2 else "routes"
+    if parts[0] == "logging" and len(parts) >= 2 and parts[1] == "overrides":
+        return "logging.overrides"  # Logger names can contain arbitrary text.
+    structural = {
+        "runtime",
+        "logging",
+        "storage",
+        "retry",
+        "attachments",
+        "content_retention",
+        "content_ceiling",
+    }
+    # Other nested paths can contain arbitrary user-provided YAML keys.
+    # The owning top-level section is sufficient for a safe diagnostic.
+    return parts[0] if parts[0] in structural else "section"
+
+
 def _load_effective_config(
     config_path: str | Path | None,
 ) -> tuple[dict[str, Any], Any]:
@@ -306,26 +345,24 @@ def _load_effective_config(
     ) -> tuple[dict[str, Any], None]:
         section["status"] = category
         section["error_category"] = category
-        section["section_path"] = section_path
+        section["section_path"] = _safe_section_path(section_path)
         return section, None
 
     try:
-        path, _source = find_config(config_path)
+        path, source = find_config(config_path)
     except ConfigValidationError as exc:
         return failed(_config_error_category(exc), exc.section_path)
-    except ConfigNotFoundError:
-        return failed("config_not_found")
-    except ConfigError:
-        return failed("config_file_error")
+    except ConfigError as exc:
+        return failed(_config_error_category(exc))
     except Exception as exc:
         return failed(_config_error_category(exc))
     try:
-        config, source, paths = load_config(path)
+        config, _resolved_source, paths = load_config(path)
         config = apply_env_overrides(config, paths)
     except ConfigValidationError as exc:
         return failed(_config_error_category(exc), exc.section_path)
-    except ConfigError:
-        return failed("config_error")
+    except ConfigError as exc:
+        return failed(_config_error_category(exc))
     except Exception as exc:
         return failed(_config_error_category(exc))
     section["source"] = source.value
@@ -445,9 +482,16 @@ def _routes_section(config: Any) -> dict[str, Any]:
     section: dict[str, Any] = {"status": "passed", "error_category": None}
     try:
         plan = build_route_plan(config)
-    except Exception as exc:
-        section["status"] = "blocked"
-        section["error_category"] = type(exc).__name__
+    except Exception:
+        # A failed plan has no countable routes. Never fabricate zero totals.
+        section.update(
+            status="blocked",
+            error_category="route_expansion_error",
+            total=None,
+            enabled=None,
+            expansion_failures=None,
+            conflicts=None,
+        )
         return section
     failed = [entry for entry in plan.routes if entry.error is not None]
     section["total"] = len(plan.routes)
@@ -477,8 +521,8 @@ def _guidance(
     steps: list[str] = []
     if manifest["status"] != "available":
         steps.append(
-            "Compatibility snapshot unavailable; run from a MEDRE checkout "
-            "to include manifest providers and pins."
+            "Compatibility snapshot unavailable in this installation; "
+            "use a MEDRE build that includes its own compatibility pins."
         )
     missing = [
         p["distribution"]
@@ -490,6 +534,19 @@ def _guidance(
             "Install missing provider distributions "
             f"({', '.join(missing)}); see docs/ops/adapter-installation.md."
         )
+    if any(p["registration"] == "broken" for p in manifest["providers"]):
+        steps.append(
+            "A provider registration is quarantined; 'medre adapters check' "
+            "shows discovery diagnostics."
+        )
+    if any(
+        p["registration"] == "unregistered" and p["distribution_status"] == "installed"
+        for p in manifest["providers"]
+    ):
+        steps.append(
+            "An installed provider has no registered adapter entry point; "
+            "'medre adapters check' shows registration diagnostics."
+        )
     if config_section["status"] == "config_not_found":
         steps.append(
             "No configuration found; run 'medre config sample' or author one "
@@ -500,10 +557,31 @@ def _guidance(
             "Fix the reported configuration section; 'medre config check' "
             "prints full validation details."
         )
-    if any(row["preflight"] == "blocked" for row in adapters):
+    blocked = {
+        row["blocked_category"]
+        for row in adapters
+        if row["preflight"] == "blocked"
+    }
+    if blocked & {"transport_unregistered", "transport_broken"}:
         steps.append(
-            "Resolve blocked adapters; 'medre adapters check' reports "
-            "provider installation details."
+            "Resolve provider discovery failures; 'medre adapters check' "
+            "shows registration diagnostics."
+        )
+    if "config_invalid" in blocked:
+        steps.append(
+            "Resolve adapter configuration errors; 'medre config check' "
+            "provides the structural validation details."
+        )
+    if "sdk_distribution_missing" in blocked:
+        steps.append(
+            "Install the missing provider-declared SDK distributions and "
+            "rerun 'medre readiness' to inspect installed metadata."
+        )
+    if "preparation_failed" in blocked:
+        steps.append(
+            "Resolve the provider-owned configuration preparation failure "
+            "using its native setup guide, then rerun 'medre readiness'; "
+            "'medre config check' does not execute provider preparation."
         )
     if routes is not None and routes.get("status") == "blocked":
         steps.append(

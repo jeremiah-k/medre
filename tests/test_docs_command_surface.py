@@ -178,6 +178,7 @@ class TestParserCommandsDocumented:
         parser_commands = _parser_top_level_commands()
         expected = {
             "run",
+            "readiness",
             "config",
             "paths",
             "version",

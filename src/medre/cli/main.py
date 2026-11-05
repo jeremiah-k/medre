@@ -1077,8 +1077,12 @@ def main(argv: list[str] | None = None) -> None:
         arguments[0] in {"init", "upgrade", "update"}
         or (arguments[0] == "adapters" and adapter_action in package_actions)
     )
-    # Updating or removing a broken provider must not import that provider.
-    parser = _build_parser(include_adapter_cli=not managing_packages)
+    # Updating/removing a broken provider and read-only readiness MUST NOT
+    # import optional provider CLI modules (which may load native SDKs).
+    offline_readiness = bool(arguments) and arguments[0] == "readiness"
+    parser = _build_parser(
+        include_adapter_cli=not (managing_packages or offline_readiness)
+    )
     if help_only:
         show_command_help(parser, arguments)
     args = parser.parse_args(group_help(parser, arguments))

@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/readiness-report.schema.json",
+  "title": "MEDRE offline readiness report",
+  "description": "Versioned, read-only installation and configuration evidence; no live delivery or recipient claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report_version",
+    "medre_version",
+    "manifest",
+    "config",
+    "adapters",
+    "boundary",
+    "guidance"
+  ],
+  "properties": {
+    "report_version": {
+      "const": 1
+    },
+    "medre_version": {
+      "type": "string"
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "providers",
+        "provider_count",
+        "installed_count"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "not_found",
+            "malformed"
+          ]
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provider"
+          }
+        },
+        "provider_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "installed_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "section_path",
+        "error_category",
+        "status",
+        "adapter_count",
+        "enabled_adapter_count",
+        "routes"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            null,
+            "explicit",
+            "MEDRE_CONFIG",
+            "MEDRE_HOME",
+            "xdg",
+            "local",
+            "selected"
+          ]
+        },
+        "section_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_category": {
+          "enum": [
+            null,
+            "config_not_found",
+            "config_file_error",
+            "validation_error",
+            "config_error",
+            "unexpected_error"
+          ]
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "config_not_found",
+            "config_file_error",
+            "validation_error",
+            "config_error",
+            "unexpected_error"
+          ]
+        },
+        "adapter_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled_adapter_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "routes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/routes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "adapters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/adapter"
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offline",
+        "runtime",
+        "recipients",
+        "statement"
+      ],
+      "properties": {
+        "offline": {
+          "const": true
+        },
+        "runtime": {
+          "const": "not_observed"
+        },
+        "recipients": {
+          "const": "not_observed"
+        },
+        "statement": {
+          "type": "string"
+        }
+      }
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "repository",
+        "ref",
+        "extras",
+        "distribution",
+        "python_requires",
+        "local_integration",
+        "distribution_status",
+        "installed_version",
+        "registration",
+        "registration_error_category",
+        "native_setup"
+      ],
+      "properties": {
+        "transport": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "extras": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "distribution": {
+          "type": "string"
+        },
+        "python_requires": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "local_integration": {
+          "type": "boolean"
+        },
+        "distribution_status": {
+          "enum": [
+            "installed",
+            "missing"
+          ]
+        },
+        "installed_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "registration": {
+          "enum": [
+            "registered",
+            "broken",
+            "unregistered"
+          ]
+        },
+        "registration_error_category": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$",
+          "description": "A sanitized exception class name, or provider_error when its prefix cannot be safely extracted."
+        },
+        "native_setup": {
+          "enum": [
+            "provider_guided",
+            "manual_provisioning",
+            null
+          ]
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "error_category",
+        "total",
+        "enabled",
+        "expansion_failures",
+        "conflicts"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "passed",
+            "blocked"
+          ]
+        },
+        "error_category": {
+          "enum": [
+            null,
+            "route_expansion_error",
+            "route_conflict"
+          ]
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "enabled": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "expansion_failures": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "conflicts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_id",
+        "transport",
+        "enabled",
+        "adapter_kind",
+        "provider_distribution",
+        "provider_distribution_status",
+        "sdk_distribution",
+        "sdk_distribution_status",
+        "sdk_installed_version",
+        "native_setup",
+        "runtime",
+        "recipient",
+        "config",
+        "preflight",
+        "blocked_category"
+      ],
+      "properties": {
+        "adapter_id": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "adapter_kind": {
+          "enum": [
+            "real",
+            "fake"
+          ]
+        },
+        "provider_distribution": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_distribution_status": {
+          "enum": [
+            "installed",
+            "missing",
+            "unknown"
+          ]
+        },
+        "sdk_distribution": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sdk_distribution_status": {
+          "enum": [
+            "installed",
+            "missing",
+            "unknown",
+            "not_required"
+          ]
+        },
+        "sdk_installed_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "native_setup": {
+          "enum": [
+            "provider_guided",
+            "manual_provisioning",
+            null
+          ]
+        },
+        "runtime": {
+          "const": "not_observed"
+        },
+        "recipient": {
+          "const": "not_observed"
+        },
+        "config": {
+          "enum": [
+            "valid",
+            "actionable_error"
+          ]
+        },
+        "preflight": {
+          "enum": [
+            "passed",
+            "blocked"
+          ]
+        },
+        "blocked_category": {
+          "enum": [
+            null,
+            "transport_unregistered",
+            "transport_broken",
+            "config_invalid",
+            "sdk_distribution_missing",
+            "preparation_failed"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -77,7 +77,10 @@ def _routes_line(routes: dict[str, Any] | None) -> str:
     if routes is None:
         return "Routes: not evaluated (configuration not loaded)"
     status = str(routes.get("status", "unknown"))
-    detail = f"{routes.get('total', 0)} configured ({routes.get('enabled', 0)} enabled)"
+    if routes.get("total") is None or routes.get("enabled") is None:
+        detail = "route counts unavailable"
+    else:
+        detail = f"{routes['total']} configured ({routes['enabled']} enabled)"
     if status == "passed":
         return f"Routes: plan passed ({detail})"
     return f"Routes: blocked [{routes.get('error_category')}] ({detail})"
