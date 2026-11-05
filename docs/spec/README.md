@@ -64,6 +64,9 @@ Transport profiles include machine-readable capability declarations
 | [appendices/transport-realism.md](appendices/transport-realism.md)         | Required evidence ladder and coverage      |
 | [appendices/known-limitations.md](appendices/known-limitations.md)         | Limitations surfaced from test annotations |
 
+The [synthetic message preview](synthetic-message-preview.md) is a read-only
+operator presentation boundary, not live delivery evidence.
+
 ## Reading Order
 
 1. **Principles** (`principles.md`) — design philosophy and invariants

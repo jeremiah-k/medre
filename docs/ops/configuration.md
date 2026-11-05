@@ -31,7 +31,11 @@ Use `medre config check` to verify which file is loaded and whether it parses co
 To build a route interactively, use
 [`medre config bridge`](guided-configuration.md). It selects configured
 instances, authors explicit context mappings, and previews production route
-expansion before saving a new file.
+expansion before saving a new file. After authoring,
+`medre config preview-message --config bridge.yaml --route ROUTE_ID --json`
+displays fixed synthetic destination text through the registered pure renderers. This is
+presentation-only; it does not run a bridge, grant native sends, or test
+recipient acceptance. See [synthetic preview](../spec/synthetic-message-preview.md).
 
 ## Pre-flight Validation with `medre config check`
 
