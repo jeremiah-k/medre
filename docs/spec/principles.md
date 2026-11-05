@@ -14,18 +14,20 @@ Messages (text, images, files) are one `event_kind` among many. The pipeline
 handles telemetry, metrics, presence, system signals, and plugin events
 identically. Adapters decide how to render each event kind for their platform.
 
-No event kind is privileged. A `telemetry` event flows through the same
-ingress, storage, enrichment, transform, policy, routing, and delivery stages
-as a `message.text` event.
+No event kind is privileged. A `telemetry` event and a `message.text`
+event traverse the same implemented `PipelinePhase` stages listed in §4.
 
 ## 2. Immutability
 
-Canonical events are append-only records. Enrichment, transformation, and
-policy evaluation create new derived events that reference their parent via
-`parent_event_id`. No code path modifies an event after creation.
+Canonical events are append-only records. No code path modifies an event
+after creation.
 
-Derived events carry a `lineage` list that traces back to the original source
-event. The original is always recoverable by walking the lineage chain.
+The enrichment, transformation, and policy-evaluation stages are reserved
+future extension points with no code path today
+([architecture.md](architecture.md)). When implemented, each MUST create new
+derived events that reference their parent via `parent_event_id`. Derived
+events carry a `lineage` list that traces back to the original source event.
+The original is always recoverable by walking the lineage chain.
 
 ## 3. Transport Agnostic
 
@@ -38,11 +40,16 @@ Code that needs to answer "what protocol does this adapter speak?" MUST use the
 
 ## 4. Pipeline over Callback
 
-Events flow through explicit stages: ingress, store, enrichment, transform,
-policy, routing, delivery planning, rendering, adapter execution, receipts.
-Each stage is inspectable, testable, and replaceable. No adapter directly
-calls another adapter. All inter-adapter communication goes through the
-pipeline.
+Events flow through explicit stages. Six phases are implemented, defined by
+the `PipelinePhase` enum in `src/medre/core/engine/phases.py`: `ingress`,
+`dedup`, `resolve_relations`, `store`, `route`, `deliver`. The `route` phase
+creates per-target delivery plans; `deliver` handles rendering, adapter
+execution, and receipts. The enrich, transform, and event-policy stages are
+reserved future extension points with no code path today
+(see [architecture.md](architecture.md)).
+Each implemented stage is inspectable, testable, and replaceable. No adapter
+directly calls another adapter. All inter-adapter communication goes through
+the pipeline.
 
 ## 5. Versioned Envelope, Explicit Extensions
 

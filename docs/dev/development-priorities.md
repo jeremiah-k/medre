@@ -124,11 +124,26 @@ RF or recipient acceptance.
 
 The Docker-gated Meshtastic core-replay suite now covers selected and refused
 native submissions through the pinned adapter. A separate observer is still
-needed for native acceptance claims beyond local SDK submission. Next measure
-producer-side ingress pressure under held publication for both radio adapters.
-Choose an explicit overload policy before adding scheduling limits; dropping
-inbound packets without accounting is not a permissible silent optimization.
-Keep any provider changes separate from new recovery authority.
+needed for native acceptance claims beyond local SDK submission.
+
+Producer-side ingress pressure is measured and accounted on `main`. The
+runtime-wide admission gate bounds admitted work with per-source fair shares;
+Meshtastic and MeshCore also enforce separate adapter-local callback budgets.
+The gate's refusal facts enter durable pressure accounting when storage is
+available. Producer-side refusals pass through the content-free, bounded,
+best-effort `ProducerPressureReport` sink: SDK reports that cannot be staged
+or absorbed by the owner loop are absent from durable aggregates. Neither a
+zero aggregate nor a missing pressure row proves there was no overload.
+`medre inspect pressure` exposes persisted observations and outage gaps.
+A deterministic sustained-contention suite qualifies simultaneous sources,
+a blocked SQLite writer, and a sustained storage-failure window. Retained
+gate-refusal evidence during an outage is bounded with saturating discard
+accounting; recovery persists a durable accounting-gap record.
+Process-lifetime qualification covers the producer pressure collector across
+sequential adapter session binding and the shutdown fence. The
+[durable ingress](../spec/durable-ingress.md) specification records these
+boundaries at their evidence tiers. Keep any provider changes separate from
+new recovery authority.
 
 Native reconciliation previews remain read-only. A send-capable resolution of
 uncertain work still depends on scoped provider non-submission proof;
