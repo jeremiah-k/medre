@@ -44,7 +44,8 @@ a duplicate entry in the grouped native suite.
 After the `reference` stage succeeds, inspect the private directory
 `"$lab_dir"/results/reference-*/`. The content-free `reference-verdict.json`
 exists only after an independently verified native campaign and includes pathless
-MEDRE/Matrix/XMPP source commits, snapshot digests, and dirty flags; the adjoining
+MEDRE/Matrix/XMPP source commits, verified build/image snapshot digests, and
+dirty flags; the adjoining
 `analysis.json` and `results.json` record the complete checked cases. The
 private `matrix.jsonl`, `xmpp.jsonl`, `runtime-0.jsonl`, `runtime-1.jsonl`,
 and `medre.sqlite3` contain underlying observations. Source checkouts and

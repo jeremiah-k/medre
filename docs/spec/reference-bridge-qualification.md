@@ -38,7 +38,10 @@ captures. The verdict MUST use the exact `CASES` order and status, require both
 source transports, and report only a closed evidence level, case count,
 direction totals, and qualification limits. It MUST include the MEDRE, Matrix, and XMPP
 source snapshot digests, commits, and dirty-state indicators from `sources.json`
-while omitting checkout paths; missing or malformed source bindings MUST refuse
+while omitting checkout paths. Before and after the campaign, the snapshot
+hashes MUST match the tracked-file bytes in the private build context, and
+those tracked files MUST match the actual runner image's `/sources` tree.
+Missing, altered, or malformed source bindings MUST refuse
 the positive verdict. The inventory MUST be rechecked after the campaign; a
 changed source snapshot MUST NOT produce a positive verdict. It MUST NOT
 contain raw messages,

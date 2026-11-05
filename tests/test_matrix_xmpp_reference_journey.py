@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -12,16 +13,32 @@ from scripts.adapter_campaign.lab import __main__ as lab_cli
 from scripts.adapter_campaign.lab import fidelity, reference, scenarios
 
 
-def _write_sources(root: Path) -> None:
-    sources = {
-        name: {
+def _write_sources(root: Path, monkeypatch=None) -> None:
+    image_root = root / "image-sources"
+    if monkeypatch is not None:
+        monkeypatch.setattr(reference, "IMAGE_SOURCE_ROOT", image_root)
+    sources = {}
+    for name in ("medre", "matrix", "xmpp"):
+        relative = Path("src") / "snapshot.py"
+        data = (name + " source snapshot").encode()
+        staged = root / "build" / "sources" / name / relative
+        installed = image_root / name / relative
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(data)
+        installed.write_bytes(data)
+        encoded = relative.as_posix().encode()
+        digest = hashlib.sha256()
+        digest.update(len(encoded).to_bytes(8, "big") + encoded)
+        digest.update(len(data).to_bytes(8, "big") + data)
+        digest.update((staged.stat().st_mode & 0o111).to_bytes(2, "big"))
+        sources[name] = {
             "checkout": f"/private/{name}/secret-path",
             "commit": "a" * 40,
-            "snapshot_sha256": "b" * 64,
+            "snapshot_sha256": digest.hexdigest(),
+            "files": 1,
             "dirty": False,
         }
-        for name in ("medre", "matrix", "xmpp")
-    }
     (root / "sources.json").write_text(json.dumps(sources))
 
 
@@ -101,7 +118,7 @@ async def test_reference_dispatch_uses_fidelity_and_requires_verdict(
         (folder / "analysis.json").write_text(json.dumps(_passing_analysis()))
         return folder
 
-    _write_sources(tmp_path)
+    _write_sources(tmp_path, monkeypatch)
     monkeypatch.setattr(scenarios, "ROOT", tmp_path)
     monkeypatch.setattr(fidelity, "run", fake_campaign)
     await scenarios.run("reference")
@@ -124,7 +141,7 @@ async def test_reference_does_not_write_verdict_for_failed_analysis(
         (folder / "analysis.json").write_text(json.dumps({"status": "failed"}))
         return folder
 
-    _write_sources(tmp_path)
+    _write_sources(tmp_path, monkeypatch)
     monkeypatch.setattr(fidelity, "run", invalid_campaign)
     with pytest.raises(ValueError, match="did not establish"):
         await reference.run(tmp_path)
@@ -218,7 +235,7 @@ def test_reference_verdict_refuses_unbound_or_malformed_source_snapshot(
 async def test_reference_rejects_source_snapshot_change_during_campaign(
     tmp_path, monkeypatch
 ):
-    _write_sources(tmp_path)
+    _write_sources(tmp_path, monkeypatch)
 
     async def tamper_source(root, *, reference=False):
         folder = root / "results/reference-tampered"
@@ -233,3 +250,61 @@ async def test_reference_rejects_source_snapshot_change_during_campaign(
     with pytest.raises(ValueError, match="changed during campaign"):
         await reference.run(tmp_path)
     assert not (tmp_path / "results/reference-tampered/reference-verdict.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_reference_rejects_mutated_build_snapshot_before_campaign(
+    tmp_path, monkeypatch
+):
+    _write_sources(tmp_path, monkeypatch)
+    (tmp_path / "build/sources/medre/src/snapshot.py").write_bytes(b"modified")
+
+    async def should_not_run(*args, **kwargs):
+        pytest.fail("Invalid source material must fail before native campaign")
+
+    monkeypatch.setattr(fidelity, "run", should_not_run)
+    with pytest.raises(ValueError, match="differs from recorded source"):
+        await reference.run(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_reference_rejects_mismatched_runtime_image_before_campaign(
+    tmp_path, monkeypatch
+):
+    _write_sources(tmp_path, monkeypatch)
+    (tmp_path / "image-sources/xmpp/src/snapshot.py").write_bytes(b"stale image")
+
+    async def should_not_run(*args, **kwargs):
+        pytest.fail("Stale runtime image must fail before native campaign")
+
+    monkeypatch.setattr(fidelity, "run", should_not_run)
+    with pytest.raises(ValueError, match="image differs"):
+        await reference.run(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_reference_rejects_image_mutation_during_campaign(tmp_path, monkeypatch):
+    _write_sources(tmp_path, monkeypatch)
+
+    async def mutate_image(root, *, reference=False):
+        folder = root / "results/reference-tampered-image"
+        folder.mkdir(parents=True)
+        (folder / "analysis.json").write_text(json.dumps(_passing_analysis()))
+        (root / "image-sources/matrix/src/snapshot.py").write_bytes(b"changed")
+        return folder
+
+    monkeypatch.setattr(fidelity, "run", mutate_image)
+    with pytest.raises(ValueError, match="image differs"):
+        await reference.run(tmp_path)
+    assert not (
+        tmp_path / "results/reference-tampered-image/reference-verdict.json"
+    ).exists()
+
+
+def test_reference_rejects_well_formed_but_false_snapshot_digest(tmp_path, monkeypatch):
+    _write_sources(tmp_path, monkeypatch)
+    inventory = json.loads((tmp_path / "sources.json").read_text())
+    inventory["medre"]["snapshot_sha256"] = "f" * 64
+    (tmp_path / "sources.json").write_text(json.dumps(inventory))
+    with pytest.raises(ValueError, match="build snapshot differs"):
+        reference.verify_source_material(tmp_path)
