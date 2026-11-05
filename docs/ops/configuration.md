@@ -1333,6 +1333,10 @@ medre config native --transport TYPE --adapter-id ID --output PATH [--config PAT
     Collect provider-declared connection settings offline with hidden secret input.
     Save a new private YAML file without contacting devices or accounts.
 
+medre config preview-message --route ID [--config PATH] [--repeat N] [--relation none|reply] [--json]
+    Render a synthetic message through the real pure renderer (never sent).
+    Offline renderer evidence only; starts no adapters and grants no send authority.
+
 medre paths
     Print all resolved MEDRE paths.
 

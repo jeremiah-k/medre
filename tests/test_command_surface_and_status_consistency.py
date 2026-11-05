@@ -507,7 +507,16 @@ class TestNestedCommandCoverage:
         [
             (
                 "config",
-                {"check", "sample", "bridge", "native", "use", "current", "unset"},
+                {
+                    "check",
+                    "sample",
+                    "bridge",
+                    "native",
+                    "preview-message",
+                    "use",
+                    "current",
+                    "unset",
+                },
             ),
             ("routes", {"validate", "topology", "list", "plan", "explain", "diagram"}),
             (
