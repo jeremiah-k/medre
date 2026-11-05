@@ -11,7 +11,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "e7800a0e5c1ce92c1a15eef26ad57fab4068ec7b",
+    "ref": "17a13133e293268ac3d55dc1a3edfa3fd69c136c",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -19,7 +19,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "f5611e2c48c501892a22033bbd40a998775497f5",
+    "ref": "222a7b574c72bfd15896d62411940c997bd87e1a",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
