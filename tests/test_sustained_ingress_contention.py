@@ -302,12 +302,7 @@ async def test_simultaneous_sources_share_the_gate_across_waves(
         producer_thread.start()
 
         submitted = {"radio-a": 0, "relay-b": 0}
-        outcome_counts = {
-            "admitted": 0,
-            "rejected": 0,
-            "timed_out": 0,
-            "deferred": 0,
-        }
+        admitted_count = 0
         peak_waiting = 0
 
         for wave in range(1, _WAVES + 1):
@@ -353,8 +348,6 @@ async def test_simultaneous_sources_share_the_gate_across_waves(
             assert deferred.value.reasons == ("inbound_admission_capacity",)
             submitted["radio-a"] += 1
             submitted["relay-b"] += 1
-            outcome_counts["rejected"] += 1
-            outcome_counts["deferred"] += 1
 
             # The queued arrivals wait past the admission timeout while the
             # consumer stays held; condition-poll, never sleep.
@@ -367,13 +360,12 @@ async def test_simultaneous_sources_share_the_gate_across_waves(
                     (InboundAdmissionRejected, DurableIngressDeferredError)
                 ):
                     await task
-            outcome_counts["timed_out"] += 2
 
             # The consumer completes the held wave; both sources progress.
             runner.release(2)
             for task in held.values():
                 await task
-            outcome_counts["admitted"] += 2
+            admitted_count += 2
 
         producer_thread.join(timeout=10)
         assert producer_done.is_set() and not thread_failures
@@ -396,9 +388,7 @@ async def test_simultaneous_sources_share_the_gate_across_waves(
         assert runner.admitted == runner.entries
         total_submitted = sum(submitted.values())
         assert total_submitted == 6 * _WAVES
-        assert sum(gate_totals.values()) + outcome_counts["admitted"] == (
-            total_submitted
-        )
+        assert sum(gate_totals.values()) + admitted_count == total_submitted
         for source, count in submitted.items():
             admitted_for_source = sum(
                 1 for event in runner.admitted if _entry_source(event) == source
@@ -440,10 +430,22 @@ async def test_simultaneous_sources_share_the_gate_across_waves(
                 "window_starts": sorted(windows),
                 "window_count": len(windows),
                 "submitted": total_submitted,
-                "admitted": outcome_counts["admitted"],
-                "rejected": outcome_counts["rejected"],
-                "timed_out": outcome_counts["timed_out"],
-                "deferred": outcome_counts["deferred"],
+                "admitted": admitted_count,
+                "rejected": sum(
+                    count
+                    for (_, outcome), count in gate_totals.items()
+                    if outcome == "rejected"
+                ),
+                "timed_out": sum(
+                    count
+                    for (_, outcome), count in gate_totals.items()
+                    if outcome == "timed_out"
+                ),
+                "deferred": sum(
+                    count
+                    for (_, outcome), count in gate_totals.items()
+                    if outcome == "deferred"
+                ),
                 "per_source": {
                     source: {
                         "submitted": submitted[source],
