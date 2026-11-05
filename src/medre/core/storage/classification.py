@@ -397,6 +397,18 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "first_seen_at": ColumnClass.OPERATIONAL_AUTHORITY,
         "last_seen_at": ColumnClass.OPERATIONAL_AUTHORITY,
     },
+    # Immutable, content-free accounting evidence. Each row is appended once:
+    # its timestamps and saturating counters are recorded facts, never a
+    # live delivery claim, recovery permit, or independently owned content.
+    "inbound_pressure_outage_gaps": {
+        "gap_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "gap_token": ColumnClass.IMMUTABLE_IDENTITY,
+        "opened_at": ColumnClass.IMMUTABLE_IDENTITY,
+        "recovered_at": ColumnClass.IMMUTABLE_IDENTITY,
+        "refusals_observed": ColumnClass.IMMUTABLE_IDENTITY,
+        "refusals_retained": ColumnClass.IMMUTABLE_IDENTITY,
+        "refusals_discarded": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "plugin_state": {
         "plugin_id": ColumnClass.IMMUTABLE_IDENTITY,
         "key": ColumnClass.IMMUTABLE_IDENTITY,

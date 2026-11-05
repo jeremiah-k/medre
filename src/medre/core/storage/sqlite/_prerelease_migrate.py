@@ -28,6 +28,7 @@ from medre.core.storage.sqlite.schema import (
     _OPERATOR_DECISIONS_DDL,
     _OPERATOR_DECISIONS_INDEX_DDL,
     _PRESSURE_DDL,
+    _PRESSURE_OUTAGE_GAPS_DDL,
     _SCHEMA,
 )
 
@@ -61,6 +62,13 @@ _LEGACY_OUTCOME_CHECK = (
 )
 
 _WIDEN_PRESSURE_OUTCOMES_STEP = "widen-inbound-pressure-outcome-vocabulary"
+
+_GAP_TABLE = "inbound_pressure_outage_gaps"
+_LEGACY_GAP_TABLE = "inbound_pressure_outage_gaps__prerelease_legacy"
+_CURRENT_GAP_TOKEN_COLUMN = (
+    "    gap_token TEXT NOT NULL UNIQUE CHECK (length(gap_token) = 32),\n"
+)
+_ADD_GAP_RETRY_TOKEN_STEP = "add-inbound-pressure-gap-retry-token"
 
 
 class _DecisionForms(NamedTuple):
@@ -279,6 +287,71 @@ def rebuild_inbound_pressure_observations(db: sqlite3.Connection) -> None:
         )
 
 
+@lru_cache(maxsize=1)
+def known_outage_gap_table_forms() -> _DecisionForms:
+    """Derive the exact predecessor lacking the immutable retry token."""
+    if _CURRENT_GAP_TOKEN_COLUMN not in _PRESSURE_OUTAGE_GAPS_DDL:
+        raise StorageInitializationError(
+            "Authoritative outage-gap DDL no longer has the retry-token "
+            "column; the prerelease predecessor cannot be derived."
+        )
+    old_db = sqlite3.connect(":memory:")
+    current_db = sqlite3.connect(":memory:")
+    try:
+        old_db.execute(_PRESSURE_OUTAGE_GAPS_DDL.replace(_CURRENT_GAP_TOKEN_COLUMN, ""))
+        current_db.execute(_PRESSURE_OUTAGE_GAPS_DDL)
+        legacy = _stored_table_sql(old_db, _GAP_TABLE)
+        current = _stored_table_sql(current_db, _GAP_TABLE)
+        columns = tuple(
+            str(row[1]) for row in old_db.execute(f"PRAGMA table_info({_GAP_TABLE})")
+        )
+    finally:
+        old_db.close()
+        current_db.close()
+    if legacy is None or current is None or legacy == current or not columns:
+        raise StorageInitializationError(
+            "The allowlisted legacy outage-gap table form could not be derived."
+        )
+    return _DecisionForms(legacy=legacy, current=current, columns=columns)
+
+
+def outage_gap_token_rebuild_applies(db: sqlite3.Connection) -> bool:
+    """Detect only the exact prerelease table shape without retry tokens."""
+    return _stored_table_sql(db, _GAP_TABLE) == (known_outage_gap_table_forms().legacy)
+
+
+def rebuild_inbound_pressure_outage_gaps(db: sqlite3.Connection) -> None:
+    """Preserve legacy gap records while assigning stable content-free tokens.
+
+    This guard runs under BEGIN IMMEDIATE. No other table references the gap
+    table, and its only identity is its autoincrement integer primary key.
+    Backfilled tokens use that original key padded to 32 lowercase hex digits;
+    unlike runtime UUIDv4 tokens, they cannot have a version-4 nibble.
+    """
+    if not outage_gap_token_rebuild_applies(db):
+        return
+    columns = known_outage_gap_table_forms().columns
+    rows = db.execute(
+        f"SELECT {', '.join(columns)} FROM {_GAP_TABLE} ORDER BY gap_id"
+    ).fetchall()
+    db.execute(f"ALTER TABLE {_GAP_TABLE} RENAME TO {_LEGACY_GAP_TABLE}")
+    db.execute(_PRESSURE_OUTAGE_GAPS_DDL)
+    for row in rows:
+        gap_id = int(row[0])
+        db.execute(
+            f"INSERT INTO {_GAP_TABLE} (gap_token, {', '.join(columns)}) "
+            f"VALUES (?, {', '.join('?' for _ in columns)})",
+            (f"{gap_id:032x}", *row),
+        )
+    db.execute(f"DROP TABLE {_LEGACY_GAP_TABLE}")
+    after = db.execute(f"SELECT COUNT(*) FROM {_GAP_TABLE}").fetchone()
+    if after is None or int(after[0]) != len(rows):
+        raise StorageInitializationError(
+            f"Pre-release migration '{_ADD_GAP_RETRY_TOKEN_STEP}' "
+            "changed the outage-gap record count; the rebuild was rolled back."
+        )
+
+
 @dataclass(frozen=True)
 class _MigrationStep:
     """One named, self-detecting, idempotent additive migration step."""
@@ -301,6 +374,11 @@ _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (
         name=_WIDEN_PRESSURE_OUTCOMES_STEP,
         applies=inbound_pressure_rebuild_applies,
         apply=rebuild_inbound_pressure_observations,
+    ),
+    _MigrationStep(
+        name=_ADD_GAP_RETRY_TOKEN_STEP,
+        applies=outage_gap_token_rebuild_applies,
+        apply=rebuild_inbound_pressure_outage_gaps,
     ),
 )
 

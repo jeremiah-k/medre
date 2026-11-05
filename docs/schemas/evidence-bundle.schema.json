@@ -832,6 +832,14 @@
             }
           ]
         },
+        "inbound_pressure_outage_gaps": {
+          "description": "Content-free, append-only outage-gap records. A gap row discloses refusal facts observed, persisted after recovery, and discarded under the bounded in-memory retention policy. An error object indicates a failed read. Rows are global and are not scoped to an event or source.",
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array" },
+            { "type": "object" }
+          ]
+        },
         "native_refs_for_event": {
           "oneOf": [
             {
@@ -951,6 +959,7 @@
         "event_count",
         "incident_summary",
         "inbound_pressure",
+        "inbound_pressure_outage_gaps",
         "native_refs_for_event",
         "receipt_count",
         "delivery_observation_count",

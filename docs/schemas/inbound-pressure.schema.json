@@ -5,7 +5,7 @@
   "description": "Read-only, content-free pre-admission pressure aggregates as reported by `medre inspect pressure`. Rows carry window, source attribution, outcome, and counters; never payloads, sender identity, or transport-native content. The outcome vocabulary is closed: three admission-gate facts recorded by the runtime gate (rejected, timed_out, deferred) and three producer-side staging facts reported by adapters before any admission attempt (scheduled, overflow, cancelled_before_admission). No outcome claims durable admission.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["observations", "count", "source_filter", "outcome_totals"],
+  "required": ["observations", "count", "source_filter", "outcome_totals", "outage_gaps", "outage_gap_count"],
   "properties": {
     "observations": {
       "description": "Aggregate rows ordered by window start (ascending); `limit` bounds the listing to the newest windows.",
@@ -67,6 +67,29 @@
     "source_filter": {
       "description": "Adapter id the listing was scoped to, or null for all sources.",
       "type": ["string", "null"]
+    },
+    "outage_gaps": {
+      "description": "Global outage-gap accounting rows, irrespective of source_filter. Lost refusal facts are represented by refusals_discarded, not invented pressure observations.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap_id", "gap_token", "opened_at", "recovered_at", "refusals_observed", "refusals_retained", "refusals_discarded"],
+        "properties": {
+          "gap_id": {"type": "integer", "minimum": 1},
+          "gap_token": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "opened_at": {"type": "string", "minLength": 1},
+          "recovered_at": {"type": "string", "minLength": 1},
+          "refusals_observed": {"type": "integer", "minimum": 0},
+          "refusals_retained": {"description": "Gate refusal facts durably persisted during recovery, including successful prefixes of interrupted batches.", "type": "integer", "minimum": 0},
+          "refusals_discarded": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "outage_gap_count": {
+      "description": "Count of listed global outage-gap rows (limited like observations).",
+      "type": "integer",
+      "minimum": 0
     },
     "outcome_totals": {
       "description": "Derived rollup of the listed rows' counts per outcome, in the closed vocabulary order; outcomes absent from the listing are omitted. Derived over the returned window only — rows remain the durable evidence.",

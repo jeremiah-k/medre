@@ -16,6 +16,7 @@ discarded retained facts.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from pathlib import Path
@@ -42,6 +43,7 @@ _BASE_EPOCH = 1_800_000_000
 _GAP_FIELDS = frozenset(
     {
         "gap_id",
+        "gap_token",
         "opened_at",
         "recovered_at",
         "refusals_observed",
@@ -151,6 +153,83 @@ async def test_additive_predecessor_gains_the_gap_table(tmp_path: Path) -> None:
         await reopened.close()
 
 
+async def test_exact_legacy_gap_table_upgrade_preserves_rows(tmp_path: Path) -> None:
+    """A previously opened #462 prerelease database retains its gap history."""
+    from medre.core.storage.sqlite._prerelease_migrate import (
+        known_outage_gap_table_forms,
+        outage_gap_token_rebuild_applies,
+    )
+
+    db_path = tmp_path / "legacy-gap.db"
+    storage = await _open_storage(tmp_path, db_path.name)
+    try:
+        await storage.record_inbound_pressure_outage_gap(
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 30,
+            refusals_observed=5,
+            refusals_retained=3,
+            refusals_discarded=2,
+        )
+    finally:
+        await storage.close()
+
+    columns = known_outage_gap_table_forms().columns
+    db = sqlite3.connect(db_path)
+    try:
+        db.execute(
+            "ALTER TABLE inbound_pressure_outage_gaps "
+            "RENAME TO inbound_pressure_outage_gaps__old"
+        )
+        # Literal predecessor from e9816b4e26; do not derive it from the detector.
+        db.execute("""CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
+    gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL,
+    refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
+    refusals_retained INTEGER NOT NULL CHECK (refusals_retained >= 0),
+    refusals_discarded INTEGER NOT NULL CHECK (refusals_discarded >= 0)
+);""")
+        assert outage_gap_token_rebuild_applies(db)
+        db.execute(
+            f"INSERT INTO inbound_pressure_outage_gaps ({', '.join(columns)}) "
+            f"SELECT {', '.join(columns)} FROM inbound_pressure_outage_gaps__old"
+        )
+        db.execute("DROP TABLE inbound_pressure_outage_gaps__old")
+        db.commit()
+    finally:
+        db.close()
+
+    upgraded = SQLiteStorage(str(db_path))
+    try:
+        await upgraded.initialize()
+        rows = await upgraded.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1
+        assert rows[0]["gap_id"] == 1
+        assert rows[0]["gap_token"] == "0" * 31 + "1"
+        assert rows[0]["refusals_observed"] == 5
+        assert rows[0]["refusals_retained"] == 3
+        assert rows[0]["refusals_discarded"] == 2
+        assert _gap_table_sql(db_path) == _expected_gap_table_sql()
+        await upgraded.record_inbound_pressure_outage_gap(
+            gap_token=rows[0]["gap_token"],
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 30,
+            refusals_observed=5,
+            refusals_retained=3,
+            refusals_discarded=2,
+        )
+        assert await upgraded.list_inbound_pressure_outage_gaps() == rows
+    finally:
+        await upgraded.close()
+
+    reopened = SQLiteStorage(str(db_path))
+    try:
+        await reopened.initialize()
+        assert await reopened.list_inbound_pressure_outage_gaps() == rows
+    finally:
+        await reopened.close()
+
+
 # ---------------------------------------------------------------------------
 # Authority surface: content-free record and listing
 # ---------------------------------------------------------------------------
@@ -223,6 +302,114 @@ async def test_gap_record_rejects_malformed_accounting(tmp_path: Path) -> None:
                 refusals_discarded=0,
             )
         assert await storage.list_inbound_pressure_outage_gaps() == []
+    finally:
+        await storage.close()
+
+
+async def test_gap_token_idempotent_and_conflicts_fail_closed(tmp_path: Path) -> None:
+    """The same token retries once and cannot be rewritten with new facts."""
+    storage = await _open_storage(tmp_path, "token.db")
+    token = "a" * 32
+    kwargs = dict(
+        gap_token=token,
+        opened_unix_seconds=_BASE_EPOCH,
+        recovered_unix_seconds=_BASE_EPOCH + 10,
+        refusals_observed=3,
+        refusals_retained=2,
+        refusals_discarded=1,
+    )
+    try:
+        await storage.record_inbound_pressure_outage_gap(**kwargs)
+        await storage.record_inbound_pressure_outage_gap(**kwargs)
+        rows = await storage.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1 and rows[0]["gap_token"] == token
+        with pytest.raises(ValueError, match="conflicting immutable"):
+            await storage.record_inbound_pressure_outage_gap(
+                **{**kwargs, "refusals_discarded": 2}
+            )
+        assert await storage.list_inbound_pressure_outage_gaps() == rows
+        with pytest.raises(ValueError, match="gap_token"):
+            await storage.record_inbound_pressure_outage_gap(
+                **{**kwargs, "gap_token": "not-a-token"}
+            )
+    finally:
+        await storage.close()
+
+
+async def test_gap_snapshot_retries_after_post_commit_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canceled await after commit cannot duplicate the immutable gap."""
+    clock = _Clock(_BASE_EPOCH)
+    monkeypatch.setattr(_app_module._time, "time", clock.time)
+    storage = await _open_storage(tmp_path, "cancel-commit.db")
+    app = _outage_app(storage)
+    app._pressure_outage = _app_module._PressureOutageAccounting(
+        opened_at=_BASE_EPOCH, observed=3, discarded=1
+    )
+    original_write = storage._write
+    did_cancel = False
+
+    async def committed_then_cancel(sql: str, params: object = ()) -> object:
+        nonlocal did_cancel
+        result = await original_write(sql, params)
+        if "INSERT INTO inbound_pressure_outage_gaps" in sql and not did_cancel:
+            did_cancel = True
+            raise asyncio.CancelledError()
+        return result
+
+    monkeypatch.setattr(storage, "_write", committed_then_cancel)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await _app_module._settle_pressure_outage_record(app, 2)
+        assert did_cancel
+        assert app._pressure_outage is not None
+        token = app._pressure_outage.settlement.token
+        rows = await storage.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1 and rows[0]["gap_token"] == token
+        await _app_module._settle_pressure_outage_record(app, 0)
+        assert app._pressure_outage is None
+        after = await storage.list_inbound_pressure_outage_gaps()
+        assert after == rows
+        assert after[0]["refusals_retained"] == 2
+    finally:
+        await storage.close()
+
+
+def test_older_refusal_remerge_does_not_evict_newer_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a failed write, old facts cannot replace new retained facts."""
+    monkeypatch.setattr(_app_module, "INBOUND_PRESSURE_MAX_PENDING_KEYS", 1)
+    now = _BASE_EPOCH + 600
+    newer = ("radio", "rejected", pressure_window_start(now))
+    older = ("radio", "rejected", pressure_window_start(now - 120))
+    pending = {newer: (3, now, now)}
+    app = SimpleNamespace(_pressure_outage=None)
+    _app_module._merge_retained_gate_pressure(
+        pending, older, (2, now - 120, now - 120), app
+    )
+    assert pending == {newer: (3, now, now)}
+    assert app._pressure_outage.observed == 3
+    assert app._pressure_outage.discarded == 2
+
+
+async def test_recovery_timestamp_is_clamped_after_backward_clock_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wall-clock rollback cannot permanently prevent gap recovery."""
+    clock = _Clock(_BASE_EPOCH - 100)
+    monkeypatch.setattr(_app_module._time, "time", clock.time)
+    storage = await _open_storage(tmp_path, "clock.db")
+    app = _outage_app(storage)
+    app._pressure_outage = _app_module._PressureOutageAccounting(
+        opened_at=_BASE_EPOCH, observed=1, discarded=0
+    )
+    try:
+        await _app_module._settle_pressure_outage_record(app, 1)
+        assert app._pressure_outage is None
+        rows = await storage.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1 and rows[0]["recovered_at"] == rows[0]["opened_at"]
     finally:
         await storage.close()
 
@@ -317,7 +504,7 @@ async def test_gate_refusal_retention_is_bounded_and_accounted(
         await _await_flush_settled(app)
         accounting = app._pressure_outage
         assert accounting is not None
-        assert accounting.observed == 0  # refused before the gap opened
+        assert accounting.observed == 1  # failed first write belongs to the gap
 
         # Five more refusals from distinct sources against the failing
         # store: four land inside one 5-second window, the last after the
@@ -333,7 +520,7 @@ async def test_gate_refusal_retention_is_bounded_and_accounted(
         gate_keys = _gate_half(pending)
         assert len(gate_keys) <= _FLOODED_GATE_BOUND
         assert {key[0] for key in gate_keys} == {"src-4", "src-5"}
-        assert accounting.observed == 5
+        assert accounting.observed == 6
         assert accounting.discarded == 4
 
         # Coalesced visibility: one line for the first discard carrying
@@ -346,9 +533,9 @@ async def test_gate_refusal_retention_is_bounded_and_accounted(
             if message.startswith("INBOUND_PRESSURE_RETENTION_OVERFLOW")
         ]
         assert len(overflow_lines) == 2
-        assert "discarded=1 observed=1" in overflow_lines[0]
+        assert "discarded=1 observed=2" in overflow_lines[0]
         # The arriving refusal's own count lands after its eviction line.
-        assert "discarded=4 observed=4" in overflow_lines[1]
+        assert "discarded=4 observed=5" in overflow_lines[1]
         assert _marker_count(caplog, "INBOUND_PRESSURE_RECORD_FAILED") >= 1
         assert app._pressure_outage is not None
     finally:
@@ -388,7 +575,7 @@ async def test_saturating_counters_clamp_at_the_sqlite_ceiling(
     accounting = app._pressure_outage
     assert accounting is not None
     assert accounting.discarded == SQLITE_MAX_PRESSURE_COUNT
-    assert accounting.observed == 0
+    assert accounting.observed == SQLITE_MAX_PRESSURE_COUNT
     assert set(pending) == {next_key}
 
     # Repeated evictions leave the discard counter saturated, and an
@@ -428,24 +615,26 @@ def test_merge_dispatcher_honors_per_half_bounds(
     """
     monkeypatch.setattr(_app_module, "INBOUND_PRESSURE_MAX_PENDING_KEYS", 1)
     gate_key = ("radio-a", "rejected", pressure_window_start(_BASE_EPOCH))
-    producer_key = ("radio-a", "scheduled", pressure_window_start(_BASE_EPOCH))
+    producer_key = ("radio-a", "scheduled", pressure_window_start(_BASE_EPOCH + 180))
     app = SimpleNamespace(_pressure_outage=None)
     pending: dict[tuple[str, str, int], tuple[int, int, int]] = {
         gate_key: (1, _BASE_EPOCH, _BASE_EPOCH)
     }
 
     # Producer flood past its own bound never evicts the gate key; the
-    # producer allowance here is the documented 1024 default.
+    # producer allowance is reduced to exercise eviction with four windows.
+    monkeypatch.setattr(_app_module, "PRODUCER_PRESSURE_MAX_PENDING_KEYS", 2)
     for offset in range(4):
         _app_module._merge_retained_pressure(
             pending,
-            ("radio-a", "scheduled", pressure_window_start(_BASE_EPOCH + offset)),
-            (1, _BASE_EPOCH + offset, _BASE_EPOCH + offset),
+            ("radio-a", "scheduled", pressure_window_start(_BASE_EPOCH + offset * 60)),
+            (1, _BASE_EPOCH + offset * 60, _BASE_EPOCH + offset * 60),
             app,
         )
     assert gate_key in pending
     assert producer_key in pending
-    assert app._pressure_outage is None  # no producer eviction happened at all
+    assert len(pending) == 3  # two producer keys and one gate key
+    assert app._pressure_outage is None  # producer eviction never opens a gate gap
 
     # Gate arrival past the refusal bound evicts the oldest gate key with
     # accounting; producer keys are never candidates.
@@ -496,12 +685,12 @@ async def test_recovery_persists_one_content_free_gap_record(
         await _await_flush_settled(app)
     accounting = app._pressure_outage
     assert accounting is not None
-    # Nine distinct gate keys against the bound of two: radio-a refusal 1
-    # is pre-open; the remaining eight refusals are observed while open,
-    # and seven evicted aggregates (carrying seven facts) are discarded.
+    # Nine distinct gate keys against the bound of two: the initial
+    # failed write is included when the gap opens, and seven evicted
+    # aggregates (carrying seven facts) are discarded.
     observed_before = accounting.observed
     discarded_before = accounting.discarded
-    assert observed_before == 8
+    assert observed_before == 9
     assert discarded_before == 7
 
     storage = await _open_storage(tmp_path, "recovery.db")
@@ -622,6 +811,7 @@ async def test_failed_gap_record_write_keeps_the_gap_open(
     assert gap_calls == 0  # failure opened the gap; nothing settled yet
 
     recovered_gap_calls = 0
+    attempted_records: list[dict[str, object]] = []
 
     async def _working_record(*args: object, **kwargs: object) -> None:
         return None
@@ -629,6 +819,7 @@ async def test_failed_gap_record_write_keeps_the_gap_open(
     async def _working_gap_first_fails(**kwargs: object) -> None:
         nonlocal recovered_gap_calls
         recovered_gap_calls += 1
+        attempted_records.append(kwargs)
         if recovered_gap_calls == 1:
             raise RuntimeError("gap write unavailable")
 
@@ -644,6 +835,9 @@ async def test_failed_gap_record_write_keeps_the_gap_open(
     if app._pressure_outage is not None:
         await app._drain_inbound_pressure_flush()
     assert app._pressure_outage is None
+    assert len(attempted_records) >= 2
+    assert all(row["refusals_retained"] == 1 for row in attempted_records)
+    assert all(row["refusals_observed"] == 1 for row in attempted_records)
     real = await _open_storage(tmp_path, "audit.db")
     try:
         # Cross-check the shape contract on a real store separately from
@@ -689,3 +883,217 @@ async def test_gap_record_without_gap_method_stays_open(
     await app._drain_inbound_pressure_flush()
     assert app._pressure_outage is not None
     assert app._pressure_pending == {}
+
+
+async def test_first_failing_batch_counts_every_unwritten_gate_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refused facts in a first failed batch are inside its gap."""
+    clock = _Clock(_BASE_EPOCH)
+    monkeypatch.setattr(_app_module._time, "time", clock.time)
+
+    async def unavailable(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("pressure store unavailable")
+
+    app = _outage_app(SimpleNamespace(record_inbound_pressure=unavailable))
+    _refuse(app, "radio-a")
+    _refuse(app, "radio-b")
+    await _await_flush_settled(app)
+    assert app._pressure_outage is not None
+    assert app._pressure_outage.observed == 2
+    assert app._pressure_outage.discarded == 0
+
+    recorded: list[dict[str, object]] = []
+
+    async def persist(*args: object, **kwargs: object) -> None:
+        return None
+
+    async def gap_record(**kwargs: object) -> None:
+        recorded.append(kwargs)
+
+    app.storage = SimpleNamespace(
+        record_inbound_pressure=persist,
+        record_inbound_pressure_outage_gap=gap_record,
+    )
+    await app._drain_inbound_pressure_flush()
+    assert len(recorded) == 1
+    assert recorded[0]["refusals_observed"] == 2
+    assert recorded[0]["refusals_retained"] == 2
+    assert recorded[0]["refusals_discarded"] == 0
+    assert app._pressure_outage is None
+
+
+async def test_refusals_during_gap_record_await_open_a_followup_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refusals and evictions during an awaited record survive settlement."""
+    clock = _Clock(_BASE_EPOCH)
+    monkeypatch.setattr(_app_module._time, "time", clock.time)
+    monkeypatch.setattr(_app_module, "INBOUND_PRESSURE_MAX_PENDING_KEYS", 1)
+
+    async def unavailable(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("pressure store unavailable")
+
+    app = _outage_app(SimpleNamespace(record_inbound_pressure=unavailable))
+    _refuse(app, "radio-a")
+    await _await_flush_settled(app)
+    assert app._pressure_outage.observed == 1
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    records: list[dict[str, object]] = []
+    persisted: list[str] = []
+
+    async def persist(source: str, outcome: str, **kwargs: object) -> None:
+        persisted.append(source)
+
+    async def gap_record(**kwargs: object) -> None:
+        records.append(kwargs)
+        if len(records) == 1:
+            entered.set()
+            await release.wait()
+
+    app.storage = SimpleNamespace(
+        record_inbound_pressure=persist,
+        record_inbound_pressure_outage_gap=gap_record,
+    )
+    # Use the regular single-flight task, not a concurrent manual drain.
+    clock.now += 120
+    _refuse(app, "radio-b")
+    flusher = app._pressure_flush_task
+    await asyncio.wait_for(entered.wait(), 3)
+    clock.now += 120
+    _refuse(app, "radio-c")
+    clock.now += 120
+    _refuse(app, "radio-d")  # evicts c during the awaited gap write
+    release.set()
+    await asyncio.wait_for(flusher, 3)
+
+    assert app._pressure_outage is None
+    assert len(records) == 2
+    first, second = records
+    assert first["refusals_observed"] == 2
+    assert first["refusals_retained"] == 1
+    assert first["refusals_discarded"] == 1
+    assert second["refusals_observed"] == 2
+    assert second["refusals_retained"] == 1
+    assert second["refusals_discarded"] == 1
+    assert persisted == ["radio-b", "radio-d"]
+
+
+async def test_outage_gaps_are_visible_to_inspection_and_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Read-only operators see lost refusals even with no pressure rows."""
+    import json
+
+    from medre.cli.inspect_commands import _inspect_pressure
+    from medre.runtime.evidence._storage_sections import (
+        _collect_storage_data_from_backend,
+    )
+
+    db_path = tmp_path / "visible.db"
+    storage = await _open_storage(tmp_path, "visible.db")
+    try:
+        await storage.record_inbound_pressure_outage_gap(
+            gap_token="b" * 32,
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 60,
+            refusals_observed=10,
+            refusals_retained=2,
+            refusals_discarded=8,
+        )
+        section = await _collect_storage_data_from_backend(
+            storage, str(db_path), None, None
+        )
+        gaps = section["data"]["inbound_pressure_outage_gaps"]
+        assert len(gaps) == 1
+        assert gaps[0]["refusals_discarded"] == 8
+    finally:
+        await storage.close()
+
+    await _inspect_pressure(storage_path=str(db_path), source="radio-elsewhere")
+    output = json.loads(capsys.readouterr().out)
+    assert output["observations"] == []
+    assert output["outcome_totals"] == {}
+    assert output["outage_gap_count"] == 1
+    assert output["outage_gaps"][0]["gap_token"] == "b" * 32
+    assert output["outage_gaps"][0]["refusals_discarded"] == 8
+
+
+def test_same_window_arrival_replaces_retained_key_regardless_of_source_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lower-sorting source must retain its fresh refusal in a full window."""
+    monkeypatch.setattr(_app_module, "INBOUND_PRESSURE_MAX_PENDING_KEYS", 1)
+    window = pressure_window_start(_BASE_EPOCH)
+    old_key = ("radio-z", "rejected", window)
+    new_key = ("radio-a", "rejected", window)
+    pending = {old_key: (3, _BASE_EPOCH, _BASE_EPOCH)}
+    app = SimpleNamespace(_pressure_outage=None)
+    _app_module._merge_retained_gate_pressure(
+        pending, new_key, (2, _BASE_EPOCH + 1, _BASE_EPOCH + 1), app
+    )
+    assert set(pending) == {new_key}
+    assert app._pressure_outage.discarded == 3
+
+
+@pytest.mark.parametrize(
+    ("gap_open", "cancelled"), [(True, False), (True, True), (False, False)]
+)
+async def test_interrupted_recovery_counts_only_durable_gate_prefix(
+    tmp_path: Path, gap_open: bool, cancelled: bool
+) -> None:
+    """Partial recovery retains durable gate facts exactly once, excluding telemetry."""
+    storage = await _open_storage(tmp_path, "partial-recovery.db")
+    app = _outage_app(storage)
+    if gap_open:
+        app._pressure_outage = _app_module._PressureOutageAccounting(
+            opened_at=_BASE_EPOCH, observed=10
+        )
+    app._pressure_pending = {
+        (source, outcome, pressure_window_start(_BASE_EPOCH)): (
+            count,
+            _BASE_EPOCH,
+            _BASE_EPOCH,
+        )
+        for source, outcome, count in [
+            ("radio-a", "rejected", 2),
+            ("radio-a", "scheduled", 7),
+            ("radio-b", "rejected", 3),
+            ("radio-c", "deferred", 5),
+        ]
+    }
+    calls = 0
+
+    async def interrupted_record(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            if cancelled:
+                raise asyncio.CancelledError
+            raise RuntimeError("storage interrupted after durable prefix")
+        await storage.record_inbound_pressure(*args, **kwargs)
+
+    try:
+        if cancelled:
+            with pytest.raises(asyncio.CancelledError):
+                await app._flush_inbound_pressure(interrupted_record)
+        else:
+            await app._flush_inbound_pressure(interrupted_record)
+        assert app._pressure_outage.retained == (2 if gap_open else 0)
+        assert len(app._pressure_pending) == 2
+        await app._flush_inbound_pressure(storage.record_inbound_pressure)
+        assert app._pressure_outage is None
+        rows = await storage.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1
+        expected = 10 if gap_open else 8
+        assert rows[0]["refusals_observed"] == expected
+        assert rows[0]["refusals_retained"] == expected
+        assert rows[0]["refusals_discarded"] == 0
+        pressure = await storage.list_inbound_pressure_observations()
+        assert (
+            sum(row["count"] for row in pressure if row["outcome"] != "scheduled") == 10
+        )
+    finally:
+        await storage.close()

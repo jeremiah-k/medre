@@ -481,6 +481,7 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
 -- becomes a canonical event, receipt, or outbox entry.
 CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
     gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gap_token TEXT NOT NULL UNIQUE CHECK (length(gap_token) = 32),
     opened_at TEXT NOT NULL,
     recovered_at TEXT NOT NULL,
     refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
@@ -906,6 +907,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "inbound_pressure_outage_gaps": frozenset(
         {
             "gap_id",
+            "gap_token",
             "opened_at",
             "recovered_at",
             "refusals_observed",
@@ -1337,10 +1339,10 @@ _PRESSURE_DDL = _SCHEMA[
 ]
 
 # Exact single-statement DDL for the outage accounting-gap table.  The
-# approved additive installation creates the table from this slice when
-# the allowlisted predecessor lacks it, keeping the stored definition
-# identical to the declared catalog.  No index and no foreign key
-# references the table.
+# approved additive installation creates the table when it is missing;
+# a separate allowlisted prerelease rebuild adds its immutable retry token
+# to the exact preceding table shape without losing existing rows.  No
+# index and no foreign key references the table.
 _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
     _SCHEMA.index(
         "-- Accounting-gap records for admission-gate refusal"

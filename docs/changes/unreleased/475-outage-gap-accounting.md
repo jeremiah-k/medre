@@ -14,8 +14,13 @@ per 5-second window, each carrying cumulative counts — never per-row
 flooding, never silent. The first fully successful pressure flush after
 the distress persists one durable accounting-gap row in the new
 `inbound_pressure_outage_gaps` table: the detected outage interval plus
-content-free counters for refusals observed while the gap was open, facts
-retained by the recovery batch, and facts discarded. Post-recovery state
+content-free counters for refusals observed (including first-detection
+unwritten facts), facts retained by recovery batches (including successful
+prefixes of interrupted batches), and facts discarded.
+Retried gap inserts carry the same immutable token, and new facts arriving
+while a gap write is pending are recorded in a following interval rather
+than silently lost. The exact prerelease table without a retry token
+migrates additively with its existing gap rows preserved. Post-recovery state
 therefore lets a reader distinguish zero refusals during the outage from
 refusals with discarded retained facts; a zero-counter row is the durable
 proof an outage happened without refusal loss. The table installs through

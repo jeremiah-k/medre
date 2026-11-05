@@ -165,6 +165,7 @@ async def test_collector_footprint_stays_flat_across_session_cycles(
             reporter_refs.append(weakref.ref(sink))
             # One fresh bound sink per session, never a shared one.
             assert sink is not previous_sink
+            previous_sink = sink
             scheduled_before = await _durable_total(storage, "scheduled")
             sink(_report("scheduled", session + 1))
             sink(_report("overflow", 1))
@@ -192,8 +193,6 @@ async def test_collector_footprint_stays_flat_across_session_cycles(
         extra = final_current - baseline_current
         assert extra < _EXTRA_BYTES_LIMIT
         assert final_current < 2 * max(baseline_current, 1)
-        if owns_tracing:
-            tracemalloc.stop()
 
         # --- Retired sessions' reporters remain harmless and honest ---
         retired_sink(_report("overflow", 2))
@@ -219,6 +218,8 @@ async def test_collector_footprint_stays_flat_across_session_cycles(
             2 * _WARMUP_SESSIONS + sum(range(1, _SESSIONS + 1))
         )
     finally:
+        if owns_tracing:
+            tracemalloc.stop()
         await storage.close()
 
 

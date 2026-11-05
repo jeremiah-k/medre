@@ -35,6 +35,8 @@
   ],
   "count": 4,
   "source_filter": null,
+  "outage_gaps": [],
+  "outage_gap_count": 0,
   "outcome_totals": {
     "rejected": 1,
     "scheduled": 40,

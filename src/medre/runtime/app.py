@@ -246,14 +246,28 @@ class _PressureOutageAccounting:
     gap is open (unconditionally per event), ``discarded`` counts refusal
     facts removed from retention (unconditionally per fact in each
     evicted aggregate).  ``retained`` is computed at record time from the
-    recovery batch's gate-half total.  Counters and timestamps only —
+    successful recovery batches, carried across gap-record write retries.
+    Counters and timestamps only —
     never packet identifiers or payload.
     """
 
     opened_at: int
     observed: int = 0
     discarded: int = 0
+    retained: int = 0
     last_log_window: int | None = None
+    settlement: _PressureOutageSettlement | None = None
+
+
+@dataclass(frozen=True)
+class _PressureOutageSettlement:
+    """Frozen, retryable snapshot of one content-free gap-record write."""
+
+    token: str
+    recovered_at: int
+    observed: int
+    retained: int
+    discarded: int
 
 
 def _saturating_add(left: int, right: int) -> int:
@@ -312,12 +326,31 @@ def _merge_retained_gate_pressure(
         ]
         if len(gate_keys) >= INBOUND_PRESSURE_MAX_PENDING_KEYS:
             oldest = min(gate_keys, key=lambda item: (item[2], item[0], item[1]))
-            discarded_aggregate = pending.pop(oldest)
+            # The cap keeps the newest refusal keys. An older key being
+            # remerged after a failed write must not evict newer evidence.
+            reject_incoming = key[2] < oldest[2]
+            # A capacity eviction is itself the first detected distress if
+            # there is no open gap. Account for existing, previously staged
+            # refusals before discarding one of them. The arriving refusal
+            # is counted by the gate caller after this merge.
+            was_open = getattr(app, "_pressure_outage", None) is not None
+            existing_count = sum(
+                fact[0]
+                for candidate, fact in pending.items()
+                if candidate[1] not in PRODUCER_PRESSURE_OUTCOMES
+            )
+            discarded_aggregate = aggregate if reject_incoming else pending.pop(oldest)
             accounting = _pressure_outage_accounting(app)
+            if not was_open:
+                accounting.observed = _saturating_add(
+                    accounting.observed, existing_count
+                )
             accounting.discarded = _saturating_add(
                 accounting.discarded, discarded_aggregate[0]
             )
             _warn_refusal_retention_overflow(accounting)
+            if reject_incoming:
+                return
     _merge_pressure_pending(pending, key, aggregate)
 
 
@@ -344,11 +377,10 @@ async def _settle_pressure_outage_record(app: Any, retained_total: int) -> None:
 
     Called from the flush loop once a batch has fully persisted (or when
     a flush finds nothing pending while a gap is still open, retrying a
-    record whose first write failed).  ``retained_total`` is the
-    gate-refusal fact total of the recovery batch — the stock of refusal
-    facts this recovery made durable.  The gap closes only after the
-    record write succeeds; a failed record write keeps the gap open so a
-    later success retries it.
+    record whose first write failed). ``retained_total`` is the
+    gate-refusal fact total from this successfully persisted batch. It is
+    accumulated exactly once per completed batch, including across gap
+    record retries, and the gap closes only after the record is durable.
     """
     accounting = getattr(app, "_pressure_outage", None)
     if accounting is None:
@@ -360,20 +392,51 @@ async def _settle_pressure_outage_record(app: Any, retained_total: int) -> None:
         # the visible loss channel.
         _logger.debug("INBOUND_PRESSURE_OUTAGE_GAP_RECORD_UNAVAILABLE")
         return
+    # The first successful recovery batch freezes one immutable snapshot.
+    # Keep its ID and counts across a failed/cancelled write: a cancelled
+    # SQLite executor operation can still commit. Retrying the same token
+    # is idempotent rather than appending a duplicate outage interval.
+    accounting.retained = _saturating_add(accounting.retained, retained_total)
+    snapshot = accounting.settlement
+    if snapshot is None:
+        snapshot = _PressureOutageSettlement(
+            token=uuid.uuid4().hex,
+            recovered_at=max(int(_time.time()), accounting.opened_at),
+            observed=accounting.observed,
+            retained=accounting.retained,
+            discarded=accounting.discarded,
+        )
+        accounting.settlement = snapshot
     try:
         await record_gap(
+            gap_token=snapshot.token,
             opened_unix_seconds=accounting.opened_at,
-            recovered_unix_seconds=int(_time.time()),
-            refusals_observed=accounting.observed,
-            refusals_retained=retained_total,
-            refusals_discarded=accounting.discarded,
+            recovered_unix_seconds=snapshot.recovered_at,
+            refusals_observed=snapshot.observed,
+            refusals_retained=snapshot.retained,
+            refusals_discarded=snapshot.discarded,
         )
     except asyncio.CancelledError:
         raise
     except Exception:
         _logger.exception("INBOUND_PRESSURE_OUTAGE_GAP_RECORD_FAILED")
         return
-    app._pressure_outage = None
+    # Arrivals and evictions may mutate the open accounting during the
+    # SQLite await. The durable row reflects only the frozen snapshot;
+    # count every residual fact in a new interval, with a new token. Also
+    # carry any further recovery batches completed between retry attempts.
+    residual_observed = accounting.observed - snapshot.observed
+    residual_discarded = accounting.discarded - snapshot.discarded
+    residual_retained = accounting.retained - snapshot.retained
+    if residual_observed > 0 or residual_discarded > 0 or residual_retained > 0:
+        app._pressure_outage = _PressureOutageAccounting(
+            opened_at=snapshot.recovered_at,
+            observed=residual_observed,
+            discarded=residual_discarded,
+            retained=residual_retained,
+        )
+    else:
+        app._pressure_outage = None
 
 
 def _drain_pending_cancellations() -> int:
@@ -3595,10 +3658,8 @@ class MedreApp:
                 return
             self._pressure_pending = {}
             items = list(pending.items())
-            batch_gate_total = 0
-            for key, aggregate in items:
-                if key[1] not in PRODUCER_PRESSURE_OUTCOMES:
-                    batch_gate_total = _saturating_add(batch_gate_total, aggregate[0])
+            gap_at_batch_start = getattr(self, "_pressure_outage", None)
+            persisted_gate_total = 0
             for index, (
                 (source, outcome, _window_start),
                 (count, first_seen, last_seen),
@@ -3612,12 +3673,41 @@ class MedreApp:
                         last_unix_seconds=last_seen,
                     )
                 except asyncio.CancelledError:
+                    if gap_at_batch_start is not None:
+                        gap_at_batch_start.retained = _saturating_add(
+                            gap_at_batch_start.retained, persisted_gate_total
+                        )
                     for retry_key, retry_aggregate in items[index:]:
                         _merge_retained_pressure(
                             self._pressure_pending, retry_key, retry_aggregate, self
                         )
                     raise
                 except Exception:
+                    if gap_at_batch_start is not None:
+                        gap_at_batch_start.retained = _saturating_add(
+                            gap_at_batch_start.retained, persisted_gate_total
+                        )
+                    # These failed, in-flight gate facts precede first
+                    # detection of the outage. Seed them once so a gap
+                    # cannot report observed=0 with retained/discarded>0.
+                    # Counts staged during the await are included only if
+                    # the gap has not already opened and counted them.
+                    if gap_at_batch_start is None:
+                        unpersisted = sum(
+                            fact[0]
+                            for candidate, fact in items[index:]
+                            if candidate[1] not in PRODUCER_PRESSURE_OUTCOMES
+                        )
+                        if getattr(self, "_pressure_outage", None) is None:
+                            unpersisted += sum(
+                                fact[0]
+                                for candidate, fact in self._pressure_pending.items()
+                                if candidate[1] not in PRODUCER_PRESSURE_OUTCOMES
+                            )
+                        accounting = _pressure_outage_accounting(self)
+                        accounting.observed = _saturating_add(
+                            accounting.observed, unpersisted
+                        )
                     for retry_key, retry_aggregate in items[index:]:
                         _merge_retained_pressure(
                             self._pressure_pending, retry_key, retry_aggregate, self
@@ -3631,7 +3721,9 @@ class MedreApp:
                         count,
                     )
                     return
-            await _settle_pressure_outage_record(self, batch_gate_total)
+                if outcome not in PRODUCER_PRESSURE_OUTCOMES:
+                    persisted_gate_total = _saturating_add(persisted_gate_total, count)
+            await _settle_pressure_outage_record(self, persisted_gate_total)
 
     async def _drain_inbound_pressure_flush(self) -> None:
         """Final pressure flush before storage closes during shutdown.

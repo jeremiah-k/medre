@@ -1498,6 +1498,7 @@ reject a database that omits it before executing any schema DDL.
 ```sql
 CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
     gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gap_token TEXT NOT NULL UNIQUE CHECK (length(gap_token) = 32),
     opened_at TEXT NOT NULL,
     recovered_at TEXT NOT NULL,
     refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
@@ -1508,14 +1509,21 @@ CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
 
 Durable accounting-gap records for admission-gate refusal evidence
 retained across a detected pressure-storage outage. One append-only row
-per detected outage interval, inserted when the first fully successful
-pressure batch follows the distress. `opened_at` and `recovered_at`
+per completed recovery snapshot, inserted when a pressure batch is durable.
+The stable, non-secret `gap_token` makes retries idempotent even when a
+cancelled SQLite write commits after its awaiting task has stopped. A further
+refusal during the asynchronous insert belongs to a following interval
+rather than mutating the immutable snapshot. `opened_at` and `recovered_at`
 bound the detected interval (ISO-8601 UTC, derived from the runtime's
-distress-detection and recovery instants); the three counters carry
+distress-detection and recovery instants; a backwards wall-clock step is
+clamped at the detected opening time); the three counters carry
 saturating refusal facts: `refusals_observed` counts gate refusals
-observed while the gap was open (unconditionally per event),
-`refusals_retained` records the recovery batch's retained refusal-fact
-total, and `refusals_discarded` counts refusal facts removed from
+observed while the gap was open, including unwritten refusals that
+triggered the first failed batch or retention eviction;
+`refusals_retained` records refusal facts successfully persisted by
+recovery batches, including durable prefixes of failed or cancelled batches
+and retries of the gap-record write, and
+`refusals_discarded` counts refusal facts removed from
 bounded in-memory retention under the documented key bound. The row is
 the durable distinction between "zero refusals occurred during the
 outage" (`refusals_observed = 0`) and "refusals occurred and some
@@ -1523,12 +1531,17 @@ retained facts were discarded" — the no-silent-discard guarantee for
 bounded outage retention. Rows store counters and interval timestamps
 only — never adapter identity, windows, payloads, sender identity, or
 transport-native content — and never become canonical events, receipts,
-or outbox state. Writes are plain inserts (append-only per §5); rows are
+or outbox state. Writes are idempotent inserts (append-only per §5), and
+conflicting facts under the same retry token MUST fail closed; rows are
 never updated or deleted. A database at the exact predecessor layout
 without this table upgrades through the allowlisted additive
 installation (the table is created from the declared DDL slice inside
-the startup transaction); every other layout difference still refuses to
-start.
+the startup transaction). A second exact predecessor has the table but
+lacks `gap_token`: its existing rows and `gap_id` values MUST be preserved
+through the allowlisted, transactional table rebuild. Each legacy row
+receives a deterministic content-free 32-hex token derived from its
+`gap_id`. This identity is never a recovery or send permit. Every other
+layout difference still refuses to start.
 
 ### 4.16 Index Policy
 

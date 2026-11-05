@@ -47,6 +47,15 @@ as the other additive steps. The table is append-only accounting for
 admission-gate refusal evidence retained across a detected pressure-
 storage outage (see
 [storage.md §4.15.1](../spec/storage.md#4151-inbound_pressure_outage_gaps));
-it declares no dependent index and nothing references it by foreign key,
+its stable retry token has an internal SQLite UNIQUE autoindex, but
+nothing references it by foreign key and no external index is required,
 so the installation carries no dependent catalog objects. Any other
 layout difference still refuses to start.
+
+A second allowlisted predecessor has this table without `gap_token`.
+The exact declared predecessor is derived by removing only the token column
+from the current authoritative DDL; a guarded rebuild preserves all existing
+rows and integer `gap_id` values, assigning deterministic 32-hex legacy
+tokens before dropping the former table. Reopening is idempotent and unrelated
+catalog differences still fail closed; the token is operational identity,
+never send authority.

@@ -14,10 +14,10 @@ Authority surface:
     outcome occurs, including healthy producer-side `scheduled` staging.
   - list_inbound_pressure_observations: **list** (read-only), ordered by
     window; ``limit`` bounds the result in SQL to the newest windows.
-  - record_inbound_pressure_outage_gap: **append-only insert**.  One
-    accounting-gap row per detected storage outage: the content-free
-    interval bounds plus saturating refusal counters (observed, retained,
-    discarded).  The row is the durable distinction between "zero
+  - record_inbound_pressure_outage_gap: **idempotent append-only insert**.
+    One record per frozen recovery snapshot, keyed by a stable retry
+    token: content-free interval bounds plus saturating refusal counters
+    (observed, retained, discarded). The row distinguishes "zero
     refusals occurred during the outage" and "refusals occurred and some
     retained facts were discarded".
   - list_inbound_pressure_outage_gaps: **list** (read-only), ordered by
@@ -208,6 +208,7 @@ class _PressureMixin:
         self,
         *,
         opened_unix_seconds: int,
+        gap_token: str | None = None,
         recovered_unix_seconds: int,
         refusals_observed: int,
         refusals_retained: int,
@@ -219,16 +220,28 @@ class _PressureMixin:
         ``recovered_unix_seconds`` bound the detected outage interval,
         and the three counters carry saturating refusal facts — how many
         gate refusals were observed while the outage was open, how many
-        refusal facts were still retained when recovery persisted (the
-        recovery batch's gate-half total), and how many were discarded
+        refusal facts were persisted in successful recovery batches, and
+        how many were discarded
         from retention under the documented bound.  No adapter identity,
         window, payload, sender, or transport-native content is stored.
-        The row lets a reader distinguish "zero refusals occurred during
-        the outage" (``refusals_observed = 0``) from "refusals occurred
-        and some retained facts were discarded"; it never becomes a
-        canonical event, receipt, or outbox entry, and it is never
-        updated or deleted (append-only invariant).
+        ``gap_token`` is a stable retry key supplied by the runtime; an
+        identical retry does not append a second row. Callers omitting it
+        receive a fresh key. The row lets a reader distinguish "zero
+        refusals occurred during the outage" (``refusals_observed = 0``)
+        from "refusals occurred and some retained facts were discarded"; it
+        never becomes a canonical event, receipt, or outbox entry, and is
+        never updated or deleted (append-only invariant).
         """
+        import re
+        import uuid
+
+        if gap_token is None:
+            gap_token = uuid.uuid4().hex
+        if (
+            not isinstance(gap_token, str)
+            or re.fullmatch(r"[0-9a-f]{32}", gap_token) is None
+        ):
+            raise ValueError("gap_token must be a 32-character lowercase hex ID")
         counters = {
             "refusals_observed": refusals_observed,
             "refusals_retained": refusals_retained,
@@ -267,18 +280,31 @@ class _PressureMixin:
         recovered_at = datetime.fromtimestamp(
             recovered_unix_seconds, tz=timezone.utc
         ).isoformat()
+        expected = (
+            opened_at,
+            recovered_at,
+            refusals_observed,
+            refusals_retained,
+            refusals_discarded,
+        )
         await self._write(
             "INSERT INTO inbound_pressure_outage_gaps ("
-            "opened_at, recovered_at, refusals_observed, refusals_retained, "
-            "refusals_discarded) VALUES (?, ?, ?, ?, ?)",
-            (
-                opened_at,
-                recovered_at,
-                refusals_observed,
-                refusals_retained,
-                refusals_discarded,
-            ),
+            "gap_token, opened_at, recovered_at, refusals_observed, "
+            "refusals_retained, refusals_discarded) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(gap_token) DO NOTHING",
+            (gap_token, *expected),
         )
+        # If cancellation interrupted the first await after SQLite committed,
+        # the same token retries safely. A conflicting snapshot is a bug,
+        # never a reason to overwrite immutable accounting evidence.
+        rows = await self._read_all(
+            "SELECT opened_at, recovered_at, refusals_observed, "
+            "refusals_retained, refusals_discarded "
+            "FROM inbound_pressure_outage_gaps WHERE gap_token = ?",
+            (gap_token,),
+        )
+        if len(rows) != 1 or tuple(rows[0].values()) != expected:
+            raise ValueError("conflicting immutable outage-gap record")
 
     async def list_inbound_pressure_outage_gaps(
         self,
@@ -288,12 +314,12 @@ class _PressureMixin:
         """Return outage-gap records ordered by insertion (ascending).
 
         Rows carry the content-free accounting shape only (gap_id,
-        opened_at, recovered_at, and the three saturating counters).
+        gap_token, opened_at, recovered_at, and three saturating counters).
         ``limit`` bounds the result in SQL to the newest records
         (``ORDER BY ... DESC LIMIT`` reversed back to ascending).
         """
         base = (
-            "SELECT gap_id, opened_at, recovered_at, refusals_observed, "
+            "SELECT gap_id, gap_token, opened_at, recovered_at, refusals_observed, "
             "refusals_retained, refusals_discarded "
             "FROM inbound_pressure_outage_gaps "
         )
