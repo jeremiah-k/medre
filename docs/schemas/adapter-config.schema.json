@@ -86,6 +86,12 @@
           "enum": ["plaintext", "e2ee_required", "e2ee_optional"],
           "description": "Encryption policy."
         },
+        "verification_policy": {
+          "type": "string",
+          "default": "permissive",
+          "enum": ["permissive", "strict"],
+          "description": "Local recipient-device trust policy for encrypted Matrix sends; strict requires independently established trust in MEDRE's own nio store."
+        },
         "require_encrypted_rooms": {
           "type": "boolean",
           "default": false,
