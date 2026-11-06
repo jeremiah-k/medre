@@ -82,13 +82,17 @@ and SDK pins.
   historical encrypted-room message keys (`medre-adapter-matrix` README at the
   inspected pin).
 - Own-device cross-signing is implemented against the provider-pinned
-  `mindroom-nio[e2e]` surface. Peer-device trust is still intentionally
-  permissive for bot operation (`ignore_unverified_devices=True` on encrypted
-  sends; rotated peer device keys are accepted) and is not
-  operator-configurable
-  (`adapter.py::_should_ignore_unverified_devices` and
-  `session.py::_build_client_config` in
-  `medre-adapter-matrix/src/medre/adapters/matrix/`).
+  `mindroom-nio[e2e]` surface. Peer-device trust defaults to
+  `verification_policy: permissive`; opt-in `strict` refuses encrypted text and
+  media until the complete recipient view is affirmatively verified in MEDRE's
+  own nio store, including sibling devices. Strict retains the SDK send-time
+  device fence; it never auto-verifies peers or falls back to plaintext. No
+  operator peer-verification workflow is provided. The provider's
+  `tests/test_matrix_device_trust_sdk_contract.py` covers the pinned SDK surface;
+  `tests/test_matrix_device_trust_docker.py` qualifies strict refusal, verified
+  delivery with peer decryption, trust reset, restart persistence, and default
+  permissive delivery on Docker Synapse. The Docker tier is opt-in, not a required
+  CI gate, and proves no federation, external network, or cross-signing ceremony.
 - Missing/mismatched local cross-signing identity is never replaced at runtime.
   Deliberate reset/rotation requires the authenticated
   `medre adapter matrix auth login` command with `--reset-cross-signing`

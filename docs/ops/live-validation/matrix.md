@@ -129,9 +129,13 @@ Back it up and restore matching state if possible. Use
 
 - Third-party inbound confirmed at Docker SDK-boundary only; external-live not
   confirmed.
-- No E2EE reactions, edits, deletes, or attachments.
-- Peer-device trust remains permissive (`ignore_unverified_devices=True`) and
-  is not yet operator-configurable.
+- Native relations and encrypted media have separate capability and retained-byte
+  requirements; this text-oriented procedure does not independently qualify them.
+- Peer-device trust defaults to `verification_policy: permissive`. Opt-in `strict`
+  requires affirmative trust in MEDRE's local nio store, with no operator
+  peer-verification workflow. The provider's opt-in Docker device-trust scenario
+  qualifies refusal, verified delivery with peer decryption, trust reset, restart
+  persistence, and permissive delivery; external-live peer trust remains unqualified.
 - No room-key backup/import/export workflow is managed by MEDRE.
 - Soak tests: NOT EXECUTED.
 

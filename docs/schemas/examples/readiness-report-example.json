@@ -7,7 +7,7 @@
       {
         "transport": "matrix",
         "repository": "jeremiah-k/medre-adapter-matrix",
-        "ref": "6b03a9431864cb17c56c71eff4df6641962bf1dc",
+        "ref": "9488ccdfa4374895652e9f0ab0cc4ad5bd840469",
         "extras": "e2e",
         "distribution": "medre-adapter-matrix",
         "python_requires": ">=3.12",
@@ -49,7 +49,7 @@
       {
         "transport": "lxmf",
         "repository": "jeremiah-k/medre-adapter-lxmf",
-        "ref": "e449fc608b188a4915cbc973396a17f9f28a6661",
+        "ref": "103c41bc3ef0850a8d0ad0d84ec921fa969c60b9",
         "extras": null,
         "distribution": "medre-adapter-lxmf",
         "python_requires": null,
@@ -63,7 +63,7 @@
       {
         "transport": "xmpp",
         "repository": "jeremiah-k/medre-adapter-xmpp",
-        "ref": "1286ccccd5f1aead3e7bdb6ee7a8f0a2bac1a832",
+        "ref": "9d681797725204d3bb6719bcc4089f53882e6c96",
         "extras": null,
         "distribution": "medre-adapter-xmpp",
         "python_requires": null,
@@ -77,7 +77,7 @@
       {
         "transport": "chatmail",
         "repository": "jeremiah-k/medre-adapter-chatmail",
-        "ref": "2fdd2374640790c64c7da5743f7e7090ca43cfd9",
+        "ref": "f954e4d2ffaae6a2b197b0df1a20806dc8492f75",
         "extras": null,
         "distribution": "medre-adapter-chatmail",
         "python_requires": null,
@@ -91,7 +91,7 @@
       {
         "transport": "simplexchat",
         "repository": "jeremiah-k/medre-adapter-simplexchat",
-        "ref": "63c9737e7bfd1803daf9e8f766bf67dae71e8039",
+        "ref": "68969627e3dad123823dade5ff4dab140448fe74",
         "extras": null,
         "distribution": "medre-adapter-simplexchat",
         "python_requires": null,

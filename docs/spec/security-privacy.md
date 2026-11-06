@@ -250,11 +250,22 @@ password and never rotates master/self-signing identity material. A mismatch or
 lost local identity requires explicit operator recovery with fresh password
 authentication.
 
-Own-device cross-signing and peer-device trust are separate concerns. MEDRE
-currently passes `ignore_unverified_devices=True` to nio's `room_send` in E2EE
-modes as an intentional bot compatibility policy. Cross-signing the MEDRE device
-does not cause MEDRE to trust every device owned by other room members. Peer
-device verification is not yet operator-configurable.
+Own-device cross-signing and peer-device trust are separate concerns. Matrix's
+`verification_policy` defaults to `permissive`: encrypted sends allow unverified
+recipient devices, count trust gaps, and warn at most once per room per minute
+while that room remains in the bounded warning history. The opt-in `strict`
+policy requires complete membership and device-key views and affirmative local
+nio verification for every recipient device, including the bot account's sibling
+devices. Missing or unreadable trust refuses the send with a retryable error;
+strict also retains nio's `ignore_unverified_devices=False` fence during send
+preparation. Plaintext sends and typing are outside this policy.
+
+Cross-signing MEDRE's own device or verifying peers in another client does not
+establish trust in MEDRE's local nio store. MEDRE MUST NOT auto-verify peers or
+fall back to plaintext to bypass strict policy. An operator peer-verification
+workflow is not provided; use permissive mode when local trust cannot be
+established. Docker encrypted-room qualification covers local trust and restart
+persistence, not federation or automatic cross-signing trust.
 
 The Matrix E2EE store includes private Olm/Megolm and cross-signing material. It
 MUST be protected and backed up like private key material. Diagnostics expose
