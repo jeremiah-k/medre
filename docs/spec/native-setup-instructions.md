@@ -34,8 +34,11 @@ tuple of `NativeSetupStep` values. Each step carries:
 Declarations **MUST** be deterministic: they **MUST NOT** embed secrets,
 building-machine paths, or timestamps. Step order **MUST** match the
 provider's documented journey order. Core **MUST** reject a malformed
-declaration (wrong types, an empty journey, or empty step text) instead of
-rendering it.
+declaration (wrong types, an empty journey, empty step text, terminal control
+characters (including C1 controls), line/paragraph separators, or Unicode
+bidirectional text controls) instead of rendering it. This
+validation is a terminal-display boundary, not proof that a provider-owned
+command is safe or correct to run.
 
 ## Offline rendering boundary
 
@@ -48,6 +51,8 @@ of the provider-declared-prompts refusal. The rendered output **MUST**:
   and never invoked by core because they contact native services;
 - state that completing a step never proves relay acceptance, delivery, or
   read evidence and never grants send authority;
+- warn that provider-declared `--adapter` values are examples and MUST be
+  replaced with the intended configured instance before manual use;
 - state that no configuration file was written;
 - be deterministic and derived only from the declaration and the transport
   name (no clocks, no operator paths).

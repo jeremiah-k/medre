@@ -331,3 +331,82 @@ def test_malformed_instructions_are_rejected(journey):
 def test_valid_journey_passes_structural_validation(instructions_provider):
     validated = native_commands._validate_setup_instructions(instructions_provider)
     assert validated is instructions_provider.native_setup_instructions
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "\x1b[31m",
+        "first\nsecond",
+        "\u202esecret",
+        "\x9b31m",
+        "\u061csecret",
+        "\u200fsecret",
+        "\u2028secret",
+        "\u2029secret",
+    ],
+)
+def test_setup_instructions_reject_control_characters(instructions_provider, bad):
+    from medre.cli.native_commands import _validate_setup_instructions
+    from medre.config.errors import ConfigValidationError
+    from dataclasses import replace
+
+    original = instructions_provider.native_setup_instructions
+    assert original is not None
+    modified = replace(
+        original,
+        steps=(replace(original.steps[0], command=bad),) + original.steps[1:],
+    )
+    with pytest.raises(ConfigValidationError):
+        _validate_setup_instructions(
+            replace(instructions_provider, native_setup_instructions=modified)
+        )
+
+
+def test_setup_instructions_remind_operator_to_replace_example_id(
+    instructions_provider, tmp_path, monkeypatch, capsys
+):
+    _render_to_output(instructions_provider, tmp_path, monkeypatch)
+    assert "Replace any --adapter value" in capsys.readouterr().out
+
+
+def test_informational_journey_does_not_expand_the_ignored_output(
+    instructions_provider, tmp_path, monkeypatch, capsys
+):
+    from pathlib import Path
+
+    def forbidden_expansion(_path):
+        raise AssertionError("informational output path was expanded")
+
+    monkeypatch.setattr(Path, "expanduser", forbidden_expansion)
+    _render_to_output(instructions_provider, tmp_path, monkeypatch)
+    assert "informational_only" in capsys.readouterr().out
+
+
+def test_native_cli_does_not_load_provider_command_contributors(
+    instructions_provider, monkeypatch, capsys
+):
+    from importlib import import_module
+
+    main_module = import_module("medre.cli.main")
+    contrib = import_module("medre.cli.contrib")
+
+    def forbidden_contributors(_subparsers):
+        raise AssertionError("offline native setup loaded provider CLI modules")
+
+    monkeypatch.setattr(
+        contrib, "register_adapter_contributors", forbidden_contributors
+    )
+    main_module.main(
+        [
+            "config",
+            "native",
+            "--transport",
+            instructions_provider.transport,
+            "--adapter-id",
+            "example",
+            "--output",
+            "ignored.yaml",
+        ]
+    )
+    assert "informational_only" in capsys.readouterr().out

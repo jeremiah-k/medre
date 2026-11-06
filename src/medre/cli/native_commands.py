@@ -80,6 +80,18 @@ def _validate_native_fields(spec: AdapterSpec) -> None:
         prior[field.name] = field
 
 
+def _safe_informational_text(value: str) -> bool:
+    """Reject control/terminal-direction characters in provider display text."""
+    return bool(value.strip()) and not any(
+        ord(char) < 32
+        or 0x7F <= ord(char) <= 0x9F
+        or ord(char) in {0x061C, 0x200E, 0x200F, 0x2028, 0x2029}
+        or 0x202A <= ord(char) <= 0x202E
+        or 0x2066 <= ord(char) <= 0x2069
+        for char in value
+    )
+
+
 def _validate_setup_instructions(spec: AdapterSpec) -> NativeSetupInstructions:
     """Refuse malformed provider journey declarations before rendering.
 
@@ -90,11 +102,17 @@ def _validate_setup_instructions(spec: AdapterSpec) -> NativeSetupInstructions:
     instructions = spec.native_setup_instructions
     if not isinstance(instructions, NativeSetupInstructions):
         raise ConfigValidationError("Malformed native setup instructions declaration")
-    if not isinstance(instructions.title, str) or not instructions.title.strip():
+    if (
+        not isinstance(instructions.title, str)
+        or not _safe_informational_text(instructions.title)
+    ):
         raise ConfigValidationError(
             "Native setup journey title must be a non-empty string"
         )
-    if not isinstance(instructions.summary, str) or not instructions.summary.strip():
+    if (
+        not isinstance(instructions.summary, str)
+        or not _safe_informational_text(instructions.summary)
+    ):
         raise ConfigValidationError(
             "Native setup journey summary must be a non-empty string"
         )
@@ -111,7 +129,7 @@ def _validate_setup_instructions(spec: AdapterSpec) -> NativeSetupInstructions:
             ("purpose", step.purpose),
             ("evidence note", step.evidence_note),
         ):
-            if not isinstance(value, str) or not value.strip():
+            if not isinstance(value, str) or not _safe_informational_text(value):
                 raise ConfigValidationError(
                     f"Native setup step {label} must be a non-empty string"
                 )
@@ -133,6 +151,10 @@ def _render_setup_instructions(
         f"Provider setup journey: {instructions.title}",
         "",
         instructions.summary,
+        "",
+        "Provider commands use example adapter IDs. Replace any "
+        "--adapter value with the intended configured provider instance "
+        "before running them manually.",
         "",
     ]
     for index, step in enumerate(instructions.steps, start=1):
@@ -168,7 +190,7 @@ def _config_native(args: argparse.Namespace) -> None:
     document: dict[str, Any] = {}
     saved = False
     saving = False
-    output = Path(args.output).expanduser().absolute()
+    output = Path(args.output)
     try:
         spec = get_adapter_spec(args.transport)
         if (
@@ -182,6 +204,7 @@ def _config_native(args: argparse.Namespace) -> None:
             # is explicit in the output.
             _render_setup_instructions(spec, _validate_setup_instructions(spec))
             return
+        output = output.expanduser().absolute()
         if not sys.stdin.isatty():
             raise ConfigValidationError("Native setup requires an interactive terminal")
         if output.suffix.lower() not in (".yaml", ".yml"):

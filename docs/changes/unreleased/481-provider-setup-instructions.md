@@ -18,3 +18,6 @@ without instructions, providers with form fields, and the existing refusal
 for providers with neither surface are unchanged; the declaration follows
 the same optional-symbol fallback pattern as `native_setup_fields`, so
 adapters can adopt it while keeping compatibility with older cores.
+
+Informational rendering rejects C1 and Unicode direction controls, skips
+provider CLI module loading, and does not expand an ignored output path.
