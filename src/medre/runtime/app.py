@@ -84,7 +84,7 @@ if TYPE_CHECKING:
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
     from medre.runtime.typing import TypingRelay
 
-__all__ = ["MedreApp", "RuntimeState", "StartupScope"]
+__all__ = ["MedreApp", "RuntimeState", "StartupScope", "runtime_transition_allowed"]
 
 _logger = logging.getLogger(__name__)
 
@@ -108,6 +108,31 @@ class RuntimeState(enum.Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+_RUNTIME_TRANSITIONS: dict[RuntimeState, frozenset[RuntimeState]] = {
+    RuntimeState.INITIALIZED: frozenset({RuntimeState.STARTING, RuntimeState.FAILED}),
+    RuntimeState.STARTING: frozenset(
+        {RuntimeState.RUNNING, RuntimeState.STOPPING, RuntimeState.FAILED}
+    ),
+    RuntimeState.RUNNING: frozenset({RuntimeState.STOPPING, RuntimeState.FAILED}),
+    RuntimeState.STOPPING: frozenset({RuntimeState.STOPPED, RuntimeState.FAILED}),
+    RuntimeState.FAILED: frozenset({RuntimeState.STOPPING}),
+    RuntimeState.STOPPED: frozenset(),
+}
+
+
+def runtime_transition_allowed(old: RuntimeState, new: RuntimeState) -> bool:
+    """Validate the runtime-owned lifecycle, without emitting any event.
+
+    Identical transitions are idempotent. STOPPED is terminal, even when a
+    late asynchronous failure tries to report on a retired runtime.
+    """
+    return (
+        isinstance(old, RuntimeState)
+        and isinstance(new, RuntimeState)
+        and (old is new or new in _RUNTIME_TRANSITIONS[old])
+    )
 
 
 class StartupScope(enum.Enum):
@@ -810,6 +835,11 @@ class MedreApp:
         old_state = self._state
         if old_state is new_state:
             return
+        if not runtime_transition_allowed(old_state, new_state):
+            raise RuntimeError(
+                "Invalid runtime lifecycle transition "
+                f"{old_state.value} -> {new_state.value}"
+            )
         _logger.debug(
             "Runtime state transition: %s → %s",
             old_state.value,

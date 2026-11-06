@@ -485,6 +485,7 @@ class TestDrainRestoreIntegration:
 
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
         app._set_state(RuntimeState.RUNNING)
 
         # Slow cancel retry worker so external cancel has a window.
@@ -651,6 +652,7 @@ class TestStopAdapterWithDeadlineCancelCountPreserved:
         N = 2  # cancellation depth to verify
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
+        app._set_state(RuntimeState.STARTING)
         app._set_state(RuntimeState.RUNNING)
 
         stop_entered = asyncio.Event()

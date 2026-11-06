@@ -193,6 +193,24 @@ vocabulary for individual transitions is owned by
 [state-machines.md](state-machines.md) and shutdown handoff semantics by
 [durable-ingress.md](durable-ingress.md).
 
+### Process lifecycle transitions
+
+The process-level `RuntimeState` graph is independent of the adapter's eight
+states and the two **durable** delivery state machines. Runtime transitions
+MUST follow `runtime_transition_allowed` in `runtime/app.py`:
+
+- `INITIALIZED` → `STARTING` or `FAILED`.
+- `STARTING` → `RUNNING`, `STOPPING`, or `FAILED`.
+- `RUNNING` → `STOPPING` or `FAILED`.
+- `STOPPING` → `STOPPED` or `FAILED`.
+- `FAILED` → `STOPPING` only, for a cleanup attempt.
+- `STOPPED` is terminal for this app instance.
+
+Repeated assignment of the current state is idempotent. An illegal transition
+MUST raise before mutating the state or emitting a runtime event. A late
+asynchronous failure MUST NOT reopen a stopped runtime. These states remain
+in-memory observations; they do not create or repair durable outbox work.
+
 ### 7.1 Startup Order
 
 `MedreApp.start()` MUST bring up subsystems in this order:

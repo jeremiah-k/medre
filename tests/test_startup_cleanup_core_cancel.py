@@ -74,9 +74,8 @@ class TestRetryWorkerCancelledErrorDuringStop:
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 
-        # Bring the app to a state where stop() will proceed past the
-        # early-return guard.  We set STOPPING directly to avoid the
-        # full startup lifecycle.
+        # Use legal lifecycle transitions without starting native services.
+        app._set_state(RuntimeState.STARTING)
         app._set_state(RuntimeState.RUNNING)
 
         worker = _make_cancel_retry_worker("simulated cancel from retry worker stop")

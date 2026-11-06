@@ -606,6 +606,7 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
         app = self._build_app(tmp_paths)
 
         # Bring the app to RUNNING state so stop() proceeds past the early-return guard.
+        app._set_state(RuntimeState.STARTING)
         app._set_state(RuntimeState.RUNNING)
 
         # Stub retry worker whose stop() sets abandoned=True.
@@ -646,6 +647,7 @@ class TestAppStopRetryWorkerAbandonmentVisibility:
 
         app = self._build_app(tmp_paths)
 
+        app._set_state(RuntimeState.STARTING)
         app._set_state(RuntimeState.RUNNING)
 
         # Stub retry worker that stops cleanly.
