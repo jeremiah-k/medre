@@ -102,16 +102,14 @@ def _validate_setup_instructions(spec: AdapterSpec) -> NativeSetupInstructions:
     instructions = spec.native_setup_instructions
     if not isinstance(instructions, NativeSetupInstructions):
         raise ConfigValidationError("Malformed native setup instructions declaration")
-    if (
-        not isinstance(instructions.title, str)
-        or not _safe_informational_text(instructions.title)
+    if not isinstance(instructions.title, str) or not _safe_informational_text(
+        instructions.title
     ):
         raise ConfigValidationError(
             "Native setup journey title must be a non-empty string"
         )
-    if (
-        not isinstance(instructions.summary, str)
-        or not _safe_informational_text(instructions.summary)
+    if not isinstance(instructions.summary, str) or not _safe_informational_text(
+        instructions.summary
     ):
         raise ConfigValidationError(
             "Native setup journey summary must be a non-empty string"
