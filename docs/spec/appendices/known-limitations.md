@@ -19,16 +19,16 @@ manifest is the pin authority — plus the MEDRE core revision that carries this
 appendix. These are repository-relative paths, not files in the MEDRE core
 checkout:
 
-| Repository                   | Inspected commit                           |
-| ---------------------------- | ------------------------------------------ |
-| `medre`                      | `cc48778fac331fe984c44eb4fda6771be63ac991` |
-| `medre-adapter-matrix`       | `9488ccdfa4374895652e9f0ab0cc4ad5bd840469` |
-| `medre-adapter-meshtastic`   | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
-| `medre-adapter-meshcore`     | `222a7b574c72bfd15896d62411940c997bd87e1a` |
-| `medre-adapter-lxmf`         | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
-| `medre-adapter-xmpp`         | `9d681797725204d3bb6719bcc4089f53882e6c96` |
-| `medre-adapter-chatmail`     | `f954e4d2ffaae6a2b197b0df1a20806dc8492f75` |
-| `medre-adapter-simplexchat`  | `68969627e3dad123823dade5ff4dab140448fe74` |
+| Repository                  | Inspected commit                           |
+| --------------------------- | ------------------------------------------ |
+| `medre`                     | `cc48778fac331fe984c44eb4fda6771be63ac991` |
+| `medre-adapter-matrix`      | `9488ccdfa4374895652e9f0ab0cc4ad5bd840469` |
+| `medre-adapter-meshtastic`  | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
+| `medre-adapter-meshcore`    | `222a7b574c72bfd15896d62411940c997bd87e1a` |
+| `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
+| `medre-adapter-xmpp`        | `9d681797725204d3bb6719bcc4089f53882e6c96` |
+| `medre-adapter-chatmail`    | `f954e4d2ffaae6a2b197b0df1a20806dc8492f75` |
+| `medre-adapter-simplexchat` | `84071f870f2ee118d9638006aecf47d84168e46e` |
 
 Native SDK pins are declared by each provider's own package metadata at the
 inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,
