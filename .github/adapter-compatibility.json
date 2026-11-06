@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "6b03a9431864cb17c56c71eff4df6641962bf1dc",
+    "ref": "9488ccdfa4374895652e9f0ab0cc4ad5bd840469",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix",
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "0ee29c416feb33cd642feec1adbe98e34665a352",
+    "ref": "f954e4d2ffaae6a2b197b0df1a20806dc8492f75",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "75186861cb2e9edc197e421be628265e0dd6b45b",
+    "ref": "84071f870f2ee118d9638006aecf47d84168e46e",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"

@@ -28,6 +28,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                                              |
 | `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                                                 |
 | `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                                             |
+| `verification_policy`                      | `Literal["permissive","strict"]`                         | `"permissive"` | Local recipient-device trust gate for encrypted sends; strict requires affirmative nio-store verification |
 | `require_encrypted_rooms`                  | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`                           |
 | `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`          | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite |
 | `origin_label`                             | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes                                       |
@@ -368,8 +369,15 @@ where a target transport cannot make send plus acknowledgement atomic.
 
 Cross-signing and peer-device trust are separate policies. MEDRE cross-signs its own
 current device so other Matrix clients can authenticate the bot device. Encrypted
-outbound sends still use `ignore_unverified_devices=True` as an intentional permissive
-peer-device policy. When the pinned provider exposes `replace_rotated_device_keys`,
+outbound sends default to `verification_policy: permissive`, retaining
+`ignore_unverified_devices=True` and reporting trust gaps. The opt-in `strict`
+policy refuses sends until membership, device keys, and every recipient device's
+local nio trust are complete and verified; nio's send-time fence remains
+`ignore_unverified_devices=False`. Own-account sibling devices are recipients;
+the current device is excluded. Plaintext sends and typing bypass this gate.
+MEDRE provides no operator peer-verification workflow, and verification in another
+client does not establish local nio trust. When the pinned provider exposes
+`replace_rotated_device_keys`,
 MEDRE enables it for encrypted sessions so a peer device-key rotation does not wedge
 the bot's permissive delivery policy. Neither setting verifies peer devices. Runtime
 reconciliation has no password and cannot bootstrap or rotate master/self-signing
@@ -589,10 +597,13 @@ so a hostile or broken value cannot park delivery indefinitely.
   or changed delivery identity. Redactions use their own deterministic
   transaction ids (operation kind + target folded in), so a redaction never
   deduplicates against a send or a different redaction.
-- **Peer-device trust is permissive.** Own-device cross-signing is implemented
-  with the currently pinned `mindroom-nio` release, but MEDRE does not yet expose
-  an operator-configurable policy for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
-  E2EE sends.
+- **Peer-device trust is local.** `verification_policy` defaults to `permissive`;
+  opt-in `strict` requires affirmative verification in MEDRE's own nio store.
+  Own-device cross-signing does not verify peers, and no interactive operator
+  peer-verification workflow is provided. The pinned SDK and Docker encrypted-room
+  tests cover local refusal, verified delivery with peer decryption, trust reset,
+  restart persistence, and permissive delivery; they do not qualify federation,
+  external networks, or automatic cross-signing trust.
 - **No room-key backup workflow.** MEDRE does not manage Matrix room-key
   backup/import/export or interactive verification ceremonies.
 - **Outbound media requires retained bytes and an enabled policy.** Inbound

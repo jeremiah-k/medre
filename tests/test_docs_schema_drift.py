@@ -357,3 +357,73 @@ def test_radio_multipart_schema_matches_merged_provider_bounds(platform: str) ->
         _SCHEMAS_DIR / "examples" / f"adapter-config-{platform}-example.json"
     )
     assert example["max_text_parts"] == field["default"]
+
+
+@pytest.mark.parametrize(
+    "policy,valid",
+    [
+        ("permissive", True),
+        ("strict", True),
+        ("", False),
+        ("Strict", False),
+        (None, False),
+        ([], False),
+        ({}, False),
+    ],
+)
+@pytest.mark.usefixtures("isolated_config_env")
+def test_matrix_verification_policy_schema_matches_provider_validation(
+    policy: Any, valid: bool
+) -> None:
+    """The published policy accepts the same values as the promoted provider."""
+    from jsonschema import Draft202012Validator
+
+    from medre.adapter_registry import get_adapter_spec
+
+    spec = get_adapter_spec("matrix")
+    assert spec is not None
+    config_cls = spec.config.load()
+    schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+    payload = {
+        "adapter_id": "matrix-test",
+        "homeserver": "https://matrix.example.org",
+        "user_id": "@bot:matrix.example.org",
+        "access_token": "test-schema-token",
+        "verification_policy": policy,
+    }
+    assert Draft202012Validator(schema).is_valid(payload) is valid
+    if valid:
+        config = config_cls(**payload)
+        config.validate()
+        assert config.verification_policy == policy
+    else:
+        from medre.config.adapters.errors import AdapterConfigError
+
+        with pytest.raises(AdapterConfigError, match="verification_policy"):
+            config_cls(**payload).validate()
+
+
+@pytest.mark.usefixtures("isolated_config_env")
+def test_matrix_verification_policy_schema_preserves_provider_default() -> None:
+    """Omitting the optional gate preserves the provider's permissive default."""
+    from jsonschema import Draft202012Validator
+
+    from medre.adapter_registry import get_adapter_spec
+
+    spec = get_adapter_spec("matrix")
+    assert spec is not None
+    schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+    matrix_arm = next(arm for arm in schema["oneOf"] if arm["title"] == "MatrixConfig")
+    payload = {
+        "adapter_id": "matrix-test",
+        "homeserver": "https://matrix.example.org",
+        "user_id": "@bot:matrix.example.org",
+        "access_token": "test-schema-token",
+    }
+    assert Draft202012Validator(schema).is_valid(payload)
+    config = spec.config.load()(**payload)
+    config.validate()
+    assert config.verification_policy == "permissive"
+    assert matrix_arm["properties"]["verification_policy"]["default"] == (
+        config.verification_policy
+    )

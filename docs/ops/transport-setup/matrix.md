@@ -278,13 +278,17 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 
 ### E2EE Limitations
 
-- Text messages only in encrypted rooms. No reactions, edits, media, or attachments.
-- Own-device cross-signing is supported with the currently pinned
-  `mindroom-nio` release, but MEDRE does not yet expose a peer-device
-  verification policy. Encrypted sends intentionally use
-  `ignore_unverified_devices=True` for compatibility.
-- Cross-signing MEDRE's own device does **not** imply that MEDRE trusts every peer
-  device in a room. Peer-device trust remains a separate future policy surface.
+- Encrypted text and media share the peer-device trust gate; native relations and
+  retained-media delivery follow their separate capability and attachment rules.
+- Own-device cross-signing is supported. `verification_policy: permissive` is the
+  default: sends continue through trust gaps with warning diagnostics.
+- Opt-in `verification_policy: strict` refuses encrypted sends until every
+  recipient device is affirmatively verified in MEDRE's own nio store. This
+  includes sibling devices of the bot account. Missing membership, keys, or trust
+  data produces a retryable refusal; no plaintext fallback occurs.
+- Cross-signing MEDRE's own device or verifying peers in another client does
+  **not** establish local nio trust. MEDRE provides no operator peer-verification
+  workflow; retain permissive mode when that trust cannot be established.
 - No room-key backup/import/export or interactive verification workflow is managed by
   MEDRE.
 - Access token is a plain string in config/credential sidecar (no automatic token

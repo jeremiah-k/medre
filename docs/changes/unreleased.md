@@ -9,6 +9,13 @@ this file once they land.
 
 ## Recent changes
 
+- **482 — Matrix trust policy and provider setup journeys.** Promote the merged
+  Matrix, Chatmail, and SimpleX Chat adapters. Publish the Matrix policy schema
+  with its provider pin: permissive stays the default, while opt-in strict
+  encrypted sends require affirmative local nio recipient-device trust. Scope
+  encrypted-room qualification to Docker Synapse, and expose the Chatmail and
+  SimpleX Chat provisioning journeys as offline informational instructions.
+
 - **478 — Offline readiness report.** The read-only `medre readiness`
   command composes the compatibility snapshot, distribution metadata,
   config validation, provider-owned pure preflight, and offline route-plan
