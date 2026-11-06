@@ -1332,6 +1332,9 @@ medre config bridge --output PATH [--config PATH] [--preview] [--json]
 medre config native --transport TYPE --adapter-id ID --output PATH [--config PATH]
     Collect provider-declared connection settings offline with hidden secret input.
     Save a new private YAML file without contacting devices or accounts.
+    For a form-less provider that declares a typed setup journey, print that
+    provider-owned journey instead (informational_only; core never runs the
+    commands and writes nothing).
 
 medre config preview-message --route ID [--config PATH] [--repeat N] [--relation none|reply] [--json]
     Render a synthetic message through the real pure renderer (never sent).

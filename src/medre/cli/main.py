@@ -1114,9 +1114,10 @@ def main(argv: list[str] | None = None) -> None:
     # import optional provider CLI modules (which may load native SDKs).
     offline_readiness = bool(arguments) and arguments[0] == "readiness"
     offline_preview = arguments[:2] == ["config", "preview-message"]
+    offline_native = arguments[:2] == ["config", "native"]
     parser = _build_parser(
         include_adapter_cli=not (
-            managing_packages or offline_readiness or offline_preview
+            managing_packages or offline_readiness or offline_preview or offline_native
         )
     )
     if help_only:

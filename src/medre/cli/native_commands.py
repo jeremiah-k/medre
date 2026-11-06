@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from medre.adapter_registry import get_adapter_spec
-from medre.adapter_spec import AdapterSpec, NativeSetupField
+from medre.adapter_spec import (
+    AdapterSpec,
+    NativeSetupField,
+    NativeSetupInstructions,
+    NativeSetupStep,
+)
 from medre.config._yaml import dump_yaml_config, parse_yaml_config
 from medre.config.errors import ConfigValidationError
 from medre.config.paths import resolve
@@ -75,6 +80,99 @@ def _validate_native_fields(spec: AdapterSpec) -> None:
         prior[field.name] = field
 
 
+def _safe_informational_text(value: str) -> bool:
+    """Reject control/terminal-direction characters in provider display text."""
+    return bool(value.strip()) and not any(
+        ord(char) < 32
+        or 0x7F <= ord(char) <= 0x9F
+        or ord(char) in {0x061C, 0x200E, 0x200F, 0x2028, 0x2029}
+        or 0x202A <= ord(char) <= 0x202E
+        or 0x2066 <= ord(char) <= 0x2069
+        for char in value
+    )
+
+
+def _validate_setup_instructions(spec: AdapterSpec) -> NativeSetupInstructions:
+    """Refuse malformed provider journey declarations before rendering.
+
+    Validation is structural: truthfulness of the journey content (no
+    secrets, no building-machine paths, no timestamps) remains a provider
+    declaration obligation enforced by the provider contract and review.
+    """
+    instructions = spec.native_setup_instructions
+    if not isinstance(instructions, NativeSetupInstructions):
+        raise ConfigValidationError("Malformed native setup instructions declaration")
+    if not isinstance(instructions.title, str) or not _safe_informational_text(
+        instructions.title
+    ):
+        raise ConfigValidationError(
+            "Native setup journey title must be a non-empty string"
+        )
+    if not isinstance(instructions.summary, str) or not _safe_informational_text(
+        instructions.summary
+    ):
+        raise ConfigValidationError(
+            "Native setup journey summary must be a non-empty string"
+        )
+    steps = instructions.steps
+    if not isinstance(steps, tuple) or not steps:
+        raise ConfigValidationError(
+            "Native setup journey must declare at least one ordered step"
+        )
+    for step in steps:
+        if not isinstance(step, NativeSetupStep):
+            raise ConfigValidationError("Malformed native setup step declaration")
+        for label, value in (
+            ("command", step.command),
+            ("purpose", step.purpose),
+            ("evidence note", step.evidence_note),
+        ):
+            if not isinstance(value, str) or not _safe_informational_text(value):
+                raise ConfigValidationError(
+                    f"Native setup step {label} must be a non-empty string"
+                )
+    return instructions
+
+
+def _render_setup_instructions(
+    spec: AdapterSpec, instructions: NativeSetupInstructions
+) -> None:
+    """Print the provider-owned setup journey; informational only.
+
+    Deterministic output from spec-declared content only: no clock, no
+    paths, and no claim that provisioning occurred. Nothing is written and
+    no provider command is invoked; those commands contact native services.
+    """
+    lines = [
+        f"{spec.transport!r} declares no offline native setup form.",
+        "",
+        f"Provider setup journey: {instructions.title}",
+        "",
+        instructions.summary,
+        "",
+        "Provider commands use example adapter IDs. Replace any "
+        "--adapter value with the intended configured provider instance "
+        "before running them manually.",
+        "",
+    ]
+    for index, step in enumerate(instructions.steps, start=1):
+        lines.append(f"Step {index}: {step.purpose}")
+        lines.append(f"  {step.command}")
+        lines.append(f"  Evidence note: {step.evidence_note}")
+        lines.append("")
+    lines.extend(
+        [
+            "Classification: informational_only. These provider-owned commands "
+            "are run manually by the operator; core never invokes them because "
+            "they contact native services.",
+            "Completing a step never proves relay acceptance, delivery, or read "
+            "evidence and never grants send authority.",
+            "No configuration file was written.",
+        ]
+    )
+    print("\n".join(lines))
+
+
 def _next_output_path(path: Path, suffix: str) -> Path:
     """Suggest a distinct unused file without claiming the name is reserved."""
     candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
@@ -90,15 +188,27 @@ def _config_native(args: argparse.Namespace) -> None:
     document: dict[str, Any] = {}
     saved = False
     saving = False
-    output = Path(args.output).expanduser().absolute()
+    output = Path(args.output)
     try:
+        spec = get_adapter_spec(args.transport)
+        if (
+            spec is not None
+            and not spec.native_setup_fields
+            and spec.native_setup_instructions is not None
+        ):
+            # A form-less provider may declare a typed, informational setup
+            # journey. Rendering is offline: no file is written, no provider
+            # command is invoked, and the refusal to fabricate configuration
+            # is explicit in the output.
+            _render_setup_instructions(spec, _validate_setup_instructions(spec))
+            return
+        output = output.expanduser().absolute()
         if not sys.stdin.isatty():
             raise ConfigValidationError("Native setup requires an interactive terminal")
         if output.suffix.lower() not in (".yaml", ".yml"):
             raise ConfigValidationError("Output must use .yaml or .yml")
         if os.path.lexists(output):
             raise FileExistsError(f"Output already exists: {output}")
-        spec = get_adapter_spec(args.transport)
         if spec is None or not spec.native_setup_fields:
             raise ConfigValidationError(
                 f"{args.transport!r} has no provider-declared native setup prompts; "

@@ -53,6 +53,31 @@ passing the keyword to `AdapterSpec`; provider discovery can then work on core
 main while form support is qualified against a candidate core revision. Omitting the tuple leaves guided native setup unavailable
 for that provider without affecting manual configuration.
 
+## Optional typed setup instructions for form-less providers
+
+A provider whose provisioning cannot be an offline form (for example, when a
+profile can only be created by native tooling that contacts the native
+service) may expose `AdapterSpec.native_setup_instructions` as a single
+`NativeSetupInstructions(title, summary, steps)` declaration from
+`medre.adapter_spec`. Each `NativeSetupStep(command, purpose, evidence_note)`
+renders one ordered stage of the provider's own journey. The command is the
+verbatim provider tooling invocation, exactly as the provider contributes it;
+core renders it informationally and never executes it, because provider setup
+commands contact native services. The evidence note states what observing the
+completed step proves and what it does not prove: a completed provisioning
+step is never relay acceptance, delivery, or read evidence and grants no send
+authority. `medre config native` prints the journey for an instructions-only
+provider with an `informational_only` classification, writes no file, and
+fabricates no configuration; a provider with `native_setup_fields` keeps the
+guided form. Declarations must stay deterministic: no secrets, no
+building-machine paths, no timestamps.
+
+To retain compatibility with core versions without this seam, check for
+`medre.adapter_spec.NativeSetupInstructions` (for example with `getattr` on
+the module) before constructing the declaration or passing the
+`native_setup_instructions` keyword to `AdapterSpec`; older cores then keep
+discovering the provider exactly as before.
+
 ## Step 1: Implement the Adapter Protocol
 
 Your adapter class satisfies the `Adapter` protocol with four methods:
