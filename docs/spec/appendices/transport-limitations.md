@@ -380,8 +380,8 @@ and does not pretend to know what it cannot verify (remote receipt).
 | Transport    | Status      | Notes                                                                                                |
 | ------------ | ----------- | ---------------------------------------------------------------------------------------------------- |
 | Meshtastic   | Implemented | `startup_backlog_suppress_seconds` (default 5.0s in the provider config), `rxTime`-based, best-effort |
-| MeshCore     | Deferred    | No message history, no store-and-forward. Suppressing live events would risk dropping fresh packets. |
-| Matrix       | Excluded    | Sync protocol handles message ordering and gap detection.                                            |
+| MeshCore     | Buffered    | No history or store-and-forward, but the pinned SDK drains a small device buffer at connect; a bounded 64-frame pre-start buffer carries that drain into the started session (counted, order-preserving, discarded on failed or cancelled start). No age filter — radio sender clocks do not establish a reliable cutoff. |
+| Matrix       | Implemented | `startup_backlog_suppress_seconds` (default 60s), origin-server-timestamp-based, applied before decode on live, durable catch-up, and recovery paths; covers federation lag and clock skew. |
 | LXMF         | Deferred    | No reliable receive-time timestamps suitable for suppression.                                        |
 | XMPP         | Excluded    | MUC joins request zero history; no offline-message or archive recovery exists to suppress.            |
 | Chatmail     | Excluded    | First use baselines existing history; later starts resume from the last durable checkpoint.           |

@@ -21,10 +21,10 @@ checkout:
 
 | Repository                  | Inspected commit                           |
 | --------------------------- | ------------------------------------------ |
-| `medre`                     | `9c5bf4322ce4ff16a925682076f3673926d3b4c0` |
-| `medre-adapter-matrix`      | `7de44aeffb914fc7329098efd9b8cc2efd130ab9` |
+| `medre`                     | `62bc790b8755cd2728e0eacda79f238e7d3ae30d` |
+| `medre-adapter-matrix`      | `241e9590035bb18750527c3ea1f02d26f28acfb5` |
 | `medre-adapter-meshtastic`  | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
-| `medre-adapter-meshcore`    | `222a7b574c72bfd15896d62411940c997bd87e1a` |
+| `medre-adapter-meshcore`    | `e76cb80dfd50cd9d1c61ebe8102ef43e1ffafbef` |
 | `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
 | `medre-adapter-xmpp`        | `e5b3c34496e8c2fa20ed8f2abd9d0072a6b6fe83` |
 | `medre-adapter-chatmail`    | `f954e4d2ffaae6a2b197b0df1a20806dc8492f75` |

@@ -373,7 +373,8 @@ Counter definitions are authoritative in the
 Keys table. The inbound counters (`inbound_published`,
 `inbound_duplicate_admissions`, `inbound_suppressed_self`,
 `inbound_suppressed_envelope`, `inbound_filtered_allowlist`,
-`inbound_filtered_encryption_policy`, `inbound_suppressed_startup`) all reset
+`inbound_filtered_encryption_policy`, `inbound_suppressed_startup`,
+`inbound_suppressed_stale`) all reset
 when the adapter starts.
 
 `inbound_filtered_encryption_policy` grows when `require_encrypted_rooms`
@@ -437,7 +438,11 @@ passed durable admission. If admission fails, the SDK retains the event for repl
 
 `LIVE` and `RECOVERED` events are admitted and routed. `HISTORY` is recorded as a
 durable suppression and is not routed. This replaces the older first-sync timestamp
-heuristic for runtime-managed Matrix adapters.
+heuristic for runtime-managed Matrix adapters. Separately from provenance, each
+adapter lifetime suppresses events whose origin server timestamp predates its start
+baseline by more than `startup_backlog_suppress_seconds` (default 60 seconds;
+`0` disables) before decode, whichever path delivered them, so a restart does not
+replay offline room history over destination transports.
 
 With runtime storage available, the Matrix adapter intentionally does not enable
 nio-owned sync-token persistence or persisted recovery state. MEDRE stores the

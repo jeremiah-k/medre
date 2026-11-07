@@ -304,6 +304,7 @@ adapters:
 | `metadata_embedding_mode`      | string         | `"safe"`      | How metadata is embedded in messages.                                                                                                                       |
 | `sync_timeout_ms`              | int            | `30000`       | Long-polling sync timeout in milliseconds.                                                                                                                  |
 | `initial_sync_timeout_seconds` | number         | `45.0`        | Wait after room joins for the first acknowledged sync. `0` disables waiting; the complete start remains bounded by `runtime.adapter_start_timeout_seconds`. |
+| `startup_backlog_suppress_seconds` | number     | `60.0`        | Tolerance before the adapter start baseline: inbound events with an older origin server timestamp are startup history and never forward on any ingress path. `0` disables the suppression. |
 | `encryption_mode`              | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                                                                                           |
 | `require_encrypted_rooms`      | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`.                                                                   |
 

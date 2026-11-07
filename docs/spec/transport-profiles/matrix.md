@@ -25,6 +25,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `sync_timeout_ms`                          | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                                               |
 | `initial_sync_timeout_seconds`             | `float`                                                | `45.0`        | Startup wait for acknowledged sync after room joins; `0` disables waiting                               |
 | `sync_stale_timeout_seconds`               | `float`                                                | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog                              |
+| `startup_backlog_suppress_seconds`         | `float`                                                | `60.0`        | Tolerance before the start baseline; older events never forward on any ingress path; `0` disables       |
 | `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                                              |
 | `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                                                 |
 | `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                                             |
@@ -341,15 +342,28 @@ limited-timeline recovery is disabled and mindroom-nio retains ordinary Classic
 cursor ownership with `store_sync_tokens=True`; MEDRE MUST NOT advertise a partial
 durability mode that cannot commit its cursor.
 
-Protocol provenance is authoritative. The generic adapter-start timestamp filter does
-not override Matrix recovery evidence. `LIVE` and `RECOVERED` events are routed;
-`HISTORY` events are persisted as `suppressed_history` and are not routed. Recovery
-abandonment is persisted with the checkpoint and exposed through diagnostics before
-the cursor advances. After MEDRE commits a Classic cursor, it asks the pinned SDK to
-acknowledge that cursor. If the SDK reports its specific staged-token mismatch while
-recovery work is still active, MEDRE defers that acknowledgement instead of killing
-the sync loop; unrelated protocol errors still propagate. The consecutive deferral
-count is exposed as `classic_ack_deferrals` and resets after a successful ack.
+Protocol provenance is authoritative for recovery classification: the generic core
+adapter-start timestamp filter does not override Matrix recovery evidence. `LIVE` and
+`RECOVERED` events are routed; `HISTORY` events are persisted as `suppressed_history`
+and are not routed. Recovery abandonment is persisted with the checkpoint and exposed
+through diagnostics before the cursor advances. After MEDRE commits a Classic cursor,
+it asks the pinned SDK to acknowledge that cursor. If the SDK reports its specific
+staged-token mismatch while recovery work is still active, MEDRE defers that
+acknowledgement instead of killing the sync loop; unrelated protocol errors still
+propagate. The consecutive deferral count is exposed as `classic_ack_deferrals` and
+resets after a successful ack.
+
+Independently of provenance, each active adapter lifetime captures a wall-clock
+baseline before its first sync. Events whose origin server timestamp predates that
+baseline by more than `startup_backlog_suppress_seconds` (default 60 seconds; `0`
+disables) are startup history: the adapter suppresses them before decode on live,
+durable catch-up, and recovery paths alike, using the transport-neutral policy the
+Meshtastic profile applies to radio packets. An event exactly at the cutoff, inside
+the tolerance window, or future-dated is not classified as history, and missing or
+unrepresentable timestamps decline classification without raising. Suppression is an
+intentional filter counted under `inbound_suppressed_stale`, not failed durable
+admission, so the batch can still acknowledge its cursor. Stop and failed startup
+retire the baseline before another lifetime begins.
 
 The durability guarantee is intentionally narrower than exactly-once delivery: once
 Matrix ingress is accepted, MEDRE retains the canonical event and durable work state
@@ -466,6 +480,7 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                              |
 | `inbound_filtered_encryption_policy`       | `int`           | Events dropped by `require_encrypted_rooms` policy     |
 | `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                  |
+| `inbound_suppressed_stale`                 | `int`           | Events older than the startup history cutoff           |
 
 The delivery-failure and inbound counters reset to zero each time the adapter
 starts.

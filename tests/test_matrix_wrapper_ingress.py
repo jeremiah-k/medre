@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -102,11 +104,33 @@ class TestMatrixWrapperCallbackPath:
             await fake_target.stop()
             await runner.stop()
 
+    @pytest.mark.parametrize(
+        ("suppress_seconds", "adapter_suppressed", "core_dropped"),
+        [
+            pytest.param(60.0, 1, 0, id="adapter-startup-history-cutoff"),
+            pytest.param(0, 0, 1, id="core-stale-filter-backstop"),
+        ],
+    )
     async def test_pre_start_matrix_event_is_dropped_before_pipeline(
-        self, mock_nio, temp_storage: SQLiteStorage
+        self,
+        mock_nio,
+        temp_storage: SQLiteStorage,
+        suppress_seconds: float,
+        adapter_suppressed: int,
+        core_dropped: int,
     ) -> None:
-        """Historical Matrix sync events must not be stored, deduped, or routed."""
-        matrix_adapter = MatrixAdapter(make_matrix_config(adapter_id="matrix-stale-cb"))
+        """Historical Matrix sync events must not be stored, deduped, or routed.
+
+        The adapter's startup-history cutoff suppresses the event before
+        decode; with the cutoff disabled, the core stale-event filter still
+        drops it before the pipeline.
+        """
+        matrix_adapter = MatrixAdapter(
+            make_matrix_config(
+                adapter_id="matrix-stale-cb",
+                startup_backlog_suppress_seconds=suppress_seconds,
+            )
+        )
         fake_target = FakeMeshtasticAdapter(
             MeshtasticConfig(adapter_id="fake-stale-target")
         )
@@ -162,7 +186,9 @@ class TestMatrixWrapperCallbackPath:
 
             assert fake_target.delivered_payloads == []
             assert await temp_storage.count_events() == 0
-            assert matrix_adapter._stale_events_dropped == 1
+            diagnostics = matrix_adapter.diagnostics()
+            assert diagnostics["inbound_suppressed_stale"] == adapter_suppressed
+            assert matrix_adapter._stale_events_dropped == core_dropped
         finally:
             await matrix_adapter.stop()
             await fake_target.stop()
