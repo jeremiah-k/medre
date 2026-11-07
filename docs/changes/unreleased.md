@@ -9,6 +9,15 @@ this file once they land.
 
 ## Recent changes
 
+- **491 — Meshtastic, MeshCore and Chatmail pin promotions.** Promote the
+  Meshtastic adapter carrying the updated `mtjk` runtime pin with its license
+  disclosure. Promote the MeshCore adapter whose session stop clears the
+  inbound callback before its first await and whose start refuses while an
+  earlier start's session remains installed. Promote the Chatmail adapter
+  whose SDK-tier suite qualifies RPC retirement and native profile exclusion
+  against the pinned client and server; Chatmail runtime behavior is
+  unchanged.
+
 - **490 — Matrix↔XMPP reference bridge qualification.** The opt-in Docker
   reference journey passed end to end at the manifest pins with core `main` at
   `72b3fc08af8869261601f4ff2688c35e25b7c508`: independent Matrix and XMPP peers
