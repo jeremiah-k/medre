@@ -5,10 +5,9 @@ anyone extending the MEDRE runtime. Historical audit snapshots are not kept
 here; Git history is the archive, and findings that remain current live in
 the relevant spec/ops/dev page.
 
-## Documents
-
 | Document                                                         | Purpose                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [implicit-state-machines.md](implicit-state-machines.md)         | Source-based state-machine ownership audit and disposition                  |
 | [content-lifecycle.md](content-lifecycle.md)                     | Proposed content expiry, reply context and bounded consumer/plugin holds     |
 | [development-priorities.md](development-priorities.md)           | Coordinated recovery, conversation fidelity and qualification work           |
 | [contract-gap-status.md](contract-gap-status.md)                 | Living register of open contract gaps, their status and next work            |

@@ -306,8 +306,9 @@ class TestAdapterStopTimeoutSupervision:
         # stop() returned early — adapter state should NOT have changed.
         assert app.adapter_states[adapter_id] is original_state
 
-        # Clean up: reset state so the real stop can run.
-        app._set_state(RuntimeState.RUNNING)
+        # Test-only state injection: STOPPING -> RUNNING is deliberately
+        # illegal for the production transition validator.
+        app._state = RuntimeState.RUNNING
         await app.stop()
 
     # -- Never-started adapter during shutdown ---------------------------------
