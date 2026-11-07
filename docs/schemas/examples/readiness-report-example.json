@@ -21,7 +21,7 @@
       {
         "transport": "meshtastic",
         "repository": "jeremiah-k/medre-adapter-meshtastic",
-        "ref": "17a13133e293268ac3d55dc1a3edfa3fd69c136c",
+        "ref": "122c502e37528c4fd284d6eb91c4d4349e214ac0",
         "extras": null,
         "distribution": "medre-adapter-meshtastic",
         "python_requires": null,
@@ -35,7 +35,7 @@
       {
         "transport": "meshcore",
         "repository": "jeremiah-k/medre-adapter-meshcore",
-        "ref": "e76cb80dfd50cd9d1c61ebe8102ef43e1ffafbef",
+        "ref": "ce52cf6d9a4ac587f91090b40d4b5b87d1654b90",
         "extras": null,
         "distribution": "medre-adapter-meshcore",
         "python_requires": null,
@@ -77,7 +77,7 @@
       {
         "transport": "chatmail",
         "repository": "jeremiah-k/medre-adapter-chatmail",
-        "ref": "f954e4d2ffaae6a2b197b0df1a20806dc8492f75",
+        "ref": "312c36cc9a1a1ac9996aec3361430b5a9107e556",
         "extras": null,
         "distribution": "medre-adapter-chatmail",
         "python_requires": null,

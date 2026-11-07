@@ -21,13 +21,13 @@ checkout:
 
 | Repository                  | Inspected commit                           |
 | --------------------------- | ------------------------------------------ |
-| `medre`                     | `62bc790b8755cd2728e0eacda79f238e7d3ae30d` |
+| `medre`                     | `1d4a181ca418264903603918e6971257ff43abc7` |
 | `medre-adapter-matrix`      | `241e9590035bb18750527c3ea1f02d26f28acfb5` |
-| `medre-adapter-meshtastic`  | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
-| `medre-adapter-meshcore`    | `e76cb80dfd50cd9d1c61ebe8102ef43e1ffafbef` |
+| `medre-adapter-meshtastic`  | `122c502e37528c4fd284d6eb91c4d4349e214ac0` |
+| `medre-adapter-meshcore`    | `ce52cf6d9a4ac587f91090b40d4b5b87d1654b90` |
 | `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
 | `medre-adapter-xmpp`        | `e5b3c34496e8c2fa20ed8f2abd9d0072a6b6fe83` |
-| `medre-adapter-chatmail`    | `f954e4d2ffaae6a2b197b0df1a20806dc8492f75` |
+| `medre-adapter-chatmail`    | `312c36cc9a1a1ac9996aec3361430b5a9107e556` |
 | `medre-adapter-simplexchat` | `84071f870f2ee118d9638006aecf47d84168e46e` |
 
 Native SDK pins are declared by each provider's own package metadata at the
