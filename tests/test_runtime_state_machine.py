@@ -45,6 +45,7 @@ def test_legal_runtime_transition_emits_exactly_one_event(source, target):
     [
         (RuntimeState.INITIALIZED, RuntimeState.RUNNING),
         (RuntimeState.STARTING, RuntimeState.STOPPED),
+        (RuntimeState.STARTING, RuntimeState.STOPPING),
         (RuntimeState.RUNNING, RuntimeState.STARTING),
         (RuntimeState.FAILED, RuntimeState.RUNNING),
         (RuntimeState.STOPPED, RuntimeState.STARTING),

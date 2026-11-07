@@ -99,7 +99,8 @@ class RuntimeState(enum.Enum):
 
         INITIALIZED → STARTING → RUNNING → STOPPING → STOPPED
                                 ↘ FAILED
-        Any state → FAILED on unrecoverable error.
+        Nonterminal states → FAILED on unrecoverable error.
+        STOPPED is terminal; startup owns its own cancellation/rollback.
     """
 
     INITIALIZED = "initialized"
@@ -113,7 +114,7 @@ class RuntimeState(enum.Enum):
 _RUNTIME_TRANSITIONS: dict[RuntimeState, frozenset[RuntimeState]] = {
     RuntimeState.INITIALIZED: frozenset({RuntimeState.STARTING, RuntimeState.FAILED}),
     RuntimeState.STARTING: frozenset(
-        {RuntimeState.RUNNING, RuntimeState.STOPPING, RuntimeState.FAILED}
+        {RuntimeState.RUNNING, RuntimeState.FAILED}
     ),
     RuntimeState.RUNNING: frozenset({RuntimeState.STOPPING, RuntimeState.FAILED}),
     RuntimeState.STOPPING: frozenset({RuntimeState.STOPPED, RuntimeState.FAILED}),

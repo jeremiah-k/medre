@@ -200,7 +200,7 @@ states and the two **durable** delivery state machines. Runtime transitions
 MUST follow `runtime_transition_allowed` in `runtime/app.py`:
 
 - `INITIALIZED` → `STARTING` or `FAILED`.
-- `STARTING` → `RUNNING`, `STOPPING`, or `FAILED`.
+- `STARTING` → `RUNNING` or `FAILED` (startup owns cancellation and rollback).
 - `RUNNING` → `STOPPING` or `FAILED`.
 - `STOPPING` → `STOPPED` or `FAILED`.
 - `FAILED` → `STOPPING` only, for a cleanup attempt.
