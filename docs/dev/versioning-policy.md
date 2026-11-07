@@ -43,3 +43,20 @@ with tested failure/rollback behavior and clear support boundaries. There is
 no obligation to migrate abandoned, unpublished prerelease shapes. Schema
 version increments then track supported persisted-state changes, not Git
 commits, adapter API changes, or package releases.
+
+## 0.1.0 schema compatibility baseline
+
+The first **tagged** core `0.1.0` release defines the supported canonical
+event, operational JSON/YAML, and SQL schema snapshots named in
+`docs/schemas/v0.1.0.freeze.json`. Independent adapters freeze their native
+metadata shapes under their own distributions; the Matrix namespace remains
+`matrix.schema_version = 1` and is not the core `CanonicalEvent.schema_version`
+or a distribution version. A new release that deliberately changes any public
+schema must document whether it is additive, requires a new schema generation,
+or requires a migration. The snapshots guard releases; they must not be edited
+to make an unexpected CI failure disappear.
+
+The core package metadata's `0.1.0` version is a prerelease preparation state,
+not proof of a published artifact. Before a first tag no backwards-compatibility
+code is required for abandoned experimental shapes. Persisted databases from
+this development period are not a supported migration baseline.
