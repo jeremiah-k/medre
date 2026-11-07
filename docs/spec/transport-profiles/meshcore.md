@@ -299,6 +299,8 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 
 **Callback bridging:** SDK callbacks are async; the session invokes the adapter callback directly and awaits short callbacks inline. Long-running callbacks are scheduled as fire-and-forget tasks.
 
+**Connect-time device-buffer drain:** the pinned SDK's auto-message fetching issues one `get_msg()` while `session.start()` is still awaiting inside adapter `start()`, so a frame buffered on the device can reach the adapter callback before the adapter marks itself started. The adapter buffers such payloads (bounded at 64, snapshotted, order-preserving) and flushes them through the normal inbound path once started; overflow drops and lifecycle discards are counted and warned without content. The drained traffic itself forwards without an age filter — radio sender clocks do not establish a reliable cutoff. Callbacks a stopped or superseded session installed never enter a replacement lifecycle's buffer or admission path, and a concurrent `start()` without an intervening `stop()` is rejected.
+
 ---
 
 ## Diagnostics Keys
@@ -321,6 +323,9 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 | `classifier_packets_dm_relayed`         | `int`           | DM relay sub-counter                                               |
 | `classifier_packets_malformed`          | `int`           | Malformed sub-counter                                              |
 | `inbound_published`                     | `int`           | Events published inbound                                           |
+| `prestart_buffered`                     | `int`           | Payloads buffered while start was in flight                        |
+| `prestart_flushed`                      | `int`           | Buffered payloads flushed through normal admission                |
+| `prestart_overflow_dropped`             | `int`           | Payloads refused because the pre-start buffer was at capacity     |
 | `session.connected`                     | `bool`          | Session connected                                                  |
 | `session.reconnecting`                  | `bool`          | Reconnect in progress                                              |
 | `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts                                     |

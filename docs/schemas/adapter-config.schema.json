@@ -68,6 +68,12 @@
           "default": 300.0,
           "description": "Maximum seconds without durable sync progress before MEDRE recycles the current Matrix sync loop; 0 disables active stale-sync recovery. Typed validation requires a positive value to exceed sync_timeout_ms/1000 + 15 seconds; with the sync timeout disabled this floor is 15 seconds."
         },
+        "startup_backlog_suppress_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 60.0,
+          "description": "Tolerance before the adapter start baseline: inbound events whose origin server timestamp predates the baseline by more than this window are startup history and never forward, whichever path delivered them. The window covers homeserver federation lag and minor clock drift. Zero disables the suppression."
+        },
         "megolm_key_request_rate_limit_per_minute": {
           "type": "integer",
           "minimum": 1,

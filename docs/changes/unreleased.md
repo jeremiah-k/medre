@@ -9,6 +9,14 @@ this file once they land.
 
 ## Recent changes
 
+- **489 — Startup history and pre-start buffering.** Promote the Matrix adapter
+  that suppresses events older than its start baseline by more than
+  `startup_backlog_suppress_seconds` (default 60 seconds) before decode on live,
+  durable catch-up, and recovery paths, and publish that field in the Matrix
+  schema arm. Promote the MeshCore adapter that carries the SDK's connect-time
+  device-buffer drain into the started session through a bounded, counted
+  pre-start buffer fenced to its installing session.
+
 - **487 — XMPP shutdown ownership.** Promote the XMPP adapter that retains native
   connections and workers after failed cleanup. One deadline covers lock waiting
   and retirement; reconnect, reuse, and fresh ingress stay fenced until a cleanup

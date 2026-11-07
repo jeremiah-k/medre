@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "7de44aeffb914fc7329098efd9b8cc2efd130ab9",
+    "ref": "241e9590035bb18750527c3ea1f02d26f28acfb5",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix",
@@ -19,7 +19,7 @@
   {
     "transport": "meshcore",
     "repository": "jeremiah-k/medre-adapter-meshcore",
-    "ref": "222a7b574c72bfd15896d62411940c997bd87e1a",
+    "ref": "e76cb80dfd50cd9d1c61ebe8102ef43e1ffafbef",
     "extras": "",
     "local_integration": true,
     "distribution": "medre-adapter-meshcore"
