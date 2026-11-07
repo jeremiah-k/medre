@@ -21,8 +21,8 @@ checkout:
 
 | Repository                  | Inspected commit                           |
 | --------------------------- | ------------------------------------------ |
-| `medre`                     | `cc48778fac331fe984c44eb4fda6771be63ac991` |
-| `medre-adapter-matrix`      | `9488ccdfa4374895652e9f0ab0cc4ad5bd840469` |
+| `medre`                     | `9c5bf4322ce4ff16a925682076f3673926d3b4c0` |
+| `medre-adapter-matrix`      | `7de44aeffb914fc7329098efd9b8cc2efd130ab9` |
 | `medre-adapter-meshtastic`  | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
 | `medre-adapter-meshcore`    | `222a7b574c72bfd15896d62411940c997bd87e1a` |
 | `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |

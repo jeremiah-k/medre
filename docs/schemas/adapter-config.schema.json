@@ -90,7 +90,7 @@
           "type": "string",
           "default": "permissive",
           "enum": ["permissive", "strict"],
-          "description": "Local recipient-device trust policy for encrypted Matrix sends; strict requires affirmative trust in MEDRE's own nio store. Plaintext sends and typing are unaffected."
+          "description": "Optional local recipient-device trust gate for encrypted Matrix sends. Permissive performs no additional MEDRE peer-trust scan; strict requires affirmative trust in MEDRE's own nio store. Plaintext sends and typing are unaffected."
         },
         "require_encrypted_rooms": {
           "type": "boolean",

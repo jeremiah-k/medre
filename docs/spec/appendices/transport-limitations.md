@@ -83,7 +83,8 @@ and SDK pins.
   inspected pin).
 - Own-device cross-signing is implemented against the provider-pinned
   `mindroom-nio[e2e]` surface. Peer-device trust defaults to
-  `verification_policy: permissive`; opt-in `strict` refuses encrypted text and
+  `verification_policy: permissive` without an additional MEDRE peer-trust scan
+  or trust-gap warnings; opt-in `strict` refuses encrypted text and
   media until the complete recipient view is affirmatively verified in MEDRE's
   own nio store, including sibling devices. Strict retains the SDK send-time
   device fence; it never auto-verifies peers or falls back to plaintext. No
