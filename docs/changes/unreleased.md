@@ -9,6 +9,19 @@ this file once they land.
 
 ## Recent changes
 
+- **487 — XMPP shutdown ownership.** Promote the XMPP adapter that retains native
+  connections and workers after failed cleanup. One deadline covers lock waiting
+  and retirement; reconnect, reuse, and fresh ingress stay fenced until a cleanup
+  retry succeeds. Preserve startup cancellation and validate budgets before
+  changing health observation.
+
+- **485 — Quiet default Matrix encryption.** Promote the Matrix adapter that
+  leaves default encrypted sends to native nio encryption without a MEDRE
+  peer-trust scan or warning. Opt-in strict authorization keeps its local trust
+  and SDK fences. Remove the peer-device warning counter; monitoring consumers
+  must update their queries. Docker encrypted-message/file, signing, and restart
+  qualification retain their local-only evidence boundaries.
+
 - **482 — Matrix trust policy and provider setup journeys.** Promote the merged
   Matrix, Chatmail, and SimpleX Chat adapters. Publish the Matrix policy schema
   with its provider pin: permissive stays the default, while opt-in strict

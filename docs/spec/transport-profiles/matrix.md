@@ -370,7 +370,8 @@ where a target transport cannot make send plus acknowledgement atomic.
 Cross-signing and peer-device trust are separate policies. MEDRE cross-signs its own
 current device so other Matrix clients can authenticate the bot device. Encrypted
 outbound sends default to `verification_policy: permissive`, retaining
-`ignore_unverified_devices=True` and reporting trust gaps. The opt-in `strict`
+`ignore_unverified_devices=True` without an additional MEDRE peer-trust scan or
+trust-gap warnings. The opt-in `strict`
 policy refuses sends until membership, device keys, and every recipient device's
 local nio trust are complete and verified; nio's send-time fence remains
 `ignore_unverified_devices=False`. Own-account sibling devices are recipients;

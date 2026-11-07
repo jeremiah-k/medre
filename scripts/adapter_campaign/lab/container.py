@@ -36,6 +36,8 @@ def certificates() -> None:
             "90",
             "-subj",
             "/CN=MEDRE disposable lab CA",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
         ],
         [
             "req",

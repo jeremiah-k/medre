@@ -79,8 +79,10 @@ python -m scripts.adapter_campaign.lab test --directory "$lab_dir" --stage all
 python -m scripts.adapter_campaign.lab down --directory "$lab_dir"
 ```
 
-Fresh lab certificates have a 90-day validity. Previously generated certificates
-are not rotated implicitly; prepare a new lab after expiry.
+Fresh lab certificates have a 90-day validity. The disposable CA includes critical
+certificate-signing Key Usage for strict TLS clients. Previously generated
+certificates are not rotated implicitly; prepare a new lab after expiry or when
+an older lab CA lacks that extension.
 
 The `contracts` stage runs provider suites sequentially and its host/child
 timeouts scale with the number of recorded sources. Grouped stages allow enough

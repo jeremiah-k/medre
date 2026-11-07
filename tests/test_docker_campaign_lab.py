@@ -466,3 +466,34 @@ def test_meshtastic_ble_role_maps_only_the_runner_system_bus(tmp_path):
         for name, service in stack["services"].items()
         if name != "runner"
     )
+
+
+def test_generated_lab_ca_allows_strict_server_verification(tmp_path, monkeypatch):
+    import shutil
+
+    from scripts.adapter_campaign.lab import container
+
+    if shutil.which("openssl") is None:
+        pytest.skip("OpenSSL is required to generate disposable lab certificates")
+    config = tmp_path / "config"
+    config.mkdir()
+    for name in ("prosody.cfg.lua", "mas.yaml", "synapse.yaml", "Caddyfile"):
+        (config / name).touch()
+    monkeypatch.setattr(container, "ROOT", tmp_path)
+    container.certificates()
+    subprocess.run(
+        [
+            "openssl",
+            "verify",
+            "-x509_strict",
+            "-purpose",
+            "sslserver",
+            "-CAfile",
+            str(config / "ca.crt"),
+            str(config / "server.crt"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )

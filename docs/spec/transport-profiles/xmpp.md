@@ -6,6 +6,15 @@ The XMPP adapter is a **hybrid adapter** that connects to an XMPP server through
 
 The adapter delegates the SDK client lifecycle to its session; the adapter owns semantic conversion (codec decode, admission, event publishing) and configuration validation.
 
+Session phases track native ownership separately from health. Shutdown MUST use
+one deadline for cleanup-lock acquisition and owned work. Failed native cleanup
+MUST retain the connection and session, reject reconnect/reuse and fresh ingress,
+and allow an explicit stop retry. Startup cancellation MUST propagate despite
+cleanup failure; invalid stop budgets MUST leave health observation unchanged.
+A callback already in progress remains owned until it settles, even when it
+suppresses cancellation.
+
+
 **Platform identifier:** `xmpp`
 
 **Maturity note:** XMPP integration is at a **pre-release** stage. Delivery status reflects local stream handoff only; server acceptance, recipient delivery and read state are separate.

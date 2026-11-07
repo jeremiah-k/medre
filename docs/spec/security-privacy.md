@@ -251,10 +251,10 @@ lost local identity requires explicit operator recovery with fresh password
 authentication.
 
 Own-device cross-signing and peer-device trust are separate concerns. Matrix's
-`verification_policy` defaults to `permissive`: encrypted sends allow unverified
-recipient devices, count trust gaps, and warn at most once per room per minute
-while that room remains in the bounded warning history. The opt-in `strict`
-policy requires complete membership and device-key views and affirmative local
+`verification_policy` defaults to `permissive`: encrypted sends use nio's native
+Megolm encryption and key sharing without an additional MEDRE peer-trust scan,
+trust-gap warnings, or warning counters. The opt-in `strict` policy requires
+complete membership and device-key views and affirmative local
 nio verification for every recipient device, including the bot account's sibling
 devices. Missing or unreadable trust refuses the send with a retryable error;
 strict also retains nio's `ignore_unverified_devices=False` fence during send

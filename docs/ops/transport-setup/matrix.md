@@ -281,7 +281,8 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 - Encrypted text and media share the peer-device trust gate; native relations and
   retained-media delivery follow their separate capability and attachment rules.
 - Own-device cross-signing is supported. `verification_policy: permissive` is the
-  default: sends continue through trust gaps with warning diagnostics.
+  default: native encrypted delivery runs without a MEDRE peer-trust scan or
+  trust-gap warnings. Strict refusal diagnostics remain available.
 - Opt-in `verification_policy: strict` refuses encrypted sends until every
   recipient device is affirmatively verified in MEDRE's own nio store. This
   includes sibling devices of the bot account. Missing membership, keys, or trust
