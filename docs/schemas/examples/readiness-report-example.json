@@ -63,7 +63,7 @@
       {
         "transport": "xmpp",
         "repository": "jeremiah-k/medre-adapter-xmpp",
-        "ref": "9d681797725204d3bb6719bcc4089f53882e6c96",
+        "ref": "e5b3c34496e8c2fa20ed8f2abd9d0072a6b6fe83",
         "extras": null,
         "distribution": "medre-adapter-xmpp",
         "python_requires": null,

@@ -258,6 +258,14 @@ and SDK pins.
 
 ### 2.5 XMPP
 
+- Shutdown uses one budget for cleanup-lock acquisition and owned native work.
+  A failed close or cancellation-resistant worker leaves an `ABANDONED` session
+  with failed health and retained ownership. Reconnect, reuse, and fresh ingress
+  remain fenced until a cleanup retry succeeds; asyncio cannot forcibly retire
+  a callback that suppresses cancellation. The provider's session retirement
+  regressions and two-account Docker Prosody test cover those local boundaries,
+  not recipient reading or external-network reliability.
+
 - The provider bridges live text only. XHTML, attachments, presence, read
   receipts, native mutations (edits/retracts/reactions), OMEMO, and
   puppeting are not implemented or advertised; unsupported

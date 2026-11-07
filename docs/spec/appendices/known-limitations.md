@@ -26,7 +26,7 @@ checkout:
 | `medre-adapter-meshtastic`  | `17a13133e293268ac3d55dc1a3edfa3fd69c136c` |
 | `medre-adapter-meshcore`    | `222a7b574c72bfd15896d62411940c997bd87e1a` |
 | `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
-| `medre-adapter-xmpp`        | `9d681797725204d3bb6719bcc4089f53882e6c96` |
+| `medre-adapter-xmpp`        | `e5b3c34496e8c2fa20ed8f2abd9d0072a6b6fe83` |
 | `medre-adapter-chatmail`    | `f954e4d2ffaae6a2b197b0df1a20806dc8492f75` |
 | `medre-adapter-simplexchat` | `84071f870f2ee118d9638006aecf47d84168e46e` |
 
