@@ -113,9 +113,7 @@ class RuntimeState(enum.Enum):
 
 _RUNTIME_TRANSITIONS: dict[RuntimeState, frozenset[RuntimeState]] = {
     RuntimeState.INITIALIZED: frozenset({RuntimeState.STARTING, RuntimeState.FAILED}),
-    RuntimeState.STARTING: frozenset(
-        {RuntimeState.RUNNING, RuntimeState.FAILED}
-    ),
+    RuntimeState.STARTING: frozenset({RuntimeState.RUNNING, RuntimeState.FAILED}),
     RuntimeState.RUNNING: frozenset({RuntimeState.STOPPING, RuntimeState.FAILED}),
     RuntimeState.STOPPING: frozenset({RuntimeState.STOPPED, RuntimeState.FAILED}),
     RuntimeState.FAILED: frozenset({RuntimeState.STOPPING}),
