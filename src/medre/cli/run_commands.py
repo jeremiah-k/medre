@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,13 +41,38 @@ shutdown_signal_count: int = 0
 first_shutdown_request_monotonic: float | None = None
 first_shutdown_request_wall: str | None = None
 
+#: Deliveries counted through the wakeup pipe. CPython's C-level signal
+#: handler writes one byte per delivery into the ``signal.set_wakeup_fd``
+#: pipe at delivery time, while the Python-level handler only runs when the
+#: interpreter next services pending signals. Several presses landing inside
+#: one un-serviced window (a C call holding the GIL, for example) otherwise
+#: coalesce into a single handler invocation, and the receipt would report
+#: one request for what were actually two or more presses.
+shutdown_delivered_count: int = 0
+
+#: Poll interval only used when a signal or app-side completion cannot wake the loop.
+_SHUTDOWN_POLL_SECONDS: float = 1.0
+
+#: Wakeup callback for the run loop, installed with the signal handlers.
+#: Invoked at servicing time so teardown starts immediately instead of on
+#: the next poll tick.
+_shutdown_wake_callback: Callable[[], None] | None = None
+
+#: Ends of the wakeup pipe; ``None`` when the pipe could not be installed.
+_wakeup_read_fd: int | None = None
+_wakeup_write_fd: int | None = None
+
+#: True while the process-wide wakeup fd is the pipe this module installed.
+_wakeup_fd_installed: bool = False
+
 
 def _reset_shutdown_evidence() -> None:
     """Clear per-run signal evidence before installing handlers."""
-    global shutdown_requested, shutdown_signal_count
+    global shutdown_requested, shutdown_signal_count, shutdown_delivered_count
     global first_shutdown_request_monotonic, first_shutdown_request_wall
     shutdown_requested = False
     shutdown_signal_count = 0
+    shutdown_delivered_count = 0
     first_shutdown_request_monotonic = None
     first_shutdown_request_wall = None
 
@@ -55,17 +82,149 @@ def _print(line: str = "", *, level: int = logging.INFO) -> None:
     logger.log(level, "%s", line.lstrip("\n"))
 
 
+def _install_wakeup_pipe() -> None:
+    """Open the wakeup pipe CPython writes one byte per signal delivery into.
+
+    The write happens in CPython's async-signal-safe C handler, so deliveries
+    are counted even when several arrive before the interpreter can run the
+    Python-level handler. Failing to install the pipe (exhausted descriptors,
+    platforms where ``set_wakeup_fd`` is unsupported) only downgrades the
+    receipt to per-servicing counts.
+    """
+    global _wakeup_read_fd, _wakeup_write_fd, _wakeup_fd_installed
+    _close_wakeup_pipe()
+    read_fd: int | None = None
+    write_fd: int | None = None
+    try:
+        read_fd, write_fd = os.pipe()
+        os.set_blocking(read_fd, False)
+        os.set_blocking(write_fd, False)
+        previous_fd = signal.set_wakeup_fd(write_fd)
+        if previous_fd != -1:
+            # A host (including another event-loop integration) already owns
+            # signal wakeups. Restore it immediately; stealing the descriptor
+            # would strand that owner until MEDRE exits. Fall back to Python
+            # handler counts rather than claiming delivery-faithful evidence.
+            signal.set_wakeup_fd(previous_fd)
+            _forward_probe_wakeups(read_fd, previous_fd)
+            for pipe_fd in (read_fd, write_fd):
+                os.close(pipe_fd)
+            return
+    except (OSError, ValueError, NotImplementedError):
+        for fd in (read_fd, write_fd):
+            if fd is not None:
+                os.close(fd)
+        return
+    _wakeup_read_fd = read_fd
+    _wakeup_write_fd = write_fd
+    _wakeup_fd_installed = True
+
+
+def _forward_probe_wakeups(read_fd: int, host_fd: int) -> None:
+    """Return bytes caught during the ownership probe to the restored host.
+
+    Both descriptors are nonblocking wakeup fds. Capacity and descriptor errors
+    retain the same best-effort boundary as CPython's wakeup writes.
+    """
+    try:
+        while chunk := os.read(read_fd, 4096):
+            while chunk:
+                written = os.write(host_fd, chunk)
+                if written <= 0:
+                    return
+                chunk = chunk[written:]
+    except OSError:
+        return
+
+
+def _close_wakeup_pipe() -> None:
+    """Detach and close the wakeup pipe if this process installed one."""
+    global _wakeup_read_fd, _wakeup_write_fd, _wakeup_fd_installed
+    if _wakeup_write_fd is not None:
+        if _wakeup_fd_installed:
+            # Detach before closing to avoid a signal writing to a closed
+            # descriptor. If another integration replaced our descriptor
+            # while the command ran, preserve its newer owner instead.
+            current_fd = signal.set_wakeup_fd(-1)
+            if current_fd >= 0 and current_fd != _wakeup_write_fd:
+                signal.set_wakeup_fd(current_fd)
+            _wakeup_fd_installed = False
+        os.close(_wakeup_write_fd)
+        _wakeup_write_fd = None
+    if _wakeup_read_fd is not None:
+        os.close(_wakeup_read_fd)
+        _wakeup_read_fd = None
+
+
+def _drain_wakeup_pipe() -> None:
+    """Count signal deliveries buffered since the last servicing round.
+
+    Each buffered byte was written by the C-level handler for one delivered
+    signal; only SIGINT/SIGTERM bytes carry shutdown requests. This is called
+    from run-loop context only, not from the Python signal handler, to avoid
+    reentrant read-modify-write races under tracing.
+    """
+    global shutdown_delivered_count
+    read_fd = _wakeup_read_fd
+    if read_fd is None:
+        return
+    delivered = 0
+    try:
+        while True:
+            chunk = os.read(read_fd, 4096)
+            if not chunk:
+                break
+            delivered += sum(
+                1 for byte in chunk if byte in (signal.SIGINT, signal.SIGTERM)
+            )
+    except OSError:
+        # Empty pipe (BlockingIOError; every buffered delivery consumed), or
+        # a concurrent close during teardown; whatever was read is already
+        # counted.
+        pass
+    shutdown_delivered_count += delivered
+
+
+def _wake_run_loop() -> None:
+    """Wake the run loop so teardown starts at servicing time.
+
+    ``loop.call_soon_threadsafe`` is safe from a Python-level signal handler:
+    it only schedules a callback and writes the loop's self-pipe, so the
+    loop's readiness wait returns instead of sleeping out the remainder of
+    the poll timeout.
+    """
+    callback = _shutdown_wake_callback
+    if callback is None:
+        return
+    try:
+        callback()
+    except RuntimeError:
+        # A closed loop means teardown is already over; nothing to wake.
+        pass
+
+
 class _RunSignals:
     """Save and restore signal handlers for the run lifecycle."""
 
-    def __init__(self) -> None:
+    def __init__(self, wake: Callable[[], None] | None = None) -> None:
         self._prev: dict[int, Any] = {}
+        self._wake = wake
 
     def install(self, handler: Any) -> None:
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            self._prev[sig] = signal.signal(sig, handler)
+        global _shutdown_wake_callback
+        _install_wakeup_pipe()
+        _shutdown_wake_callback = self._wake
+        try:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                self._prev[sig] = signal.signal(sig, handler)
+        except BaseException:
+            self.restore()
+            raise
 
     def restore(self) -> None:
+        global _shutdown_wake_callback
+        _close_wakeup_pipe()
+        _shutdown_wake_callback = None
         for sig, handler in self._prev.items():
             signal.signal(sig, handler)
         self._prev.clear()
@@ -80,6 +239,12 @@ def _request_shutdown(signum: int, _frame: object) -> None:
     if first_shutdown_request_monotonic is None:
         first_shutdown_request_monotonic = time.monotonic()
         first_shutdown_request_wall = datetime.now(timezone.utc).isoformat()
+    # Do not drain in the signal handler: a handler can interrupt another
+    # Python operation (including a previous drain under opcode tracing).
+    # The run loop drains the C-level delivery bytes once during teardown;
+    # keeping one writer for the count prevents lost read-modify-writes.
+    # Begin teardown at servicing time, not on the next poll tick.
+    _wake_run_loop()
 
 
 async def _start_interruptibly(app: Any) -> bool:
@@ -120,6 +285,37 @@ async def _start_interruptibly(app: Any) -> bool:
         if not start_task.cancelled():
             start_task.exception()
         raise
+
+
+async def _wait_for_run_shutdown(app: Any, wake: asyncio.Event) -> None:
+    """Own both waiters and surface app failures even beside a shutdown signal."""
+    app_wait = asyncio.ensure_future(app.wait_for_shutdown())
+    wake_wait = asyncio.create_task(wake.wait())
+    try:
+        while not shutdown_requested:
+            await asyncio.wait(
+                {app_wait, wake_wait},
+                timeout=_SHUTDOWN_POLL_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if app_wait.done():
+                await app_wait  # Retrieve failures before honoring a signal wake.
+                # A clean completion paces the next rearm on the poll cadence
+                # instead of spinning on an app whose shutdown wait returns
+                # without a shutdown request.
+                if not shutdown_requested and not wake_wait.done():
+                    await asyncio.wait({wake_wait}, timeout=_SHUTDOWN_POLL_SECONDS)
+                if not shutdown_requested:
+                    app_wait = asyncio.ensure_future(app.wait_for_shutdown())
+            if wake_wait.done():
+                wake.clear()
+                wake_wait = asyncio.create_task(wake.wait())
+        if app_wait.done() and not app_wait.cancelled():
+            await app_wait
+    finally:
+        app_wait.cancel()
+        wake_wait.cancel()
+        await asyncio.gather(app_wait, wake_wait, return_exceptions=True)
 
 
 async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
@@ -225,8 +421,17 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
     )
 
-    # Install signal handlers for clean shutdown
-    signals = _RunSignals()
+    # Install signal handlers for clean shutdown. The wake callback lets the
+    # handler begin teardown at servicing time instead of waiting out the
+    # poll tick; the wakeup pipe keeps the receipt faithful when several
+    # presses coalesce inside one un-serviced window.
+    loop = asyncio.get_running_loop()
+    shutdown_wake: asyncio.Event = asyncio.Event()
+
+    def _wake_run() -> None:
+        loop.call_soon_threadsafe(shutdown_wake.set)
+
+    signals = _RunSignals(wake=_wake_run)
     signals.install(_request_shutdown)
 
     # Track per-adapter startup timing
@@ -350,11 +555,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         )
 
         try:
-            while not shutdown_requested:
-                try:
-                    await asyncio.wait_for(app.wait_for_shutdown(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    pass  # expected — poll loop
+            await _wait_for_run_shutdown(app, shutdown_wake)
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt — shutting down")
         finally:
@@ -412,9 +613,13 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             # Handlers record this without logging; this is its loop-context
             # report. It quantifies a slow Ctrl+C response on the next field
             # occurrence instead of leaving the first keypress time unknown.
+            # The count prefers wakeup-pipe deliveries so presses that
+            # coalesced behind one servicing round are still reported.
+            _drain_wakeup_pipe()
             if first_shutdown_request_monotonic is not None:
+                observed_requests = max(shutdown_signal_count, shutdown_delivered_count)
                 _print(
-                    f"  Shutdown requested {shutdown_signal_count} time(s) observed so far; "
+                    f"  Shutdown requested {observed_requests} time(s) observed so far; "
                     f"first request "
                     f"{time.monotonic() - first_shutdown_request_monotonic:.1f}s "
                     f"before this line (at {first_shutdown_request_wall})"

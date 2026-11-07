@@ -284,6 +284,22 @@ computed in both scopes from the adapter startup classification:
 - DEGRADED routes (some targets surviving) stay registered in every
   scope: partial target loss keeps honest per-target outcomes.
 
+### Signal-driven CLI shutdown
+
+A serviced CLI shutdown signal MUST wake the run loop without waiting for its
+fallback poll. The app-side shutdown waiter MUST remain owned, and its failure
+MUST surface through cleanup even when a signal completes concurrently. Repeated
+signals MUST NOT interrupt native-owner retirement.
+
+Signal receipt counts are a bounded observation. With an exclusively owned
+wakeup pipe and available capacity, bytes count CPython C-handler deliveries,
+including deliveries coalesced into a single Python servicing round. An existing
+host wakeup descriptor MUST be restored immediately after probing; captured probe
+bytes MUST be forwarded subject to that descriptor's capacity. Unsupported or
+shared wakeup ownership falls back to Python-handler counts. The first-request
+timestamp records servicing time and MUST NOT be presented as native delivery
+time while the interpreter is blocked.
+
 ### 7.2 Shutdown Order
 
 `MedreApp.stop()` MUST tear down in reverse dependency order:
