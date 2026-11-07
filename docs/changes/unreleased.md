@@ -9,6 +9,15 @@ this file once they land.
 
 ## Recent changes
 
+- **490 — Matrix↔XMPP reference bridge qualification.** The opt-in Docker
+  reference journey passed end to end at the manifest pins with core `main` at
+  `72b3fc08af8869261601f4ff2688c35e25b7c508`: independent Matrix and XMPP peers
+  witnessed all ten bidirectional fidelity cases, including restart
+  persistence, and the offline analyzer reconciled them against the persisted
+  SQLite ledger before writing the content-free verdict. XMPP recipient
+  verification moves to an executed Docker-tier rung; encrypted, federated,
+  production, and hardware claims stay out of scope.
+
 - **489 — Startup history and pre-start buffering.** Promote the Matrix adapter
   that suppresses events older than its start baseline by more than
   `startup_backlog_suppress_seconds` (default 60 seconds) before decode on live,
