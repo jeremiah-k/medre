@@ -11,8 +11,14 @@ that the in-process suites cannot see end to end:
 - teardown completes with every adapter stopped and honest drain evidence,
 - repeated signals during teardown never interrupt owned cleanup,
 - a signal before readiness never wedges the process,
-- synchronous work occupying the loop thread defers the acknowledgment for
-  until a deterministic parent-controlled release; owned teardown then completes.
+- synchronous work occupying the loop thread defers the acknowledgment until
+  a deterministic parent-controlled release; owned teardown then completes,
+- the first of two adjacent presses starts teardown at servicing time rather
+  than waiting out the poll tick, and a press landing during teardown is still
+  counted,
+- presses that coalesce behind one CPython servicing round (delivered while
+  the loop thread is un-serviced inside a C call) are all counted through the
+  wakeup pipe, so the receipt never undercounts what the operator pressed.
 
 Deadlines here are hang guards, not latency requirements, except where a test
 explicitly bounds the acknowledgment latency. Coordination uses output-line
@@ -22,6 +28,7 @@ handshakes, never sleeps.
 from __future__ import annotations
 
 import os
+import platform
 import queue
 import signal
 import subprocess
@@ -35,6 +42,11 @@ import pytest
 import medre
 from tests.helpers.compatibility_configs import CONFIG_SINGLE_ADAPTER
 
+pytestmark = pytest.mark.skipif(
+    os.name != "posix",
+    reason="subprocess os.kill signal delivery exercises POSIX handlers",
+)
+
 _READY_MARKERS = ("Runtime ready (", "Runtime running (")
 _STARTUP_HELD_MARKER = "STARTUP_HELD"
 _STOP_HELD_MARKER = "STOP_HELD"
@@ -43,6 +55,8 @@ _STOPPED_MARKER = "Runtime stopped (1 adapter(s))"
 _DRAIN_OK_MARKER = "drain completed"
 _DRAIN_TIMEOUT_MARKER = "drain timed out"
 _BLOCK_ENTERED_MARKER = "BLOCK_ENTERED"
+_C_BLOCK_ENTERED_MARKER = "C_BLOCK_ENTERED"
+_C_BLOCK_DONE_MARKER = "C_BLOCK_DONE"
 
 #: Generous bound for the healthy signal-to-teardown path: the run loop polls
 #: shutdown once per second, so a healthy acknowledgment lands well inside a
@@ -74,6 +88,40 @@ if mode == "block":
         return await _original_wait(self, timeout=timeout)
 
     MedreApp.wait_for_shutdown = blocking_wait
+elif mode == "cblock":
+    # Loop thread blocked inside a C call that never returns on EINTR
+    # (POSIX: pthread_cond_timedwait must not fail with EINTR). Signal
+    # deliveries during the window coalesce into one Python-level handler
+    # invocation when the call returns — the un-serviced window behind the
+    # field reports of a swallowed first Ctrl+C.
+    import ctypes
+    import time as _time
+
+    from medre.runtime.app import MedreApp
+
+    _original_wait = MedreApp.wait_for_shutdown
+    _libc = ctypes.PyDLL(None)
+
+    class _Timespec(ctypes.Structure):
+        _fields_ = [("tv_sec", ctypes.c_long), ("tv_nsec", ctypes.c_long)]
+
+    _cond = ctypes.c_buffer(96)
+    _mtx = ctypes.c_buffer(64)
+    assert _libc.pthread_cond_init(_cond, None) == 0
+    assert _libc.pthread_mutex_init(_mtx, None) == 0
+
+    async def c_blocked_wait(self, timeout=None):
+        if not getattr(self, "_cblock_entered", False):
+            self._cblock_entered = True
+            print("C_BLOCK_ENTERED", flush=True)
+            assert _libc.pthread_mutex_lock(_mtx) == 0
+            deadline = _Timespec(int(_time.time()) + 3, 0)
+            _libc.pthread_cond_timedwait(_cond, _mtx, ctypes.byref(deadline))
+            _libc.pthread_mutex_unlock(_mtx)
+            print("C_BLOCK_DONE", flush=True)
+        return await _original_wait(self, timeout=timeout)
+
+    MedreApp.wait_for_shutdown = c_blocked_wait
 elif mode == "stop":
     from medre.runtime.app import MedreApp
 
@@ -98,6 +146,9 @@ elif mode == "startup":
     PipelineRunner.start = held_start
 
 from medre.cli import run_commands
+if mode == "stop":
+    # The fallback poll must be too long to satisfy the wakeup-path bound.
+    run_commands._SHUTDOWN_POLL_SECONDS = 30.0
 
 try:
     asyncio.run(run_commands._run(config_path, None))
@@ -322,3 +373,74 @@ def test_sync_loop_work_defers_acknowledgment_until_released(tmp_path):
         child.kill_if_running()
     _assert_clean_exit(child)
     _assert_signal_receipt(child, 1)
+
+
+#: The stop-mode fallback poll is 30s. A generous 5s bound catches a lost
+#: wakeup while accommodating output/logging latency on busy CI runners.
+_FIRST_PRESS_TEARDOWN_BOUND_SECONDS = 5.0
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_first_of_adjacent_presses_starts_teardown_immediately(tmp_path, signum):
+    """An adjacent pair begins teardown from the first press, not the second.
+
+    Teardown is pinned open so the second press lands inside it and is
+    counted, mirroring the field pattern where teardown spans the presses.
+    """
+    child = _ChildRun(_write_config(tmp_path), tmp_path, "stop")
+    try:
+        child.wait_for_line(_READY_MARKERS, 60)
+        sent_at = child.send_signal(signum)
+        child.wait_for_line(_STOP_HELD_MARKER, _ACK_BOUND_SECONDS)
+        first_press_latency = time.monotonic() - sent_at
+        assert first_press_latency < _FIRST_PRESS_TEARDOWN_BOUND_SECONDS
+        child.send_signal(signum)
+        child.release()
+        assert child.wait_exit(30) == 0
+    finally:
+        child.kill_if_running()
+    _assert_clean_exit(child)
+    _assert_signal_receipt(child, 2)
+
+
+@pytest.mark.skipif(
+    not (
+        sys.platform == "linux"
+        and platform.libc_ver()[0] == "glibc"
+        and platform.machine().lower() in {"x86_64", "amd64"}
+    ),
+    reason="native pthread test uses glibc x86-64 mutex/condition layouts",
+)
+def test_coalesced_presses_are_counted_through_the_wakeup_pipe(tmp_path):
+    """Presses delivered inside one un-serviced window are all counted.
+
+    While the loop thread is blocked in a C call that never returns on EINTR,
+    CPython services pending signals only once, after the call returns, and
+    coalesces every delivery behind it. Before the wakeup pipe existed the
+    receipt then reported one request for two presses and the first-request
+    timestamp pointed at the servicing round instead of the presses. The
+    pipe records one byte per delivery, so both presses are reported.
+    """
+    child = _ChildRun(_write_config(tmp_path), tmp_path, "cblock")
+    try:
+        child.wait_for_line(_READY_MARKERS, 60)
+        child.wait_for_line(_C_BLOCK_ENTERED_MARKER, 30)
+        # Land both deliveries inside the three-second un-serviced window.
+        # Entry is proven by the marker; the offsets keep the presses clear
+        # of the call's entry window and of each other. The native window lasts
+        # two to three seconds, leaving ample margin after the second press. The spacing is
+        # allowlisted in test_test_suite_structure.py: an un-serviced
+        # native call exposes no observable condition to wait on, so
+        # wait_until/Event cannot replace it without changing what the
+        # test reproduces.
+        time.sleep(0.15)
+        child.send_signal(signal.SIGINT)
+        time.sleep(0.2)
+        child.send_signal(signal.SIGINT)
+        child.wait_for_line(_C_BLOCK_DONE_MARKER, 30)
+        child.wait_for_line(_SHUTDOWN_MARKER, _ACK_BOUND_SECONDS)
+        assert child.wait_exit(30) == 0
+    finally:
+        child.kill_if_running()
+    _assert_clean_exit(child)
+    _assert_signal_receipt(child, 2)

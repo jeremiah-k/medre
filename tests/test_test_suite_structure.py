@@ -63,6 +63,13 @@ ALLOW_FIXED_SLEEP: tuple[tuple[str, float], ...] = (
     # synchronous loop that exits on the first successful /versions probe;
     # the sync starter cannot use the async wait_until helper.
     ("tests/helpers/synapse_starter.py", 2.0),
+    # Signal-coalescing repro — the two presses must land at distinct
+    # offsets inside the child's un-serviced native-call window. That
+    # window deliberately offers no observable condition to wait on, so
+    # the press spacing cannot be replaced by wait_until/Event without
+    # changing what the test reproduces.
+    ("tests/test_cli_signal_shutdown.py", 0.15),
+    ("tests/test_cli_signal_shutdown.py", 0.2),
 )
 
 

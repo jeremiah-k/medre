@@ -173,8 +173,8 @@ Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry
 
 ### Signal Handling
 
-- **First Ctrl-C / SIGTERM**: Initiates graceful shutdown. Process exits with code 0 if clean.
-- **Repeated Ctrl-C / SIGTERM**: Coalesced into the same graceful shutdown; never a hard kill and never an interruption of owned cleanup. The shutdown summary snapshots the requests observed by Python’s handler and the age of its first observation; pending signals can coalesce.
+- **First Ctrl-C / SIGTERM**: Initiates graceful shutdown immediately, without waiting out the one-second fallback poll tick. Process exits with code 0 if clean.
+- **Repeated Ctrl-C / SIGTERM**: Coalesced into the same graceful shutdown; never a hard kill and never an interruption of owned cleanup. The shutdown summary snapshots the shutdown requests and the age of the first observation. When MEDRE can exclusively own a wakeup pipe and its buffer has capacity, each delivered shutdown signal is counted: presses that arrive while the loop thread is un-serviced inside a C call coalesce into one Python handler invocation, but the pipe preserves their count. If a host already owns the process wakeup fd (or the platform cannot supply one), MEDRE preserves that owner and falls back to counting Python handler invocations; these can undercount coalesced deliveries. The first-observation timestamp is the first servicing round, which can trail the first delivery by the length of that window.
 - **SIGKILL**: No graceful shutdown. No logs. SQLite on disk is preserved (WAL mode). Deliveries without outbox rows are lost.
 
 Signal handlers are reset at the start of each `medre run` invocation.
