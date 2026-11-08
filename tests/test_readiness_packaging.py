@@ -22,6 +22,8 @@ def test_sdist_rebuilt_wheel_loads_its_own_compatibility_snapshot(
         source / "src" / "medre",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
+    # A wheel rebuilt from a release sdist needs the frozen schema source.
+    shutil.copytree(root / "docs" / "schemas", source / "docs" / "schemas")
     snapshot = root / ".github" / "adapter-compatibility.json"
     expected = snapshot.read_bytes()
     (source / ".github").mkdir()
@@ -46,6 +48,13 @@ def test_sdist_rebuilt_wheel_loads_its_own_compatibility_snapshot(
     wheel = next(artifacts.glob("*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         assert archive.read("medre/_data/" + snapshot.name) == expected
+        frozen = json.loads(archive.read("medre/_schemas/v0.1.0.freeze.json"))
+        for name in frozen["schema_files_sha256"]:
+            assert (
+                archive.read("medre/_schemas/" + name)
+                == (root / "docs" / "schemas" / name).read_bytes()
+            )
+        assert not any("/examples/" in name for name in archive.namelist())
     # There is no generated second authority in the source package.
     assert not (source / "src" / "medre" / "_data" / snapshot.name).exists()
     foreign = tmp_path / "foreign"
