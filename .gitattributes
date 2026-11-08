@@ -1,0 +1,3 @@
+# Frozen schema digests are recorded over repository blob bytes; checkout
+# line-ending translation would make packaged-schema verification fail.
+docs/schemas/** -text
