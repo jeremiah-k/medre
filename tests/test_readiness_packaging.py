@@ -62,6 +62,13 @@ sys.path.insert(0, sys.argv[1])
 from medre.runtime import readiness_report
 assert sys.argv[1] in readiness_report.__file__
 status, entries = readiness_report._load_manifest()
+from medre.runtime.support_bundle import _build_schemas_member
+schemas = _build_schemas_member()
+assert schemas.schema_source == "package-data"
+assert not schemas.validate_example_configs_script_present
+for name in ("runtime_config_schema", "adapter_config_schema", "routing_config_schema", "evidence_bundle_schema"):
+    entry = getattr(schemas, name)
+    assert entry.present and entry.id and entry.schema, entry
 print(json.dumps([status, [entry['ref'] for entry in entries]]))
 """,
             str(wheel),

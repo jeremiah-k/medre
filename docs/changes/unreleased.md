@@ -460,9 +460,9 @@ this file once they land.
   bump. `adapters.json` stays a plain dict (conditionally-present fields).
 - **Package-safe schema reporting.** `schemas.json` carries a
   `schema_source` field (`"source-tree"` when `docs/schemas/` is reachable,
-  `"not-packaged"` under a wheel / site-packages install) so the absence of
-  schema files and the example-config validator script in an installed
-  package is reported as expected, not mistaken for schema drift. Per-entry
+  `"package-data"` for installed schema resources, or `"not-packaged"` if
+  neither location is available). The example-config validator script is
+  reported independently because it remains a source-only resource. Per-entry
   `SchemaEntry` shapes, msgspec `$id` / `$schema` aliases, and the offline
   no-I/O contract are unchanged.
 

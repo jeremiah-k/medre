@@ -4,6 +4,11 @@ Machine-readable JSON Schema definitions for MEDRE data structures and stable
 adapter-owned serialization contracts. Core schemas mirror source models; adapter
 contract schemas mirror their projection helpers and normative specifications.
 
+Source distributions include this directory. Wheels include the same bytes
+under `medre/_schemas`, including the freeze manifest and examples. Installed
+consumers can read them with
+`importlib.resources.files("medre").joinpath("_schemas")` without a Git checkout.
+
 ## Schema Files
 
 | Schema                                           | Source Type                                                     | Description                                                                                                                   |

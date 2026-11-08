@@ -164,6 +164,44 @@ def test_wheel_proof_rejects_stale_or_missing_package_files(
         proof._resolve_wheel(str(wheel), tmp_path, "0.1.0", [])
 
 
+@pytest.mark.parametrize("mutation", [None, "missing", "changed", "extra"])
+@pytest.mark.parametrize("required", [False, True])
+def test_wheel_schema_proof_checks_inventory_and_frozen_bytes(
+    tmp_path: Path, mutation: str | None, required: bool
+) -> None:
+    import hashlib
+    import json
+    from zipfile import ZipFile
+
+    proof = _load_proof_module()
+    wheel = tmp_path / "distribution.whl"
+    schema = b'{"type":"object"}'
+    root = "medre/_schemas" if required else "medre/adapters/matrix/_schemas"
+    with ZipFile(wheel, "w") as archive:
+        if mutation != "missing":
+            archive.writestr(
+                f"{root}/v0.1.0.freeze.json",
+                json.dumps(
+                    {
+                        "schema_files_sha256": {
+                            "event.schema.json": hashlib.sha256(schema).hexdigest()
+                        }
+                    }
+                ),
+            )
+        archive.writestr(
+            f"{root}/event.schema.json", b"changed" if mutation == "changed" else schema
+        )
+        if mutation == "extra":
+            archive.writestr(f"{root}/untracked.schema.json", schema)
+
+    if mutation is None or mutation == "missing" and not required:
+        proof._verify_wheel_schema_files(wheel, required=required)
+    else:
+        with pytest.raises(SystemExit):
+            proof._verify_wheel_schema_files(wheel, required=required)
+
+
 def test_proof_subprocess_decodes_invalid_windows_console_bytes(
     tmp_path: Path,
 ) -> None:
@@ -202,3 +240,31 @@ def test_proof_subprocess_keeps_nonzero_status_with_invalid_bytes(
     )
     assert result.returncode == 7
     assert result.stderr == "\ufffd"
+
+
+@pytest.mark.parametrize("location", ["medre/elsewhere/_schemas", "other/_schemas"])
+def test_core_schema_proof_requires_the_installed_resource_path(
+    tmp_path: Path, location: str
+) -> None:
+    import hashlib
+    import json
+    from zipfile import ZipFile
+
+    proof = _load_proof_module()
+    wheel = tmp_path / "distribution.whl"
+    schema = b'{"type":"object"}'
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{location}/event.schema.json", schema)
+        archive.writestr(
+            f"{location}/v0.1.0.freeze.json",
+            json.dumps(
+                {
+                    "schema_files_sha256": {
+                        "event.schema.json": hashlib.sha256(schema).hexdigest()
+                    }
+                }
+            ),
+        )
+    proof._verify_wheel_schema_files(wheel, required=False)
+    with pytest.raises(SystemExit):
+        proof._verify_wheel_schema_files(wheel, required=True)

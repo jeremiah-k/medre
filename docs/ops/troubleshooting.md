@@ -797,6 +797,11 @@ storage-backed delivery evidence for receipt investigation. Do not use
 | `adapters.json`        | Adapter summary: `adapter_id`, `transport`, `enabled`, `origin_label`, `adapter_kind`, plus value-free `connection_type`, `endpoint_fields_present`, and `secret_fields_present` (booleans only) |
 | `redacted_config.yaml` | Parsed config with secret-named field values replaced with `***REDACTED***` (keys preserved)                                                                                                     |
 
+Schema metadata comes from `docs/schemas/` in a checkout (`schema_source` is
+`"source-tree"`), or from installed `medre/_schemas` resources (`"package-data"`).
+If neither is available, `schema_source` is `"not-packaged"`. The example-config
+validator script remains source-only and its presence is reported separately.
+
 ### What is NOT in the bundle
 
 The support bundle is **observational, not delivery evidence**. It is
