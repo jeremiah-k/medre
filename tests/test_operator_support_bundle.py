@@ -1197,6 +1197,10 @@ def test_schema_entry_failure_shape_in_full_bundle(
     monkeypatch.setattr(
         "medre.runtime.support_bundle._SCHEMAS_DIR", tmp_path / "no-schemas"
     )
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle.importlib.resources.files",
+        lambda _package: tmp_path / "no-package",
+    )
 
     out = create_support_bundle(config_path=cfg, output_path=tmp_path / "bundle.zip")
     members = _read_bundle(out)
@@ -1225,7 +1229,7 @@ def test_schema_source_reports_not_packaged_when_schema_tree_unreachable(
     ``"not-packaged"`` so operators understand the per-entry
     ``present: false`` reports as expected rather than as drift.
 
-    Simulates a wheel / site-packages install by pointing
+    Simulates an installation missing both schema locations by pointing
     ``_SCHEMAS_DIR`` and the validator-script path at non-existent
     locations. The bundle stays JSON-valid, every schema entry carries
     its locked failure shape, and the top-level
@@ -1236,6 +1240,10 @@ def test_schema_source_reports_not_packaged_when_schema_tree_unreachable(
     cfg = _write_config(tmp_path, CONFIG_VALID)
     monkeypatch.setattr(
         "medre.runtime.support_bundle._SCHEMAS_DIR", tmp_path / "no-schemas"
+    )
+    monkeypatch.setattr(
+        "medre.runtime.support_bundle.importlib.resources.files",
+        lambda _package: tmp_path / "no-package",
     )
     monkeypatch.setattr(
         "medre.runtime.support_bundle._VALIDATE_EXAMPLE_CONFIGS_SCRIPT",

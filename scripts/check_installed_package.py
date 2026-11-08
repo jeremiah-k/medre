@@ -44,6 +44,7 @@ Exit codes: 0 = all proofs passed, 1 = a proof or prerequisite failed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -381,6 +382,55 @@ def _verify_wheel_package_files(wheel: Path) -> None:
         "wheel contents",
         f"package modules differ from source; absent from wheel={sorted(expected - actual)}, absent from source={sorted(actual - expected)}. Source inventory includes untracked .py files: remove abandoned modules or rebuild the wheel after adding them. Remove stale build/lib outputs before rebuilding.",
     )
+    _verify_wheel_schema_files(wheel)
+
+
+def _verify_wheel_schema_files(wheel: Path, *, required: bool = True) -> None:
+    """Prove a wheel carries the exact frozen schema bundle it advertises."""
+    try:
+        with ZipFile(wheel) as archive:
+            names = archive.namelist()
+            manifests = [
+                name for name in names if name.endswith("/_schemas/v0.1.0.freeze.json")
+            ]
+            if not manifests and not required:
+                return
+            _expect(
+                len(manifests) == 1, "wheel schemas", "expected one freeze manifest"
+            )
+            manifest = manifests[0]
+            _expect(
+                not required or manifest == "medre/_schemas/v0.1.0.freeze.json",
+                "wheel schemas",
+                "core schema bundle must be located at medre/_schemas",
+            )
+            root = manifest.rsplit("/", 1)[0]
+            frozen = json.loads(archive.read(manifest))["schema_files_sha256"]
+            _expect(
+                isinstance(frozen, dict) and bool(frozen),
+                "wheel schemas",
+                "expected a nonempty schema digest mapping",
+            )
+            actual = {
+                name.rsplit("/", 1)[1]
+                for name in names
+                if name.rsplit("/", 1)[0] == root
+                and name.endswith((".schema.json", ".schema.yaml", ".schema.sql"))
+            }
+            _expect(
+                actual == set(frozen),
+                "wheel schemas",
+                "packaged schema inventory differs from the freeze manifest",
+            )
+            for name, expected in frozen.items():
+                digest = hashlib.sha256(archive.read(f"{root}/{name}")).hexdigest()
+                _expect(
+                    digest == expected,
+                    "wheel schemas",
+                    f"packaged schema digest differs from freeze manifest: {name}",
+                )
+    except (OSError, BadZipFile, KeyError, TypeError, ValueError) as exc:
+        _fail("wheel schemas", f"invalid schema bundle: {type(exc).__name__}")
 
 
 def _resolve_wheel(
@@ -506,6 +556,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     adapter_wheels = [Path(path).resolve(strict=True) for path in args.adapter_wheel]
+    for adapter_wheel in adapter_wheels:
+        _verify_wheel_schema_files(adapter_wheel, required=False)
 
     _name, version, build_requires, project_data = _load_project_metadata()
     required_distributions, forbidden_distributions = _declared_distributions(

@@ -1776,3 +1776,12 @@ The typed [exact-target recovery observation contract](exact-target-recovery.md)
 freezes the selection key, the closed category vocabulary and the raw
 generation semantics shared by every exact-target observation surface; it
 remains an observation with no execution authority.
+
+## Offline support-bundle schema discovery
+
+The offline operator support bundle MUST report schema metadata from the source
+tree when available, then from installed `medre/_schemas` package resources.
+Its `schema_source` MUST distinguish `source-tree`, `package-data`, and
+`not-packaged`. A missing example-config validator script MUST NOT imply that
+packaged schema resources are absent. Missing or malformed schema entries MUST
+retain the existing four-key failure shape without starting adapter SDKs.

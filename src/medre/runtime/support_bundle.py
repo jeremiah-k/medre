@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
+import importlib.resources
 import json
 import os
 import platform
@@ -27,6 +28,7 @@ import sys
 import zipfile
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -129,12 +131,10 @@ class SchemasMember(msgspec.Struct, frozen=True):
 
     ``schema_source`` reports whether the schema tree is reachable from
     this installation: ``"source-tree"`` when ``docs/schemas/`` is found
-    relative to the package (a source checkout or editable install), or
-    ``"not-packaged"`` when it is unreachable (a wheel / site-packages
-    install). The schema files and the example-config validator script
-    are source-checkout-only resources and are not shipped as package
-    data, so a ``"not-packaged"`` value contextualises the per-entry
-    ``present: false`` reports as expected rather than as drift.
+    relative to the package (a source checkout or editable install),
+    ``"package-data"`` for installed ``medre/_schemas`` resources, or
+    ``"not-packaged"`` when neither is available. The example-config
+    validator script is a separate, source-checkout-only resource.
     """
 
     runtime_config_schema: SchemaEntry
@@ -240,14 +240,26 @@ _VALIDATE_EXAMPLE_CONFIGS_SCRIPT = (
 )
 
 
-def _read_schema_meta(filename: str) -> SchemaEntry:
-    """Return presence + ``$id``/``$schema`` for *filename* under docs/schemas.
+def _schema_location() -> tuple[Traversable, str]:
+    """Prefer checkout schemas, falling back to wheel/zip package resources."""
+    if _SCHEMAS_DIR.is_dir():
+        return _SCHEMAS_DIR, "source-tree"
+    packaged = importlib.resources.files("medre").joinpath("_schemas")
+    return packaged, "package-data" if packaged.is_dir() else "not-packaged"
+
+
+def _read_schema_meta(
+    filename: str, directory: Traversable | None = None
+) -> SchemaEntry:
+    """Return presence + ``$id``/``$schema`` for an available schema resource.
 
     Defensive by design: a missing or malformed schema never raises. Returns
     a :class:`SchemaEntry` with ``present=False`` on any failure so the
     bundle stays JSON-valid.
     """
-    path = _SCHEMAS_DIR / filename
+    if directory is None:
+        directory, _ = _schema_location()
+    path = directory.joinpath(filename)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -273,22 +285,27 @@ def _build_schemas_member() -> SchemasMember:
     validator script exists. Useful for diagnosing config/schema drift
     between a deployment and the schemas the bundle was built against.
 
-    ``schema_source`` reports whether the schema tree is reachable from
-    this installation. Schema files and the validator script are
-    source-checkout-only resources (they live under ``docs/schemas/``
-    and ``scripts/ci/`` and are not shipped as package data); when the
-    tree is unreachable the per-entry ``present: false`` reports are the
-    expected consequence, not a defect. Defensive — never raises.
+    Installed distributions carry schemas as package data. The validator
+    script remains source-only and its presence is reported independently.
     """
+    directory, source = _schema_location()
     return SchemasMember(
-        runtime_config_schema=_read_schema_meta("runtime-config.schema.json"),
-        adapter_config_schema=_read_schema_meta("adapter-config.schema.json"),
-        routing_config_schema=_read_schema_meta("routing-config.schema.json"),
-        evidence_bundle_schema=_read_schema_meta("evidence-bundle.schema.json"),
+        runtime_config_schema=_read_schema_meta(
+            "runtime-config.schema.json", directory
+        ),
+        adapter_config_schema=_read_schema_meta(
+            "adapter-config.schema.json", directory
+        ),
+        routing_config_schema=_read_schema_meta(
+            "routing-config.schema.json", directory
+        ),
+        evidence_bundle_schema=_read_schema_meta(
+            "evidence-bundle.schema.json", directory
+        ),
         validate_example_configs_script_present=(
             _VALIDATE_EXAMPLE_CONFIGS_SCRIPT.is_file()
         ),
-        schema_source="source-tree" if _SCHEMAS_DIR.is_dir() else "not-packaged",
+        schema_source=source,
     )
 
 

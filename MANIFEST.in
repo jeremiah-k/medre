@@ -1,1 +1,2 @@
 include .github/adapter-compatibility.json
+recursive-include docs/schemas *
