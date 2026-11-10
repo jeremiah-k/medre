@@ -9,6 +9,28 @@ from setuptools import setup
 from setuptools.command.build_py import build_py
 
 
+def frozen_schema_bytes(path: Path, expected: str) -> bytes:
+    """Recover frozen LF bytes only when the manifest proves exact identity.
+
+    A Git clone of main followed by checkout of a candidate revision can retain
+    unchanged CRLF files even when that revision adds a -text attribute.
+    """
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() == expected:
+        return data
+    # The setuptools PEP 517 runner rewrites escaped CRLF literals in setup.py.
+    restored = data.replace(bytes((13, 10)), bytes((10,)))
+    if hashlib.sha256(restored).hexdigest() != expected:
+        raise ValueError(
+            f"Frozen schema digest mismatch: {path.name}; "
+            f"expected={expected}; actual={hashlib.sha256(data).hexdigest()}; "
+            f"lf={hashlib.sha256(restored).hexdigest()}; "
+            f"size={len(data)}; restored_size={len(restored)}; "
+            f"crlf_count={data.count(bytes((13, 10)))}; prefix={data[:16].hex()}"
+        )
+    return restored
+
+
 class BuildPyWithCompatibility(build_py):
     """Copy runtime resources without maintaining another source snapshot."""
 
@@ -38,9 +60,7 @@ class BuildPyWithCompatibility(build_py):
             ):
                 raise ValueError(f"Invalid frozen schema entry: {name!r}")
             path = schema_root / name
-            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                raise ValueError(f"Frozen schema digest mismatch: {name}")
-            self.copy_file(str(path), str(schema_target / name))
+            (schema_target / name).write_bytes(frozen_schema_bytes(path, expected))
         self.copy_file(str(freeze_manifest), str(schema_target / freeze_manifest.name))
 
 
