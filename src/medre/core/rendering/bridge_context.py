@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from typing import TYPE_CHECKING, Any
 
 import msgspec
@@ -12,6 +14,9 @@ if TYPE_CHECKING:
 
 _MAX_STRING = 1024
 _MAX_RELATIONS = 32
+_MAX_FACTS = 12
+_MAX_FACT_VALUE = 256
+_FACT_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 _SOURCE_FIELDS = (
     "adapter",
     "platform",
@@ -53,6 +58,62 @@ def _native_ref(value: object) -> dict[str, object] | None:
     return result
 
 
+def _native_facts(value: object) -> dict[str, object] | None:
+    """Validate one explicitly public, source-owned fact projection.
+
+    This is an *untrusted claim*, not native identity, signature evidence or
+    authorization. Only scalar, bounded data may cross the transport boundary.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"namespace", "fields"}:
+        raise ValueError("invalid native-facts envelope")
+    namespace, fields = value["namespace"], value["fields"]
+    if not isinstance(namespace, str) or not _FACT_NAME.fullmatch(namespace):
+        raise ValueError("invalid native-facts namespace")
+    if not isinstance(fields, dict) or not 1 <= len(fields) <= _MAX_FACTS:
+        raise ValueError("invalid native-facts inventory")
+    clean: dict[str, object] = {}
+    for key, item in fields.items():
+        if not isinstance(key, str) or not _FACT_NAME.fullmatch(key):
+            raise ValueError("invalid native-facts field")
+        if type(item) is str and len(item) <= _MAX_FACT_VALUE:
+            clean[key] = item
+        elif type(item) is bool:
+            clean[key] = item
+        elif type(item) is int and -(2**31) <= item < 2**31:
+            clean[key] = item
+        elif (
+            type(item) is float
+            and math.isfinite(item)
+            and item.is_integer()
+            and -(2**31) <= item < 2**31
+        ):
+            # JSON Schema integers are mathematical values, including 1.0/1e0.
+            clean[key] = int(item)
+        else:
+            raise ValueError("invalid native-facts value")
+    return {"namespace": namespace, "fields": clean}
+
+
+def _public_source_facts(event: CanonicalEvent) -> dict[str, object] | None:
+    """Select only an adapter's explicit public_facts, never arbitrary native data."""
+    native = event.metadata.native if event.metadata else None
+    if native is None:
+        return None
+    candidates = [
+        {"namespace": namespace, "fields": data["public_facts"]}
+        for namespace, data in native.data.items()
+        if isinstance(namespace, str)
+        and isinstance(data, dict)
+        and type(data.get("schema_version")) is int
+        and data["schema_version"] == 1
+        and "public_facts" in data
+    ]
+    # Ambiguous native sources are not transport-neutral evidence.
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def normalize_bridge_context(value: object) -> dict[str, Any] | None:
     """Validate known v1 fields and discard unknown data without trusting its claims."""
     if (
@@ -75,6 +136,11 @@ def normalize_bridge_context(value: object) -> dict[str, Any] | None:
         return None
     try:
         clean_source["native_ref"] = _native_ref(source.get("native_ref"))
+        if "native_facts" in source:
+            facts = _native_facts(source["native_facts"])
+            if facts is None:
+                raise ValueError("null native facts are not a valid projection")
+            clean_source["native_facts"] = facts
         clean_relations = []
         for relation in relations:
             if not isinstance(relation, dict):
@@ -131,6 +197,9 @@ def build_bridge_context(
             sender_verification=getattr(attribution, "source_sender_verification", None)
             or "unknown",
         )
+    native_facts = _public_source_facts(event)
+    if native_facts is not None:
+        source["native_facts"] = native_facts
     relations = [
         {
             "relation_type": relation.relation_type,

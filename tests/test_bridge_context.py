@@ -223,3 +223,165 @@ def test_canonical_reaction_context_is_transport_neutral(transport: str) -> None
     )
     Draft202012Validator(schema).validate(context)
     assert normalize_bridge_context(context) == context
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {
+            "namespace": "meshtastic",
+            "fields": {"portnum": "TEXT_MESSAGE_APP", "meshnet_label": "Local"},
+        },
+        {"namespace": "lxmf", "fields": {"hop_count": 0, "propagated": False}},
+        {"namespace": "xmpp", "fields": {"thread_hint": "team"}},
+    ],
+)
+def test_source_native_facts_are_bounded_and_transport_neutral(value):
+    """One source-owned public projection survives canonical normalization."""
+    from msgspec.structs import replace
+
+    from medre.core.events import NativeMetadata
+
+    original = event()
+    native = replace(
+        original,
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    value["namespace"]: {
+                        "schema_version": 1,
+                        "public_facts": value["fields"],
+                        "private_key": "NEVER_EXPOSE",
+                    }
+                }
+            )
+        ),
+    )
+    context = build_bridge_context(native)
+    assert context is not None
+    assert context["source"]["native_facts"] == value
+    assert "private_key" not in json.dumps(context)
+    validator = Draft202012Validator(
+        json.loads(
+            (
+                Path(__file__).parents[1] / "docs/schemas/bridge-context.schema.json"
+            ).read_text()
+        )
+    )
+    validator.validate(context)
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        {"namespace": "meshtastic", "fields": {}},
+        {"namespace": "meshtastic", "fields": {"portnum": None}},
+        {"namespace": "meshtastic", "fields": {"portnum": 2**32}},
+        {"namespace": "meshtastic", "fields": {"portnum": 1.2}},
+        {"namespace": "meshtastic", "fields": {"portnum": "x" * 257}},
+        {"namespace": "bad namespace", "fields": {"portnum": 1}},
+        {"namespace": "meshtastic\n", "fields": {"portnum": 1}},
+        {"namespace": "meshtastic", "fields": {"name\n": 1}},
+        {"namespace": "meshtastic", "fields": {"bad.field": 1}},
+        {"namespace": "meshtastic", "fields": {str(i): i for i in range(13)}},
+        {"namespace": "meshtastic", "fields": {"portnum": 1}, "secret": "leak"},
+    ],
+)
+def test_invalid_native_fact_claim_is_rejected(facts):
+    """Reject invalid/oversized facts without interpreting them as identity."""
+    context = build_bridge_context(event())
+    assert context is not None
+    context["source"]["native_facts"] = facts
+    validator = Draft202012Validator(
+        json.loads(
+            (
+                Path(__file__).parents[1] / "docs/schemas/bridge-context.schema.json"
+            ).read_text()
+        )
+    )
+    assert not validator.is_valid(context)
+    assert normalize_bridge_context(context) is None
+
+
+def test_opt_in_native_facts_never_dump_unselected_namespaces():
+    """Native packet material is never copied just because it exists."""
+    from msgspec.structs import replace
+
+    from medre.core.events import NativeMetadata
+
+    original = event()
+    native = replace(
+        original,
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "meshtastic": {
+                        "schema_version": 1,
+                        "portnum": "TEXT_MESSAGE_APP",
+                        "decoded": {"psk": "PRIVATE"},
+                    }
+                }
+            )
+        ),
+    )
+    context = build_bridge_context(native)
+    assert context is not None
+    assert "native_facts" not in context["source"]
+    assert "PRIVATE" not in json.dumps(context)
+
+
+@pytest.mark.parametrize("value", [0.0, 1.0, -2147483648.0, 2147483647.0])
+def test_integral_json_numbers_normalize_without_losing_relations(value):
+    context = build_bridge_context(event())
+    context["source"]["native_facts"] = {
+        "namespace": "meshtastic",
+        "fields": {"portnum": value},
+    }
+    schema = json.loads(
+        (
+            Path(__file__).parents[1] / "docs/schemas/bridge-context.schema.json"
+        ).read_text()
+    )
+    Draft202012Validator(schema).validate(context)
+    normalized = normalize_bridge_context(context)
+    assert normalized is not None
+    number = normalized["source"]["native_facts"]["fields"]["portnum"]
+    assert type(number) is int and number == value
+    assert normalized["relations"] == context["relations"]
+
+
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), -float("inf"), 2147483648.0, -2147483649.0]
+)
+def test_nonfinite_or_out_of_range_fact_numbers_are_rejected(value):
+    context = build_bridge_context(event())
+    context["source"]["native_facts"] = {
+        "namespace": "meshtastic",
+        "fields": {"portnum": value},
+    }
+    assert normalize_bridge_context(context) is None
+
+
+@pytest.mark.parametrize("version", [None, True, False, 0, 2, "1"])
+def test_unknown_native_versions_cannot_export_public_facts(version):
+    from msgspec.structs import replace
+
+    from medre.core.events import NativeMetadata
+
+    source = replace(
+        event(),
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data={
+                    "meshtastic": {
+                        "schema_version": version,
+                        "public_facts": {"portnum": 1},
+                    }
+                }
+            )
+        ),
+    )
+    context = build_bridge_context(source)
+    assert context is not None
+    assert "native_facts" not in context["source"]
+    assert context["relations"] == build_bridge_context(event())["relations"]

@@ -562,6 +562,7 @@ class RenderingContext:
     capability_level: CapabilityLevel = "native"
     source_origin_label: str | None = None
     target_destination: RouteDestination | None = None
+    source_attribution: RelayAttribution | None = None
 ```
 
 `delivery_strategy` is a **context hint, not a renderer selector**. When the strategy is `"fallback_text"`, the target-native renderer still produces its native output format (e.g. a Matrix renderer produces Matrix msgtype/body, a Meshtastic renderer produces Meshtastic text). The pipeline does **not** bypass target-native renderers or switch to a generic text renderer based on this field. Instead, the target-native renderer uses the hint to degrade relation rendering to inline text within its own format.
@@ -575,6 +576,13 @@ class RenderingContext:
 `source_origin_label` is the route-resolved source attribution label supplied to renderers. `None` means no route-level override is present and the renderer may fall back to adapter/native attribution according to the routing specification.
 
 `target_destination` carries the structured route destination when one exists. Renderers that address a specific entity **MUST** prefer this structured destination over the convenience `target_channel` value; `None` means the target is channel-addressed only.
+
+`source_attribution` supplies generic source sender and origin claims when an
+embedding application owns the source transport. It MUST NOT replace the
+observed transport identity or confer verification or relation authority.
+Renderers MUST prefer an explicit `source_origin_label`, including an empty
+string, over the supplied attribution's origin. `None` retains adapter/native
+attribution behavior.
 
 ### 10.2 RenderingResult
 

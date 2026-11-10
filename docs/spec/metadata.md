@@ -129,7 +129,19 @@ only `schema_version`, `canonical_event_id`, `source_transport_id`, and
 `metadata_mode` inside its envelope. `safe` MUST add event/source/native-reference
 identity and normalized `transport`, `routing`, `radio`, and `telemetry` domains
 under `content.medre.metadata`. It MUST exclude provider-native and custom
-metadata. `full` MUST additionally include canonical native/custom metadata;
+metadata except an explicitly selected, bounded source-native fact projection.
+`bridge_context.source.native_facts` MAY carry one adapter-owned namespace and
+up to twelve named scalar fields from its explicit `public_facts` map. Names
+MUST match the published schema; strings are limited to 256 characters, integers
+to signed 32-bit values, and booleans are permitted. Finite integral JSON
+numbers (including `1.0` and `1e0`) MUST normalize to integers, matching JSON
+Schema integer semantics. Fractional/nonfinite numbers, containers, nulls,
+unknown members, invalid names, and excess fields MUST reject the projection.
+Only native namespaces with supported integer schema version 1 may expose
+public facts; missing, boolean, or unsupported versions MUST remain opaque.
+No raw native packet or SDK object is implicitly public. Generic sender long
+and short names remain attribution fields rather than native facts.
+`full` MUST additionally include canonical native/custom metadata;
 configuration, credentials, and SDK objects are never projection inputs.
 
 The adapter owns the machine-readable wire schema at
