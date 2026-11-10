@@ -50,6 +50,7 @@ from typing import (
 )
 
 from medre.core.events import CanonicalEvent, DeliveryAttemptProvenance
+from medre.core.rendering.attribution import RelayAttribution
 from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.routing.models import RouteDestination
 
@@ -156,6 +157,10 @@ class RenderingContext:
         route-level label set" — renderers fall back to the adapter
         origin label.  Populated by the delivery pipeline from the
         route's source descriptor.
+    source_attribution:
+        Optional source-supplied presentation snapshot for an embedding consumer
+        that does not instantiate the originating adapter. Sender labels are
+        claims, not authorization, and event-native source IDs remain authoritative.
     target_destination:
         Optional structured destination for the delivery target,
         threaded from ``RouteTarget.destination`` by the delivery
@@ -176,6 +181,7 @@ class RenderingContext:
     capability_level: CapabilityLevel = "native"
     source_origin_label: str | None = None
     target_destination: RouteDestination | None = None
+    source_attribution: RelayAttribution | None = None
 
     _VALID_STRATEGIES: ClassVar[frozenset[str]] = frozenset(
         get_args(DeliveryStrategyMethod)

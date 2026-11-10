@@ -44,7 +44,7 @@ replace that body. The same distinction applies to other transports.
 | Reaction emoji               | `EventRelation.key`                               | `bridge_context.relations[].key`                                        |
 | Target packet ID             | `relations[].target_native_ref.native_message_id` | Scoped bridge relation target, no implicit ID guessing                  |
 | Display long/short names     | Adapter-native namespace, attribution projection  | `bridge_context.source.sender_name` / `sender_short_name` when supplied |
-| Portnum / detection metadata | `metadata.native.data["meshtastic"]["portnum"]`   | **Not included in default Matrix safe-mode bridge context**             |
+| Portnum / detection metadata | `metadata.native.data["meshtastic"]["portnum"]`   | Explicit `bridge_context.source.native_facts.fields.portnum` projection |
 
 **Proven transport mechanisms:** Matrix embeds MEDRE provenance and bridge
 context in JSON event content; LXMF embeds bounded bridge context inside its
@@ -52,29 +52,23 @@ context in JSON event content; LXMF embeds bounded bridge context inside its
 extension. None of these embedded claims confer sender authority. Non-Matrix
 peers may exchange relation hints without a Matrix account or homeserver.
 
-## Unresolved end-to-end projection issue — pre-tag gate
+## Source projection and qualification gates
 
-MEDRE's core event can store Meshtastic portnum, sender names and channel under
-its versioned source-native namespace, but Matrix `safe` mode intentionally
-omits unbounded native metadata. There is currently no source-adapter-approved,
-portable safe projection for portnum over `bridge_context`. Likewise, the
-`bridge_context` relation hints do not constitute authorization to mutate
-native messages. Do not claim that a Matrix shared-room peer reconstructs all
-original source-native facts, or that arbitrary upstream provenance has been
-verified. Add a bounded, validated source-native transport projection _with
-adapter-owned allowlists_ before relying on portnum-sensitive behavior in a
-remote peer. Exercise Matrix and LXMF/XMPP representations with the same
-corpus and malformed/oversized inputs. This is a functional gate before the
-first freeze tag, not a speculative addition to an already published schema.
+Source adapters explicitly select public scalar facts in their native
+`public_facts` map. Core validates and bounds the generic `source.native_facts`
+projection. Matrix, LXMF, and XMPP carry that same context; sender names remain
+generic attribution fields. This permits Meshtastic portnum delivery without
+exposing the entire radio packet or adding a Matrix-specific namespace.
 
-The Matrix adapter's 0.1.0 native schema must not contain `interop.mmrelay`.
-Old MMRelay content keys are neither canonical fields nor relation authority.
-The Matrix adapter's legacy opt-in presentation code remains outside the frozen
-canonical/native schema and must not be enabled by MMRelay 1.5. This renderer
-may still fill a missing structured reaction key using payload/body/placeholder
-fallback; that is **not** an approved way to form an MMRelay 1.5 structured
-reaction. Exact nonempty `EventRelation.key` enforcement is an approved
-requirement; implement and test it in the renderers before qualifying the full
-0.1 runtime, including native Meshtastic empty-emoji classification. Retiring that
-standalone opt-in API is a separate code-removal decision, not proof that it
-belongs in the frozen contract.
+Runtime and malformed-input tests must cover each adapter's actual serializer.
+A passing digest inventory records schema bytes; it does not qualify a live
+shared-room round trip, native relation authority, hardware, or E2EE recovery.
+Do not claim a completed freeze until the coordinated consumers, final
+compatibility pins, clean installs, and live integration gates pass.
+
+The Matrix adapter's native schema excludes `interop.mmrelay`. Its explicit
+legacy presentation API remains outside the canonical contract and must not be
+enabled by MMRelay 1.5. Canonical reactions require an exact nonempty relation
+key; Matrix rejects payload/body/default-symbol substitutions. Meshtastic
+classification drops empty or malformed tapbacks, and its codec and renderer
+reject fabricated or implicit keys. Exact-key tests qualify these paths. Signing remains deferred.
