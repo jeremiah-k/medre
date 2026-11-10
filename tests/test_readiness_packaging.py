@@ -8,6 +8,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import pytest
+
 
 def test_sdist_rebuilt_wheel_loads_its_own_compatibility_snapshot(
     tmp_path: Path,
@@ -92,3 +94,66 @@ print(json.dumps([status, [entry['ref'] for entry in entries]]))
         "available",
         [item["ref"] for item in json.loads(expected)],
     ]
+
+
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_crlf_checkout_packages_only_digest_proven_frozen_bytes(
+    tmp_path: Path, corrupt: bool
+) -> None:
+    """CRLF reconstruction never permits any other change to frozen schemas."""
+    import hashlib
+
+    root = Path(__file__).resolve().parents[1]
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in ("setup.py", "pyproject.toml", "MANIFEST.in", "README.md", "LICENSE"):
+        shutil.copyfile(root / name, source / name)
+    shutil.copytree(
+        root / "src", source / "src", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    schemas = source / "docs" / "schemas"
+    shutil.copytree(root / "docs" / "schemas", schemas)
+    (source / ".github").mkdir()
+    shutil.copyfile(
+        root / ".github" / "adapter-compatibility.json",
+        source / ".github" / "adapter-compatibility.json",
+    )
+    manifest = json.loads((schemas / "v0.1.0.freeze.json").read_text())
+    for filename in manifest["schema_files_sha256"]:
+        path = schemas / filename
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        assert bytes([13, 10]) in path.read_bytes()
+    if corrupt:
+        filename = next(iter(manifest["schema_files_sha256"]))
+        path = schemas / filename
+        path.write_bytes(path.read_bytes() + b" ")
+    artifacts = tmp_path / "artifacts"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(artifacts),
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        timeout=40,
+    )
+    if corrupt:
+        assert result.returncode != 0
+        assert "Frozen schema digest mismatch" in result.stderr
+        return
+    assert result.returncode == 0, result.stdout + result.stderr
+    (wheel,) = artifacts.glob("*.whl")
+    with zipfile.ZipFile(wheel) as archive:
+        for filename, digest in manifest["schema_files_sha256"].items():
+            assert bytes((13, 10)) in (schemas / filename).read_bytes()
+            assert (
+                hashlib.sha256(archive.read("medre/_schemas/" + filename)).hexdigest()
+                == digest
+            )
+            assert bytes((13, 10)) not in archive.read("medre/_schemas/" + filename)

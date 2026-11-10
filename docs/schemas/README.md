@@ -151,3 +151,10 @@ material are never copied automatically. An untrusted inbound projection can
 inform display only; it never authorizes a relay, overrides the actual sender,
 or binds a native reply/reaction. Core keeps a single version-1 context across
 Matrix, LXMF, and XMPP. A context may be absent without dropping message text.
+
+## Git checkout line endings
+
+A main-to-candidate Git checkout may retain unchanged CRLF files. Packaging
+MUST emit the exact frozen bytes. LF reconstruction is permitted only when
+its digest matches the freeze manifest; every other byte change MUST fail
+the build. Fresh checkouts retain the explicit `-text` attribute policy.
