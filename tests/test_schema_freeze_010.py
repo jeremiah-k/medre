@@ -62,3 +62,55 @@ def test_frozen_canonical_envelope_requires_identity_and_version() -> None:
     invalid = deepcopy(example)
     invalid["schema_version"] = True
     assert not validator.is_valid(invalid)
+
+
+def test_canonical_json_and_yaml_mirrors_have_identical_validation_semantics() -> None:
+    """Doc wording may differ, but the two frozen forms must enforce one shape."""
+    import yaml
+
+    # Values of these keys map member names to subschemas, so a member may
+    # itself be named "description" and only the subschemas are searched.
+    named_subschemas = {
+        "properties",
+        "patternProperties",
+        "$defs",
+        "definitions",
+        "dependentSchemas",
+        "dependencies",
+    }
+    # Values of these keys are instance data rather than schemas.
+    instance_data = {"const", "default", "enum", "examples", "dependentRequired"}
+
+    def without_descriptions(value: object) -> object:
+        if isinstance(value, dict):
+            stripped = {}
+            for key, item in value.items():
+                if key == "description":
+                    continue
+                if key in instance_data:
+                    stripped[key] = item
+                elif key in named_subschemas and isinstance(item, dict):
+                    stripped[key] = {
+                        name: without_descriptions(child)
+                        for name, child in item.items()
+                    }
+                else:
+                    stripped[key] = without_descriptions(item)
+            return stripped
+        if isinstance(value, list):
+            return [without_descriptions(item) for item in value]
+        return value
+
+    def canonical_text(value: object) -> str:
+        """Serialize type-strictly so booleans never equal 0 or 1."""
+        return json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False)
+
+    json_schema = json.loads(
+        (SCHEMA_DIR / "canonical-event.schema.json").read_text(encoding="utf-8")
+    )
+    yaml_schema = yaml.safe_load(
+        (SCHEMA_DIR / "canonical-event.schema.yaml").read_text(encoding="utf-8")
+    )
+    assert canonical_text(without_descriptions(json_schema)) == canonical_text(
+        without_descriptions(yaml_schema)
+    )
