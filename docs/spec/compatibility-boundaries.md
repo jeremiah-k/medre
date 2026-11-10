@@ -34,15 +34,19 @@ performs the additive migration itself.
 
 ### 2.1 MMRelay
 
-MMRelay interoperability is an external wire boundary, not an alternate MEDRE
-event shape. MMRelay scalar fields are isolated under
-`metadata.native.data["interop"]["mmrelay"]` when captured into canonical
-metadata. Relation metadata may also retain the established MMRelay relation
-fields required to reconstruct Meshtastic-compatible replies and reactions.
+MEDRE 0.1.0 does **not** standardize MMRelay's historical flat Matrix
+`meshtastic_*` fields or an `interop.mmrelay` native namespace. The Matrix
+codec ignores these fields: they cannot replace the authored body, supply
+sender identity, or create reply/reaction relations. Source identity and
+references belong to `CanonicalEvent`, `NativeRef`, `EventRelation`, and
+bounded `bridge_context` claims; Meshtastic-specific packet facts belong to
+the source adapter's versioned `native.meshtastic` namespace.
 
-The owning code is limited to the Matrix codec/renderer and
-`medre.interop.mmrelay`. Other core or adapter modules must not import MMRelay
-wire constants directly.
+An older, explicitly configured Matrix renderer compatibility path may still
+_emit_ flat keys, using the constants in `medre.interop.mmrelay`. It is not
+enabled by MMRelay 1.5, not part of the frozen native schema, and not a
+supported peer metadata contract. Embedded claims must not authorize native
+mutations or override Matrix `body`.
 
 ### 2.2 Matrix / mindroom-nio
 
@@ -104,7 +108,7 @@ fallback semantics.
 
 | Seam                                                 | Category                            | Code authority                                                           | Reason retained                                                                                       |
 | ---------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| MMRelay Matrix wire fields                           | external wire                       | `medre.interop.mmrelay`, Matrix codec/renderer                           | Interoperate with MMRelay's established Matrix/Meshtastic wire convention.                            |
+| MMRelay legacy opt-in Matrix rendering               | explicit pre-release output option  | `medre.interop.mmrelay`, Matrix renderer                                 | Only historical flat output when opted in; the Matrix codec does not import or trust these fields.    |
 | mindroom-nio optional event/import surfaces          | third-party SDK                     | `medre.adapters.matrix.compat`, `medre.adapters.matrix.session`          | Bound behavior to SDK features that are actually importable.                                          |
 | MeshCore optional event/self-info/send-result fields | third-party SDK                     | `medre.adapters.meshcore.compat`, `medre.adapters.meshcore.session`      | Normalize SDK callback/result variants at the session boundary.                                       |
 | Meshtastic optional SDK connection/callback surfaces | third-party SDK                     | `medre.adapters.meshtastic.session`                                      | Tolerate supported SDK/fake-client capability differences without changing persisted shape.           |
@@ -136,8 +140,8 @@ The supported built-in canonical native shapes are versioned namespaces:
 `native.xmpp`, `native.chatmail`, and `native.simplexchat`. Provider-owned
 namespace readers validate these shapes; installing a community adapter can add
 another versioned transport namespace.
-MMRelay interoperability, when present, is separately namespaced under
-`native.interop.mmrelay`.
+Flat MMRelay wire keys are not accepted into canonical native metadata; there
+is no `native.interop.mmrelay` namespace in the frozen Matrix contract.
 
 ## 6. Review Rule
 

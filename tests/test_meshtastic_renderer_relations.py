@@ -877,22 +877,18 @@ class TestFallbackTextReplyRelationContext:
 class TestTargetedCoveragePaths:
     """Pinpoint tests for code paths that previously lacked coverage."""
 
-    async def test_direct_reaction_emoji_falls_back_to_payload_body(
+    async def test_direct_reaction_preserves_explicit_key(
         self,
     ) -> None:
-        """When rel.key is None and payload lacks 'key', emoji resolves to
-        payload['body'] via the step-by-step resolution order:
-        rel.key → payload["key"] → payload["emoji"] → payload["body"].
-        """
+        """The explicit canonical key wins over human-readable preview text."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
             native_message_id="99",
-            key=None,
+            key="🔥",
         )
-        # payload has no "key" field — should fall back to "body"
         event = _make_event(
-            payload={"body": "🔥"},
+            payload={"body": "Reaction preview"},
             relations=(rel,),
         )
         result = await renderer.render(

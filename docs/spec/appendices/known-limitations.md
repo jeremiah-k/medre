@@ -109,10 +109,11 @@ paper-specific entry.
 
 ## 4. MMRelay Interop Caveats
 
-The Matrix adapter emits an mmrelay-compatibility metadata block under
-`native.interop.mmrelay` to preserve wire compatibility with
-mmrelay/MeshCore bridges. The current shape deliberately differs from
-upstream mmrelay in four known ways:
+The Matrix adapter has a **disabled-by-default, opt-in legacy output path**
+that can emit MMRelay-style flat Matrix content fields. The codec never
+projects these fields to `native.interop.mmrelay`; that namespace is excluded
+from the frozen 0.1.0 native contract. The optional _output_ format has four
+known differences from old MMRelay behavior:
 
 1. **`mmrelay_suppress` flag is not honoured.** MEDRE does not consume
    the upstream `mmrelay_suppress` flag. Operators that rely on it to
@@ -125,32 +126,29 @@ upstream mmrelay in four known ways:
    `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py` for the supported template
    vocabulary.
 
-3. **Reaction body byte-format differences vs upstream MMR.** MEDRE
-   emits the mmrelay reaction body with the local encoding
-   (`medre-adapter-matrix/src/medre/adapters/matrix/codec.py`,
-   `_mmrelay_reaction`, including the `meshtastic_reaction_key`
-   compatibility handling). The byte-for-byte reaction payload may
-   differ from upstream mmrelay; consumers must accept the MEDRE shape
-   rather than expect identical bytes.
+3. **Reaction body byte-format differences vs upstream MMR.** The legacy
+   Matrix renderer can format a visible emote and flat reaction keys, but the
+   current Matrix codec does **not** interpret these keys as an authoritative
+   reaction. Only native Matrix `m.annotation` relations establish native
+   Matrix reactions; other platform relations are carried as untrusted
+   bounded bridge-context hints until the receiver authorizes a peer.
 
-4. **Hardcoded `TEXT_MESSAGE_APP` portnum in mmrelay-compat Matrix
-   metadata.** The Matrix adapter embeds a hardcoded
-   `"TEXT_MESSAGE_APP"` port number in the mmrelay-compatibility
-   metadata. See `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py`
-   (`_inject_mmrelay_metadata` assigns `KEY_PORTNUM = PORTNUM_TEXT`) for
-   the injection site; the wire key names live in the core-owned
-   `medre.interop.mmrelay` module. Multi-portnum or non-text packet
-   types are not currently exposed through this metadata block. The
-   Meshtastic provider's `mmrelay_compatibility` flag independently
-   adds the legacy `meshtastic_*` Matrix content fields
-   (`medre-adapter-matrix` README at the inspected pin).
+4. **Hardcoded `TEXT_MESSAGE_APP` portnum in legacy output.** The opt-in
+   Matrix renderer writes `KEY_PORTNUM = PORTNUM_TEXT` for historical flat
+   content. This is not a way to transmit the true source-native portnum.
+   The actual value belongs under `native.meshtastic.portnum`, which is not
+   currently exported in the default, bounded Matrix `bridge_context`.
+   Portnum-sensitive shared-room relays need an explicitly reviewed safe
+   source-native projection before MMRelay 1.5 can claim full parity.
 
 - **Source tests:** `tests/test_matrix_reaction_mmrelay.py` and the
   `tests/conformance/fixtures/meshtastic/*.json` fixtures, which
   declare `"portnum": "TEXT_MESSAGE_APP"`.
-- **Direction:** When the upstream mmrelay contract changes, MEDRE's
-  compatibility block must be reviewed alongside the live mmrelay
-  reference at `docs/dev/mmrelay-behavior-reference.md`.
+- **Direction:** This historical opt-in output mode is **not** an approved
+  shared-room contract for MEDRE 0.1.0 / MMRelay 1.5. The canonical model and
+  bounded relay context supersede it. Any future removal of the optional
+  renderer code requires a separate compatibility review, not a change to the
+  frozen native schema.
 
 ## 5. Diagnostics Granularity Gaps
 

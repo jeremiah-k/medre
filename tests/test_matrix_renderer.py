@@ -1176,9 +1176,11 @@ class TestMatrixFallbackText:
         assert result.truncated is False
 
 
-class TestMatrixReactionEmojiPrecedence:
-    """Reaction emoji extraction follows precedence: rel.key, payload['key'],
-    payload['emoji'], payload['body'], fallback."""
+class TestMatrixExplicitReactionKey:
+    """Canonical keys survive transport rendering independently of payload hints.
+
+    Missing-key rejection belongs to the adapter's own versioned policy suite.
+    """
 
     async def test_emoji_from_rel_key(self) -> None:
         """rel.key takes highest precedence."""
@@ -1203,102 +1205,6 @@ class TestMatrixReactionEmojiPrecedence:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert _payload_content(result)["m.relates_to"]["key"] == "❤️"
-
-    async def test_emoji_from_payload_key(self) -> None:
-        """payload['key'] is used when rel.key is None."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reaction",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text=None,
-        )
-        event = _make_event(
-            payload={"key": "👍", "emoji": "🎉", "body": "plain"},
-            relations=(relation,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)["m.relates_to"]["key"] == "👍"
-
-    async def test_emoji_from_payload_emoji(self) -> None:
-        """payload['emoji'] is used when rel.key and payload['key'] are absent."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reaction",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text=None,
-        )
-        event = _make_event(
-            payload={"emoji": "🎉", "body": "plain"},
-            relations=(relation,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)["m.relates_to"]["key"] == "🎉"
-
-    async def test_emoji_from_payload_body(self) -> None:
-        """payload['body'] is used when all higher-precedence sources are absent."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reaction",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text=None,
-        )
-        event = _make_event(
-            payload={"body": "👍"},
-            relations=(relation,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)["m.relates_to"]["key"] == "👍"
-
-    async def test_emoji_fallback_when_all_blank(self) -> None:
-        """Falls back to ⚠️ when all sources are blank."""
-        renderer = MatrixRenderer()
-        relation = EventRelation(
-            relation_type="reaction",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text=None,
-        )
-        event = _make_event(
-            payload={"body": " "},  # whitespace-only body → stripped to blank
-            relations=(relation,),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)["m.relates_to"]["key"] == "\u26a0\ufe0f"
 
 
 class TestFallbackAppliedTyping:
