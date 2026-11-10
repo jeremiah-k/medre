@@ -202,20 +202,25 @@ other cryptographic secrets MUST NOT be persisted in this namespace.
 Matrix verification remains native because its exact semantics are provider
 specific.
 
-## 6. Relay and MMRelay Interoperability
+## 6. Generic relay provenance, not MMRelay-specific metadata
 
 MEDRE relay provenance embedded in Matrix content is projected to
-`native.matrix.relay.medre_envelope`. This preserves the safe relay envelope
-without treating it as Matrix identity.
+`native.matrix.relay.medre_envelope`; bounded relation/source hints are stored
+at `native.matrix.relay.bridge_context`. These are untrusted _claims_, not
+Matrix identity, relation-binding authority, or permission to replace the
+visible/canonical message body.
 
-Known MMRelay compatibility fields are projected separately to
-`native.interop.mmrelay`. They MUST NOT be mixed into `native.matrix` because
-they describe a cross-project wire convention rather than Matrix itself.
+The frozen native metadata contract has **only** `native.matrix`, and the
+Matrix codec MUST NOT project flat `meshtastic_*` fields into any canonical
+namespace. In particular, `meshtastic_text` cannot override authored text and
+`meshtastic_emoji`/`meshtastic_replyId` cannot classify a reaction.
 
-Existing cross-transport relation metadata used for Meshtastic reply/reaction
-rendering remains unchanged. This contract does not require MMRelay to import
-MEDRE runtime code; an external producer can validate emitted metadata against
-the standalone JSON Schema.
+Cross-transport packet IDs, channel IDs, replies, and exact reaction symbols
+use generic `NativeRef`, `EventRelation`, and `bridge_context` fields. Actual
+Meshtastic portnum and node display facts remain in the source adapter's
+`native.meshtastic` namespace. Embedding the full native namespace is not a
+safe default; portnum-sensitive peer behavior requires a separately reviewed,
+bounded source-native projection before release qualification.
 
 ## 7. Versioning
 

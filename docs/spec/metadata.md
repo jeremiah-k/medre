@@ -67,10 +67,12 @@ dotted, or unversioned native metadata is not an alternate canonical
 shape.
 
 Matrix has an additional detailed event-shape contract in
-[matrix-event-shape.md](matrix-event-shape.md). Cross-product MMRelay wire
-interoperability, when present, lives separately under
-`metadata.native.data["interop"]["mmrelay"]`; it is not another Matrix or
-Meshtastic native shape.
+[matrix-event-shape.md](matrix-event-shape.md). The first-release Matrix
+native schema supports only `metadata.native.data["matrix"]`; historical
+MMRelay flat content fields are **not** projected into native metadata.
+Cross-platform identity/replies/reactions use the canonical envelope and the
+bounded source/relation context. Source-specific Meshtastic facts remain in
+`native.meshtastic`, not a generic `interop.mmrelay` exception.
 
 Delivery-result and outbound-native-reference metadata follows the same
 transport-key ownership rule and carries the transport's current

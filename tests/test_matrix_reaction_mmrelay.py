@@ -4,13 +4,12 @@ MMRelay metadata edge handling.
 
 Tests cover:
 - codec: true m.annotation reaction → MESSAGE_REACTED
-- codec: MMRelay emote reaction detection
-- codec: MMRelay metadata capture in native data
+- codec: flat MMRelay content hints do not override the body or invent reactions
 - renderer: true m.reaction emitted as a send_event operation
-- renderer: mmrelay_compat emote fallback
-- renderer: reply with KEY_REPLY_ID injection
+- renderer: separately opted-in historical emote output (outside frozen schema)
+- renderer: reply with KEY_REPLY_ID injection in that opt-in mode
 - adapter: closed _matrix_operation envelope dispatch, event_type wiring
-- mmrelay: KEY_REPLY_ID/KEY_EMOJI/EMOJI_FLAG_VALUE constants
+- legacy constants: KEY_REPLY_ID/KEY_EMOJI/EMOJI_FLAG_VALUE
 """
 
 from __future__ import annotations
@@ -121,31 +120,6 @@ def _make_reaction_event(
     )
 
 
-def _make_mmrelay_emote_reaction(
-    body: str = "reacted",
-    reply_id: str = "!abc123",
-    emoji: int = 1,
-    sender: str = "@alice:example.com",
-    event_id: str = "$emote-react-001",
-) -> Any:
-    content = {
-        "msgtype": "m.emote",
-        "body": body,
-        KEY_REPLY_ID: reply_id,
-        KEY_EMOJI: emoji,
-        KEY_ID: "packet-42",
-        KEY_MESHNET: "testnet",
-        KEY_PORTNUM: PORTNUM_TEXT,
-        KEY_TEXT: body,
-    }
-    return _make_native_event(
-        body=body,
-        sender=sender,
-        event_id=event_id,
-        content=content,
-    )
-
-
 def _make_canonical_reaction(
     key: str = "👍",
     target_event_id: str = "$target-001",
@@ -240,9 +214,9 @@ def _make_canonical_reply(
     )
     native_data: dict[str, object] = {"room_id": room_id}
     if mmrelay_reply_id:
-        # Place MMRelay fields in the namespaced interop.mmrelay structure
-        # that the strict contract enforces. The renderer reads reply IDs
-        # from native.interop.mmrelay[KEY_REPLY_ID] first.
+        # Explicitly opt-in legacy renderer fixture. This hand-crafted
+        # namespace is NOT produced by the Matrix codec or accepted by the
+        # 0.1.0 frozen native schema.
         native_data["interop"] = {"mmrelay": {KEY_REPLY_ID: mmrelay_reply_id}}
     return CanonicalEvent(
         event_id="evt-reply-001",
@@ -305,164 +279,6 @@ class TestCodecTrueReaction:
 
         assert event.source_native_ref is not None
         assert event.source_native_ref.native_message_id == "$react-99"
-
-
-class TestCodecMMRelayMetadata:
-    """MatrixCodec captures MMRelay fields into native metadata."""
-
-    def test_regular_message_captures_mmrelay_fields(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        content = {
-            "msgtype": "m.text",
-            "body": "hello from mesh",
-            KEY_ID: "packet-42",
-            KEY_MESHNET: "mynetwork",
-            KEY_PORTNUM: PORTNUM_TEXT,
-            KEY_TEXT: "hello from mesh",
-            KEY_REPLY_ID: "node-reply-1",
-            KEY_EMOJI: 0,
-        }
-        native = _make_native_event(body="hello from mesh", content=content)
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data["interop"]["mmrelay"]
-        assert data[KEY_ID] == "packet-42"
-        assert data[KEY_MESHNET] == "mynetwork"
-        assert data[KEY_PORTNUM] == PORTNUM_TEXT
-        assert data[KEY_TEXT] == "hello from mesh"
-        assert data[KEY_REPLY_ID] == "node-reply-1"
-        assert data[KEY_EMOJI] == 0
-
-    def test_reaction_captures_mmrelay_fields(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        content = {
-            "msgtype": "m.text",
-            "body": "👍",
-            "m.relates_to": {
-                "rel_type": "m.annotation",
-                "event_id": "$msg-1",
-                "key": "👍",
-            },
-            KEY_ID: "pkt-99",
-            KEY_MESHNET: "meshnet",
-        }
-        native = _make_native_event(body="👍", content=content)
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data["interop"]["mmrelay"]
-        assert data[KEY_ID] == "pkt-99"
-        assert data[KEY_MESHNET] == "meshnet"
-
-    def test_missing_mmrelay_fields_not_in_native_data(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_native_event(body="plain message")
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data
-        assert "interop" not in data
-        for key in (
-            KEY_ID,
-            KEY_MESHNET,
-            KEY_PORTNUM,
-            KEY_TEXT,
-            KEY_REPLY_ID,
-            KEY_EMOJI,
-        ):
-            assert key not in data
-
-
-class TestCodecMMRelayEmoteReaction:
-    """MatrixCodec detects MMRelay-style emote reactions."""
-
-    def test_emote_reaction_is_message_reacted(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="reacted", reply_id="!abc123", emoji=1
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.event_kind == EventKind.MESSAGE_REACTED
-
-    def test_emote_reaction_creates_reaction_relation(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        assert len(event.relations) == 1
-        rel = event.relations[0]
-        assert rel.relation_type == "reaction"
-        # key is the body text (the reaction content) and lives on the
-        # relation; payload carries no flat 'key' without KEY_REACTION_KEY.
-        assert rel.key == "reacted"
-        assert "key" not in event.payload
-        # No native ref — we don't fabricate Meshtastic adapter id
-        assert rel.target_native_ref is None
-        assert rel.target_event_id is None
-
-    def test_emote_reaction_metadata_has_mmrelay_fields(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data["interop"]["mmrelay"]
-        assert data[KEY_REPLY_ID] == "!abc123"
-        assert data[KEY_EMOJI] == 1
-
-    def test_emote_reaction_relation_metadata(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert rel.metadata["meshtastic_reply_id"] == "!abc123"
-        assert rel.metadata["meshtastic_emoji"] == 1
-
-    def test_emote_with_emoji_not_1_is_regular_message(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(
-            body="just an emote", reply_id="!abc123", emoji=2
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.event_kind == EventKind.MESSAGE_CREATED
-
-    def test_emote_without_replyid_is_regular_message(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        content = {
-            "msgtype": "m.emote",
-            "body": "waves",
-            KEY_EMOJI: 1,
-        }
-        native = _make_native_event(body="waves", content=content)
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.event_kind == EventKind.MESSAGE_CREATED
-
-    def test_mmrelay_emote_captures_full_mmrelay_fields(self) -> None:
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data["interop"]["mmrelay"]
-        assert data[KEY_ID] == "packet-42"
-        assert data[KEY_MESHNET] == "testnet"
-        assert data[KEY_PORTNUM] == PORTNUM_TEXT
-        assert data[KEY_TEXT] == "reacted"
-
-    def test_mmrelay_emote_with_reply_id_zero_decodes_to_reaction(self) -> None:
-        """MMRelay emote with meshtastic_replyId=0 decodes to reaction relation."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="0")
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.event_kind == EventKind.MESSAGE_REACTED
-        assert len(event.relations) == 1
-        rel = event.relations[0]
-        assert rel.relation_type == "reaction"
-        # Metadata should preserve meshtastic_reply_id="0"
-        meta = rel.metadata
-        assert meta.get("meshtastic_reply_id") == "0"
-        assert meta.get("meshtastic_emoji") == 1
 
 
 # ===========================================================================

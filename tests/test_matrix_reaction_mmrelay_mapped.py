@@ -6,8 +6,8 @@ Tests cover:
 - Meshtastic->Matrix reaction rendering for mapped Matrix-originated messages
 - Unknown replyId fallback (no crash)
 - Renderer emote fallback emits KEY_REACTION_KEY
-- Codec decodes KEY_REACTION_KEY into rel.key
-- Rendering without KEY_REACTION_KEY
+- Codec ignores KEY_REACTION_KEY and other flat reaction claims
+- Authored emotes remain messages regardless of flat reaction keys
 - KEY_REACTION_KEY constant verification
 """
 
@@ -17,9 +17,7 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
@@ -27,13 +25,8 @@ from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
-    KEY_ID,
-    KEY_MESHNET,
-    KEY_PORTNUM,
     KEY_REACTION_KEY,
     KEY_REPLY_ID,
-    KEY_TEXT,
-    PORTNUM_TEXT,
 )
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
@@ -49,17 +42,6 @@ from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_
 _SRC_MESHTASTIC = {
     "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
 }
-
-
-def _make_config(**overrides: Any) -> MatrixConfig:
-    defaults = dict(
-        adapter_id="matrix-1",
-        homeserver="https://matrix.example.com",
-        user_id="@bot:example.com",
-        access_token="tok",
-    )
-    defaults.update(overrides)
-    return MatrixConfig(**defaults)
 
 
 def _make_native_event(
@@ -84,31 +66,6 @@ def _make_native_event(
             "type": "m.room.message",
         }
     return evt
-
-
-def _make_mmrelay_emote_reaction(
-    body: str = "reacted",
-    reply_id: str = "!abc123",
-    emoji: int = 1,
-    sender: str = "@alice:example.com",
-    event_id: str = "$emote-react-001",
-) -> Any:
-    content = {
-        "msgtype": "m.emote",
-        "body": body,
-        KEY_REPLY_ID: reply_id,
-        KEY_EMOJI: emoji,
-        KEY_ID: "packet-42",
-        KEY_MESHNET: "testnet",
-        KEY_PORTNUM: PORTNUM_TEXT,
-        KEY_TEXT: body,
-    }
-    return _make_native_event(
-        body=body,
-        sender=sender,
-        event_id=event_id,
-        content=content,
-    )
 
 
 def _make_canonical_reaction_no_target(
@@ -168,11 +125,9 @@ def _make_mesh_reaction(
     if native_data is not None:
         nd = native_data
     else:
-        # When a Meshtastic-originated event crosses into Matrix the
-        # meshtastic adapter populates the cross-transport interop
-        # namespace under ``native.interop.mmrelay``.  Matrix reads
-        # cross-transport wire fields from there (per the boundary
-        # contract) rather than from ``native.meshtastic``.
+        # Explicit fixtures for the opt-in legacy renderer only. The Matrix
+        # codec never produces this interop namespace, and the frozen native
+        # schema rejects it. Canonical peers use generic bridge context.
         nd = {
             "meshtastic": {
                 "schema_version": 1,
@@ -204,34 +159,6 @@ def _make_mesh_reaction(
         relations=(rel,),
         payload={"body": body, "msgtype": "m.text"},
         metadata=EventMetadata(native=NativeMetadata(data=nd)),
-    )
-
-
-def _make_mmrelay_emote_reaction_with_key(
-    body: str = "reacted",
-    reply_id: str = "!abc123",
-    emoji: int = 1,
-    reaction_key: str = "👍",
-    sender: str = "@alice:example.com",
-    event_id: str = "$emote-react-rk-001",
-) -> Any:
-    """Build an MMRelay emote reaction that includes KEY_REACTION_KEY."""
-    content = {
-        "msgtype": "m.emote",
-        "body": body,
-        KEY_REPLY_ID: reply_id,
-        KEY_EMOJI: emoji,
-        KEY_ID: "packet-42",
-        KEY_MESHNET: "testnet",
-        KEY_PORTNUM: PORTNUM_TEXT,
-        KEY_TEXT: body,
-        KEY_REACTION_KEY: reaction_key,
-    }
-    return _make_native_event(
-        body=body,
-        sender=sender,
-        event_id=event_id,
-        content=content,
     )
 
 
@@ -468,105 +395,6 @@ class TestRendererEmitsReactionKey:
 
         assert _payload_content(result)[KEY_EMOJI] == EMOJI_FLAG_VALUE
         assert _payload_content(result)[KEY_REACTION_KEY] == "🔥"
-
-
-class TestCodecDecodesReactionKey:
-    """Codec decodes MMRelay emote with KEY_REACTION_KEY into rel.key."""
-
-    def test_reaction_key_used_as_rel_key(self) -> None:
-        """When KEY_REACTION_KEY is present, codec uses it as rel.key."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="reacted", reply_id="!abc123", reaction_key="👍"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert rel.key == "👍"
-
-    def test_reaction_key_propagated_to_payload(self) -> None:
-        """When KEY_REACTION_KEY differs from body, codec sets payload['key']."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="reacted", reply_id="!abc123", reaction_key="❤️"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.payload["key"] == "❤️"
-
-    def test_reaction_key_in_relation_metadata(self) -> None:
-        """When KEY_REACTION_KEY is present, it appears in rel.metadata."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="reacted", reply_id="!abc123", reaction_key="🔥"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert rel.metadata.get("meshtastic_reaction_key") == "🔥"
-
-    def test_reaction_key_in_native_data(self) -> None:
-        """KEY_REACTION_KEY is preserved in the MMRelay interop namespace."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="reacted", reply_id="!abc123", reaction_key="👍"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        data = event.metadata.native.data["interop"]["mmrelay"]
-        assert data.get(KEY_REACTION_KEY) == "👍"
-
-    def test_reaction_key_equals_body_still_in_payload(self) -> None:
-        """When KEY_REACTION_KEY == body, payload['key'] is still set."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="👍", reply_id="!abc123", reaction_key="👍"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        assert event.payload["key"] == "👍"
-        assert event.payload["body"] == "👍"
-
-    def test_reaction_key_equals_body_still_in_metadata(self) -> None:
-        """When KEY_REACTION_KEY == body, rel.metadata still has the key."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction_with_key(
-            body="👍", reply_id="!abc123", reaction_key="👍"
-        )
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert rel.metadata.get("meshtastic_reaction_key") == "👍"
-
-
-class TestCodecBackwardCompatNoReactionKey:
-    """Codec still decodes old MMRelay emotes without KEY_REACTION_KEY."""
-
-    def test_no_reaction_key_falls_back_to_body(self) -> None:
-        """Without KEY_REACTION_KEY, codec falls back to body for rel.key."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert rel.key == "reacted"
-
-    def test_no_reaction_key_no_payload_key(self) -> None:
-        """Without KEY_REACTION_KEY, payload has no 'key' field."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        assert "key" not in event.payload
-
-    def test_no_reaction_key_no_metadata_key(self) -> None:
-        """Without KEY_REACTION_KEY, rel.metadata has no meshtastic_reaction_key."""
-        codec = MatrixCodec("matrix-1", _make_config())
-        native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
-        event = codec.decode(native, room_id="!room:server")
-
-        rel = event.relations[0]
-        assert "meshtastic_reaction_key" not in rel.metadata
 
 
 class TestReactionKeyConstant:

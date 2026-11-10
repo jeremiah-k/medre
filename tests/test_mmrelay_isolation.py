@@ -170,30 +170,18 @@ def test_mmrelay_wire_constants_isolated_to_matrix_surface() -> None:
     )
 
 
-def test_allowed_matrix_modules_actively_use_guarded_surface() -> None:
-    """The Matrix codec and renderer DO import the guarded surface.
+def test_legacy_matrix_renderer_actively_uses_guarded_surface() -> None:
+    """Keep the remaining opt-in presentation imports guarded.
 
-    This locks the expectation that the allowed modules are genuine
-    consumers of the mmrelay wire surface (so the allowlist is not
-    vacuously permissive).  If a refactor removes the mmrelay import from
-    a Matrix module, this guard forces a conscious update rather than a
-    silent widening of the allowlist.
+    Canonical codecs need no legacy imports. Baseline adapters may still use
+    the existing narrow allowlist until their canonical ingress revisions land.
     """
     repo = Path(__file__).resolve().parents[1]
-    codec_path = source_file(repo, "src/medre/adapters/matrix/codec.py")
     renderer_path = source_file(repo, "src/medre/adapters/matrix/renderer.py")
 
-    codec_imports = _find_guarded_imports(codec_path)
     renderer_imports = _find_guarded_imports(renderer_path)
 
-    # Each consumer must import at least the longname/shortname/meshnet
-    # wire trio (the PC-required surface) — plus the renderer must import
-    # the meshnet derivation helper.
     required_trio = {"KEY_LONGNAME", "KEY_SHORTNAME", "KEY_MESHNET"}
-    assert required_trio.issubset(codec_imports), (
-        f"matrix codec no longer imports the mmrelay name/meshnet trio; "
-        f"got {sorted(codec_imports)}"
-    )
     assert required_trio.issubset(renderer_imports), (
         f"matrix renderer no longer imports the mmrelay name/meshnet trio; "
         f"got {sorted(renderer_imports)}"

@@ -1,8 +1,9 @@
-"""mmrelay wire-format protocol constants and helpers.
+"""Legacy, explicitly opt-in MMRelay Matrix presentation compatibility.
 
-These key names are dictated by the mmrelay project's Matrix message schema.
-They live outside any adapter package because they define a cross-adapter
-wire contract, not an implementation detail of any single adapter.
+These constants belong to a historical flat Matrix content format, **not** to
+CanonicalEvent, the versioned Matrix-native metadata namespace, or the MEDRE
+0.1.0 frozen schema. Shared-room peer relays use canonical source identity,
+EventRelation, NativeRef and bounded bridge context instead.
 """
 
 KEY_ID = "meshtastic_id"
@@ -14,9 +15,9 @@ KEY_TEXT = "meshtastic_text"
 KEY_REPLY_ID = "meshtastic_replyId"
 KEY_EMOJI = "meshtastic_emoji"
 
-# MEDRE extension: carries the structured reaction symbol (emoji) through the
-# MMRelay emote-fallback path so the codec can recover the exact key without
-# parsing the human-readable body.  Not a standard MMRelay wire key.
+# Legacy output extension carrying the exact reaction symbol independently of
+# presentation prose. Matrix ingress ignores it; canonical peers use the
+# structured EventRelation.key in bounded bridge context.
 KEY_REACTION_KEY = "meshtastic_reaction_key"
 
 # Protocol values

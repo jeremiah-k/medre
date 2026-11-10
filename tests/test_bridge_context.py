@@ -168,3 +168,58 @@ def test_normalization_drops_unknown_native_ref_fields_on_both_paths():
     assert "PRIVATE_SENTINEL" not in json.dumps(normalized)
     assert source_ref["private_key"] == "PRIVATE_SENTINEL"
     assert target_ref["access_token"] == "PRIVATE_SENTINEL"
+
+
+@pytest.mark.parametrize("transport", ["meshtastic", "lxmf", "xmpp"])
+def test_canonical_reaction_context_is_transport_neutral(transport: str) -> None:
+    """Exact reaction key, packet ID zero and origin claims fit every v1 transport."""
+    from msgspec.structs import replace
+
+    original = event()
+    reference = NativeRef(
+        adapter=transport,
+        native_channel_id="channel-0",
+        native_message_id="0",
+    )
+    reaction = replace(
+        original,
+        event_kind="message.reacted",
+        source_adapter=transport,
+        source_transport_id="native-node",
+        source_channel_id="channel-0",
+        source_native_ref=reference,
+        relations=(
+            EventRelation(
+                relation_type="reaction",
+                target_event_id=None,
+                target_native_ref=reference,
+                key="🔥",
+                fallback_text="visible original",
+            ),
+        ),
+        payload={"body": "reacted 🔥", "msgtype": "m.emote"},
+    )
+    context = build_bridge_context(
+        reaction,
+        RelayAttribution(
+            source_platform=transport,
+            source_sender_label_raw="Full node name",
+            source_sender_short_label_raw="FN",
+            source_origin_label="Network",
+        ),
+    )
+    assert context is not None
+    assert context["source"]["adapter"] == transport
+    assert context["source"]["native_ref"]["native_message_id"] == "0"
+    assert context["source"]["sender_name"] == "Full node name"
+    assert context["source"]["sender_short_name"] == "FN"
+    assert context["relations"][0]["key"] == "🔥"
+    assert context["relations"][0]["target_native_ref"]["native_message_id"] == "0"
+    assert "meshtastic_replyId" not in json.dumps(context)
+    schema = json.loads(
+        (
+            Path(__file__).parents[1] / "docs/schemas/bridge-context.schema.json"
+        ).read_text()
+    )
+    Draft202012Validator(schema).validate(context)
+    assert normalize_bridge_context(context) == context
