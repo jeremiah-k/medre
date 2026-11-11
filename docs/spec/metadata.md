@@ -131,7 +131,10 @@ identity and normalized `transport`, `routing`, `radio`, and `telemetry` domains
 under `content.medre.metadata`. It MUST exclude provider-native and custom
 metadata except an explicitly selected, bounded source-native fact projection.
 `bridge_context.source.native_facts` MAY carry one adapter-owned namespace and
-up to twelve named scalar fields from its explicit `public_facts` map. Names
+up to twelve named scalar fields from its explicit `public_facts` map. The term
+*facts* denotes adapter-reported observations/claims, **not** independently
+verified truth: the receiving adapter MUST NOT infer authentication, identity,
+relation-binding authority, or routing permission from these values alone. Names
 MUST match the published schema; strings are limited to 256 characters, integers
 to signed 32-bit values, and booleans are permitted. Finite integral JSON
 numbers (including `1.0` and `1e0`) MUST normalize to integers, matching JSON
