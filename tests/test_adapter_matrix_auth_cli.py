@@ -18,6 +18,8 @@ import pytest
 
 from medre.cli.main import _build_parser
 
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
+
 
 def _pipe_stdin(text: str) -> io.StringIO:
     """Return a StringIO suitable for patching in as ``sys.stdin``."""
