@@ -139,6 +139,11 @@ Schema integer semantics. Fractional/nonfinite numbers, containers, nulls,
 unknown members, invalid names, and excess fields MUST reject the projection.
 Only native namespaces with supported integer schema version 1 may expose
 public facts; missing, boolean, or unsupported versions MUST remain opaque.
+Bridge-context strings MUST be encodable as UTF-8. Readers MUST reject an
+unencodable optional context without discarding valid authored message text.
+Wire encodability is a runtime validation requirement in addition to schema
+shape and size validation; it does not change the frozen field definitions.
+
 No raw native packet or SDK object is implicitly public. Generic sender long
 and short names remain attribution fields rather than native facts.
 `full` MUST additionally include canonical native/custom metadata;
