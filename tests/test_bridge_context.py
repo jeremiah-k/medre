@@ -385,3 +385,33 @@ def test_unknown_native_versions_cannot_export_public_facts(version):
     assert context is not None
     assert "native_facts" not in context["source"]
     assert context["relations"] == build_bridge_context(event())["relations"]
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "sender_name",
+        "sender_id",
+        "origin_label",
+        "native_ref",
+        "relation",
+        "native_facts",
+    ],
+)
+def test_bridge_context_rejects_unencodable_unicode_before_transport_encoding(field):
+    """Lone surrogates must not escape into Matrix, LXMF, or XMPP serializers."""
+    context = build_bridge_context(event())
+    assert context is not None
+    malformed = "bad\ud800value"
+    if field == "native_ref":
+        context["source"]["native_ref"]["native_message_id"] = malformed
+    elif field == "relation":
+        context["relations"][0]["target_event_id"] = malformed
+    elif field == "native_facts":
+        context["source"]["native_facts"] = {
+            "namespace": "meshtastic",
+            "fields": {"meshnet_label": malformed},
+        }
+    else:
+        context["source"][field] = malformed
+    assert normalize_bridge_context(context) is None

@@ -31,9 +31,20 @@ _SOURCE_FIELDS = (
 _RELATION_FIELDS = ("relation_type", "target_event_id", "key")
 
 
+def _utf8(value: str) -> bool:
+    """Reject lone surrogate code points that wire encoders cannot serialize."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _text(value: object) -> bool:
-    """Accept bounded strings or explicit absence; IDs are never truncated."""
-    return value is None or (isinstance(value, str) and len(value) <= _MAX_STRING)
+    """Accept bounded, encodable strings or absence; IDs are never truncated."""
+    return value is None or (
+        isinstance(value, str) and len(value) <= _MAX_STRING and _utf8(value)
+    )
 
 
 def _native_ref(value: object) -> dict[str, object] | None:
@@ -77,7 +88,7 @@ def _native_facts(value: object) -> dict[str, object] | None:
     for key, item in fields.items():
         if not isinstance(key, str) or not _FACT_NAME.fullmatch(key):
             raise ValueError("invalid native-facts field")
-        if type(item) is str and len(item) <= _MAX_FACT_VALUE:
+        if type(item) is str and len(item) <= _MAX_FACT_VALUE and _utf8(item):
             clean[key] = item
         elif type(item) is bool:
             clean[key] = item
