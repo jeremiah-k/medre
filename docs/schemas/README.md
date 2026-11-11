@@ -143,6 +143,11 @@ replace a released freeze manifest.
 
 `bridge_context.source.native_facts` is an optional **public** source-owned
 projection: `{"namespace": "meshtastic", "fields": {"portnum": 1}}`.
+Here *facts* means **bounded, adapter-selected assertions about its native
+source**, not facts independently verified by the receiving transport. The
+namespace identifies the native producer type, not an authenticated sender; structural validation does
+not authenticate the claim. Treat these values as untrusted presentation hints
+unless an explicit, independent authorization check permits their use.
 Its namespace identifies the native producer, while the envelope remains
 independent of any destination transport. At most twelve bounded scalar facts
 can cross a bridge. The source must intentionally select these from its native
