@@ -73,7 +73,7 @@ def _text_char_byte_metrics(
         rendered_bytes = raw_bytes
 
     # Fallback: derive from known payload string keys. Styled events measure
-    # the authoritative body; a stale legacy "text" alias must not skew metrics.
+    # the authoritative body; a stale "text" value must not skew metrics.
     if rendered_chars is None or rendered_bytes is None:
         keys = (
             ("body", "text", "content")
