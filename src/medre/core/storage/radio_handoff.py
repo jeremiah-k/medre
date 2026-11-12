@@ -2,7 +2,7 @@
 
 These references are retained facts, never submission grants. A continuation
 must resolve each origin against owned storage before inheriting an acceptance.
-Legacy local references without an origin belong to their containing attempt.
+Local references without an origin belong to their containing attempt.
 """
 
 from __future__ import annotations

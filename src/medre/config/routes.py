@@ -261,8 +261,7 @@ def _validate_policy(
     sender_allowlist, room_allowlist, and channel_allowlist are
     enforced by the route-policy evaluator during delivery planning.
 
-    This function is retained as a validation hook for future
-    cross-field consistency checks.
+    This hook is reserved for future cross-field consistency checks.
     """
     # Intentionally empty: structural validation (unknown keys, type
     # checking, per-element string checks) is performed in

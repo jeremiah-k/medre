@@ -79,11 +79,11 @@ def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | No
 
 
 def extract_message_body(event: CanonicalEvent) -> str:
-    """Use authoritative body for styled events, preserving legacy text aliases.
+    """Use the authoritative body for styled events, the ``text`` field otherwise.
 
-    A stale ``text`` compatibility alias must never override the body whose
-    offsets are described by the optional presentation metadata. Unstyled
-    legacy messages retain their established text-first behavior.
+    A stale ``text`` value must never override the body whose offsets are
+    described by the optional presentation metadata. Unstyled messages select
+    ``text`` first, then ``body``.
     """
     return select_message_body(event.payload, strict=False)
 
