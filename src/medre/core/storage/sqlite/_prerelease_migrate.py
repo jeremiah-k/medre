@@ -478,7 +478,7 @@ def known_stripped_diagnostic_table_forms() -> dict[str, str]:
     try:
         reference.executescript(legacy_schema + _INDEXES)
         forms: dict[str, str] = {}
-        for family, (table, *_rest) in _DIAGNOSTIC_FAMILY_TABLES.items():
+        for _family, (table, *_rest) in _DIAGNOSTIC_FAMILY_TABLES.items():
             stored = _stored_table_sql(reference, table)
             if stored is None:
                 raise StorageInitializationError(
