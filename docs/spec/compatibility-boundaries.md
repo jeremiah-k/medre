@@ -101,13 +101,12 @@ table covers active production behavior that adapts to an alternate
 external/runtime shape rather than merely implementing normal capability
 fallback semantics. It excludes temporarily accepted but inert config fields.
 
-At the current compatibility pins, the Meshtastic adapter still accepts the
-``mmrelay_compatibility`` config field, and the core adapter-config schema still
-declares it. The adapter does not read the field: it enables no legacy wire
-output, no metadata trust, and no alternate routing behavior. Do not configure
-it for new deployments. Remove the adapter field and schema key together when
-the staged compatibility cleanup lands; until then, this is input tolerance,
-not an active interoperability path.
+The staged compatibility cleanup has landed with the promoted Meshtastic
+adapter revision: the adapter no longer accepts the ``mmrelay_compatibility``
+config field, and the core adapter-config schema no longer declares it. Remove
+the key from existing Meshtastic source configurations when upgrading; it
+enables no behavior and is no longer part of the accepted configuration
+surface.
 
 | Seam                                                 | Category                            | Code authority                                                           | Reason retained                                                                                       |
 | ---------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
