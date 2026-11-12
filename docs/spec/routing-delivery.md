@@ -1625,13 +1625,12 @@ source adapter's config. New configurations SHOULD use `MatrixConfig.relay_prefi
 
 Omitted/null Matrix prefix configuration MUST select full bracketed sender and
 origin attribution (`"[sender/origin]: "`), omitting the slash/origin when absent.
-Omitted/null Meshtastic prefix configuration MUST use MMRelay's five-character
-Matrix display-name prefix followed by `"[M]: "` for Matrix sources; other source
+Omitted/null Meshtastic prefix configuration MUST use the five-character Matrix
+display-name prefix followed by `"[M]: "` for Matrix sources; other source
 platforms retain generic short-name attribution. An explicit empty string MUST
 disable the prefix, and a nonempty custom template MUST override automatic
 presentation. The final radio prefix and body MUST share the configured UTF-8
-byte budget. Plain and HTML Matrix bodies MUST show consistent attribution;
-MMRelay wire metadata MUST retain the original unprefixed message text.
+byte budget. Plain and HTML Matrix bodies MUST show consistent attribution.
 
 For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
 lives on the respective target adapter config (`radio_relay_prefix`,

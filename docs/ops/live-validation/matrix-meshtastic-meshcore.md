@@ -157,7 +157,6 @@ adapters:
       connection_type: serial
       serial_port: /dev/ttyACM0
       origin_label: MEDRE
-      mmrelay_compatibility: true
 ```
 
 If the Meshtastic device path shifted (due to adding the MeshCore device),

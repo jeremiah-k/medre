@@ -639,9 +639,7 @@ class AdapterContract(ABC):
 
         Events whose :attr:`~CanonicalEvent.timestamp` is strictly before
         the moment the adapter started are considered stale and should be
-        silently dropped.  This mirrors the mmrelay pattern where
-        ``message_timestamp < facade.bot_start_time`` events are
-        discarded.
+        silently dropped.
 
         Returns ``False`` before :meth:`start` has been called (i.e.
         when ``_start_time`` is ``None``), allowing events through until

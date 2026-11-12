@@ -205,11 +205,6 @@
           "default": null,
           "description": "Target-local radio prefix. Omitted/null selects five display-name characters plus [M]: for Matrix sources and generic short-name attribution for others. An empty string disables it. The final prefix and body share max_text_bytes."
         },
-        "mmrelay_compatibility": {
-          "type": "boolean",
-          "default": false,
-          "description": "Embed mmrelay-compatible Meshtastic metadata in Matrix event content."
-        },
         "max_text_bytes": {
           "type": "integer",
           "default": 227,
