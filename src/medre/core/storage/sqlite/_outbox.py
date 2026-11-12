@@ -460,7 +460,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 db.execute(insert_sql, tuple(params))
                 # Replay may reuse historical identity, not silently acquire
                 # a fresh body-retention or native-send grant.
-                if params[23] != "replay":
+                if params[21] != "replay":
                     insert_outbox_dependency(
                         db,
                         str(params[0]),

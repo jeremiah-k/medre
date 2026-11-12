@@ -179,9 +179,7 @@ async def test_receipt_diagnostics_are_written_only_to_the_side_table(temp_stora
     await temp_storage.append_receipt(receipt)
     columns = {
         str(r["name"])
-        for r in await temp_storage._read_all(
-            "PRAGMA table_info(delivery_receipts)"
-        )
+        for r in await temp_storage._read_all("PRAGMA table_info(delivery_receipts)")
     }
     assert not {"error", "capability_reason", "rendering_evidence"} & columns
     row = await temp_storage._read_one(

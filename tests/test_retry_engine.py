@@ -275,7 +275,9 @@ def _mock_storage(receipts: list[DeliveryReceipt], event: CanonicalEvent):
 def _mock_pipeline(return_receipt: DeliveryReceipt | None = None):
     pipeline = MagicMock()
     if return_receipt is not None:
-        pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(return_receipt))
+        pipeline.deliver_execution_to_target = AsyncMock(
+            return_value=evidence_for_receipt(return_receipt)
+        )
     else:
         pipeline.deliver_execution_to_target = AsyncMock()
     return pipeline

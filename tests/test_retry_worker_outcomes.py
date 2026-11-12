@@ -754,16 +754,18 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     storage.mark_outbox_abandoned = AsyncMock(return_value=True)
     pipeline = MagicMock()
     pipeline.deliver_execution_to_target = AsyncMock(
-        return_value=evidence_for_receipt(DeliveryReceipt(
-            receipt_id="rcpt-suppressed",
-            event_id=item.event_id,
-            delivery_plan_id=item.delivery_plan_id,
-            target_adapter=item.target_adapter,
-            route_id=item.route_id,
-            status="suppressed",
-            error="capability_suppressed",
-            attempt_number=1,
-        ))
+        return_value=evidence_for_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-suppressed",
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                route_id=item.route_id,
+                status="suppressed",
+                error="capability_suppressed",
+                attempt_number=1,
+            )
+        )
     )
     monkeypatch.setattr(
         retry_module,
@@ -1228,7 +1230,9 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(sent))
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(sent)
+    )
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)

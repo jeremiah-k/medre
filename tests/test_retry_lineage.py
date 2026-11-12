@@ -745,14 +745,14 @@ class TestRetryLineage:
                 retry_policy=RetryPolicy(max_attempts=3),
             )
             replay_rcpt = (
-    await runner.deliver_execution_to_target(
+                await runner.deliver_execution_to_target(
                     event,
                     replay_route,
                     replay_plan,
                     source="replay",
                     replay_run_id=replay_run_id,
                 )
-).primary_receipt
+            ).primary_receipt
             assert replay_rcpt.source == "replay"
             assert replay_rcpt.replay_run_id == replay_run_id
             # Replay does NOT link via parent_receipt_id to the live/retry chain

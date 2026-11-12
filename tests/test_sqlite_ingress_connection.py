@@ -220,13 +220,12 @@ def test_sync_claim_ingress_work_claims_pending_and_expired_only(
 ) -> None:
     lock = threading.Lock()
     rows = [
-        ("evt-pending", "live", "pending", 0, None, "t0", "t0", None, None, None),
+        ("evt-pending", "live", "pending", 0, "t0", "t0", None, None, None),
         (
             "evt-expired",
             "recovered",
             "processing",
             2,
-            "retry",
             "t0",
             "t0",
             "t0",
@@ -238,21 +237,20 @@ def test_sync_claim_ingress_work_claims_pending_and_expired_only(
             "live",
             "processing",
             1,
-            None,
             "t0",
             "t0",
             "t0",
             "2026-08-19T00:00:00+00:00",
             "active-worker",
         ),
-        ("evt-done", "live", "completed", 1, None, "t0", "t0", None, None, None),
+        ("evt-done", "live", "completed", 1, "t0", "t0", None, None, None),
     ]
     ingress_db.executemany(
         """
         INSERT INTO durable_ingress_work
-            (event_id, provenance, status, attempts, last_error, created_at,
+            (event_id, provenance, status, attempts, created_at,
              updated_at, locked_at, lease_until, worker_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )

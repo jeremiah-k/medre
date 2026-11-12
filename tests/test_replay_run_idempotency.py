@@ -483,7 +483,9 @@ async def test_retry_preserves_originating_replay_run_provenance(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(sent))
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(sent)
+    )
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)

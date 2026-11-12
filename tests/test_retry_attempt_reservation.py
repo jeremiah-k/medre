@@ -1365,7 +1365,7 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
     )
 
     receipt = (
-    await service.deliver_execution(
+        await service.deliver_execution(
             event,
             route,
             plan,
@@ -1375,7 +1375,7 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
             reserved_attempt_number=6,
             expected_outbox_worker_id="retry-worker-stamp",
         )
-).primary_receipt
+    ).primary_receipt
 
     assert receipt.attempt_number == 6
     assert receipt.parent_receipt_id == "rcpt-previous"

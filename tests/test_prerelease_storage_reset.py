@@ -489,11 +489,9 @@ async def test_same_version_db_missing_replay_outbox_provenance_is_rejected(
 ) -> None:
     db_path = tmp_path / "missing-replay-outbox-provenance.db"
     stale_schema = _SCHEMA.replace(
-        "    error_summary TEXT,\n"
         "    dispatch_source TEXT NOT NULL DEFAULT 'live',\n"
         "    replay_run_id TEXT,\n"
         "    metadata TEXT NOT NULL DEFAULT '{}',\n",
-        "    error_summary TEXT,\n"
         "    dispatch_source TEXT NOT NULL DEFAULT 'live',\n"
         "    metadata TEXT NOT NULL DEFAULT '{}',\n",
         1,
@@ -529,10 +527,9 @@ async def test_same_version_db_missing_dispatch_source_is_rejected(
 ) -> None:
     db_path = tmp_path / "missing-dispatch-source.db"
     stale_schema = _SCHEMA.replace(
-        "    error_summary TEXT,\n"
         "    dispatch_source TEXT NOT NULL DEFAULT 'live',\n"
         "    replay_run_id TEXT,\n",
-        "    error_summary TEXT,\n" "    replay_run_id TEXT,\n",
+        "    replay_run_id TEXT,\n",
         1,
     ).replace(
         "    CHECK (dispatch_source IN ('live', 'replay', 'retry')),\n"

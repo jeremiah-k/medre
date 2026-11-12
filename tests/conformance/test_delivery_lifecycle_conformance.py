@@ -1059,7 +1059,7 @@ class TestServicePathDeliveryConformance:
 
         svc = _build_service({"queued_dest": adapter}, storage)
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -1067,7 +1067,7 @@ class TestServicePathDeliveryConformance:
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="pipeline:conformance",
             )
-).primary_receipt
+        ).primary_receipt
 
         # Receipt fields.
         assert receipt.status == "queued"

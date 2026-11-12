@@ -45,9 +45,7 @@ CONTENT_SURFACES = (
     ),
     ContentSurface("event_relation_excerpts", ("excerpt",), ("reply_quotes",)),
     ContentSurface("native_message_refs", ("metadata",), ("native_correlation",)),
-    ContentSurface(
-        "delivery_observations", ("metadata",), ("delivery_evidence",)
-    ),
+    ContentSurface("delivery_observations", ("metadata",), ("delivery_evidence",)),
     ContentSurface("delivery_outbox", ("metadata",), ("delivery", "recovery")),
     # Write-time separated free-form diagnostics for the delivery-evidence
     # families (receipts, observations, outbox records, ingress work).  A

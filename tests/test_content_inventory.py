@@ -175,8 +175,8 @@ async def test_native_and_evidence_copies_count_without_returning_values(
     await temp_storage._write(
         "INSERT INTO delivery_receipts "
         "(receipt_id, event_id, delivery_plan_id, target_adapter, status, "
-        "receipt_kind, rendering_evidence, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "receipt_kind, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
             "rcpt-copy",
             "evt-copy",
@@ -184,6 +184,14 @@ async def test_native_and_evidence_copies_count_without_returning_values(
             "matrix-main",
             "sent",
             "attempt",
+            "2026-10-30T00:00:00+00:00",
+        ),
+    )
+    await temp_storage._write(
+        "INSERT INTO delivery_evidence_diagnostics "
+        "(family, row_id, attempt, field, diagnostic, created_at) "
+        "VALUES ('receipt', 'rcpt-copy', 1, 'rendering_evidence', ?, ?)",
+        (
             '{"quote": "retained native quote"}',
             "2026-10-30T00:00:00+00:00",
         ),
@@ -194,7 +202,7 @@ async def test_native_and_evidence_copies_count_without_returning_values(
     assert refs["rows"] == 1
     # Native metadata is stored as compact JSON by the storage layer.
     assert refs["logical_bytes"] == len('{"quote":"retained native quote"}'.encode())
-    receipts = by_table["delivery_receipts"]
+    receipts = by_table["delivery_evidence_diagnostics"]
     assert receipts["rows"] == 1
     assert receipts["logical_bytes"] == len(
         '{"quote": "retained native quote"}'.encode()

@@ -471,9 +471,7 @@ def known_stripped_diagnostic_table_forms() -> dict[str, str]:
                     f"for the {table} inline-diagnostic predecessor; the "
                     "allowlisted predecessor cannot be derived."
                 )
-            legacy_schema = legacy_schema.replace(
-                anchor, anchor + column_line, 1
-            )
+            legacy_schema = legacy_schema.replace(anchor, anchor + column_line, 1)
     reference = sqlite3.connect(":memory:")
     try:
         reference.executescript(legacy_schema + _INDEXES)
@@ -563,9 +561,9 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
     differs from the original.  The caller rolls back the transaction,
     leaving the database unchanged.
     """
-    table, _row_id, _attempt, _created, retired_columns = (
-        _DIAGNOSTIC_FAMILY_TABLES[family]
-    )
+    table, _row_id, _attempt, _created, retired_columns = _DIAGNOSTIC_FAMILY_TABLES[
+        family
+    ]
     if not _stripped_diagnostic_table_applies(db, table):
         return
     current = known_decision_current_table_sql(table)
@@ -576,9 +574,7 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
     before_row = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
     assert before_row is not None  # COUNT(*) always yields one row
     before = int(before_row[0])
-    legacy_columns = [
-        str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")
-    ]
+    legacy_columns = [str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")]
     kept_columns = [c for c in legacy_columns if c not in retired_columns]
     columns = ", ".join(kept_columns)
     index_rows = db.execute(
@@ -645,7 +641,7 @@ def _recreate_delivery_status_view(db: sqlite3.Connection) -> None:
     create_start = _SCHEMA.index("CREATE VIEW delivery_status AS", drop_start)
     end = _SCHEMA.index("WHERE authority_rank = 1;")
     end = _SCHEMA.index(";", end) + 1
-    db.execute(_SCHEMA[drop_start:_SCHEMA.index(";", drop_start) + 1])
+    db.execute(_SCHEMA[drop_start : _SCHEMA.index(";", drop_start) + 1])
     db.execute(_SCHEMA[create_start:end])
 
 
@@ -697,7 +693,6 @@ def durable_ingress_work_strip_applies(db: sqlite3.Connection) -> bool:
     return _stripped_diagnostic_table_applies(db, "durable_ingress_work")
 
 
-
 @dataclass(frozen=True)
 class _MigrationStep:
     """One named, self-detecting, idempotent additive migration step."""
@@ -725,7 +720,8 @@ _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (
         name=_ADD_GAP_RETRY_TOKEN_STEP,
         applies=outage_gap_token_rebuild_applies,
         apply=rebuild_inbound_pressure_outage_gaps,
-    ),    _MigrationStep(
+    ),
+    _MigrationStep(
         name=_STRIP_DIAGNOSTIC_COLUMNS_STEP + "-receipts",
         applies=delivery_receipts_strip_applies,
         apply=rebuild_delivery_receipts_without_inline_diagnostics,
@@ -746,7 +742,6 @@ _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (
         apply=rebuild_durable_ingress_work_without_inline_diagnostics,
     ),
 )
-
 
 
 def apply_prerelease_migrations(db: sqlite3.Connection) -> None:
