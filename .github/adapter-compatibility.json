@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "c5a7b6538443400492f7966a9f4527d40c52afc3",
+    "ref": "1f88cbff25912cd75810189cebd22f270c6cd350",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix",
