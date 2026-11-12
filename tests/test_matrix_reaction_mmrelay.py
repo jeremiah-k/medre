@@ -1,13 +1,14 @@
 # medre-test-tier: compatibility
-"""Focused tests for Matrix codec/renderer/adapter reaction support and
-MMRelay metadata edge handling.
+"""Focused tests for Matrix codec/renderer/adapter reaction support.
 
 Tests cover:
 - codec: true m.annotation reaction → MESSAGE_REACTED
 - codec: flat MMRelay content hints do not override the body or invent reactions
 - renderer: true m.reaction emitted as a send_event operation
-- renderer: separately opted-in historical emote output (outside frozen schema)
-- renderer: reply with KEY_REPLY_ID injection in that opt-in mode
+- renderer: emote fallback for reactions without a Matrix-native target,
+  with the attribution prefix and quoted original-text preview
+- renderer: original-text preview extraction from canonical relation
+  enrichment (relation metadata, then fallback_text)
 - adapter: closed _matrix_operation envelope dispatch, event_type wiring
 - legacy constants: KEY_REPLY_ID/KEY_EMOJI/EMOJI_FLAG_VALUE
 """
@@ -32,33 +33,20 @@ from medre.interop.mmrelay import (
     EMOJI_FLAG_VALUE,
     KEY_EMOJI,
     KEY_ID,
-    KEY_LONGNAME,
     KEY_MESHNET,
     KEY_PORTNUM,
     KEY_REPLY_ID,
-    KEY_SHORTNAME,
     KEY_TEXT,
     PORTNUM_TEXT,
 )
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
-from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import matrix_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-# Source-config mappings for common test patterns.
-_SRC_MESHTASTIC = {
-    "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
-}
-_SRC_MATRIX = {
-    "matrix-1": _StubMeshtasticConfig(adapter_id="matrix-1", mmrelay_compatibility=True)
-}
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:
@@ -198,7 +186,6 @@ def _make_canonical_reply(
     target_event_id: str = "$orig-001",
     adapter_id: str = "matrix-1",
     room_id: str = "!room:server",
-    mmrelay_reply_id: str | None = None,
 ) -> CanonicalEvent:
     """Build a canonical event with a reply relation."""
     rel = EventRelation(
@@ -213,11 +200,6 @@ def _make_canonical_reply(
         fallback_text="original text",
     )
     native_data: dict[str, object] = {"room_id": room_id}
-    if mmrelay_reply_id:
-        # Explicitly opt-in legacy renderer fixture. This hand-crafted
-        # namespace is NOT produced by the Matrix codec or accepted by the
-        # 0.1.0 frozen native schema.
-        native_data["interop"] = {"mmrelay": {KEY_REPLY_ID: mmrelay_reply_id}}
     return CanonicalEvent(
         event_id="evt-reply-001",
         event_kind=EventKind.MESSAGE_CREATED,
@@ -326,113 +308,12 @@ class TestRendererTrueReaction:
         assert "body" not in _payload_content(result)
 
 
-class TestRendererMMRelayEmoteFallback:
-    """MatrixRenderer mmrelay_compat renders m.emote fallback for reactions."""
-
-    @pytest.mark.asyncio
-    async def test_mmrelay_compat_reaction_is_emote(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
-        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        assert _payload_content(result)["msgtype"] == "m.emote"
-
-    @pytest.mark.asyncio
-    async def test_mmrelay_compat_reaction_has_reply_id(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
-        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        assert _payload_content(result)[KEY_REPLY_ID] == "$msg-1"
-
-    @pytest.mark.asyncio
-    async def test_mmrelay_compat_reaction_has_emoji_flag(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
-        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        assert _payload_content(result)[KEY_EMOJI] == EMOJI_FLAG_VALUE
-
-    @pytest.mark.asyncio
-    async def test_mmrelay_compat_reaction_text_is_original_preview(self) -> None:
-        """KEY_TEXT is the original text preview, not the reaction body.
-
-        When no original text metadata/fallback is available, KEY_TEXT is
-        the empty string.
-        """
-        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
-        event = _make_canonical_reaction(
-            key="👍", target_event_id="$msg-1", body="thumbs up"
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        # No original text metadata or fallback_text → empty string
-        assert _payload_content(result)[KEY_TEXT] == ""
-
-    @pytest.mark.asyncio
-    async def test_mmrelay_compat_no_matrix_event_type(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MATRIX)
-        event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        # Emote fallback renders as a plain room-message operation.
-        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
-
-    @pytest.mark.asyncio
-    async def test_reply_id_zero_emits_key_reply_id(self) -> None:
-        """Reaction with metadata meshtastic_reply_id=0 emits KEY_REPLY_ID='0'."""
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
-        from datetime import datetime, timezone
-
-        rel = EventRelation(
-            relation_type="reaction",
-            target_event_id=None,
-            target_native_ref=None,
-            key="👍",
-            fallback_text=None,
-            metadata={"meshtastic_reply_id": 0},
-        )
-        event = CanonicalEvent(
-            event_id="evt-zero-rlid",
-            event_kind=EventKind.MESSAGE_REACTED,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="matrix-1",
-            source_transport_id="@alice:example.com",
-            source_channel_id="!room:server",
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"body": "👍"},
-            metadata=EventMetadata(),
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        # No Matrix-native target → no true m.reaction (emote fallback)
-        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
-        # But KEY_REPLY_ID must be "0" (preserved, not dropped)
-        assert _payload_content(result).get(KEY_REPLY_ID) == "0"
+class TestReactionEmoteFallback:
+    """Reactions without a Matrix-native target render the m.emote fallback."""
 
     @pytest.mark.asyncio
     async def test_no_target_falls_back_to_emote(self) -> None:
-        """When target is missing, even without mmrelay_compat, use fallback."""
+        """When target is missing, use fallback."""
         renderer = MatrixRenderer()
         event = _make_canonical_reaction_no_target(key="👍", body="👍")
         result = await renderer.render(
@@ -448,38 +329,8 @@ class TestRendererMMRelayEmoteFallback:
         assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
-class TestRendererReplyWithReplyId:
-    """MatrixRenderer replies inject KEY_REPLY_ID from metadata."""
-
-    @pytest.mark.asyncio
-    async def test_reply_injects_reply_id_from_native(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
-        event = _make_canonical_reply(
-            body="reply text",
-            target_event_id="$orig-1",
-            mmrelay_reply_id="node-reply-42",
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        assert _payload_content(result)[KEY_REPLY_ID] == "node-reply-42"
-
-    @pytest.mark.asyncio
-    async def test_reply_without_mmrelay_reply_id_uses_target(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
-        event = _make_canonical_reply(
-            body="reply text",
-            target_event_id="$orig-1",
-            mmrelay_reply_id=None,
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-
-        assert _payload_content(result)[KEY_REPLY_ID] == "$orig-1"
+class TestRendererReplyRelation:
+    """Matrix-native replies reference the target through m.in_reply_to."""
 
     @pytest.mark.asyncio
     async def test_reply_has_in_reply_to(self) -> None:
@@ -642,11 +493,9 @@ def _make_mesh_reaction(
     if native_data is not None:
         nd = native_data
     else:
-        # When a Meshtastic-originated event crosses into Matrix the
-        # meshtastic adapter populates the cross-transport interop
-        # namespace under ``native.interop.mmrelay``.  Matrix reads
-        # cross-transport wire fields from there (per the boundary
-        # contract) rather than from ``native.meshtastic``.
+        # The meshtastic adapter persists transport-native identity under
+        # the versioned ``native.meshtastic`` namespace; attribution and
+        # sender projection read only that namespace.
         nd = {
             "meshtastic": {
                 "schema_version": 1,
@@ -654,13 +503,6 @@ def _make_mesh_reaction(
                 "shortname": shortname,
                 "packet_id": packet_id,
                 "from_id": "!abcdef01",
-            },
-            "interop": {
-                "mmrelay": {
-                    "meshtastic_id": packet_id,
-                    "meshtastic_longname": longname,
-                    "meshtastic_shortname": shortname,
-                },
             },
         }
     return CanonicalEvent(
@@ -687,13 +529,6 @@ class TestMMRelayReactionBodyFormat:
     @pytest.mark.asyncio
     async def test_emote_body_has_leading_newline_and_prefix(self) -> None:
         renderer = MatrixRenderer(
-            source_configs={
-                "mesh-1": _StubMeshtasticConfig(
-                    adapter_id="mesh-1",
-                    mmrelay_compatibility=True,
-                    # mmrelay KEY_MESHNET wire compat
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -715,7 +550,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_without_prefix(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         event = _make_mesh_reaction(key="👍", fallback_text="original msg")
         result = await renderer.render(
             event,
@@ -727,7 +562,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_with_empty_original_text(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         event = _make_mesh_reaction(key="👍", body="👍")
         result = await renderer.render(
             event,
@@ -735,11 +570,13 @@ class TestMMRelayReactionBodyFormat:
         )
 
         body = _payload_content(result)["body"]
-        assert body == '\n reacted 👍 to ""'
+        # An unresolvable original text renders the honest fallback wording,
+        # never an empty quotation.
+        assert body == "\n reacted 👍 to an earlier message"
 
     @pytest.mark.asyncio
     async def test_emote_body_abbreviates_long_text(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         long_text = "A" * 50
         event = _make_mesh_reaction(key="🔥", fallback_text=long_text)
         result = await renderer.render(
@@ -754,7 +591,7 @@ class TestMMRelayReactionBodyFormat:
 
     @pytest.mark.asyncio
     async def test_emote_body_normalizes_newlines(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         event = _make_mesh_reaction(key="👍", fallback_text="line1\nline2\r\nline3")
         result = await renderer.render(
             event,
@@ -766,150 +603,26 @@ class TestMMRelayReactionBodyFormat:
         assert "line1 line2 line3" in body
 
 
-class TestReactionSymbolExtraction:
-    """Reaction symbol preference: rel.key → payload['key'] → payload['body'] → ⚠️."""
-
-    @pytest.mark.asyncio
-    async def test_symbol_from_rel_key(self) -> None:
-        event = _make_mesh_reaction(key="❤️", body="thumbs up")
-        symbol = MatrixRenderer._extract_reaction_symbol(event.relations[0], event)
-        assert symbol == "❤️"
-
-    @pytest.mark.asyncio
-    async def test_symbol_from_payload_key_when_rel_key_none(self) -> None:
-        from datetime import datetime, timezone
-
-        rel = EventRelation(
-            relation_type="reaction",
-            target_event_id=None,
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        )
-        event = CanonicalEvent(
-            event_id="evt-sym",
-            event_kind=EventKind.MESSAGE_REACTED,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="mesh-1",
-            source_transport_id="node",
-            source_channel_id="ch",
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"body": "thumbs up", "key": "🔥"},
-            metadata=EventMetadata(),
-        )
-        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
-        assert symbol == "🔥"
-
-    @pytest.mark.asyncio
-    async def test_symbol_from_payload_body_when_key_blank(self) -> None:
-        from datetime import datetime, timezone
-
-        rel = EventRelation(
-            relation_type="reaction",
-            target_event_id=None,
-            target_native_ref=None,
-            key="",
-            fallback_text=None,
-        )
-        event = CanonicalEvent(
-            event_id="evt-sym2",
-            event_kind=EventKind.MESSAGE_REACTED,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="mesh-1",
-            source_transport_id="node",
-            source_channel_id="ch",
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"body": "  👍  ", "key": "  "},
-            metadata=EventMetadata(),
-        )
-        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
-        assert symbol == "👍"
-
-    @pytest.mark.asyncio
-    async def test_symbol_fallback_when_all_blank(self) -> None:
-        from datetime import datetime, timezone
-
-        rel = EventRelation(
-            relation_type="reaction",
-            target_event_id=None,
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        )
-        event = CanonicalEvent(
-            event_id="evt-sym3",
-            event_kind=EventKind.MESSAGE_REACTED,
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="mesh-1",
-            source_transport_id="node",
-            source_channel_id="ch",
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"body": "  "},
-            metadata=EventMetadata(),
-        )
-        symbol = MatrixRenderer._extract_reaction_symbol(rel, event)
-        assert symbol == "⚠️"
-
-    @pytest.mark.asyncio
-    async def test_symbol_strips_whitespace(self) -> None:
-        event = _make_mesh_reaction(key="  ❤️  ")
-        symbol = MatrixRenderer._extract_reaction_symbol(event.relations[0], event)
-        assert symbol == "❤️"
-
-
 class TestOriginalTextExtraction:
-    """Original text preference: rel metadata → fallback_text → event metadata → empty."""
+    """Original text preference: relation metadata → fallback_text → empty."""
 
-    def test_from_relation_metadata_meshtastic_text(self) -> None:
+    def test_from_relation_metadata_original_text(self) -> None:
         event = _make_mesh_reaction(
             key="👍",
-            rel_metadata={"meshtastic_text": "original from meta"},
+            rel_metadata={"original_text": "original from meta"},
             fallback_text="fallback",
         )
-        text = MatrixRenderer._extract_original_text(event.relations[0], event)
+        text = MatrixRenderer._extract_original_text(event.relations[0])
         assert text == "original from meta"
-
-    def test_from_relation_metadata_text_key(self) -> None:
-        event = _make_mesh_reaction(
-            key="👍",
-            rel_metadata={"text": "from text key"},
-            fallback_text="fallback",
-        )
-        text = MatrixRenderer._extract_original_text(event.relations[0], event)
-        assert text == "from text key"
 
     def test_from_fallback_text(self) -> None:
         event = _make_mesh_reaction(key="👍", fallback_text="fallback text")
-        text = MatrixRenderer._extract_original_text(event.relations[0], event)
+        text = MatrixRenderer._extract_original_text(event.relations[0])
         assert text == "fallback text"
-
-    def test_from_event_native_metadata(self) -> None:
-        event = _make_mesh_reaction(
-            key="👍",
-            native_data={
-                "longname": "Node",
-                "interop": {
-                    "mmrelay": {
-                        "meshtastic_text": "from event meta",
-                    },
-                },
-            },
-        )
-        text = MatrixRenderer._extract_original_text(event.relations[0], event)
-        assert text == "from event meta"
 
     def test_empty_when_no_sources(self) -> None:
         event = _make_mesh_reaction(key="👍")
-        text = MatrixRenderer._extract_original_text(event.relations[0], event)
+        text = MatrixRenderer._extract_original_text(event.relations[0])
         assert text == ""
 
 
@@ -936,129 +649,12 @@ class TestAbbreviateText:
         assert MatrixRenderer._abbreviate_text("a\r\nb") == "a b"
 
 
-class TestReactionMetadataCompleteness:
-    """Meshtastic-originated reaction metadata fields."""
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_meshtastic_id(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(packet_id="pkt-99")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_ID] == "pkt-99"
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_longname(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(longname="My Node Name")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_LONGNAME] == "My Node Name"
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_shortname(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(shortname="MNN")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_SHORTNAME] == "MNN"
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_meshnet(self) -> None:
-        renderer = MatrixRenderer(
-            source_configs={
-                "mesh-1": _StubMeshtasticConfig(
-                    adapter_id="mesh-1",
-                    mmrelay_compatibility=True,
-                    # mmrelay KEY_MESHNET wire compat
-                ),
-            },
-            source_attribution={
-                "mesh-1": _StubSourceAttribution(
-                    adapter_id="mesh-1",
-                    origin_label="testnet",
-                ),
-            },
-        )
-        event = _make_mesh_reaction()
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_MESHNET] == "testnet"
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_portnum(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction()
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_PORTNUM] == PORTNUM_TEXT
-
-    @pytest.mark.asyncio
-    async def test_reaction_has_emoji_flag(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction()
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_EMOJI] == EMOJI_FLAG_VALUE
-
-    @pytest.mark.asyncio
-    async def test_reaction_text_is_original_preview(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(key="❤️", fallback_text="the original message")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_TEXT] == "the original message"
-
-    @pytest.mark.asyncio
-    async def test_reaction_reply_id_from_rel_metadata(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(
-            key="👍",
-            rel_metadata={"meshtastic_reply_id": "12345"},
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert _payload_content(result)[KEY_REPLY_ID] == "12345"
-
-    @pytest.mark.asyncio
-    async def test_reaction_no_reply_id_when_none_available(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
-        event = _make_mesh_reaction(key="👍")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        assert KEY_REPLY_ID not in _payload_content(result)
-
-
 class TestReactionPrefixPreservesLongname:
     """Prefix preserves Meshtastic longname exactly: spaces, casing, emoji."""
 
     @pytest.mark.asyncio
     async def test_prefix_preserves_spaces_in_longname(self) -> None:
         renderer = MatrixRenderer(
-            source_configs={
-                "mesh-1": _StubMeshtasticConfig(
-                    adapter_id="mesh-1",
-                    mmrelay_compatibility=True,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -1077,12 +673,6 @@ class TestReactionPrefixPreservesLongname:
     @pytest.mark.asyncio
     async def test_prefix_preserves_casing(self) -> None:
         renderer = MatrixRenderer(
-            source_configs={
-                "mesh-1": _StubMeshtasticConfig(
-                    adapter_id="mesh-1",
-                    mmrelay_compatibility=True,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -1101,12 +691,6 @@ class TestReactionPrefixPreservesLongname:
     @pytest.mark.asyncio
     async def test_prefix_preserves_emoji_in_longname(self) -> None:
         renderer = MatrixRenderer(
-            source_configs={
-                "mesh-1": _StubMeshtasticConfig(
-                    adapter_id="mesh-1",
-                    mmrelay_compatibility=True,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -1124,11 +708,11 @@ class TestReactionPrefixPreservesLongname:
 
 
 class TestReactionNoTargetNoCrash:
-    """Missing mapping fallback must not crash."""
+    """Degenerate metadata must not crash the emote fallback path."""
 
     @pytest.mark.asyncio
     async def test_no_target_no_metadata_no_crash(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         event = _make_mesh_reaction(
             key="👍",
             body="👍",
@@ -1139,19 +723,18 @@ class TestReactionNoTargetNoCrash:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert _payload_content(result)["msgtype"] == "m.emote"
-        assert KEY_EMOJI in _payload_content(result)
+        assert "reacted 👍" in _payload_content(result)["body"]
 
     @pytest.mark.asyncio
     async def test_missing_fields_use_defaults(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
+        renderer = MatrixRenderer()
         event = _make_mesh_reaction(native_data={})
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert _payload_content(result)[KEY_ID] == ""
-        assert _payload_content(result)[KEY_LONGNAME] == ""
-        assert _payload_content(result)[KEY_SHORTNAME] == ""
+        # Unresolvable original text renders the honest fallback wording.
+        assert "reacted 👍 to an earlier message" in _payload_content(result)["body"]
 
 
 class TestReplyNoMatrixTargetNoInReplyTo:
@@ -1159,14 +742,13 @@ class TestReplyNoMatrixTargetNoInReplyTo:
 
     @pytest.mark.asyncio
     async def test_no_matrix_native_target_no_in_reply_to(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
+        renderer = MatrixRenderer()
         rel = EventRelation(
             relation_type="reply",
             target_event_id=None,
             target_native_ref=None,
             key=None,
             fallback_text="original",
-            metadata={"meshtastic_reply_id": "42"},
         )
         event = CanonicalEvent(
             event_id="evt-reply-no-target",
@@ -1189,11 +771,10 @@ class TestReplyNoMatrixTargetNoInReplyTo:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert "m.relates_to" not in _payload_content(result)
-        assert _payload_content(result).get(KEY_REPLY_ID) == "42"
 
     @pytest.mark.asyncio
     async def test_foreign_native_ref_reply_no_in_reply_to(self) -> None:
-        renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC | _SRC_MATRIX)
+        renderer = MatrixRenderer()
         foreign_ref = NativeRef(
             adapter="mesh-1", native_channel_id="0", native_message_id="99"
         )
@@ -1203,7 +784,6 @@ class TestReplyNoMatrixTargetNoInReplyTo:
             target_native_ref=foreign_ref,
             key=None,
             fallback_text="original",
-            metadata={"meshtastic_reply_id": "55"},
         )
         event = CanonicalEvent(
             event_id="evt-foreign-reply",
@@ -1228,4 +808,3 @@ class TestReplyNoMatrixTargetNoInReplyTo:
             ),
         )
         assert "m.relates_to" not in _payload_content(result)
-        assert _payload_content(result).get(KEY_REPLY_ID) == "55"

@@ -77,20 +77,6 @@ from tests.helpers.matrix import matrix_payload_content as _payload_content
 # ===================================================================
 
 
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
 def _make_matrix_config(**overrides):
     defaults = dict(
         adapter_id="matrix-test",
@@ -616,21 +602,18 @@ class TestMissingNativeRefCrossAdapterDegradation:
 class TestMeshtasticToMatrixReactionResolution:
     """Focused verification that a Meshtastic reaction resolves through
     the pipeline to produce the correct stored relation target_event_id
-    and Matrix output with MMRelay-compatible emote fallback metadata.
+    and a native Matrix annotation on the Matrix side.
 
-    The rendered Matrix payload carries ``meshtastic_replyId`` and
-    ``meshtastic_emoji`` fields — the MMRelay emote-fallback metadata
-    convention — rather than a true Matrix ``m.annotation`` relation.
-    This verifies the Meshtastic→Matrix emote fallback path, not native
-    Matrix reaction support."""
+    The reaction target resolves to the bridged message's Matrix-native
+    ref, so the renderer emits a true ``m.reaction`` carrying the
+    original emoji key."""
 
     async def test_reaction_resolves_target_event_id(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Meshtastic reaction targeting a previously-seen message
-        resolves the relation to the correct canonical event_id.  The
-        Matrix output carries meshtastic_replyId matching the original
-        packet ID."""
+        resolves the relation to the correct canonical event_id, and the
+        Matrix output is a true m.reaction keyed with the emoji."""
         _MX = "mx-w6-4"
         _RADIO = "radio-w6-4"
         _ROOM = "!w6-4:server"
@@ -724,15 +707,7 @@ class TestMeshtasticToMatrixReactionResolution:
 
         rp = RenderingPipeline()
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    _RADIO: _StubMeshtasticConfig(
-                        adapter_id=_RADIO,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(_MX, "matrix")
@@ -762,18 +737,18 @@ class TestMeshtasticToMatrixReactionResolution:
             assert len(matrix_adapter.delivered_payloads) == 1
             payload = _payload_content(matrix_adapter.delivered_payloads[0])
 
-            # meshtastic_replyId matches the original packet ID.
-            assert str(payload.get("meshtastic_replyId")) == str(_MESH_PKT)
-
-            # meshtastic_emoji flag set.
-            assert payload.get("meshtastic_emoji") == 1
-
-            # Native Matrix reaction annotation is NOT present — the
-            # cross-adapter path uses meshtastic_* fields, not m.reaction.
-            assert payload.get("m.relates_to", {}).get("rel_type") != "m.annotation"
-            relates_to = payload.get("m.relates_to")
-            if relates_to:
-                assert relates_to.get("rel_type") != "m.annotation"
+            # The resolved target carries the bridged message's
+            # Matrix-native ref, so the reaction renders as a true
+            # m.reaction keyed with the emoji.
+            assert payload["m.relates_to"] == {
+                "rel_type": "m.annotation",
+                "event_id": _MX_MSG,
+                "key": _EMOJI,
+            }
+            # True reactions carry no body/msgtype or flat wire keys.
+            assert "msgtype" not in payload
+            assert "body" not in payload
+            assert not any(key.startswith("meshtastic_") for key in payload)
 
             # -- Verify stored relation resolved to correct event --------
             stored = await temp_storage.get(reaction_event.event_id)

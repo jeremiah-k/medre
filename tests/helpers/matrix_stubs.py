@@ -11,14 +11,6 @@ from dataclasses import dataclass
 
 
 @dataclass(slots=True)
-class StubMeshtasticConfig:
-    """Minimal duck-typed MeshtasticConfig for source-config resolution."""
-
-    adapter_id: str = "mesh-1"
-    mmrelay_compatibility: bool = False
-
-
-@dataclass(slots=True)
 class StubSourceAttribution:
     """Minimal duck-typed SourceAttributionConfig for renderer tests."""
 

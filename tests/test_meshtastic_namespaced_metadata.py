@@ -11,16 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 from medre.adapters._attribution_dispatch import detect_source_platform
-from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent
-from medre.core.rendering.renderer import RenderingContext
-from tests.helpers.matrix import matrix_payload_content
-from tests.helpers.matrix_events import make_meshtastic_event
-from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
-from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
@@ -282,71 +275,3 @@ def test_platform_hint_remains_authoritative() -> None:
         detect_source_platform("generic", {"channel": 0}, platform_hint="meshtastic")
         == "meshtastic"
     )
-
-
-# ===================================================================
-# Group 8: Matrix renderer reads meshtastic.packet_id first (paired consumer)
-# ===================================================================
-
-
-def _make_mmrelay_renderer() -> MatrixRenderer:
-    """Build a MatrixRenderer whose radio-alpha source has mmrelay_compat."""
-    return MatrixRenderer(
-        source_configs={
-            "radio-alpha": _StubMeshtasticConfig(
-                adapter_id="radio-alpha",
-                mmrelay_compatibility=True,
-            ),
-        },
-        source_attribution={
-            "radio-alpha": _StubSourceAttribution(
-                adapter_id="radio-alpha",
-                origin_label="AlphaNet",
-            ),
-        },
-        configs={
-            "matrix-1": _StubMatrixConfig(
-                adapter_id="matrix-1",
-                relay_prefix="",
-            ),
-        },
-    )
-
-
-async def test_matrix_renderer_uses_versioned_packet_id() -> None:
-    renderer = _make_mmrelay_renderer()
-    event = make_meshtastic_event(
-        source_adapter="radio-alpha",
-        native_data=meshtastic_native_data({"packet_id": "111", "longname": "Alice"}),
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-    )
-    assert matrix_payload_content(result)["meshtastic_id"] == "111"
-
-
-async def test_matrix_renderer_does_not_read_root_packet_id() -> None:
-    renderer = _make_mmrelay_renderer()
-    event = make_meshtastic_event(
-        source_adapter="radio-alpha",
-        native_data={"packet_id": "old-77", "longname": "Alice"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-    )
-    assert matrix_payload_content(result)["meshtastic_id"] == ""
-
-
-async def test_matrix_renderer_packet_id_zero_preserved() -> None:
-    renderer = _make_mmrelay_renderer()
-    event = make_meshtastic_event(
-        source_adapter="radio-alpha",
-        native_data=meshtastic_native_data({"packet_id": 0, "longname": "Alice"}),
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-    )
-    assert matrix_payload_content(result)["meshtastic_id"] == "0"

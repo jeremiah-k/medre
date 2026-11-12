@@ -53,12 +53,6 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
-
-# ===================================================================
-# Shared helper for source_configs construction
-# ===================================================================
-
 
 # Fixed IDs used across both tests for traceability.
 _CANON_EVENT_ID = "canon-matrix-original"
@@ -335,9 +329,8 @@ class TestMeshtasticToMatrixReplyResolution:
     ) -> None:
         """Inbound Meshtastic reply packet (replyId=2728143522) resolves
         through the pipeline so that MatrixRenderer output contains
-        m.relates_to.m.in_reply_to.event_id == '$matrix-original' and
-        meshtastic_replyId == '2728143522'.  Body prefix preserves generic
-        longname spacing/casing."""
+        m.relates_to.m.in_reply_to.event_id == '$matrix-original'.  Body
+        prefix preserves generic longname spacing/casing."""
         # -- Seed state from Test A ----------------------------------------
         await _seed_test_a_state(temp_storage)
 
@@ -362,13 +355,6 @@ class TestMeshtasticToMatrixReplyResolution:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                source_configs={
-                    _RADIO_ADAPTER: _StubMeshtasticConfig(
-                        adapter_id=_RADIO_ADAPTER,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
                 configs={
                     _MATRIX_ADAPTER: _StubMatrixConfig(
                         relay_prefix="[{sender}] ",
@@ -424,9 +410,6 @@ class TestMeshtasticToMatrixReplyResolution:
             in_reply_to: dict[str, object] = in_reply_to_raw
             assert in_reply_to["event_id"] == _MATRIX_MSG_ID
 
-            # -- Verify meshtastic_replyId ----------------------------------
-            assert payload.get("meshtastic_replyId") == str(_RADIO_PKT_ID)
-
             # -- Verify body prefix preserves longname spacing/casing -------
             body = str(payload.get("body", ""))
             # MatrixRenderer no longer adds fallback quoting; the body is
@@ -475,15 +458,7 @@ class TestMeshtasticToMatrixReplyResolution:
 
         rp = RenderingPipeline()
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    _RADIO_ADAPTER: _StubMeshtasticConfig(
-                        adapter_id=_RADIO_ADAPTER,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(_MATRIX_ADAPTER, "matrix")

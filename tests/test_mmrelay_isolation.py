@@ -1,30 +1,23 @@
 # medre-test-tier: compatibility
-"""Durable isolation guards for mmrelay wire-format compatibility.
+"""Durable isolation guards for the mmrelay wire-format boundary.
 
-Locks the architectural boundary that mmrelay external Matrix wire fields
-(the ``KEY_*`` constants defined in :mod:`medre.interop.mmrelay`) and the
-``derive_meshnet_value`` helper remain confined to the Matrix
-interop/renderer/codec surface.  These guards prevent regression where a
-core planning module or a non-Matrix adapter accidentally imports mmrelay
-wire-field constants and turns an external wire-compat shape into a core
-model concept.
+Locks the architectural boundary that the mmrelay external Matrix wire
+fields (the ``KEY_*`` constants defined in :mod:`medre.interop.mmrelay`)
+and the ``derive_meshnet_value`` helper stay confined to the Matrix
+interop surface and never become a core model concept: no core planning
+module and no non-Matrix adapter may import them.
 
-The guards complement the existing behavioral tests in
-``test_mmrelay_sender_name_resolution.py``,
-``test_mmrelay_reaction_sender_names.py``, and
-``test_origin_label_precedence.py`` by adding:
+The guards add:
 
 1. **Structural (AST) isolation guard** — no mmrelay wire-field constant
    or ``derive_meshnet_value`` is imported outside the allowed Matrix
    interop/renderer/codec modules.
-2. **Behavioral displayname guard** — through the full ``render()`` path
-   (both the ``_inject_mmrelay_metadata`` text path and the reaction
-   emote-fallback path), a Matrix ``displayname`` in native metadata
-   never populates ``KEY_LONGNAME`` / ``KEY_SHORTNAME``.
-3. **Behavioral KEY_MESHNET guard** — the rendered ``KEY_MESHNET`` value
-   is derived purely from resolved origin labels (route/context then
-   adapter registry), never from a native ``meshtastic_meshnet`` wire
-   field carried in the event metadata.
+2. **Behavioral displayname trust boundary** — through the sender
+   projection and the full ``render()`` path, a Matrix ``displayname``
+   in native metadata never becomes participant identity: it never
+   reaches the projected sender label or a rendered attribution prefix.
+3. **Unit-level precedence locks on ``derive_meshnet_value``** — the
+   helper resolves only from origin labels, never from wire data.
 """
 
 from __future__ import annotations
@@ -39,17 +32,11 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
-from medre.interop.mmrelay import (
-    KEY_LONGNAME,
-    KEY_MESHNET,
-    KEY_SHORTNAME,
-    derive_meshnet_value,
-)
+from medre.interop.mmrelay import derive_meshnet_value
 from tests.helpers.ast_imports import all_imports, parse_python
 from tests.helpers.matrix import matrix_payload_content
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
-from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
-from tests.helpers.source_locations import source_file
+from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
+from tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Structural isolation guard (AST-based)
@@ -170,28 +157,6 @@ def test_mmrelay_wire_constants_isolated_to_matrix_surface() -> None:
     )
 
 
-def test_legacy_matrix_renderer_actively_uses_guarded_surface() -> None:
-    """Keep the remaining opt-in presentation imports guarded.
-
-    Canonical codecs need no legacy imports. Baseline adapters may still use
-    the existing narrow allowlist until their canonical ingress revisions land.
-    """
-    repo = Path(__file__).resolve().parents[1]
-    renderer_path = source_file(repo, "src/medre/adapters/matrix/renderer.py")
-
-    renderer_imports = _find_guarded_imports(renderer_path)
-
-    required_trio = {"KEY_LONGNAME", "KEY_SHORTNAME", "KEY_MESHNET"}
-    assert required_trio.issubset(renderer_imports), (
-        f"matrix renderer no longer imports the mmrelay name/meshnet trio; "
-        f"got {sorted(renderer_imports)}"
-    )
-    assert "derive_meshnet_value" in renderer_imports, (
-        "matrix renderer no longer imports derive_meshnet_value; "
-        "KEY_MESHNET derivation must stay on the Matrix surface."
-    )
-
-
 def test_whole_module_mmrelay_import_flags_all_guarded_symbols(
     tmp_path: Path,
 ) -> None:
@@ -295,32 +260,31 @@ def _make_reaction_event(
     )
 
 
-# Source-config with mmrelay_compatibility enabled, so the renderer emits
-# the full mmrelay wire surface on outbound Matrix content.
-_SRC_MMRELAY = {
-    "mesh-1": _StubMeshtasticConfig(
-        adapter_id="mesh-1",
-        mmrelay_compatibility=True,
+# Target-local prefix so the projected sender identity is observable in the
+# rendered attribution.
+_STUB_MATRIX_CONFIG = {
+    "matrix-1": _StubMatrixConfig(
+        adapter_id="matrix-1",
+        relay_prefix="[{sender}] ",
     ),
 }
 
 
 # ---------------------------------------------------------------------------
-# Behavioral guard: Matrix displayname never feeds KEY_LONGNAME/SHORTNAME
+# Behavioral trust boundary: Matrix displayname never becomes participant
+# identity through the sender projection or a rendered prefix
 # ---------------------------------------------------------------------------
 
 
 async def test_displayname_does_not_populate_names_inject_path() -> None:
-    """Text render path: displayname never reaches KEY_LONGNAME/SHORTNAME.
+    """Text render path: displayname never reaches the projected sender label.
 
-    With mmrelay_compatibility enabled and a native metadata dict that
-    carries only a Matrix ``displayname`` (no Meshtastic-native /
-    mmrelay-wire / legacy bare name keys), the rendered Matrix content
-    must emit empty ``KEY_LONGNAME`` / ``KEY_SHORTNAME`` rather than
-    projecting the Matrix display name into the Meshtastic-shaped wire
-    fields.
+    Native metadata that carries only a Matrix ``displayname`` (no
+    Meshtastic-native identity) projects an empty sender label: the
+    rendered prefix brackets stay empty rather than filling from the
+    display name.
     """
-    renderer = MatrixRenderer(source_configs=_SRC_MMRELAY)
+    renderer = MatrixRenderer(configs=_STUB_MATRIX_CONFIG)
     event = _make_text_event(
         native_data={
             "displayname": "Alice Display",
@@ -336,23 +300,13 @@ async def test_displayname_does_not_populate_names_inject_path() -> None:
             target_platform="matrix",
         ),
     )
-    content = matrix_payload_content(result)
-    assert content[KEY_LONGNAME] == ""
-    assert content[KEY_SHORTNAME] == ""
-    # displayname must not leak into any other mmrelay wire field either.
-    assert "Alice Display" not in str(content[KEY_LONGNAME])
-    assert "Alice Display" not in str(content[KEY_SHORTNAME])
+    body = str(matrix_payload_content(result)["body"])
+    assert body == "[] hello"
 
 
 async def test_displayname_does_not_populate_names_reaction_path() -> None:
-    """Reaction emote-fallback: displayname never reaches name fields.
-
-    The reaction emote-fallback path (mmrelay_compat with no Matrix-native
-    target) populates the full mmrelay wire surface.  A Matrix
-    ``displayname`` must not leak into ``KEY_LONGNAME`` /
-    ``KEY_SHORTNAME`` there either.
-    """
-    renderer = MatrixRenderer(source_configs=_SRC_MMRELAY)
+    """Reaction emote-fallback: displayname never becomes sender identity."""
+    renderer = MatrixRenderer(configs=_STUB_MATRIX_CONFIG)
     event = _make_reaction_event(
         native_data={
             "displayname": "Bob Display",
@@ -368,25 +322,21 @@ async def test_displayname_does_not_populate_names_reaction_path() -> None:
             target_platform="matrix",
         ),
     )
-    content = matrix_payload_content(result)
-    assert content[KEY_LONGNAME] == ""
-    assert content[KEY_SHORTNAME] == ""
+    body = str(matrix_payload_content(result)["body"])
+    assert body == "\n [] reacted \U0001f44d to an earlier message"
 
 
 async def test_displayname_ignored_even_alongside_empty_names() -> None:
     """displayname is not a fallback when Meshtastic names are absent.
 
-    Explicitly confirms the resolution chain terminates at empty string
-    and does not reach for ``displayname`` as an extra fallback tier.
+    Explicitly confirms the projection chain terminates at the empty
+    namespace value and does not reach for ``displayname`` as an extra
+    fallback tier.
     """
-    renderer = MatrixRenderer(source_configs=_SRC_MMRELAY)
-    event = _make_text_event(
-        native_data={
-            "meshtastic.longname": "",  # empty namespaced value
-            "displayname": "Charlie Display",
-            "packet_id": "pkt-1",
-        }
-    )
+    renderer = MatrixRenderer(configs=_STUB_MATRIX_CONFIG)
+    native = meshtastic_native_data({"longname": "", "shortname": ""})
+    native["displayname"] = "Charlie Display"
+    event = _make_text_event(native_data=native)
     result = await renderer.render(
         event,
         RenderingContext(
@@ -395,111 +345,10 @@ async def test_displayname_ignored_even_alongside_empty_names() -> None:
             target_platform="matrix",
         ),
     )
-    # Empty namespaced value short-circuits to "" via the `or` chain;
+    body = str(matrix_payload_content(result)["body"])
+    # The projection chain terminates at the transport ID fallback; the
     # displayname must NOT fill in.
-    content = matrix_payload_content(result)
-    assert content[KEY_LONGNAME] == ""
-    assert content[KEY_SHORTNAME] == ""
-
-
-# ---------------------------------------------------------------------------
-# Behavioral guard: KEY_MESHNET derives from resolved origin labels only
-# ---------------------------------------------------------------------------
-
-
-async def test_meshnet_from_route_label_not_native_wire_data() -> None:
-    """Rendered KEY_MESHNET uses route label, not native meshtastic_meshnet.
-
-    Even when the event carries a native ``meshtastic_meshnet`` wire value
-    (e.g. captured from an inbound mmrelay Matrix event), the outbound
-    ``KEY_MESHNET`` is derived purely from the resolved origin labels
-    (route/context origin label takes top precedence).
-    """
-    renderer = MatrixRenderer(
-        source_configs=_SRC_MMRELAY,
-        source_attribution={
-            "mesh-1": _StubSourceAttribution(
-                adapter_id="mesh-1",
-                origin_label="Adapter Net",
-            ),
-        },
-    )
-    event = _make_text_event(
-        native_data={
-            "meshtastic_meshnet": "Wire Meshnet",
-            "longname": "Alice",
-            "shortname": "A",
-            "packet_id": "pkt-1",
-        }
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="matrix-1",
-            delivery_strategy="direct",
-            target_platform="matrix",
-            source_origin_label="Route Net",
-        ),
-    )
-    content = matrix_payload_content(result)
-    assert content[KEY_MESHNET] == "Route Net"
-    assert content[KEY_MESHNET] != "Wire Meshnet"
-
-
-async def test_meshnet_from_adapter_label_not_native_wire_data() -> None:
-    """Rendered KEY_MESHNET falls back to adapter label, not native wire data."""
-    renderer = MatrixRenderer(
-        source_configs=_SRC_MMRELAY,
-        source_attribution={
-            "mesh-1": _StubSourceAttribution(
-                adapter_id="mesh-1",
-                origin_label="Adapter Net",
-            ),
-        },
-    )
-    event = _make_text_event(
-        native_data={
-            "meshtastic_meshnet": "Wire Meshnet",
-            "longname": "Alice",
-            "shortname": "A",
-            "packet_id": "pkt-1",
-        }
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="matrix-1",
-            delivery_strategy="direct",
-            target_platform="matrix",
-        ),
-    )
-    content = matrix_payload_content(result)
-    assert content[KEY_MESHNET] == "Adapter Net"
-    assert content[KEY_MESHNET] != "Wire Meshnet"
-
-
-async def test_meshnet_empty_when_no_labels_not_native_wire_data() -> None:
-    """Rendered KEY_MESHNET is empty (not native wire data) when no labels."""
-    renderer = MatrixRenderer(source_configs=_SRC_MMRELAY)
-    event = _make_text_event(
-        native_data={
-            "meshtastic_meshnet": "Wire Meshnet",
-            "longname": "Alice",
-            "shortname": "A",
-            "packet_id": "pkt-1",
-        }
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="matrix-1",
-            delivery_strategy="direct",
-            target_platform="matrix",
-        ),
-    )
-    content = matrix_payload_content(result)
-    assert content[KEY_MESHNET] == ""
-    assert content[KEY_MESHNET] != "Wire Meshnet"
+    assert body == "[!node-1] hello"
 
 
 # ---------------------------------------------------------------------------

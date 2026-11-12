@@ -53,7 +53,6 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
 # Shared constants
 _RADIO_ALPHA = "radio-alpha"
@@ -62,7 +61,7 @@ _MATRIX = "matrix"
 _ROOM = "!room:server"
 
 # ===================================================================
-# Shared helper for source_configs construction
+# Shared helpers
 # ===================================================================
 
 
@@ -238,15 +237,15 @@ def _make_matrix_reaction_native(
 
 class TestMeshtasticTapbackToMatrixRoundtrip:
     """Meshtastic emoji tapback resolves via NativeMessageRef and renders
-    as an MMRelay-compatible emote on the Matrix side."""
+    as a native Matrix annotation on the Matrix side."""
 
     async def test_tapback_resolves_and_renders(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """End-to-end: radio-alpha node reacts with 👍 to a bridged
         Matrix message.  The reaction resolves through SQLite
-        NativeMessageRef, and MatrixRenderer produces an m.emote with
-        the correct emoji, original text preview, and meshtastic_replyId."""
+        NativeMessageRef, and MatrixRenderer produces a true m.reaction
+        annotation carrying the original emoji key."""
         _PKT_ID = 111111
         _REACTION_PKT_ID = 222222
         _EMOJI = "👍"
@@ -299,13 +298,6 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                source_configs={
-                    _RADIO_ALPHA: _StubMeshtasticConfig(
-                        adapter_id=_RADIO_ALPHA,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
                 configs={
                     _MATRIX: _StubMatrixConfig(relay_prefix="[{sender}] "),
                 },
@@ -340,24 +332,17 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
             result = matrix_adapter.delivered_payloads[0]
             payload = _payload_content(result)
 
-            # -- Verify emote reaction rendering --------------------------
-            assert payload["msgtype"] == "m.emote"
-            body = str(payload["body"])
-
-            # Emoji preserved in body.
-            assert f"reacted {_EMOJI}" in body
-
-            # Original text preview (abbreviated).
-            assert "Hello from the Matrix world" in body
-
-            # Longname prefix preserved.
-            assert f"[{_LONGNAME}]" in body
-
-            # meshtastic_replyId == the original packet ID.
-            assert str(payload.get("meshtastic_replyId")) == str(_PKT_ID)
-
-            # meshtastic_emoji flag set.
-            assert payload.get("meshtastic_emoji") == 1
+            # -- Verify native Matrix reaction annotation ------------------
+            relates = payload["m.relates_to"]
+            assert relates == {
+                "rel_type": "m.annotation",
+                "event_id": "$orig-rt1",
+                "key": _EMOJI,
+            }
+            # True reactions carry no body/msgtype or flat wire keys.
+            assert "msgtype" not in payload
+            assert "body" not in payload
+            assert not any(key.startswith("meshtastic_") for key in payload)
 
             # -- Verify relation resolved to canonical event ---------------
             stored = await temp_storage.get(reaction_event.event_id)
@@ -509,8 +494,9 @@ class TestMultiRadioReactionRoundtrip:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """radio-alpha node reacts to a message; reaction routes to Matrix
-        (emote fallback) and radio-bravo (descriptive text, not native
-        tapback because source_adapter != target_adapter)."""
+        (native annotation — the target resolves to the Matrix-native ref)
+        and radio-bravo (descriptive text, not native tapback because
+        source_adapter != target_adapter)."""
         _ORIG_PKT_ALPHA = 444444
         _ORIG_PKT_BRAVO = 555555
         _REACTION_PKT = 666666
@@ -627,13 +613,6 @@ class TestMultiRadioReactionRoundtrip:
         rp = RenderingPipeline()
         rp.register(
             MatrixRenderer(
-                source_configs={
-                    _RADIO_ALPHA: _StubMeshtasticConfig(
-                        adapter_id=_RADIO_ALPHA,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
                 configs={
                     _MATRIX: _StubMatrixConfig(relay_prefix="[{sender}] "),
                 },
@@ -673,13 +652,17 @@ class TestMultiRadioReactionRoundtrip:
             assert len(outcomes) == 2
             assert all(o.status == "success" for o in outcomes)
 
-            # -- Verify Matrix output (emote fallback) ---------------------
+            # -- Verify Matrix output (native annotation) ------------------
             assert len(matrix_adapter.delivered_payloads) == 1
             mx_payload = _payload_content(matrix_adapter.delivered_payloads[0])
-            assert mx_payload["msgtype"] == "m.emote"
-            mx_body = str(mx_payload["body"])
-            assert f"reacted {_EMOJI}" in mx_body
-            assert f"[{_LONGNAME}]" in mx_body
+            assert mx_payload["m.relates_to"] == {
+                "rel_type": "m.annotation",
+                "event_id": "$orig-rt3",
+                "key": _EMOJI,
+            }
+            # True reactions carry no body/msgtype or flat wire keys.
+            assert "msgtype" not in mx_payload
+            assert "body" not in mx_payload
 
             # -- Verify radio-bravo output (descriptive, NOT native tapback)
             assert len(bravo_adapter.delivered_payloads) == 1
@@ -921,15 +904,7 @@ class TestMissingNativeRefFallbackRoundtrip:
 
         rp = RenderingPipeline()
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    _RADIO_ALPHA: _StubMeshtasticConfig(
-                        adapter_id=_RADIO_ALPHA,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(_MATRIX, "matrix")

@@ -21,12 +21,16 @@ this file once they land.
   keeping the schema-source drift contract satisfied. Deployments must remove
   `mmrelay_compatibility` from Meshtastic source configs.
 
-- **494 — Matrix pin promotion.** Promote the Matrix adapter that drops the
-  MMRelay interop surface: outbound events no longer carry the legacy flat
-  `meshtastic_*` fields, reaction bodies carry no stray leading newline, and a
-  reaction whose target resolves in-room renders as a native Matrix annotation
-  with a quoted fallback otherwise. The embedded canonical payload is unchanged
-  and stays within the frozen 0.1.0 schemas.
+- **494 — Matrix pin promotion.** Promote the Matrix adapter revision that
+  drops the MMRelay interop surface: outbound events no longer carry the flat
+  `meshtastic_*` wire fields, a reaction whose target resolves in-room renders
+  as a native Matrix annotation with a quoted emote fallback otherwise, and
+  the fallback body keeps exactly one intentional newline after any configured
+  relay prefix. The embedded canonical payload is unchanged and stays within
+  the frozen 0.1.0 schemas. Core compatibility tests migrate to the canonical
+  renderer interfaces; coverage locking the retired wire-field emission,
+  reaction-symbol fallback chain, and compat-forced emote path is removed with
+  the surface it locked.
 
 - **491 — Meshtastic, MeshCore and Chatmail pin promotions.** Promote the
   Meshtastic adapter carrying the updated `mtjk` runtime pin with its license
