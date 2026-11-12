@@ -15,10 +15,11 @@ this file once they land.
   legacy flat `meshtastic_*` Matrix content emission are rewritten to the
   native framing. Native origin-label coverage stops setting the flag; the
   trust boundary that treats foreign MMRelay wire fields as untrusted
-  participant metadata is unchanged. The schema key stays declared until the
-  sequenced adapter change drops the field: the schema-source drift contract
-  couples the published schema to the installed adapter dataclass. Deployments
-  should stop setting `mmrelay_compatibility` on Meshtastic source configs.
+  participant metadata is unchanged. Together with the Meshtastic adapter
+  revision that drops the field, the schema key, its example occurrence, and
+  the frozen schema hash leave `adapter-config.schema.json` atomically,
+  keeping the schema-source drift contract satisfied. Deployments must remove
+  `mmrelay_compatibility` from Meshtastic source configs.
 
 - **491 — Meshtastic, MeshCore and Chatmail pin promotions.** Promote the
   Meshtastic adapter carrying the updated `mtjk` runtime pin with its license
