@@ -126,7 +126,7 @@ class TestQueuedReceiptCreation:
         )
 
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -134,7 +134,7 @@ class TestQueuedReceiptCreation:
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="pipeline:queueing",
             )
-).primary_receipt
+        ).primary_receipt
 
         assert receipt is not None
         assert receipt.status == "queued"

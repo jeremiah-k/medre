@@ -707,7 +707,8 @@ async def test_content_bearing_evidence_values_keep_blocking_column_aware(
         )
         await store._write(
             "UPDATE delivery_observations SET metadata='"
-            '{"trace":"META-OBS"}' "' WHERE event_id='routed'"
+            '{"trace":"META-OBS"}'
+            "' WHERE event_id='routed'"
         )
         blocked = await store.collect_event_content("routed", dry_run=False)
         assert blocked["status"] == "blocked"

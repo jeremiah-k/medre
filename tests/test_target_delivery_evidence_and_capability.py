@@ -736,7 +736,9 @@ class TestPipelineRunnerDelegation:
         await temp_storage.append(event)
 
         try:
-            receipt = (await runner.deliver_execution_to_target(event, route, plan)).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, route, plan)
+            ).primary_receipt
 
             # PipelineRunner delegated to TargetDeliveryService.
             assert receipt is not None

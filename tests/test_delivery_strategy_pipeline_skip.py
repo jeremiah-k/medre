@@ -190,7 +190,9 @@ class TestSkipStrategyDefenseInDepth:
         )
 
         try:
-            receipt = (await runner.deliver_execution_to_target(event, route, skip_plan)).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, route, skip_plan)
+            ).primary_receipt
             assert receipt.status == "suppressed"
             assert receipt.failure_kind == "capability_suppressed"
             assert receipt.error is not None
@@ -252,7 +254,9 @@ class TestSkipStrategyDefenseInDepth:
         )
 
         try:
-            receipt = (await runner.deliver_execution_to_target(event, route, skip_plan)).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, route, skip_plan)
+            ).primary_receipt
             # Suppressed, NOT renderer_failure.
             assert receipt.status == "suppressed"
             assert receipt.failure_kind != "renderer_failure"

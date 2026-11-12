@@ -221,7 +221,9 @@ async def test_retry_worker_reports_callback_won_queued_race_as_committed_succes
     storage.delivery_status = AsyncMock(return_value=None)
     storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(queued))
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(queued)
+    )
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)

@@ -126,7 +126,9 @@ async def test_native_ref_callback_runs_after_persistence() -> None:
         native_ref_persisted_fn=_on_native_ref,
     )
 
-    receipt = (await svc.deliver_execution(_make_event(), *_make_route_and_plan())).primary_receipt
+    receipt = (
+        await svc.deliver_execution(_make_event(), *_make_route_and_plan())
+    ).primary_receipt
 
     assert receipt.status == "sent"
     assert observed == [("evt-001", 1)]
@@ -153,7 +155,9 @@ async def test_native_ref_callback_failure_does_not_reclassify_accepted_send(
     )
 
     with caplog.at_level(logging.ERROR, logger="test.target_delivery"):
-        receipt = (await svc.deliver_execution(_make_event(), *_make_route_and_plan())).primary_receipt
+        receipt = (
+            await svc.deliver_execution(_make_event(), *_make_route_and_plan())
+        ).primary_receipt
 
     assert receipt.status == "sent"
     assert len(storage.native_refs) == 1
@@ -190,7 +194,7 @@ class TestQueuedDelivery:
         route, plan = _make_route_and_plan()
 
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -198,7 +202,7 @@ class TestQueuedDelivery:
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="test-worker",
             )
-).primary_receipt
+        ).primary_receipt
 
         assert receipt.status == "queued"
         # No native ref for queued deliveries (no native_message_id).
@@ -216,7 +220,7 @@ class TestQueuedDelivery:
         route, plan = _make_route_and_plan()
 
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -224,7 +228,7 @@ class TestQueuedDelivery:
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="test-worker",
             )
-).primary_receipt
+        ).primary_receipt
 
         assert receipt.status == "queued"
         assert receipt.adapter_message_id is None
@@ -271,7 +275,7 @@ class TestReceiptStatusPreservation:
         route, plan = _make_route_and_plan()
 
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -279,7 +283,7 @@ class TestReceiptStatusPreservation:
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="test-worker",
             )
-).primary_receipt
+        ).primary_receipt
 
         assert receipt.status == "queued"
 
@@ -311,15 +315,17 @@ class TestDeterministicReceiptConstruction:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        first_receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
+        first_receipt = (
+            await svc.deliver_execution(event, route, plan)
+        ).primary_receipt
         assert first_receipt.attempt_number == 1
 
         # Simulate retry with previous_receipt.
         second_receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event, route, plan, previous_receipt=first_receipt
             )
-).primary_receipt
+        ).primary_receipt
         assert second_receipt.attempt_number == 2
         assert second_receipt.parent_receipt_id == first_receipt.receipt_id
 
@@ -344,10 +350,10 @@ class TestDeterministicReceiptConstruction:
         route, plan = _make_route_and_plan()
 
         receipt = (
-    await svc.deliver_execution(
+            await svc.deliver_execution(
                 event, route, plan, source="replay", replay_run_id="run-42"
             )
-).primary_receipt
+        ).primary_receipt
 
         assert receipt.source == "replay"
         assert receipt.replay_run_id == "run-42"

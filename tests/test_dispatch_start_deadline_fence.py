@@ -399,7 +399,7 @@ async def test_dispatch_start_passes_before_the_effective_bound(tmp_path, monkey
         route, plan = _make_route_and_plan()
         plan = replace(plan, deadline=deadline)
         receipt = (
-    await service.deliver_execution(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -407,7 +407,7 @@ async def test_dispatch_start_passes_before_the_effective_bound(tmp_path, monkey
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="pipeline:clock",
             )
-).primary_receipt
+        ).primary_receipt
         assert receipt.status == "sent"
         assert adapter.calls == 1
         assert clock.current < deadline
@@ -581,7 +581,7 @@ async def test_preflight_stall_before_the_bound_does_not_fence_early(
         route, plan = _make_route_and_plan()
         plan = replace(plan, deadline=deadline)
         receipt = (
-    await service.deliver_execution(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -589,7 +589,7 @@ async def test_preflight_stall_before_the_bound_does_not_fence_early(
                 reserved_attempt_number=1,
                 expected_outbox_worker_id="pipeline:clock",
             )
-).primary_receipt
+        ).primary_receipt
         assert receipt.status == "sent"
         assert adapter.calls == 1
         assert clock.current < deadline

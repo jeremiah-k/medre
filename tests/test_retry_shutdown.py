@@ -47,12 +47,14 @@ class TestRetryShutdown:
         storage.get = AsyncMock(return_value=event)
         pipeline = MagicMock()
         pipeline.deliver_execution_to_target = AsyncMock(
-            return_value=evidence_for_receipt(DeliveryReceipt(
-                receipt_id="rcpt-ok",
-                event_id="evt-001",
-                status="sent",
-                created_at=datetime.now(timezone.utc),
-            )),
+            return_value=evidence_for_receipt(
+                DeliveryReceipt(
+                    receipt_id="rcpt-ok",
+                    event_id="evt-001",
+                    status="sent",
+                    created_at=datetime.now(timezone.utc),
+                )
+            ),
         )
         policy = RetryPolicy(max_attempts=3)
 
@@ -95,12 +97,14 @@ class TestRetryShutdown:
         async def _slow_deliver(*args, **kwargs):
             await proceed.wait()
             call_completed.set()
-            return evidence_for_receipt(DeliveryReceipt(
-                receipt_id="rcpt-ok",
-                event_id="evt-001",
-                status="sent",
-                created_at=datetime.now(timezone.utc),
-            ))
+            return evidence_for_receipt(
+                DeliveryReceipt(
+                    receipt_id="rcpt-ok",
+                    event_id="evt-001",
+                    status="sent",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         storage = MagicMock()
         # The real worker calls claim_due_outbox_items.

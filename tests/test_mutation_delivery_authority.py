@@ -180,7 +180,9 @@ class TestMutationSuppressionGate:
             event = _mutation_event("edit")
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             assert receipt.status == "suppressed"
             assert receipt.receipt_kind == "lifecycle"
@@ -215,7 +217,9 @@ class TestMutationSuppressionGate:
             event = _mutation_event("edit")
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             assert receipt.status == "suppressed"
             assert receipt.error is not None
@@ -242,7 +246,9 @@ class TestMutationSuppressionGate:
             event = _mutation_event("edit")
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             assert receipt.status == "suppressed"
             assert receipt.error is not None
@@ -265,7 +271,9 @@ class TestMutationSuppressionGate:
             event = _mutation_event("delete", event_kind="message.deleted")
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             assert receipt.status == "suppressed"
             assert receipt.error is not None
@@ -303,7 +311,9 @@ class TestMutationSuppressionGate:
             )
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             # Referential delivery is not suppressed by the mutation gate.
             assert receipt.status == "sent"
@@ -327,7 +337,9 @@ class TestBoundOwnedMutationDelivers:
             event = _mutation_event("edit")
             await temp_storage.append(event)
 
-            receipt = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            receipt = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
 
             assert receipt.status == "sent"
             assert len(adapter.delivered_payloads) == 1
@@ -353,7 +365,9 @@ class TestRetryRebindsFailClosed:
             event = _mutation_event("edit")
             await temp_storage.append(event)
 
-            first = (await runner.deliver_execution_to_target(event, _route(), _plan(event))).primary_receipt
+            first = (
+                await runner.deliver_execution_to_target(event, _route(), _plan(event))
+            ).primary_receipt
             assert first.status == "sent"
             assert len(adapter.delivered_payloads) == 1
 
@@ -361,14 +375,14 @@ class TestRetryRebindsFailClosed:
             await temp_storage.store_native_ref(_native_ref("out-msg-2"))
 
             retry = (
-    await runner.deliver_execution_to_target(
+                await runner.deliver_execution_to_target(
                     event,
                     _route(),
                     _plan(event),
                     previous_receipt=first,
                     source="retry",
                 )
-).primary_receipt
+            ).primary_receipt
 
             # Re-bound at execution time: now ambiguous ⇒ suppressed.
             assert retry.status == "suppressed"

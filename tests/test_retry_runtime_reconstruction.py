@@ -136,20 +136,22 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
             captured["kwargs"] = kwargs
             # Return a fake "sent" receipt for the reserved attempt so the
             # worker succeeds and the finalization fence accepts the commit.
-            return evidence_for_receipt(DeliveryReceipt(
-                sequence=2,
-                receipt_id=f"recon-rcpt-{uuid.uuid4().hex[:8]}",
-                event_id=event_id,
-                delivery_plan_id=plan_id,
-                target_adapter=adapter_id,
-                target_channel=channel,
-                route_id=route_id,
-                status="sent",
-                attempt_number=int(kwargs["reserved_attempt_number"]),  # type: ignore[arg-type]
-                parent_receipt_id=receipt.receipt_id,
-                source="retry",
-                created_at=datetime.now(timezone.utc),
-            ))
+            return evidence_for_receipt(
+                DeliveryReceipt(
+                    sequence=2,
+                    receipt_id=f"recon-rcpt-{uuid.uuid4().hex[:8]}",
+                    event_id=event_id,
+                    delivery_plan_id=plan_id,
+                    target_adapter=adapter_id,
+                    target_channel=channel,
+                    route_id=route_id,
+                    status="sent",
+                    attempt_number=int(kwargs["reserved_attempt_number"]),  # type: ignore[arg-type]
+                    parent_receipt_id=receipt.receipt_id,
+                    source="retry",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         # Intercept the pipeline boundary to assert reconstructed Route/DeliveryPlan
         # passed by RetryWorker without invoking adapter delivery/rendering.

@@ -146,7 +146,9 @@ def test_retry_claim_reconciliation_precedes_transport_dispatch() -> None:
     ]
 
     assert reconcile_lines, "reconcile_retry_claim not called in _retry_outbox_item"
-    assert dispatch_lines, "deliver_execution_to_target not called in _retry_outbox_item"
+    assert (
+        dispatch_lines
+    ), "deliver_execution_to_target not called in _retry_outbox_item"
     assert max(reconcile_lines) < min(dispatch_lines)
 
 

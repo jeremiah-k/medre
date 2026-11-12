@@ -176,9 +176,7 @@ async def test_settled_transitions_suppress_seeded_diagnostics(temp_storage, mar
 
 
 async def test_terminal_finalization_suppresses_seeded_diagnostics(temp_storage):
-    item = await _seeded_outbox(
-        temp_storage, "ob-seeded-final", "evt-seeded-final"
-    )
+    item = await _seeded_outbox(temp_storage, "ob-seeded-final", "evt-seeded-final")
     receipt = DeliveryReceipt(
         receipt_id="legacy-terminal-receipt",
         event_id=item.event_id,
@@ -242,7 +240,9 @@ async def test_terminal_finalization_supersedes_seeded_text_in_history(
     # Side-table rows written along the way remain: the append-only history
     # carries the seeded attempt wording plus the terminal wording.
     outbox_rows = await _outbox_side_rows(temp_storage, item.outbox_id)
-    assert [(row["field"], row["diagnostic"], row["attempt"]) for row in outbox_rows] == [
+    assert [
+        (row["field"], row["diagnostic"], row["attempt"]) for row in outbox_rows
+    ] == [
         ("failure_kind_detail", "seeded detail", 1),
         ("error_summary", "seeded summary", 1),
         ("failure_kind_detail", "", 1),
