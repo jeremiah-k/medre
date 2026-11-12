@@ -1,46 +1,38 @@
-"""Write-time separation and read-time coalescing of delivery diagnostics.
+"""Write-time separation and read-time resolution of delivery diagnostics.
 
 Durable delivery facts (statuses, failure kinds, attempt generations,
 confirmation levels, route correlation) stay inline in their evidence rows.
 Free-form diagnostic text (error strings, capability reasons, rendering
 evidence, error summaries, last errors) has a content lifetime instead: every
-new parent write stores that text only in the append-only
+parent write stores that text only in the append-only
 ``delivery_evidence_diagnostics`` side table, inside the parent row's
-transaction, and leaves the legacy inline columns ``NULL``.
+transaction. Evidence rows carry no inline diagnostic columns.
 
-Reads coalesce: historical inline values win for immutable receipts and
-observations. Mutable ingress work uses its latest transition diagnostic;
-mutable outboxes use current-attempt diagnostics before inline fallback. Inline historical values are
-never rewritten; no diagnostic row exists without its parent evidence row.
+Reads resolve every diagnostic field from the side table. Outbox lookups are
+attempt-scoped, and a settled ``sent``/``queued`` outbox never surfaces a
+same-attempt failure diagnostic; no diagnostic row exists without its parent
+evidence row.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
-#: Per family: the separated ``(field, inline column)`` pairs, in parent-row
-#: column order.  ``field`` is the side-table discriminator; the inline column
-#: names the legacy evidence column the value used to occupy.
-_DIAGNOSTIC_FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
-    "receipt": (
-        ("error", "error"),
-        ("capability_reason", "capability_reason"),
-        ("rendering_evidence", "rendering_evidence"),
-    ),
-    "observation": (("error", "error"),),
-    "outbox": (
-        ("failure_kind_detail", "failure_kind_detail"),
-        ("error_summary", "error_summary"),
-    ),
-    "ingress": (("last_error", "last_error"),),
+#: Per family: the separated diagnostic field names, in parent-row column
+#: order.  ``field`` is the side-table discriminator and the row key the
+#: resolved value is attached to.
+_DIAGNOSTIC_FIELDS: dict[str, tuple[str, ...]] = {
+    "receipt": ("error", "capability_reason", "rendering_evidence"),
+    "observation": ("error",),
+    "outbox": ("failure_kind_detail", "error_summary"),
+    "ingress": ("last_error",),
 }
 
-#: Families whose coalescing lookup is scoped to the parent row's current
-#: attempt generation.  A superseded failure's diagnostics stay keyed to the
-#: attempt they belong to and never surface on a later settled attempt.
+#: Families whose resolution is scoped to the parent row's current attempt
+#: generation.  A superseded failure's diagnostics stay keyed to the attempt
+#: they belong to and never surface on a later settled attempt.
 _DIAGNOSTIC_ATTEMPT_COLUMNS: dict[str, str] = {"outbox": "attempt_number"}
 _LOOKUP_CHUNK_SIZE = 500
-_MUTABLE_FAMILIES = frozenset({"outbox", "ingress"})
 
 _INSERT_DIAGNOSTIC = """
 INSERT INTO delivery_evidence_diagnostics
@@ -57,8 +49,6 @@ INSERT INTO delivery_evidence_diagnostics
 SELECT 'outbox', outbox_id, attempt_number, ?, ?, ?
 FROM delivery_outbox WHERE outbox_id = ?
   AND (? <> ''
-       OR CASE ? WHEN 'error_summary' THEN error_summary
-                 ELSE failure_kind_detail END IS NOT NULL
        OR EXISTS (
            SELECT 1 FROM delivery_evidence_diagnostics d
            WHERE d.family='outbox' AND d.row_id=delivery_outbox.outbox_id
@@ -88,7 +78,7 @@ def diagnostic_write_ops(
     writes diagnostic content anywhere.
     """
     ops: list[tuple[str, tuple[Any, ...]]] = []
-    for field, _inline in _DIAGNOSTIC_FIELDS[family]:
+    for field in _DIAGNOSTIC_FIELDS[family]:
         value = values.get(field)
         if isinstance(value, str) and value:
             ops.append(
@@ -111,13 +101,13 @@ def outbox_diagnostic_ops(
     previous diagnostic cannot reappear in the same attempt.
     """
     ops: list[tuple[str, tuple[Any, ...]]] = []
-    for field, _inline in _DIAGNOSTIC_FIELDS["outbox"]:
+    for field in _DIAGNOSTIC_FIELDS["outbox"]:
         value = values.get(field)
         if isinstance(value, str):
             ops.append(
                 (
                     _INSERT_OUTBOX_DIAGNOSTIC,
-                    (field, value, created_at, outbox_id, value, field, field),
+                    (field, value, created_at, outbox_id, value, field),
                 )
             )
     return ops
@@ -133,7 +123,7 @@ def ingress_diagnostic_ops(
 
 
 class _EvidenceDiagnosticsReadMixin:
-    """Coalescing reads over the separated diagnostic side table."""
+    """Side-table resolution of separated delivery diagnostics."""
 
     if TYPE_CHECKING:
 
@@ -141,20 +131,21 @@ class _EvidenceDiagnosticsReadMixin:
             self, sql: str, params: tuple[Any, ...] = ()
         ) -> list[dict[str, Any]]: ...
 
-    async def _coalesce_evidence_diagnostics(
+    async def _resolve_evidence_diagnostics(
         self,
         family: str,
         rows: list[dict[str, Any]],
         *,
         identity_column: str,
     ) -> list[dict[str, Any]]:
-        """Fill empty inline diagnostic columns from the side table, in place.
+        """Attach side-table diagnostic values to evidence rows, in place.
 
-        Legacy inline values take precedence for immutable evidence rows.
-        Mutable ingress work uses the latest side-table value; outboxes use
-        the current attempt before any earlier inline text. Outbox lookups
-        are attempt-scoped; absent side values preserve the inline fallback.
+        Every diagnostic field resolves from the append-only side table; the
+        rows carry no inline diagnostic columns. Each row leaves this call
+        with every family field present — ``None`` where the evidence has no
+        (or a suppressed) diagnostic — so row mappers see a complete shape.
         """
+        fields = _DIAGNOSTIC_FIELDS[family]
         if not rows:
             return rows
         wanted: dict[str, set[str]] = {}
@@ -164,13 +155,12 @@ class _EvidenceDiagnosticsReadMixin:
             # remain in history, not reappear as the current outbox failure.
             if family == "outbox" and row.get("status") in {"sent", "queued"}:
                 continue
-            for field, inline in _DIAGNOSTIC_FIELDS[family]:
-                # A new outbox attempt can supersede a legacy inline failure.
-                # Immutable evidence rows keep historical inline precedence.
-                if family not in _MUTABLE_FAMILIES and row.get(inline):
-                    continue
-                wanted.setdefault(str(row[identity_column]), set()).add(field)
+            wanted.setdefault(str(row[identity_column]), set()).update(fields)
         if not wanted:
+            # Still normalize the row shape for the suppressed families.
+            for row in rows:
+                for field in fields:
+                    row.setdefault(field, None)
             return rows
         fetched: list[dict[str, Any]] = []
         identities = list(wanted)
@@ -202,8 +192,9 @@ class _EvidenceDiagnosticsReadMixin:
                 )
         for row in rows:
             row_id = str(row[identity_column])
-            for field, inline in _DIAGNOSTIC_FIELDS[family]:
-                if family not in _MUTABLE_FAMILIES and row.get(inline):
+            for field in fields:
+                if family == "outbox" and row.get("status") in {"sent", "queued"}:
+                    row[field] = None
                     continue
                 if attempt_column is None:
                     value = latest_unscoped.get((row_id, field))
@@ -211,6 +202,5 @@ class _EvidenceDiagnosticsReadMixin:
                     value = latest_scoped.get(
                         (row_id, field, int(row.get(attempt_column) or 0))
                     )
-                if value is not None:
-                    row[inline] = value or None
+                row[field] = value if value else None
         return rows

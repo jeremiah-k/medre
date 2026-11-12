@@ -720,11 +720,9 @@ CREATE TABLE delivery_receipts (
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     receipt_kind TEXT NOT NULL,
-    error TEXT,
     failure_kind TEXT,
     capability_level TEXT,
     capability_field TEXT,
-    capability_reason TEXT,
     delivery_strategy TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
@@ -736,7 +734,6 @@ CREATE TABLE delivery_receipts (
     retry_backoff_base REAL,
     retry_max_delay REAL,
     retry_jitter INTEGER,
-    rendering_evidence TEXT,
     outbox_id TEXT,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown',
     created_at TEXT NOT NULL,
@@ -749,21 +746,20 @@ CREATE TABLE delivery_receipts (
 );
 ```
 
-`capability_level`, `capability_field`, `capability_reason`, and
-`delivery_strategy` persist the planning decision as structured receipt
-evidence. These columns are the machine-readable authority for receipts;
-`capability_reason` is display text and MUST NOT be parsed to recover
-structure. An existing schema-version-1 database whose `delivery_receipts`
-table lacks these columns is an incompatible prerelease shape and is rejected
-by the normal required-column guard rather than migrated in place.
+`capability_level`, `capability_field`, and `delivery_strategy` persist the
+planning decision as structured receipt evidence. These columns are the
+machine-readable authority for receipts; capability reason text is display
+text and MUST NOT be parsed to recover structure.
 
 Free-form diagnostic text — `error`, `capability_reason`, and
-`rendering_evidence` — is separated at write time: new receipts keep those
-columns `NULL` and the text lands in `delivery_evidence_diagnostics`
-(Section 4.10.1) in the same transaction. Reads coalesce the historical
-inline value with the side-table value; the inline columns of historical
-rows are never rewritten. The coalesced values are what every typed read
-API surfaces.
+`rendering_evidence` — is separated at write time: the text lands only in
+`delivery_evidence_diagnostics` (Section 4.10.1) in the same transaction, and
+the receipts table carries no inline diagnostic columns. Every typed read API
+resolves diagnostic text from the side table. An existing schema-version-1
+database whose evidence tables still carry the retired inline diagnostic
+columns is an allowlisted prerelease predecessor: initialization copies the
+historical inline text into the side table and rebuilds the tables without
+the columns.
 
 `rendering_evidence` stores the serialized rendering evidence JSON string for the
 delivery. `NULL` when no evidence is available (suppressed, failed, or skipped
@@ -827,7 +823,6 @@ CREATE TABLE delivery_observations (
             'unknown', 'local_queue', 'local_transport',
             'remote_service', 'end_to_end'
         )),
-    error TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     observed_at TEXT NOT NULL
 );
@@ -850,11 +845,11 @@ address supplied by the adapter; they are not required to be equal.
 `observation_id` is deterministic for idempotent callback replay. `sequence`
 provides append order within this table. `confirmation_level` is an evidence
 strength independent of provider `state`; a provider state named `delivered`
-does not by itself imply `end_to_end`. The free-form `error` field is
-separated diagnostic text: new observations keep it `NULL` inline and the
-text lands in `delivery_evidence_diagnostics` (Section 4.10.1) in the same
-transaction; reads coalesce with any historical inline value. The structured
-`metadata` JSON column stays inline and content-classified.
+does not by itself imply `end_to_end`. The free-form `error` text is
+separated diagnostic content: it lands only in
+`delivery_evidence_diagnostics` (Section 4.10.1) in the same transaction,
+and the observations table carries no inline diagnostic column. The
+structured `metadata` JSON column stays inline and content-classified.
 
 **Indexes:**
 
@@ -1055,7 +1050,6 @@ CREATE TABLE delivery_outbox (
     active_attempt   INTEGER,
     status          TEXT NOT NULL DEFAULT 'pending',
     failure_kind    TEXT,
-    failure_kind_detail TEXT,
     next_attempt_at TEXT,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
@@ -1066,7 +1060,6 @@ CREATE TABLE delivery_outbox (
     payload_hash    TEXT,
     receipt_id      TEXT,
     parent_receipt_id TEXT,
-    error_summary   TEXT,
     dispatch_source  TEXT NOT NULL DEFAULT 'live',
     replay_run_id   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
@@ -1186,10 +1179,10 @@ while retaining the prior `receipt_id` as the durable lineage anchor; it MUST NO
 fabricate a receipt identifier merely to make the attempt numbers align.
 
 `failure_kind_detail` and `error_summary` carry free-form failure wording whose
-write-time home is `delivery_evidence_diagnostics` (Section 4.10.1): new
-transitions keep the inline columns `NULL` and keyed reads coalesce with any
-historical inline value. `failure_kind` itself is a durable fact and stays
-inline. `target_channel` and `target_address` are structured route
+write-time home is `delivery_evidence_diagnostics` (Section 4.10.1): the text
+lands only there, keyed by the row and its attempt generation, and the outbox
+table carries no inline diagnostic columns. `failure_kind` itself is a
+durable fact and stays inline. `target_channel` and `target_address` are structured route
 correlation — immutable identity with the same standing as the receipt
 family's route columns — not free-form content.
 
@@ -1218,31 +1211,24 @@ delivery diagnostic text. Receipt `error`, `capability_reason`, and
 `rendering_evidence`, outbox `failure_kind_detail` and `error_summary`,
 observation `error`, and ingress-work `last_error` describe failures in
 free-form wording whose lifetime is content ownership, not the delivery fact
-itself. Every new write of those families stores such text ONLY here — keyed by
+itself. Every write of those families stores such text ONLY here — keyed by
 the parent family, the parent row's own immutable identity (`receipt_id`,
 `observation_id`, `outbox_id`, or the ingress `event_id`), the parent's attempt
-generation at write time, and the field name — and keeps the legacy inline
-column `NULL`. A diagnostic row is written in the same transaction as its
-parent evidence row, so one never lands without the other.
+generation at write time, and the field name. The evidence tables carry no
+inline diagnostic columns. A diagnostic row is written in the same
+transaction as its parent evidence row, so one never lands without the other.
 
-Reads coalesce without rewriting historical rows: legacy inline values take
-precedence for immutable receipts and observations. Mutable ingress claims
-use the latest transition diagnostic before historical inline wording.
-Mutable outboxes use the current-attempt diagnostic before inline fallback.
-Outbox lookups scope to the row's current attempt generation. When the
-parent status is `sent` or `queued`, the transition has explicitly cleared
-transient failure fields: a side-table value from the same attempt MUST NOT
-resurrect that failure. Transitions to `sent` or `queued`, and terminal
-finalization, clear the mutable outbox inline columns — including
-historical inline text — while the append-only side-table rows remain as
-the preserved history; immutable receipt and observation inline values
-remain unchanged. Explicit clears on mutable work MUST suppress earlier
-diagnostics, including those from the same attempt, without deleting
-historical evidence. Empty
-side-table strings record these clears and typed reads return no error. A clear
-marker is unnecessary when no value exists to supersede. Structured
-provider/adapter metadata (`metadata` columns) is deliberately NOT separated:
-it stays inline, content-classified, and conservative in its family table.
+Reads resolve every diagnostic value from this table without rewriting
+appended rows. Outbox lookups scope to the row's current attempt generation.
+When the parent status is `sent` or `queued`, the transition has explicitly
+cleared transient failure fields: a side-table value from the same attempt
+MUST NOT resurrect that failure. Explicit clears on mutable work MUST
+suppress earlier diagnostics, including those from the same attempt, without
+deleting historical evidence. Empty side-table strings record these clears
+and typed reads return no error. A clear marker is unnecessary when no value
+exists to supersede. Structured provider/adapter metadata (`metadata`
+columns) is deliberately NOT separated: it stays inline, content-classified,
+and conservative in its family table.
 
 The table is append-only: runtime code **MUST NOT** update or delete a
 diagnostic row. A successful handoff writes no new failure diagnostic; prior diagnostic
@@ -1324,7 +1310,6 @@ CREATE TABLE durable_ingress_work (
     provenance TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     locked_at TEXT,
@@ -1653,7 +1638,7 @@ Rows in `canonical_events` **MUST NOT** be updated or deleted. The `append` meth
 
 Every delivery attempt produces a new row in `delivery_receipts`. Existing rows **MUST NOT** be updated or deleted. Capacity rejection creates a new receipt with `failure_kind = 'capacity_rejection'` and `parent_receipt_id` set to the original receipt, rather than mutating the existing row. The separated diagnostic rows in `delivery_evidence_diagnostics` (Section 4.10.1) are append-only under the same guarantee.
 
-The current status of a delivery is a projection from the `delivery_status` view. Outbox-backed delivery follows the outbox row's committed `receipt_id`; outbox-less delivery follows durable append order. No code path **SHALL** write to the view directly. The view projects the legacy inline evidence columns of `delivery_receipts`; it does not coalesce the write-time separated diagnostic text. Typed read APIs coalesce; the view intentionally remains a pure inline projection so its definition stays additive-stable.
+The current status of a delivery is a projection from the `delivery_status` view. Outbox-backed delivery follows the outbox row's committed `receipt_id`; outbox-less delivery follows durable append order. No code path **SHALL** write to the view directly. The view projects the structured evidence columns of `delivery_receipts`; it carries no diagnostic column and does not resolve the write-time separated diagnostic text. Typed read APIs resolve diagnostics from the side table; the view intentionally remains a pure structured-facts projection so its definition stays additive-stable.
 
 ### 5.3 Native Message References
 

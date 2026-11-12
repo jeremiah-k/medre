@@ -24,7 +24,10 @@ async def test_ingress_claim_uses_latest_transition_diagnostic(
 ):
     await _admit(temp_storage)
     await temp_storage._write(
-        "UPDATE durable_ingress_work SET last_error='historical failure'"
+        "INSERT INTO delivery_evidence_diagnostics "
+        "(family, row_id, attempt, field, diagnostic, created_at) "
+        "VALUES ('ingress', 'diagnostic-transition', 0, 'last_error', "
+        "'historical failure', '2026-10-30T00:00:00+00:00')"
     )
     first = await temp_storage.claim_ingress_work(worker_id="first")
     assert first[0].last_error == "historical failure"
@@ -33,8 +36,11 @@ async def test_ingress_claim_uses_latest_transition_diagnostic(
     )
     second = await temp_storage.claim_ingress_work(worker_id="second")
     assert second[0].last_error == (error or None)
-    row = await temp_storage._read_one("SELECT last_error FROM durable_ingress_work")
-    assert row["last_error"] == "historical failure"
+    rows = await temp_storage._read_all(
+        "SELECT diagnostic FROM delivery_evidence_diagnostics "
+        "WHERE family='ingress' AND row_id='diagnostic-transition' ORDER BY diag_id"
+    )
+    assert [row["diagnostic"] for row in rows] == ["historical failure", error]
 
 
 async def _outbox(store):
@@ -106,12 +112,11 @@ async def test_mark_terminal_clears_prior_detail_but_preserves_explicit_outcome(
     assert result.failure_kind_detail == detail
 
 
-async def _legacy_inline_outbox(store, outbox_id, event_id):
-    """Seed a pre-separation row: inline failure text, no side-table rows.
+async def _seeded_outbox(store, outbox_id, event_id):
+    """Seed an in-progress outbox row with attempt-one diagnostics.
 
-    New rows keep the inline columns NULL and put the text in
-    ``delivery_evidence_diagnostics``; the raw UPDATE restores the legacy
-    shape a database from before that separation can still hold.
+    The free-form text lives only in ``delivery_evidence_diagnostics``; the
+    durable ``failure_kind`` fact stays inline.
     """
     event = msgspec.structs.replace(
         make_storage_event(event_id=event_id), payload={}, metadata={}
@@ -127,60 +132,52 @@ async def _legacy_inline_outbox(store, outbox_id, event_id):
             status="in_progress",
         )
     )
-    await store._write(
-        "UPDATE delivery_outbox SET failure_kind='adapter_transient', "
-        "failure_kind_detail='legacy detail', error_summary='legacy summary' "
-        "WHERE outbox_id=?",
-        (outbox_id,),
+    assert await store.mark_outbox_retry_wait(
+        outbox_id,
+        "2026-10-31T01:00:00+00:00",
+        failure_kind="adapter_transient",
+        failure_kind_detail="seeded detail",
+        error_summary="seeded summary",
     )
+    claimed = await store.claim_due_outbox_items(
+        "2026-11-01T00:00:00+00:00", "seed-worker"
+    )
+    assert [c.outbox_id for c in claimed] == [outbox_id]
     return item
 
 
 async def _inline_failure_columns(store, outbox_id):
     return await store._read_one(
-        "SELECT failure_kind, failure_kind_detail, error_summary "
-        "FROM delivery_outbox WHERE outbox_id=?",
+        "SELECT failure_kind FROM delivery_outbox WHERE outbox_id=?",
+        (outbox_id,),
+    )
+
+
+async def _outbox_side_rows(store, outbox_id):
+    return await store._read_all(
+        "SELECT field, diagnostic, attempt FROM delivery_evidence_diagnostics "
+        "WHERE family='outbox' AND row_id=? ORDER BY diag_id",
         (outbox_id,),
     )
 
 
 @pytest.mark.parametrize("mark", ["mark_outbox_sent", "mark_outbox_queued"])
-async def test_legacy_inline_failure_text_is_cleared_by_settled_transitions(
-    temp_storage, mark
-):
-    item = await _legacy_inline_outbox(
-        temp_storage, "ob-legacy-settle", "evt-legacy-settle"
-    )
-    inline = await _inline_failure_columns(temp_storage, item.outbox_id)
-    assert tuple(inline.values()) == (
-        "adapter_transient",
-        "legacy detail",
-        "legacy summary",
-    )
+async def test_settled_transitions_suppress_seeded_diagnostics(temp_storage, mark):
+    item = await _seeded_outbox(temp_storage, "ob-seeded-settle", "evt-seeded-settle")
     assert await getattr(temp_storage, mark)(item.outbox_id, attempt_number=1)
-    inline = await _inline_failure_columns(temp_storage, item.outbox_id)
-    assert tuple(inline.values()) == (None, None, None)
     settled = await temp_storage.get_outbox_item(item.outbox_id)
     assert settled is not None
     assert settled.failure_kind_detail is None
     assert settled.error_summary is None
-    # A settled transition fabricates no side-table history: the append-only
-    # table stays untouched for the row.
-    assert (
-        await temp_storage._read_all(
-            "SELECT diagnostic FROM delivery_evidence_diagnostics "
-            "WHERE family='outbox' AND row_id=?",
-            (item.outbox_id,),
-        )
-        == []
-    )
+    # The seeded attempt-one diagnostics remain appended history; a settled
+    # row never resurfaces them.
+    rows = await _outbox_side_rows(temp_storage, item.outbox_id)
+    assert {row["attempt"] for row in rows} == {1}
 
 
-async def test_legacy_inline_failure_text_is_cleared_by_terminal_finalization(
-    temp_storage,
-):
-    item = await _legacy_inline_outbox(
-        temp_storage, "ob-legacy-final", "evt-legacy-final"
+async def test_terminal_finalization_suppresses_seeded_diagnostics(temp_storage):
+    item = await _seeded_outbox(
+        temp_storage, "ob-seeded-final", "evt-seeded-final"
     )
     receipt = DeliveryReceipt(
         receipt_id="legacy-terminal-receipt",
@@ -197,29 +194,26 @@ async def test_legacy_inline_failure_text_is_cleared_by_terminal_finalization(
     assert await temp_storage.finalize_outbox_terminal(
         TerminalOutboxFinalization(lifecycle_receipt=receipt)
     )
-    inline = await _inline_failure_columns(temp_storage, item.outbox_id)
-    assert tuple(inline.values()) == (None, None, None)
     terminal = await temp_storage.get_outbox_item(item.outbox_id)
     assert terminal is not None
     assert terminal.failure_kind_detail is None
     assert terminal.error_summary is None
-    # The clear writes no new outbox diagnostic when nothing exists to
-    # supersede, and the append-only table stays untouched.
-    assert (
-        await temp_storage._read_all(
-            "SELECT diagnostic FROM delivery_evidence_diagnostics "
-            "WHERE family='outbox' AND row_id=?",
-            (item.outbox_id,),
-        )
-        == []
-    )
+    # The terminal clear appends explicit empty markers for both fields; the
+    # seeded history remains appended above them.
+    rows = await _outbox_side_rows(temp_storage, item.outbox_id)
+    assert [(row["field"], row["diagnostic"], row["attempt"]) for row in rows] == [
+        ("failure_kind_detail", "seeded detail", 1),
+        ("error_summary", "seeded summary", 1),
+        ("failure_kind_detail", "", 1),
+        ("error_summary", "", 1),
+    ]
 
 
-async def test_terminal_finalization_supersedes_legacy_inline_text_in_history(
+async def test_terminal_finalization_supersedes_seeded_text_in_history(
     temp_storage,
 ):
-    item = await _legacy_inline_outbox(
-        temp_storage, "ob-legacy-supersede", "evt-legacy-supersede"
+    item = await _seeded_outbox(
+        temp_storage, "ob-seeded-supersede", "evt-seeded-supersede"
     )
     receipt = DeliveryReceipt(
         receipt_id="legacy-supersede-receipt",
@@ -239,24 +233,20 @@ async def test_terminal_finalization_supersedes_legacy_inline_text_in_history(
         TerminalOutboxFinalization(lifecycle_receipt=receipt)
     )
     inline = await _inline_failure_columns(temp_storage, item.outbox_id)
-    # The durable failure_kind fact stays inline; the diagnostic columns do
-    # not retain the legacy text.
+    # The durable failure_kind fact stays inline.
     assert inline["failure_kind"] == "adapter_permanent"
-    assert inline["failure_kind_detail"] is None
-    assert inline["error_summary"] is None
     terminal = await temp_storage.get_outbox_item(item.outbox_id)
     assert terminal is not None
     assert terminal.error_summary == "TERMINAL-ERROR"
     assert terminal.failure_kind_detail is None
     # Side-table rows written along the way remain: the append-only history
-    # carries the terminal wording that superseded the cleared inline text.
-    outbox_rows = await temp_storage._read_all(
-        "SELECT field, diagnostic FROM delivery_evidence_diagnostics "
-        "WHERE family='outbox' AND row_id=? ORDER BY diag_id",
-        (item.outbox_id,),
-    )
-    assert [(row["field"], row["diagnostic"]) for row in outbox_rows] == [
-        ("error_summary", "TERMINAL-ERROR")
+    # carries the seeded attempt wording plus the terminal wording.
+    outbox_rows = await _outbox_side_rows(temp_storage, item.outbox_id)
+    assert [(row["field"], row["diagnostic"], row["attempt"]) for row in outbox_rows] == [
+        ("failure_kind_detail", "seeded detail", 1),
+        ("error_summary", "seeded summary", 1),
+        ("failure_kind_detail", "", 1),
+        ("error_summary", "TERMINAL-ERROR", 1),
     ]
     receipt_rows = await temp_storage._read_all(
         "SELECT field, diagnostic FROM delivery_evidence_diagnostics "

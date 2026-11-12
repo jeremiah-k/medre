@@ -13,8 +13,10 @@ from medre.core.storage.backend import (
 from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
     known_decision_table_forms,
-    known_pressure_table_forms,
     known_outage_gap_table_forms,
+    known_pressure_table_forms,
+    known_stripped_diagnostic_table_forms,
+    known_stripped_diagnostic_view_form,
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
@@ -138,6 +140,24 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
                 return False
         elif key == ("table", "inbound_pressure_outage_gaps"):
             if definition not in {expected[key], legacy_gap}:
+                return False
+        elif key in {
+            ("table", "delivery_receipts"),
+            ("table", "delivery_observations"),
+            ("table", "delivery_outbox"),
+            ("table", "durable_ingress_work"),
+        }:
+            table = key[1]
+            if definition not in {
+                expected[key],
+                known_stripped_diagnostic_table_forms().get(table),
+            }:
+                return False
+        elif key == ("view", "delivery_status"):
+            if definition not in {
+                expected[key],
+                known_stripped_diagnostic_view_form(),
+            }:
                 return False
         elif definition != expected[key]:
             return False

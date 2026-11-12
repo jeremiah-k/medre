@@ -140,9 +140,9 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
         db.execute(
             "INSERT INTO delivery_receipts "
             "(receipt_id, event_id, delivery_plan_id, target_adapter, status, "
-            "receipt_kind, error, created_at) "
+            "receipt_kind, failure_kind, created_at) "
             "VALUES ('legacy', 'preserve', 'plan', 'fake', 'failed', "
-            "'attempt', 'HISTORICAL-INLINE', '2026-10-31')"
+            "'attempt', 'adapter_transient', '2026-10-31')"
         )
     store = SQLiteStorage(path)
     await store.initialize()
@@ -169,11 +169,17 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
             )
         ) is not None
         # The upgraded shape matches a fresh database exactly; the pre-existing
-        # evidence row is untouched and its inline value is never rewritten.
+        # evidence row is untouched and the new side table starts empty for it.
         legacy = await store._read_one(
-            "SELECT error FROM delivery_receipts WHERE receipt_id='legacy'"
+            "SELECT failure_kind FROM delivery_receipts WHERE receipt_id='legacy'"
         )
-        assert legacy["error"] == "HISTORICAL-INLINE"
+        assert legacy["failure_kind"] == "adapter_transient"
+        assert (
+            await store._read_all(
+                "SELECT 1 FROM delivery_evidence_diagnostics WHERE row_id='legacy'"
+            )
+            == []
+        )
     finally:
         await store.close()
     with closing(sqlite3.connect(path)) as db:

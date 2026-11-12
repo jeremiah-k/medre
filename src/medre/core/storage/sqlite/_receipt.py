@@ -70,11 +70,10 @@ def _receipt_diagnostic_ops(
 def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
     """Validate and serialize one immutable receipt row.
 
-    The free-form diagnostic columns (``error``, ``capability_reason``,
-    ``rendering_evidence``) are separated at write time: new rows keep them
-    ``NULL`` inline and their text lands in
-    ``delivery_evidence_diagnostics`` through :func:`_receipt_diagnostic_ops`
-    in the same transaction.  Historical rows keep their inline values.
+    The free-form diagnostic text (``error``, ``capability_reason``,
+    ``rendering_evidence``) is separated at write time: it lands only in
+    ``delivery_evidence_diagnostics`` through
+    :func:`_receipt_diagnostic_ops` in the same transaction.
     """
     if receipt.status not in RECEIPT_STATUSES:
         raise ValueError(
@@ -107,11 +106,9 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
         receipt.route_id,
         receipt.status,
         receipt.receipt_kind,
-        None,
         receipt.failure_kind,
         receipt.capability_level,
         receipt.capability_field,
-        None,
         receipt.delivery_strategy,
         receipt.adapter_message_id,
         receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
@@ -127,7 +124,6 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
             if receipt.retry_jitter is True
             else (0 if receipt.retry_jitter is False else None)
         ),
-        None,
         receipt.outbox_id,
         receipt.confirmation_level,
         receipt.created_at.isoformat(),
@@ -177,9 +173,8 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
         channels are treated identically in grouping.
 
         Free-form diagnostic text (``error``, ``capability_reason``,
-        ``rendering_evidence``) is separated at write time: the receipt row
-        keeps those columns ``NULL`` and the text lands in
-        ``delivery_evidence_diagnostics`` in the same transaction, so a
+        ``rendering_evidence``) is separated at write time: the text lands
+        in ``delivery_evidence_diagnostics`` in the same transaction, so a
         receipt never commits without its diagnostics or vice versa.
 
         Raises :class:`ValueError` if ``receipt.status`` is not a known
@@ -220,7 +215,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
         row = await self._read_one(sql, params)
         if row is None:
             return None
-        await self._coalesce_evidence_diagnostics(
+        await self._resolve_evidence_diagnostics(
             "receipt", [row], identity_column="receipt_id"
         )
         return _row_to_receipt(row)
@@ -247,7 +242,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
                 identity.target_channel or None,
             ),
         )
-        rows = await self._coalesce_evidence_diagnostics(
+        rows = await self._resolve_evidence_diagnostics(
             "receipt", rows, identity_column="receipt_id"
         )
         return [_row_to_receipt(row) for row in rows]
@@ -268,7 +263,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
         if not isinstance(outbox_id, str) or not outbox_id.strip():
             raise ValueError("receipt outbox history requires a non-empty outbox_id")
         rows = await self._read_all(_SELECT_RECEIPTS_FOR_OUTBOX, (outbox_id,))
-        rows = await self._coalesce_evidence_diagnostics(
+        rows = await self._resolve_evidence_diagnostics(
             "receipt", rows, identity_column="receipt_id"
         )
         return [_row_to_receipt(row) for row in rows]
@@ -295,7 +290,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
             (normalized_run_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "receipt", rows, identity_column="receipt_id"
             )
         return [_row_to_receipt(r) for r in rows]
@@ -319,7 +314,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
             (event_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "receipt", rows, identity_column="receipt_id"
             )
         return [_row_to_receipt(r) for r in rows]
@@ -346,7 +341,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
             (limit, offset),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "receipt", rows, identity_column="receipt_id"
             )
         return [_row_to_receipt(r) for r in rows]
@@ -384,7 +379,7 @@ class _ReceiptMixin(_EvidenceDiagnosticsReadMixin):
              LIMIT ?""",
             (now.isoformat(), max_attempts, limit),
         )
-        rows = await self._coalesce_evidence_diagnostics(
+        rows = await self._resolve_evidence_diagnostics(
             "receipt", rows, identity_column="receipt_id"
         )
         return [_row_to_receipt(r) for r in rows]

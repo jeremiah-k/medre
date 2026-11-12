@@ -238,11 +238,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             " (outbox_id, event_id, route_id, delivery_plan_id,"
             "  target_adapter, target_channel, target_address,"
             "  attempt_number, active_attempt, status, failure_kind,"
-            "  failure_kind_detail, next_attempt_at, created_at, updated_at,"
+            "  next_attempt_at, created_at, updated_at,"
             "  last_attempt_at, locked_at, lease_until, worker_id,"
-            "  payload_hash, receipt_id, parent_receipt_id, error_summary,"
+            "  payload_hash, receipt_id, parent_receipt_id,"
             "  dispatch_source, replay_run_id, metadata)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             item.outbox_id,
@@ -256,7 +256,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             item.active_attempt,
             effective_status,
             item.failure_kind,
-            None,
             _ensure_iso(item.next_attempt_at),
             _ensure_iso(item.created_at) or now,
             _ensure_iso(item.updated_at) or now,
@@ -267,14 +266,13 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             item.payload_hash,
             item.receipt_id,
             item.parent_receipt_id,
-            None,
             dispatch_source,
             item.replay_run_id or None,
             meta_json,
         )
-        # Free-form diagnostic text is separated at write time: the inline
-        # columns stay NULL and the text lands in the append-only side table
-        # inside the creation transaction, keyed by the committed attempt.
+        # Free-form diagnostic text is separated at write time: it lands only
+        # in the append-only side table inside the creation transaction,
+        # keyed by the committed attempt.
         diagnostic_ops = outbox_diagnostic_ops(
             {
                 "failure_kind_detail": item.failure_kind_detail,
@@ -537,7 +535,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         if row is None:
             return None
         if not metadata_only:
-            await self._coalesce_evidence_diagnostics(
+            await self._resolve_evidence_diagnostics(
                 "outbox", [row], identity_column="outbox_id"
             )
         return _row_to_outbox_item(row)
@@ -649,7 +647,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 identity.target_channel or None,
             ),
         )
-        rows = await self._coalesce_evidence_diagnostics(
+        rows = await self._resolve_evidence_diagnostics(
             "outbox", rows, identity_column="outbox_id"
         )
         return [_row_to_outbox_item(row) for row in rows]
@@ -683,7 +681,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         params.append(offset)
 
         rows = await self._read_all(sql, tuple(params))
-        rows = await self._coalesce_evidence_diagnostics(
+        rows = await self._resolve_evidence_diagnostics(
             "outbox", rows, identity_column="outbox_id"
         )
         return [_row_to_outbox_item(r) for r in rows]
@@ -709,7 +707,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             (limit, offset),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "outbox", rows, identity_column="outbox_id"
             )
         return [_row_to_outbox_item(r) for r in rows]
@@ -735,7 +733,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             (event_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "outbox", rows, identity_column="outbox_id"
             )
         return [_row_to_outbox_item(r) for r in rows]
@@ -760,7 +758,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             (run_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "outbox", rows, identity_column="outbox_id"
             )
         return [_row_to_outbox_item(r) for r in rows]
@@ -932,7 +930,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress' AND {_no_newer_generation}",  # nosec: interpolated fragments are static SQL or ? placeholders
             (*outbox_ids, worker_id),
         )
-        final_rows = await self._coalesce_evidence_diagnostics(
+        final_rows = await self._resolve_evidence_diagnostics(
             "outbox", final_rows, identity_column="outbox_id"
         )
         return [_row_to_outbox_item(r) for r in final_rows]
@@ -1017,9 +1015,9 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         fences a transition to the current claim owner.
 
         Free-form diagnostic text (*failure_kind_detail*, *error_summary*)
-        is separated at write time: the legacy inline columns stay ``NULL``
-        and the text lands in ``delivery_evidence_diagnostics`` inside the
-        transition's transaction, keyed by the finalized attempt.
+        is separated at write time: the text lands only in
+        ``delivery_evidence_diagnostics`` inside the transition's
+        transaction, keyed by the finalized attempt.
 
         Returns ``True`` only if the transition committed. Returns ``False``
         for a terminal row, a disallowed source status, or a mismatched
@@ -1075,17 +1073,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             sets.append("next_attempt_at = NULL")
 
         if new_status in ("queued", "sent"):
-            sets.extend(
-                [
-                    "failure_kind = NULL",
-                    "failure_kind_detail = NULL",
-                    "error_summary = NULL",
-                ]
-            )
+            sets.append("failure_kind = NULL")
         elif new_status in (TERMINAL_OUTBOX_STATUSES - {"sent"}):
-            # "sent" is terminal but happy-path; clear failure metadata
-            # only for error terminals (dead_lettered, cancelled, abandoned).
-            sets.append("failure_kind_detail = NULL")
+            # "sent" is terminal but happy-path; record the failure-detail
+            # clear only for error terminals (dead_lettered, cancelled,
+            # abandoned).
             diagnostics.setdefault("failure_kind_detail", "")
         if new_status in ("queued", "sent", "retry_wait"):
             sets.append("last_attempt_at = ?")

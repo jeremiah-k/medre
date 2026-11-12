@@ -135,12 +135,12 @@ class _DeliveryFinalizationMixin:
 
         The outbox row is linked back to its evidence receipt via
         ``receipt_id``; stale retry metadata (``failure_kind``,
-        ``failure_kind_detail``, ``next_attempt_at``, lease columns) is
-        cleared in the same transition.  Free-form diagnostic text (receipt
+        ``next_attempt_at``, lease columns) is cleared in the same
+        transition.  Free-form diagnostic text (receipt
         ``error``/``capability_reason``/``rendering_evidence`` and the
-        outbox ``error_summary``) is separated at write time: the inline
-        columns stay ``NULL`` and the text lands in
-        ``delivery_evidence_diagnostics`` inside the same transaction.
+        outbox ``error_summary``) is separated at write time: it lands
+        only in ``delivery_evidence_diagnostics`` inside the same
+        transaction.
         """
         receipt = command.lifecycle_receipt
         attempt_receipt = command.attempt_receipt

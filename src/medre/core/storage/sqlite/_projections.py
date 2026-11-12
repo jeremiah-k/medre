@@ -81,6 +81,15 @@ _INSPECTION_COLUMNS = {
     ),
 }
 
+#: Evidence tables whose separated diagnostic fields are synthesized as NULL
+#: on metadata-only projections, keyed by table name.
+_TABLE_DIAGNOSTIC_FAMILY: dict[str, str] = {
+    "delivery_receipts": "receipt",
+    "delivery_observations": "observation",
+    "delivery_outbox": "outbox",
+    "durable_ingress_work": "ingress",
+}
+
 
 def inspection_sql(sql: str, table: str, metadata_only: bool) -> str:
     """Choose a safe SQL projection before any opaque evidence reaches Python.
@@ -91,6 +100,7 @@ def inspection_sql(sql: str, table: str, metadata_only: bool) -> str:
     """
     if not metadata_only:
         return sql
+    from medre.core.storage.sqlite._evidence_diagnostics import _DIAGNOSTIC_FIELDS
     from medre.core.storage.sqlite.schema import _REQUIRED_COLUMNS
 
     allowed = _INSPECTION_COLUMNS[table]
@@ -102,6 +112,14 @@ def inspection_sql(sql: str, table: str, metadata_only: bool) -> str:
         )
         for column in sorted(_REQUIRED_COLUMNS[table])
     )
+    # Separated diagnostic text never appears on a metadata-only page: every
+    # field is synthesized as NULL so typed row mappers still see a complete
+    # shape without any diagnostic content leaving the side table.
+    family = _TABLE_DIAGNOSTIC_FAMILY.get(table)
+    if family is not None:
+        columns += ", " + ", ".join(
+            f"NULL AS {field} " for field in sorted(_DIAGNOSTIC_FIELDS[family])
+        )
     if "SELECT *" not in sql:
         raise ValueError("Inspection requires a schema-owned row query")
     return sql.replace("SELECT *", "SELECT " + columns)

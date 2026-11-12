@@ -664,18 +664,18 @@ async def test_content_bearing_evidence_values_keep_blocking_column_aware(
         await _settle_target_dead_lettered(
             store, target_b, diagnostic="relay unreachable: no route to peer"
         )
-        # Historical inline receipt diagnostics keep blocking until cleared.
+        # Separated diagnostic rows never block collection: they survive it
+        # as retained history and their text never reaches the report.
         await store._write(
-            "UPDATE delivery_receipts SET error='HISTORICAL-SEND-ERROR' "
-            "WHERE event_id='routed'"
+            "INSERT INTO delivery_evidence_diagnostics "
+            "(family, row_id, attempt, field, diagnostic, created_at) "
+            "SELECT 'receipt', r.receipt_id, r.attempt_number, 'error', "
+            "'HISTORICAL-SEND-ERROR', r.created_at FROM delivery_receipts r "
+            "WHERE r.event_id='routed' LIMIT 1"
         )
-        blocked = await store.collect_event_content("routed", dry_run=False)
-        assert blocked["status"] == "blocked"
-        assert blocked["blockers"] == ["delivery_receipts"]
-        assert "HISTORICAL-SEND-ERROR" not in json.dumps(blocked)
-        await store._write(
-            "UPDATE delivery_receipts SET error=NULL WHERE event_id='routed'"
-        )
+        preview = await store.assess_event_content_release("routed")
+        assert "retained_diagnostics" not in preview["blockers"]
+        assert "HISTORICAL-SEND-ERROR" not in json.dumps(preview)
         # Non-empty provider metadata on the outbox row keeps blocking.
         await store._write(
             'UPDATE delivery_outbox SET metadata=\'{"trace":"META-TRACE"}\' '
@@ -698,67 +698,29 @@ async def test_content_bearing_evidence_values_keep_blocking_column_aware(
         await store._write(
             "UPDATE native_message_refs SET metadata='{}' WHERE event_id='routed'"
         )
-        # Historical inline ingress and observation diagnostics keep blocking.
+        # Separated ingress diagnostics never block; observation metadata does.
         await store._write(
-            "UPDATE durable_ingress_work SET last_error='HISTORICAL-INGRESS-ERROR' "
-            "WHERE event_id='routed'"
+            "INSERT INTO delivery_evidence_diagnostics "
+            "(family, row_id, attempt, field, diagnostic, created_at) "
+            "VALUES ('ingress', 'routed', 0, 'last_error', "
+            "'HISTORICAL-INGRESS-ERROR', '2026-10-31')"
         )
         await store._write(
-            "UPDATE delivery_observations SET error='HISTORICAL-OBSERVATION-ERROR' "
-            "WHERE event_id='routed'"
+            "UPDATE delivery_observations SET metadata='"
+            '{"trace":"META-OBS"}' "' WHERE event_id='routed'"
         )
         blocked = await store.collect_event_content("routed", dry_run=False)
         assert blocked["status"] == "blocked"
-        assert blocked["blockers"] == [
-            "delivery_observations",
-            "ingress_work",
-        ]
+        assert blocked["blockers"] == ["delivery_observations"]
         assert "HISTORICAL-INGRESS-ERROR" not in json.dumps(blocked)
         await store._write(
-            "UPDATE durable_ingress_work SET last_error=NULL WHERE event_id='routed'"
-        )
-        await store._write(
-            "UPDATE delivery_observations SET error=NULL WHERE event_id='routed'"
+            "UPDATE delivery_observations SET metadata='{}' WHERE event_id='routed'"
         )
         assert (await store.collect_event_content("routed", dry_run=False))[
             "status"
         ] == "collected"
     finally:
         await store.close()
-
-
-@pytest.mark.parametrize("value", ["{}", ""])
-@pytest.mark.parametrize(
-    "table,column,blocker",
-    [
-        ("delivery_receipts", "error", "delivery_receipts"),
-        ("delivery_receipts", "capability_reason", "delivery_receipts"),
-        ("delivery_receipts", "rendering_evidence", "delivery_receipts"),
-        ("delivery_observations", "error", "delivery_observations"),
-        ("delivery_outbox", "failure_kind_detail", "outbox_records"),
-        ("delivery_outbox", "error_summary", "outbox_records"),
-        ("durable_ingress_work", "last_error", "ingress_work"),
-    ],
-)
-async def test_plain_text_diagnostics_never_use_the_empty_json_sentinel(
-    temp_storage, table, column, blocker, value
-):
-    a, b = await _admit_two_targets(temp_storage)
-    await _settle_target_sent(
-        temp_storage, "routed", a, other_adapter=_TARGET_B_ADAPTER
-    )
-    await _settle_target_dead_lettered(temp_storage, b, diagnostic="retained evidence")
-    # Identifiers are a closed test parameter set; text remains bound.
-    await temp_storage._write(
-        f"UPDATE {table} SET {column}=? WHERE event_id=?",  # nosec B608 - closed test parameter identifiers; values are bound
-        (value, "routed"),
-    )
-    preview = await temp_storage.assess_event_content_release("routed")
-    assert preview["blockers"] == [blocker]
-    result = await temp_storage.collect_event_content("routed", dry_run=False)
-    assert result["status"] == "blocked"
-    assert result["blockers"] == [blocker]
-    assert result["rows_removed"] == 0
 
 
 async def test_release_preview_refuses_body_row_with_absent_admission_identity(

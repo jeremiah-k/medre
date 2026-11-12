@@ -335,13 +335,13 @@ async def test_work_lifecycle_renews_releases_reclaims_and_completes(tmp_path) -
         assert await storage.release_ingress_work(
             event.event_id, worker_id="worker-1", error=error
         )
-        # Free-form error text is separated at write time: the legacy inline
-        # column stays NULL and the bounded text lands in the side table.
+        # Free-form error text is separated at write time: it lands only in
+        # the side table; the work row carries no diagnostic column.
         row = await storage._read_one(
-            "SELECT status, last_error FROM durable_ingress_work WHERE event_id=?",
+            "SELECT status FROM durable_ingress_work WHERE event_id=?",
             (event.event_id,),
         )
-        assert row == {"status": "pending", "last_error": None}
+        assert row == {"status": "pending"}
         diagnostic = await storage._read_one(
             "SELECT diagnostic FROM delivery_evidence_diagnostics "
             "WHERE family='ingress' AND row_id=? AND field='last_error'",
@@ -379,10 +379,10 @@ async def test_operational_deferral_rolls_back_claim_attempt(tmp_path) -> None:
         )
         # The deferral reason is separated diagnostic content at write time.
         row = await storage._read_one(
-            "SELECT status, attempts, last_error FROM durable_ingress_work WHERE event_id=?",
+            "SELECT status, attempts FROM durable_ingress_work WHERE event_id=?",
             (event.event_id,),
         )
-        assert row == {"status": "pending", "attempts": 0, "last_error": None}
+        assert row == {"status": "pending", "attempts": 0}
 
         [second] = await storage.claim_ingress_work(
             worker_id="worker-2", limit=1, lease_seconds=30

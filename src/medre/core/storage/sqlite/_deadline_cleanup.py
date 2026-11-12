@@ -92,13 +92,11 @@ _RETIRE_CAS_SQL = f"""
     UPDATE delivery_outbox
        SET status = '{DEADLINE_RETIREMENT_STATUS}',
            failure_kind = ?,
-           failure_kind_detail = NULL,
            next_attempt_at = NULL,
            updated_at = ?,
            locked_at = NULL,
            lease_until = NULL,
-           worker_id = NULL,
-           error_summary = NULL
+           worker_id = NULL
      WHERE outbox_id = ?
        AND status = ?
        AND attempt_number = ?

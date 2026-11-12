@@ -118,33 +118,18 @@ _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
 #: Retained durable delivery/native/ingress evidence probes.  Their row
 #: families survive collection; a family blocks only while its mapped
 #: table's registry content-potential columns still carry a value on the
-#: event's rows (historical inline diagnostics, non-empty provider
-#: metadata).  The write-time separated ``delivery_evidence_diagnostics``
-#: side table is retained durable evidence too: its rows exist only under a
-#: parent evidence row, survive collection, and never block.
+#: event's rows (non-empty provider metadata).  Delivery diagnostics live
+#: only in the write-time separated ``delivery_evidence_diagnostics`` side
+#: table, so the receipt and ingress families carry no inline content
+#: columns at all.  The side table is retained durable evidence too: its
+#: rows exist only under a parent evidence row, survive collection, and
+#: never block.
 _PROBE_RETAINED_EVIDENCE: dict[str, frozenset[tuple[str, str]]] = {
-    "delivery_receipts": frozenset(
-        {
-            ("delivery_receipts", "error"),
-            ("delivery_receipts", "capability_reason"),
-            ("delivery_receipts", "rendering_evidence"),
-        }
-    ),
-    "delivery_observations": frozenset(
-        {
-            ("delivery_observations", "error"),
-            ("delivery_observations", "metadata"),
-        }
-    ),
-    "outbox_records": frozenset(
-        {
-            ("delivery_outbox", "failure_kind_detail"),
-            ("delivery_outbox", "error_summary"),
-            ("delivery_outbox", "metadata"),
-        }
-    ),
+    "delivery_receipts": frozenset(),
+    "delivery_observations": frozenset({("delivery_observations", "metadata")}),
+    "outbox_records": frozenset({("delivery_outbox", "metadata")}),
     "native_references": frozenset({("native_message_refs", "metadata")}),
-    "ingress_work": frozenset({("durable_ingress_work", "last_error")}),
+    "ingress_work": frozenset(),
     "retained_diagnostics": frozenset(
         {("delivery_evidence_diagnostics", "diagnostic")}
     ),
@@ -512,7 +497,7 @@ def test_evidence_families_derive_from_registry_content_columns() -> None:
     for family, table in _EVIDENCE_FAMILY_TABLES.items():
         accounted = _PROBE_RETAINED_EVIDENCE[family]
         accounted_tables = {t for t, _ in accounted}
-        assert accounted_tables == {table}, (
+        assert accounted_tables <= {table}, (
             f"{family} declares accounting over {sorted(accounted_tables)} "
             f"but the collector maps it to {table}"
         )

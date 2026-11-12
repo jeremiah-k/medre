@@ -558,8 +558,7 @@ class _IngressMixin:
     ) -> bool:
         """Return owned ingress work to pending after a processing failure.
 
-        The free-form ``error`` text is separated at write time: the legacy
-        ``last_error`` column stays ``NULL`` and the text lands in
+        The free-form ``error`` text is separated at write time: it lands in
         ``delivery_evidence_diagnostics`` in the same transaction, keyed by
         the committed attempt count.
         """

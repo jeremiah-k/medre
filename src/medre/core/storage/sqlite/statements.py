@@ -51,13 +51,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
-     target_channel, route_id, status, receipt_kind, error, failure_kind,
-     capability_level, capability_field, capability_reason, delivery_strategy,
+     target_channel, route_id, status, receipt_kind, failure_kind,
+     capability_level, capability_field, delivery_strategy,
      adapter_message_id, next_retry_at, attempt_number, parent_receipt_id, source,
      replay_run_id, retry_max_attempts, retry_backoff_base,
-     retry_max_delay, retry_jitter, rendering_evidence, outbox_id,
+     retry_max_delay, retry_jitter, outbox_id,
      confirmation_level, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # The frozen dispatch context is written inside the outbox-creation
@@ -85,15 +85,13 @@ SET status = 'sent',
     attempt_number = COALESCE(active_attempt, attempt_number),
     active_attempt = NULL,
     failure_kind = NULL,
-    failure_kind_detail = NULL,
     next_attempt_at = NULL,
     updated_at = ?,
     last_attempt_at = ?,
     locked_at = NULL,
     lease_until = NULL,
     worker_id = NULL,
-    receipt_id = ?,
-    error_summary = NULL
+    receipt_id = ?
 WHERE outbox_id = ?
   AND event_id = ?
   AND delivery_plan_id = ?
@@ -103,23 +101,18 @@ WHERE outbox_id = ?
   AND status IN ('queued', 'in_progress')
 """
 
-# error_summary is separated diagnostic content: the terminal transition
-# clears the legacy inline column and its text lands in
-# delivery_evidence_diagnostics inside the same transaction.
 _FINALIZE_OUTBOX_TERMINAL = """
 UPDATE delivery_outbox
 SET status = ?,
     attempt_number = COALESCE(active_attempt, attempt_number),
     active_attempt = NULL,
     failure_kind = ?,
-    failure_kind_detail = NULL,
     next_attempt_at = NULL,
     updated_at = ?,
     locked_at = NULL,
     lease_until = NULL,
     worker_id = NULL,
-    receipt_id = ?,
-    error_summary = NULL
+    receipt_id = ?
 WHERE outbox_id = ?
   AND event_id = ?
   AND delivery_plan_id = ?

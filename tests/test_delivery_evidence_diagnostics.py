@@ -5,9 +5,8 @@ Free-form diagnostic text (receipt ``error``/``capability_reason``/
 observation ``error``, ingress ``last_error``) has a content lifetime, so
 every new parent write stores it only in the append-only
 ``delivery_evidence_diagnostics`` side table, inside the parent row's
-transaction, and leaves the legacy inline columns ``NULL``.  Reads coalesce:
-the historical inline value wins when non-empty, otherwise the side-table
-value is surfaced.  Historical inline values are never rewritten.
+transaction.  Evidence rows carry no inline diagnostic columns; every read
+resolves the text from the side table, and appended rows are never rewritten.
 
 The tests also pin the canonical-separation fact this vertical builds on: an
 ordinary nonradio text event keeps no inventoried content in
@@ -178,13 +177,16 @@ async def test_receipt_diagnostics_are_written_only_to_the_side_table(temp_stora
         rendering_evidence='{"strategy":"direct"}',
     )
     await temp_storage.append_receipt(receipt)
+    columns = {
+        str(r["name"])
+        for r in await temp_storage._read_all(
+            "PRAGMA table_info(delivery_receipts)"
+        )
+    }
+    assert not {"error", "capability_reason", "rendering_evidence"} & columns
     row = await temp_storage._read_one(
-        "SELECT error, capability_reason, rendering_evidence, failure_kind "
-        "FROM delivery_receipts WHERE receipt_id='rcpt-dx'"
+        "SELECT failure_kind FROM delivery_receipts WHERE receipt_id='rcpt-dx'"
     )
-    assert row["error"] is None
-    assert row["capability_reason"] is None
-    assert row["rendering_evidence"] is None
     # Durable facts stay inline.
     assert row["failure_kind"] == "adapter_transient"
     rows = await _diag_rows(temp_storage, "receipt", "rcpt-dx")
@@ -212,11 +214,6 @@ async def test_successful_receipt_writes_no_diagnostic_content_anywhere(temp_sto
     await _admit(temp_storage, "evt-sent")
     receipt = _receipt("rcpt-sent", "evt-sent", status="sent", failure_kind=None)
     await temp_storage.append_receipt(receipt)
-    inline = await temp_storage._read_one(
-        "SELECT error, capability_reason, rendering_evidence "
-        "FROM delivery_receipts WHERE receipt_id='rcpt-sent'"
-    )
-    assert tuple(inline.values()) == (None, None, None)
     assert await _diag_rows(temp_storage, "receipt", "rcpt-sent") == []
     report = await temp_storage.inspect_content_inventory()
     diagnostics = next(
@@ -227,15 +224,15 @@ async def test_successful_receipt_writes_no_diagnostic_content_anywhere(temp_sto
     assert diagnostics["rows"] == 0
 
 
-async def test_historical_inline_diagnostics_win_over_side_table(temp_storage):
-    """A legacy inline value is surfaced unchanged and never rewritten."""
+async def test_side_table_diagnostic_is_surfaced_unchanged(temp_storage):
+    """An appended side-table value is surfaced unchanged and never rewritten."""
     await _admit(temp_storage, "evt-legacy")
     await temp_storage._write(
         "INSERT INTO delivery_receipts "
         "(receipt_id, event_id, delivery_plan_id, target_adapter, status, "
-        "receipt_kind, error, created_at) "
+        "receipt_kind, created_at) "
         "VALUES ('rcpt-legacy', 'evt-legacy', 'plan-dx', 'fake_transport', "
-        "'failed', 'attempt', 'HISTORICAL-INLINE', '2026-10-30T00:00:00+00:00')"
+        "'failed', 'attempt', '2026-10-30T00:00:00+00:00')"
     )
     await temp_storage._write(
         "INSERT INTO delivery_evidence_diagnostics "
@@ -243,11 +240,7 @@ async def test_historical_inline_diagnostics_win_over_side_table(temp_storage):
         "VALUES ('receipt', 'rcpt-legacy', 1, 'error', 'SIDE-TABLE', '2026-10-31')"
     )
     history = await temp_storage.list_receipts_for_event("evt-legacy")
-    assert [r.error for r in history] == ["HISTORICAL-INLINE"]
-    row = await temp_storage._read_one(
-        "SELECT error FROM delivery_receipts WHERE receipt_id='rcpt-legacy'"
-    )
-    assert row["error"] == "HISTORICAL-INLINE"
+    assert [r.error for r in history] == ["SIDE-TABLE"]
 
 
 async def test_receipt_diagnostics_commit_atomically_with_the_receipt(temp_storage):
@@ -314,23 +307,31 @@ async def test_receipt_diagnostics_are_listed_by_identity_and_replay_run(temp_st
     assert {r.error for r in current} == {"OB-ERROR", "REPLAY-ERROR", "DUE-ERROR"}
 
 
-async def test_outbox_current_attempt_diagnostic_supersedes_legacy_inline(temp_storage):
+async def test_outbox_current_attempt_diagnostic_scopes_the_side_table(temp_storage):
     await _admit_outbox(temp_storage, "ob-new", "evt-new")
-    await temp_storage._write(
-        "UPDATE delivery_outbox SET error_summary='OLD-INLINE' WHERE outbox_id='ob-new'"
-    )
     assert await temp_storage.mark_outbox_retry_wait(
         "ob-new",
         "2026-10-31T01:00:00+00:00",
+        failure_kind="adapter_transient",
+        error_summary="OLD-SUMMARY",
+    )
+    claimed = await temp_storage.claim_due_outbox_items(
+        "2026-11-01T00:00:00+00:00", "worker-scope"
+    )
+    assert [c.outbox_id for c in claimed] == ["ob-new"]
+    assert await temp_storage.mark_outbox_retry_wait(
+        "ob-new",
+        "2026-10-31T02:00:00+00:00",
         failure_kind="adapter_transient",
         error_summary="NEW-SUMMARY",
     )
     current = await temp_storage.get_outbox_item("ob-new")
     assert current is not None and current.error_summary == "NEW-SUMMARY"
-    inline = await temp_storage._read_one(
-        "SELECT error_summary FROM delivery_outbox WHERE outbox_id='ob-new'"
-    )
-    assert inline["error_summary"] == "OLD-INLINE"
+    rows = await _diag_rows(temp_storage, "outbox", "ob-new")
+    assert {(r["field"], r["diagnostic"], r["attempt"]) for r in rows} == {
+        ("error_summary", "OLD-SUMMARY", 1),
+        ("error_summary", "NEW-SUMMARY", 1),
+    }
 
 
 async def test_diagnostic_coalescing_chunks_large_identity_lists():
@@ -368,7 +369,7 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
         for i in range(1200)
     ]
     fake = _Fake()
-    await fake._coalesce_evidence_diagnostics(
+    await fake._resolve_evidence_diagnostics(
         "receipt", rows, identity_column="receipt_id"
     )
     assert fake.calls == [501, 501, 201]
@@ -402,14 +403,17 @@ async def test_outbox_retry_wait_separates_diagnostics_at_write_time(temp_storag
         failure_kind_detail="DISPATCH-DETAIL",
         error_summary="DISPATCH-SUMMARY",
     )
+    columns = {
+        str(r["name"])
+        for r in await temp_storage._read_all("PRAGMA table_info(delivery_outbox)")
+    }
+    assert not {"failure_kind_detail", "error_summary"} & columns
     row = await temp_storage._read_one(
-        "SELECT failure_kind, failure_kind_detail, error_summary, attempt_number "
+        "SELECT failure_kind, attempt_number "
         "FROM delivery_outbox WHERE outbox_id='ob-dx'"
     )
     # The durable failure fact stays inline; the free-form text does not.
     assert row["failure_kind"] == "adapter_transient"
-    assert row["failure_kind_detail"] is None
-    assert row["error_summary"] is None
     assert row["attempt_number"] == 1
     rows = await _diag_rows(temp_storage, "outbox", "ob-dx")
     assert {(r["field"], r["diagnostic"], r["attempt"]) for r in rows} == {
@@ -488,11 +492,9 @@ async def test_outbox_creation_separates_seeded_diagnostics(temp_storage):
         metadata={"provider": {"opaque": "META"}},
     )
     row = await temp_storage._read_one(
-        "SELECT failure_kind_detail, error_summary, metadata, target_channel, "
-        "target_address FROM delivery_outbox WHERE outbox_id='ob-seeded'"
+        "SELECT metadata, target_channel, target_address "
+        "FROM delivery_outbox WHERE outbox_id='ob-seeded'"
     )
-    assert row["failure_kind_detail"] is None
-    assert row["error_summary"] is None
     # Structured provider metadata and route correlation stay inline.
     assert '"opaque":"META"' in row["metadata"]
     assert row["target_channel"] == "ch-dx"
@@ -538,10 +540,16 @@ async def test_observation_error_is_separated_and_coalesced(temp_storage):
         _observation("obs-dx", "ob-obs", "evt-obs", error="OBSERVATION-ERROR")
     )
     assert inserted is True
+    columns = {
+        str(r["name"])
+        for r in await temp_storage._read_all(
+            "PRAGMA table_info(delivery_observations)"
+        )
+    }
+    assert "error" not in columns
     row = await temp_storage._read_one(
-        "SELECT error, state FROM delivery_observations WHERE observation_id='obs-dx'"
+        "SELECT state FROM delivery_observations WHERE observation_id='obs-dx'"
     )
-    assert row["error"] is None
     assert row["state"] == "failed"
     rows = await _diag_rows(temp_storage, "observation", "obs-dx")
     assert [(r["field"], r["diagnostic"]) for r in rows] == [
@@ -594,10 +602,14 @@ async def test_ingress_last_error_is_separated_and_claimed_with_it(temp_storage)
         "evt-ingress", worker_id="worker-1", error="PROCESSING-FAILED"
     )
     assert released is True
+    columns = {
+        str(r["name"])
+        for r in await temp_storage._read_all("PRAGMA table_info(durable_ingress_work)")
+    }
+    assert "last_error" not in columns
     row = await temp_storage._read_one(
-        "SELECT last_error, status FROM durable_ingress_work WHERE event_id='evt-ingress'"
+        "SELECT status FROM durable_ingress_work WHERE event_id='evt-ingress'"
     )
-    assert row["last_error"] is None
     assert row["status"] == "pending"
     rows = await _diag_rows(temp_storage, "ingress", "evt-ingress")
     assert [(r["field"], r["diagnostic"]) for r in rows] == [
@@ -702,15 +714,18 @@ async def test_queued_handoff_clears_same_attempt_diagnostics(temp_storage):
     assert await _diag_rows(temp_storage, "outbox", "ob-same-queued")
 
 
-async def test_historical_inline_outbox_diagnostic_is_not_rewritten(temp_storage):
+async def test_appended_outbox_diagnostic_is_not_rewritten(temp_storage):
     await _admit_outbox(temp_storage, "ob-legacy-sent", "evt-legacy-sent")
-    assert await temp_storage.mark_outbox_sent("ob-legacy-sent", attempt_number=1)
-    await temp_storage._write(
-        "UPDATE delivery_outbox SET error_summary='INLINE-HISTORY' "
-        "WHERE outbox_id='ob-legacy-sent'"
+    assert await temp_storage.mark_outbox_retry_wait(
+        "ob-legacy-sent",
+        "2026-10-31T01:00:00+00:00",
+        failure_kind="adapter_transient",
+        error_summary="APPENDED-HISTORY",
     )
-    item = await temp_storage.get_outbox_item("ob-legacy-sent")
-    assert item is not None and item.error_summary == "INLINE-HISTORY"
+    rows = await _diag_rows(temp_storage, "outbox", "ob-legacy-sent")
+    assert [(r["field"], r["diagnostic"]) for r in rows] == [
+        ("error_summary", "APPENDED-HISTORY")
+    ]
 
 
 async def test_delivery_status_typed_view_coalesces_separated_error(temp_storage):
@@ -723,9 +738,10 @@ async def test_delivery_status_typed_view_coalesces_separated_error(temp_storage
     identity = DeliveryIdentity("evt-status", "plan-dx", "fake_transport", None)
     current = await temp_storage.delivery_status(identity)
     assert current is not None and current.error == "STATUS-ERROR"
-    # The SQL view is deliberately a facts-only projection. Its persisted
-    # legacy column is NULL; typed consumers must rehydrate separately.
-    raw = await temp_storage._read_one(
-        "SELECT error FROM delivery_status WHERE receipt_id='rcpt-status'"
-    )
-    assert raw is not None and raw["error"] is None
+    # The SQL view is deliberately a facts-only projection: it has no
+    # diagnostic column at all; typed consumers rehydrate from the side table.
+    view_columns = {
+        str(r["name"])
+        for r in await temp_storage._read_all("PRAGMA table_info(delivery_status)")
+    }
+    assert "error" not in view_columns
