@@ -141,7 +141,7 @@ class TestRenderingPipelineStrategyDispatch:
 
 
 class TestSkipStrategyDefenseInDepth:
-    """Verify the skip-strategy defense-in-depth gate in deliver_to_target."""
+    """Verify the skip-strategy defense-in-depth gate in deliver_execution."""
 
     @pytest.mark.asyncio
     async def test_skip_plan_returns_suppressed_receipt(
@@ -149,7 +149,7 @@ class TestSkipStrategyDefenseInDepth:
         temp_storage: SQLiteStorage,
     ) -> None:
         """A plan with method='skip' returns a suppressed receipt from
-        deliver_to_target."""
+        deliver_execution."""
         adapter = FakePresentationAdapter(adapter_id="dest")
         adapter._capabilities = AdapterCapabilities(text=True)
 
@@ -190,7 +190,7 @@ class TestSkipStrategyDefenseInDepth:
         )
 
         try:
-            receipt = await runner.deliver_to_target(event, route, skip_plan)
+            receipt = (await runner.deliver_execution_to_target(event, route, skip_plan)).primary_receipt
             assert receipt.status == "suppressed"
             assert receipt.failure_kind == "capability_suppressed"
             assert receipt.error is not None
@@ -252,7 +252,7 @@ class TestSkipStrategyDefenseInDepth:
         )
 
         try:
-            receipt = await runner.deliver_to_target(event, route, skip_plan)
+            receipt = (await runner.deliver_execution_to_target(event, route, skip_plan)).primary_receipt
             # Suppressed, NOT renderer_failure.
             assert receipt.status == "suppressed"
             assert receipt.failure_kind != "renderer_failure"

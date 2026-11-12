@@ -991,7 +991,7 @@ async def test_deferral_without_dispatch_consumes_no_attempt(temp_storage) -> No
 
 def _worker_with_stub_pipeline(storage, deliver) -> RetryWorker:
     pipeline = MagicMock()
-    pipeline.deliver_to_target = deliver
+    pipeline.deliver_execution_to_target = deliver
     worker = RetryWorker(
         storage=storage,
         pipeline=pipeline,
@@ -1364,16 +1364,18 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
         created_at=datetime.now(timezone.utc),
     )
 
-    receipt = await service.deliver_to_target(
-        event,
-        route,
-        plan,
-        previous_receipt=previous,
-        source="retry",
-        outbox_id="obox-stamp",
-        reserved_attempt_number=6,
-        expected_outbox_worker_id="retry-worker-stamp",
-    )
+    receipt = (
+    await service.deliver_execution(
+            event,
+            route,
+            plan,
+            previous_receipt=previous,
+            source="retry",
+            outbox_id="obox-stamp",
+            reserved_attempt_number=6,
+            expected_outbox_worker_id="retry-worker-stamp",
+        )
+).primary_receipt
 
     assert receipt.attempt_number == 6
     assert receipt.parent_receipt_id == "rcpt-previous"

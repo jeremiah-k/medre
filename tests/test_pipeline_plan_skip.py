@@ -13,7 +13,7 @@ Two scenarios:
 1. Registered adapter + skip plan → returns skipped/CAPABILITY_SUPPRESSED,
    adapter never called.
 2. Missing adapter + skip plan → does NOT return skipped here; falls
-   through to deliver_to_target() which produces ADAPTER_MISSING.
+   through to deliver_execution() which produces ADAPTER_MISSING.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ class TestPlanLevelSkip:
         dict.  The planner uses default capabilities (attachments=False) and
         creates a skip plan for message.file.  But because the adapter is
         missing, the plan-level skip guard does NOT fire — the event falls
-        through to deliver_to_target() which produces ADAPTER_MISSING.
+        through to deliver_execution() which produces ADAPTER_MISSING.
         """
         route = Route(
             id="plan-skip-missing-route",

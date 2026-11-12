@@ -157,7 +157,7 @@ class _RetryWorker:
             plan = _plan_from_receipt(receipt, self._retry_executor.policy)
 
             try:
-                await self.pipeline.deliver_to_target(
+                await self.pipeline.deliver_execution_to_target(
                     event,
                     route,
                     plan,

@@ -111,7 +111,7 @@ class _AlwaysPermanentFailAdapter(FakePresentationAdapter):
 
 
 # ---------------------------------------------------------------------------
-# RetryWorker (integration variant — uses real pipeline.deliver_to_target)
+# RetryWorker (integration variant — uses real pipeline.deliver_execution_to_target)
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +153,7 @@ def _plan_from_receipt(
 
 
 class _RetryWorker:
-    """Lightweight retry worker that delegates to PipelineRunner.deliver_to_target."""
+    """Lightweight retry worker that delegates to PipelineRunner.deliver_execution_to_target."""
 
     def __init__(
         self,
@@ -194,7 +194,7 @@ class _RetryWorker:
             plan = _plan_from_receipt(receipt, self._retry_executor.policy)
 
             try:
-                await self.pipeline.deliver_to_target(
+                await self.pipeline.deliver_execution_to_target(
                     event,
                     route,
                     plan,
@@ -457,7 +457,7 @@ class TestRetryRuntimeIntegration:
             snap_after_retry = accounting.snapshot()
             # Original failure counted (via handle_ingress → _deliver_single_target)
             assert snap_after_retry["outbound_failed"] == 1
-            # deliver_to_target does not update accounting (that happens
+            # deliver_execution_to_target does not update accounting (that happens
             # at the _deliver_to_targets_fan_out level).  The worker tracks
             # its own success state separately.
             assert worker.state.succeeded == 1

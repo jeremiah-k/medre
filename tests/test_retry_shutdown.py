@@ -28,6 +28,7 @@ from tests._retry_test_helpers import (
     _make_limits,
 )
 from tests.helpers.async_utils import wait_until
+from tests.helpers.delivery_evidence import evidence_for_receipt
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -45,13 +46,13 @@ class TestRetryShutdown:
         storage.list_due_retry_receipts = AsyncMock(return_value=[receipt])
         storage.get = AsyncMock(return_value=event)
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock(
-            return_value=DeliveryReceipt(
+        pipeline.deliver_execution_to_target = AsyncMock(
+            return_value=evidence_for_receipt(DeliveryReceipt(
                 receipt_id="rcpt-ok",
                 event_id="evt-001",
                 status="sent",
                 created_at=datetime.now(timezone.utc),
-            ),
+            )),
         )
         policy = RetryPolicy(max_attempts=3)
 
@@ -94,12 +95,12 @@ class TestRetryShutdown:
         async def _slow_deliver(*args, **kwargs):
             await proceed.wait()
             call_completed.set()
-            return DeliveryReceipt(
+            return evidence_for_receipt(DeliveryReceipt(
                 receipt_id="rcpt-ok",
                 event_id="evt-001",
                 status="sent",
                 created_at=datetime.now(timezone.utc),
-            )
+            ))
 
         storage = MagicMock()
         # The real worker calls claim_due_outbox_items.
@@ -140,7 +141,7 @@ class TestRetryShutdown:
         storage.mark_outbox_queued = AsyncMock(return_value=True)
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = _slow_deliver
+        pipeline.deliver_execution_to_target = _slow_deliver
 
         limits = _make_limits(max_inflight_deliveries=1)
         capacity = CapacityController(limits)
@@ -192,7 +193,7 @@ class TestRetryShutdown:
         storage.list_due_retry_receipts = AsyncMock(return_value=[receipt])
         storage.get = AsyncMock(return_value=event)
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
         accounting = RuntimeAccounting()
 
         limits = _make_limits(max_inflight_deliveries=0)
@@ -209,7 +210,7 @@ class TestRetryShutdown:
         processed = await worker._process_due(datetime.now(timezone.utc))
 
         assert processed == 0
-        pipeline.deliver_to_target.assert_not_called()
+        pipeline.deliver_execution_to_target.assert_not_called()
         assert worker.state.failed == 1
         snap = accounting.snapshot()
         assert snap["capacity_rejections"] == 1

@@ -50,7 +50,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -143,7 +143,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -237,7 +237,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -287,7 +287,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         worker = RetryWorker(
             storage=storage,
@@ -328,7 +328,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         worker = RetryWorker(
             storage=storage,
@@ -381,7 +381,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -474,7 +474,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -538,7 +538,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -601,7 +601,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 
@@ -684,7 +684,7 @@ class TestRetryWorkerStopOrphan:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         event_buffer = EventBuffer(maxlen=64)
 

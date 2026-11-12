@@ -208,7 +208,7 @@ async def test_rendering_cannot_cross_delivery_deadline_into_native_send(monkeyp
     route, plan = _make_route_and_plan()
     plan = replace(plan, deadline=Clock.current + timedelta(seconds=15))
     with pytest.raises(_AdapterDeliveryError):
-        await service.deliver_to_target(_make_event(), route, plan)
+        await service.deliver_execution(_make_event(), route, plan)
     assert adapter.calls == 0
 
 
@@ -276,7 +276,7 @@ async def test_worker_lease_takeover_during_render_blocks_native_handoff(tmp_pat
     try:
         route, plan = _make_route_and_plan()
         with pytest.raises(_AdapterDeliveryError):
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -409,7 +409,7 @@ async def test_outbox_dispatch_without_exact_claim_is_denied_before_rendering():
     service, _ = _make_service(adapters={"test_adapter": RecordingAdapter()})
     route, plan = _make_route_and_plan()
     with pytest.raises(_AdapterDeliveryError, match="content_authority_denied"):
-        await service.deliver_to_target(
+        await service.deliver_execution(
             _make_event(), route, plan, outbox_id="obox-unclaimed"
         )
     assert calls == []
@@ -454,7 +454,7 @@ async def test_storage_refusal_after_render_does_not_create_an_attempt_receipt()
     service, _ = _make_service(adapters={"test_adapter": adapter}, storage=storage)
     route, plan = _make_route_and_plan()
     with pytest.raises(_AdapterDeliveryError, match="content_authority_denied"):
-        await service.deliver_to_target(
+        await service.deliver_execution(
             _make_event(),
             route,
             plan,

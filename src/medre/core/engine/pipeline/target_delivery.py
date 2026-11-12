@@ -460,43 +460,6 @@ class TargetDeliveryService:
             return DeliveryExecutionEvidence(authority_receipt=receipt)
         return DeliveryExecutionEvidence(attempt_receipt=receipt)
 
-    async def deliver_to_target(
-        self,
-        event: CanonicalEvent,
-        route: Route,
-        plan: DeliveryPlan,
-        *,
-        render_event: CanonicalEvent | None = None,
-        previous_receipt: DeliveryReceipt | None = None,
-        source: str = "live",
-        replay_run_id: str | None = None,
-        outbox_id: str | None = None,
-        reserved_attempt_number: int | None = None,
-        expected_outbox_worker_id: str | None = None,
-    ) -> DeliveryReceipt:
-        """Execute one target and return its primary receipt.
-
-        This compatibility surface is retained for retry/replay callers that
-        operate on receipt lineage directly. Delivery coordination uses
-        :meth:`deliver_execution` so receipt/failure plumbing remains typed.
-        """
-        evidence = await self.deliver_execution(
-            event,
-            route,
-            plan,
-            render_event=render_event,
-            previous_receipt=previous_receipt,
-            source=source,
-            replay_run_id=replay_run_id,
-            outbox_id=outbox_id,
-            reserved_attempt_number=reserved_attempt_number,
-            expected_outbox_worker_id=expected_outbox_worker_id,
-        )
-        receipt = evidence.primary_receipt
-        if receipt is None:  # Defensive: every normal execution persists evidence.
-            raise RuntimeError("target delivery produced no receipt evidence")
-        return receipt
-
     async def _deliver_to_target_scoped(
         self,
         event: CanonicalEvent,
@@ -753,7 +716,7 @@ class TargetDeliveryService:
             # Defense-in-depth only: the canonical skip path is in
             # _deliver_single_target() Phase 2.75 which runs BEFORE outbox
             # creation, capacity acquisition, and rendering.  This block
-            # handles edge cases where deliver_to_target() is called
+            # handles edge cases where deliver_execution() is called
             # directly by an external caller.  A plan-level skip is
             # NOT a renderer failure - it is a suppressed delivery.
             _skip_error = (

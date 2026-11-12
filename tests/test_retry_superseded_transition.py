@@ -22,6 +22,7 @@ from medre.core.events.canonical import (
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.retry import RetryWorker
+from tests.helpers.delivery_evidence import evidence_for_receipt
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,7 +73,7 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(return_value=sent)
+    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(sent))
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)

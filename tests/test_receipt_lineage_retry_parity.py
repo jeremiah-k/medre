@@ -318,7 +318,7 @@ class TestRetryReconstruction:
         """Route_id from original is propagated through retry reconstruction.
 
         The RetryExecutor does not directly set route_id on the retry
-        receipt; it is propagated by the pipeline's deliver_to_target
+        receipt; it is propagated by the pipeline's deliver_execution_to_target
         from the previous_receipt.  We verify the identity field is
         preserved by reconstructing the plan from the receipt.
         """

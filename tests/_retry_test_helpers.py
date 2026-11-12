@@ -104,7 +104,7 @@ class RetryWorker:
                 route = self._make_route(receipt)
                 plan = self._make_plan(receipt)
                 try:
-                    await self.pipeline.deliver_to_target(
+                    await self.pipeline.deliver_execution_to_target(
                         event,
                         route,
                         plan,

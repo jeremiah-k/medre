@@ -1656,46 +1656,6 @@ class PipelineRunner:
             expected_outbox_worker_id=expected_outbox_worker_id,
         )
 
-    async def deliver_to_target(
-        self,
-        event: CanonicalEvent,
-        route: Route,
-        plan: DeliveryPlan,
-        *,
-        previous_receipt: DeliveryReceipt | None = None,
-        source: str = "live",
-        replay_run_id: str | None = None,
-        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
-        cached_list_fn: (
-            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
-        ) = None,
-        outbox_id: str | None = None,
-        reserved_attempt_number: int | None = None,
-        expected_outbox_worker_id: str | None = None,
-    ) -> DeliveryReceipt:
-        """Deliver one target and return the primary receipt for lineage callers.
-
-        Retry/replay code intentionally consumes receipt lineage directly. The
-        orchestration path uses :meth:`deliver_execution_to_target` instead.
-        """
-        evidence = await self.deliver_execution_to_target(
-            event,
-            route,
-            plan,
-            previous_receipt=previous_receipt,
-            source=source,
-            replay_run_id=replay_run_id,
-            cached_get_fn=cached_get_fn,
-            cached_list_fn=cached_list_fn,
-            outbox_id=outbox_id,
-            reserved_attempt_number=reserved_attempt_number,
-            expected_outbox_worker_id=expected_outbox_worker_id,
-        )
-        receipt = evidence.primary_receipt
-        if receipt is None:
-            raise RuntimeError("target delivery produced no receipt evidence")
-        return receipt
-
     # -- Internal helpers --------------------------------------------------
 
     def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:

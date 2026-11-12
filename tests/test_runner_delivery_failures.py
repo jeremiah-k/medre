@@ -286,7 +286,7 @@ class TestDeliverOneCancelledError:
 
 
 class TestDeliverOneGenericException:
-    """Generic Exception in deliver_to_target → classified outcome."""
+    """Generic Exception in deliver_execution → classified outcome."""
 
     async def test_generic_exception_classified(
         self,

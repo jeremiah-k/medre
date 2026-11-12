@@ -259,17 +259,17 @@ async def test_reserved_generation_without_radio_work_does_not_erase_prefix(radi
     event, route, plan, renderer, adapter, runner = await setup(radio)
     await runner.deliver_to_targets(event, [(route, plan)])
     row = (await radio.list_outbox_items_for_event(event.event_id))[0]
-    real_delivery = runner.deliver_to_target
+    real_delivery = runner.deliver_execution_to_target
 
     class ProcessExit(BaseException):
         """Fault injection leaves a reserved attempt without its delivery receipt."""
 
-    runner.deliver_to_target = AsyncMock(side_effect=ProcessExit())
+    runner.deliver_execution_to_target = AsyncMock(side_effect=ProcessExit())
     try:
         with pytest.raises(ProcessExit):
             await retry_once(radio, runner)
     finally:
-        runner.deliver_to_target = real_delivery
+        runner.deliver_execution_to_target = real_delivery
     interrupted = await radio.get_outbox_item(row.outbox_id)
     assert interrupted.active_attempt == 2
     assert await radio.get_radio_attempt(row.outbox_id, 2) is None
