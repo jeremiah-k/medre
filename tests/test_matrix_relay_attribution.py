@@ -25,7 +25,6 @@ from tests.helpers.matrix_events import (
     make_meshtastic_event,
 )
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import (
     lxmf_native_data,

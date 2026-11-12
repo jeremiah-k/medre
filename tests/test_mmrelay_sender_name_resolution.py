@@ -1,142 +1,118 @@
 # medre-test-tier: compatibility
-"""mmrelay sender-name resolution (KEY_LONGNAME / KEY_SHORTNAME).
+"""Meshtastic sender-name projection into generic attribution.
 
-Tests for ``MatrixRenderer._resolve_mmrelay_sender_names`` resolution
-order per field.
+Tests for ``project_source_fields`` / ``project_meshtastic_attribution``
+resolution order per field.
 
-Per-field precedence (longname / shortname each resolved independently):
+Per-field precedence (sender label / short label resolved independently):
 
 1. Versioned ``native.meshtastic`` identity fields — primary, emitted by
    the codec.
-2. External mmrelay wire fields under ``native.interop.mmrelay``.
-3. Empty string.
+2. ``source_transport_id`` — the transport-neutral identity fallback.
+3. ``None``.
 
-Matrix ``displayname`` never projects into these wire fields.
+Bare adapter-native root keys and Matrix ``displayname`` are not part of
+the supported metadata shape and never project into sender identity.
 """
 
 from __future__ import annotations
 
-from medre.adapters.matrix.renderer import MatrixRenderer
-from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
+from medre.adapters.metadata import project_source_fields
 from tests.helpers.native_metadata import meshtastic_native_data
 
 
-def _interop(**fields: object) -> dict[str, object]:
-    return {"interop": {"mmrelay": fields}}
+def _project(native_data: dict, *, source_transport_id: str | None = None) -> dict:
+    return project_source_fields(
+        native_data,
+        source_adapter="mesh-1",
+        source_transport_id=source_transport_id,
+    )
 
 
 def test_meshtastic_longname_is_primary() -> None:
-    """Versioned Meshtastic longname resolves to KEY_LONGNAME."""
-    longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
-        meshtastic_native_data({"longname": "Alpha Node"})
-    )
-    assert longname == "Alpha Node"
+    """Versioned Meshtastic longname resolves to the sender label."""
+    fields = _project(meshtastic_native_data({"longname": "Alpha Node"}))
+    assert fields["source_sender_label"] == "Alpha Node"
 
 
 def test_meshtastic_shortname_is_primary() -> None:
-    """Versioned Meshtastic shortname resolves to KEY_SHORTNAME."""
-    _, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        meshtastic_native_data({"shortname": "AN"})
-    )
-    assert shortname == "AN"
+    """Versioned Meshtastic shortname resolves to the short sender label."""
+    fields = _project(meshtastic_native_data({"shortname": "AN"}))
+    assert fields["source_sender_label"] == "AN"
+    assert fields["source_sender_short_label"] == "AN"
 
 
 def test_meshtastic_namespace_ignores_unversioned_root_fields() -> None:
     """Versioned identity wins over unrelated root-level fields."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {
-            **meshtastic_native_data(
-                {"longname": "Namespaced Long", "shortname": "NS"}
-            ),
-            "longname": "Bare Long",
-            "shortname": "BS",
-        }
+    native = {
+        **meshtastic_native_data({"longname": "Namespaced Long", "shortname": "NS"}),
+        "longname": "Bare Long",
+        "shortname": "BS",
+    }
+    fields = _project(native)
+    assert fields["source_sender_label"] == "Namespaced Long"
+    assert fields["source_sender_short_label"] == "NS"
+
+
+def test_transport_id_resolves_when_no_namespaced_identity() -> None:
+    """The transport-neutral identity resolves when the namespace is empty."""
+    fields = _project(meshtastic_native_data({}), source_transport_id="!node-1")
+    assert fields["source_sender_id"] == "!node-1"
+    assert fields["source_sender_label"] == "!node-1"
+
+
+def test_transport_id_fallback_inside_namespace_from_id() -> None:
+    """``from_id`` in the namespace wins over the transport-neutral ID."""
+    fields = _project(
+        meshtastic_native_data({"from_id": "!abcdef01"}),
+        source_transport_id="!node-1",
     )
-    assert longname == "Namespaced Long"
-    assert shortname == "NS"
-
-
-def test_wire_key_resolves_when_no_namespaced() -> None:
-    """External mmrelay wire fields resolve when namespaced is absent."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        _interop(meshtastic_longname="Wire Long", meshtastic_shortname="WS")
-    )
-    assert longname == "Wire Long"
-    assert shortname == "WS"
-
-
-def test_key_constant_resolves() -> None:
-    """KEY_LONGNAME / KEY_SHORTNAME resolve from the interop namespace."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {"interop": {"mmrelay": {KEY_LONGNAME: "Const Long", KEY_SHORTNAME: "CS"}}}
-    )
-    assert longname == "Const Long"
-    assert shortname == "CS"
+    assert fields["source_sender_id"] == "!abcdef01"
 
 
 def test_unversioned_root_identity_is_not_interpreted() -> None:
-    """Root-level Meshtastic identity is not canonical native metadata."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {"longname": "Bare Long", "shortname": "BS"}
-    )
-    assert longname == ""
-    assert shortname == ""
+    """Root-level Meshtastic identity is not canonical native metadata.
 
-
-def test_meshtastic_namespace_wins_over_wire() -> None:
-    """Current Meshtastic identity takes precedence over MMRelay wire fields."""
-    longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
-        {
-            **meshtastic_native_data({"longname": "Primary"}),
-            "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
-        }
-    )
-    assert longname == "Primary"
-
-
-def test_wire_identity_ignores_unversioned_root_fields() -> None:
-    """External MMRelay identity wins when Meshtastic native data is absent."""
-    longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
-        {
-            "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
-            "longname": "Bare",
-        }
-    )
-    assert longname == "Wire"
-
-
-def test_root_level_wire_keys_are_not_native_metadata_shape() -> None:
-    """MMRelay wire keys at the native root are not interpreted."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {KEY_LONGNAME: "Old Long", KEY_SHORTNAME: "OL"}
-    )
-    assert longname == ""
-    assert shortname == ""
+    Without a versioned namespace the source platform is undetected and
+    no sender identity projects at all.
+    """
+    fields = _project({"longname": "Bare Long", "shortname": "BS"})
+    assert fields["source_platform"] is None
+    assert "source_sender_label" not in fields
+    assert "source_sender_short_label" not in fields
 
 
 def test_empty_when_no_identity_keys() -> None:
-    """No identity keys anywhere yields empty strings."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names({})
-    assert longname == ""
-    assert shortname == ""
+    """No identity keys anywhere yields no projected identity."""
+    fields = _project(meshtastic_native_data({}))
+    assert fields["source_sender_id"] is None
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_displayname_does_not_leak() -> None:
-    """Matrix displayname never populates KEY_LONGNAME/KEY_SHORTNAME."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {"displayname": "Alice Display"}
-    )
-    assert longname == ""
-    assert shortname == ""
+    """Matrix displayname never becomes sender identity."""
+    fields = _project({"displayname": "Alice Display"})
+    assert fields["source_platform"] is None
+    assert "source_sender_label" not in fields
+
+    namespaced = meshtastic_native_data({})
+    namespaced["displayname"] = "Alice Display"
+    fields = _project(namespaced)
+    assert fields["source_sender_label"] is None
+    assert fields["source_sender_short_label"] is None
 
 
 def test_longname_and_shortname_resolve_independently() -> None:
     """Each field resolves independently through its own chain."""
-    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {
-            **meshtastic_native_data({"longname": "Long From Namespace"}),
-            "interop": {"mmrelay": {"meshtastic_shortname": "Short From Wire"}},
-        }
+    fields = _project(
+        meshtastic_native_data({"longname": "Long From Namespace", "shortname": "SN"})
     )
-    assert longname == "Long From Namespace"
-    assert shortname == "Short From Wire"
+    assert fields["source_sender_label"] == "Long From Namespace"
+    assert fields["source_sender_short_label"] == "SN"
+
+
+def test_compact_short_label_falls_back_to_compact_longname() -> None:
+    """The short label falls back to the space-stripped longname."""
+    fields = _project(meshtastic_native_data({"longname": "Alpha Node"}))
+    assert fields["source_sender_short_label"] == "AlphaNode"
