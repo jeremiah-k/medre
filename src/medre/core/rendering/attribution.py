@@ -219,7 +219,7 @@ def _build_variable_map(attr: RelayAttribution) -> dict[str, str]:
     # Add preferred aliases pointing to coalesced canonical values.
     for alias, canonical in _PREFERRED_ALIASES.items():
         canon[alias] = canon[canonical]
-    # MMRelay-style display abbreviation uses Unicode code points, not bytes.
+    # Compact display abbreviation uses Unicode code points, not bytes.
     canon["sender_compact"] = canon["source_sender_label_raw"][:5]
 
     return canon

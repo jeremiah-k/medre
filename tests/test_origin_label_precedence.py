@@ -1,6 +1,6 @@
 # medre-test-tier: compatibility
-"""Tests for route/context origin_label precedence, generic variables
-across transports, exception guards, and mmrelay interop isolation.
+"""Tests for route/context origin_label precedence and generic variables
+across transports.
 
 Covers:
 - ctx.source_origin_label overrides adapter origin_label in prefix rendering
@@ -13,8 +13,7 @@ Covers:
   LXMF→MeshCore sender_short/sender_id/origin_label.
 - MeshCore/LXMF formatting_exception guard: raw template not prepended,
   prefix metadata still recorded.
-- mmrelay derive_meshnet_value helper.
-- Unknown {meshnet_name} remains unknown outside mmrelay compat.
+- Unknown {meshnet_name} remains an unresolved placeholder.
 """
 
 from __future__ import annotations
@@ -35,13 +34,8 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext
-from medre.interop.mmrelay import (
-    KEY_MESHNET,
-    derive_meshnet_value,
-)
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
-from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import (
     lxmf_native_data,
@@ -164,78 +158,6 @@ async def test_matrix_missing_label_safe() -> None:
     content = matrix_payload_content(result)
     assert content["body"] == "[] hello"
     assert "None" not in content["body"]
-
-
-# ===================================================================
-# Matrix: mmrelay KEY_MESHNET uses route origin_label
-# ===================================================================
-
-
-async def test_mmrelay_meshnet_from_route_label() -> None:
-    """KEY_MESHNET uses route origin_label over adapter label."""
-    renderer = MatrixRenderer(
-        source_configs={
-            "src-a": _StubMeshtasticConfig(
-                adapter_id="src-a",
-                mmrelay_compatibility=True,
-            ),
-        },
-        source_attribution={
-            "src-a": _StubSourceAttribution(
-                adapter_id="src-a",
-                origin_label="Adapter Net",
-            ),
-        },
-    )
-    event = _make_event(
-        source_adapter="src-a",
-        native_data=meshtastic_native_data(
-            {"longname": "Alice", "shortname": "A", "packet_id": "1"}
-        ),
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="matrix-1",
-            delivery_strategy="direct",
-            target_platform="matrix",
-            source_origin_label="Route Net",
-        ),
-    )
-    assert matrix_payload_content(result)[KEY_MESHNET] == "Route Net"
-
-
-async def test_mmrelay_meshnet_fallback_to_adapter() -> None:
-    """KEY_MESHNET falls back to adapter label when no route label."""
-    renderer = MatrixRenderer(
-        source_configs={
-            "src-a": _StubMeshtasticConfig(
-                adapter_id="src-a",
-                mmrelay_compatibility=True,
-            ),
-        },
-        source_attribution={
-            "src-a": _StubSourceAttribution(
-                adapter_id="src-a",
-                origin_label="Adapter Net",
-            ),
-        },
-    )
-    event = _make_event(
-        source_adapter="src-a",
-        native_data=meshtastic_native_data(
-            {"longname": "Alice", "shortname": "A", "packet_id": "1"}
-        ),
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="matrix-1",
-            delivery_strategy="direct",
-            target_platform="matrix",
-        ),
-    )
-    assert matrix_payload_content(result)[KEY_MESHNET] == "Adapter Net"
 
 
 # ===================================================================
@@ -657,48 +579,12 @@ async def test_lxmf_exception_does_not_prepend_raw_template() -> None:
 
 
 # ===================================================================
-# mmrelay derive_meshnet_value helper
-# ===================================================================
-
-
-def test_derive_meshnet_source_origin_label_wins() -> None:
-    assert derive_meshnet_value("Route Net", "Adapter Net") == "Route Net"
-
-
-def test_derive_meshnet_adapter_origin_label_fallback() -> None:
-    assert derive_meshnet_value(None, "Adapter Net") == "Adapter Net"
-
-
-def test_derive_meshnet_empty_source_preserved() -> None:
-    """Explicit empty string source_origin_label is preserved as ''."""
-    assert derive_meshnet_value("", "Adapter Net") == ""
-
-
-def test_derive_meshnet_none_source_falls_through() -> None:
-    """None source_origin_label falls through to adapter label."""
-    assert derive_meshnet_value(None, "Adapter Net") == "Adapter Net"
-
-
-def test_derive_meshnet_both_empty() -> None:
-    assert derive_meshnet_value(None, None) == ""
-    assert derive_meshnet_value("", "") == ""
-
-
-def test_derive_meshnet_source_only() -> None:
-    assert derive_meshnet_value("Route Net") == "Route Net"
-
-
-def test_derive_meshnet_nothing() -> None:
-    assert derive_meshnet_value(None) == ""
-
-
-# ===================================================================
 # Unknown {meshnet_name} remains unknown
 # ===================================================================
 
 
 async def test_meshnet_name_unknown_in_meshtastic_prefix() -> None:
-    """{meshnet_name} is not a known template variable outside mmrelay."""
+    """{meshnet_name} is not a known template variable."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
         radio_relay_prefix="[{meshnet_name}] ",
@@ -840,10 +726,3 @@ async def test_lxmf_empty_route_label_suppresses_adapter_label() -> None:
     )
     assert result.payload["content"].startswith("[] ")
     assert "Adapter Label" not in result.payload["content"]
-
-
-def test_mmrelay_key_meshnet_empty_when_route_label_empty() -> None:
-    """mmrelay KEY_MESHNET is '' when route label is explicitly empty."""
-    assert derive_meshnet_value("", "Adapter Net") == ""
-    assert derive_meshnet_value("", "") == ""
-    assert derive_meshnet_value("", None) == ""

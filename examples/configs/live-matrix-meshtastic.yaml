@@ -61,7 +61,6 @@ adapters:
       origin_label: medre-radio # platform-neutral label used in cross-platform prefixes
       radio_relay_prefix: "{sender_short}: " # Matrix→Meshtastic: prepend short name (default)
       # radio_relay_prefix: ""                            # empty = no prefix for radio direction
-      # mmrelay_compatibility: true                       # embed mmrelay-compatible metadata in Matrix payloads
 
       # # --- TCP alternative (uncomment and comment out serial lines above) ---
       # connection_type: tcp
@@ -69,7 +68,6 @@ adapters:
       # port: 4403
       # origin_label: medre-radio
       # radio_relay_prefix: "{sender_short}: "
-      # mmrelay_compatibility: true
 
 # ---------------------------------------------------------------------------
 # Route — bidirectional bridge between Matrix and Meshtastic

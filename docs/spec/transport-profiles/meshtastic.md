@@ -27,7 +27,6 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
 | `sync_timeout_ms`                   | `int`                                  | `30000`              | Initial wait budget and SDK phase timeout in milliseconds         |
 | `radio_relay_prefix`                | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
-| `mmrelay_compatibility`             | `bool`                                 | `False`              | Embed mmrelay-compatible mesh metadata in Matrix events           |
 | `max_text_bytes`                    | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
 | `queue_send_max_attempts`           | `int`                                  | `3`                  | Max send attempts per queued item                                 |
 | `queue_max_size`                    | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |

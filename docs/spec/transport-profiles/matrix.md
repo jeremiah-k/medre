@@ -240,11 +240,11 @@ The Matrix codec (`MatrixCodec`) decodes three inbound categories:
 The Matrix renderer (`MatrixRenderer`) produces:
 
 - **Plain text messages** — `m.room.message` with `m.text` msgtype, optional relay prefix, and MEDRE metadata envelope.
-- **Native replies** — `m.relates_to.m.in_reply_to` with `event_id`, plus `KEY_REPLY_ID` when MMRelay metadata is available.
+- **Native replies** — `m.relates_to.m.in_reply_to` with `event_id`.
 - **Native reactions** — `m.reaction` event type with `m.annotation` (a deliberately plaintext event type; see E2EE notes below).
 - **Native edits** — `m.replace` / `m.new_content` room messages with exactly one relay attribution and a `"* "` fallback body, targeted at the bound original copy.
 - **Native deletes** — `redact_event` operations through the dedicated redaction endpoint, guarded by the mutation-eligibility rules above.
-- **MMRelay emote reaction fallback** — `m.emote` with `KEY_EMOJI=1`, `KEY_REPLY_ID`, and full mesh metadata (used when `mmrelay_compatibility=True` or no Matrix-native target exists).
+- **Emote reaction fallback** — `m.emote` carrying the reaction symbol and original-message reference in the body, used when no Matrix-native target event exists to annotate.
 
 ---
 

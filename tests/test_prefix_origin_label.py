@@ -2,7 +2,6 @@
 """Tests for source-only origin_label across all transports.
 
 Verifies:
-- mmrelay KEY_MESHNET populated from origin_label (not meshnet_name config)
 - Meshtastic→Meshtastic uses source origin_label, not target's
 - Matrix→Meshtastic uses Matrix origin_label from source_attribution
 - ``{meshnet_name}`` renders as ``{meshnet_name}`` (unknown placeholder,
@@ -15,7 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
@@ -25,8 +23,6 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext
-from medre.interop.mmrelay import KEY_MESHNET
-from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
@@ -40,15 +36,6 @@ class _StubSourceAttribution:
 
     adapter_id: str = ""
     origin_label: str = ""
-
-
-@dataclass(slots=True)
-class _StubMeshtasticConfig:
-    """Minimal duck-typed MeshtasticConfig for Matrix source_configs."""
-
-    adapter_id: str = "radio-alpha"
-    matrix_relay_prefix: str = ""
-    mmrelay_compatibility: bool = False
 
 
 def _make_meshtastic_event(
@@ -104,59 +91,6 @@ def _make_matrix_event(
         payload={"body": body},
         metadata=EventMetadata(native=NativeMetadata(data=native_data)),
     )
-
-
-# ===================================================================
-# mmrelay KEY_MESHNET populated from origin_label
-# ===================================================================
-
-
-async def test_key_meshnet_from_origin_label() -> None:
-    """KEY_MESHNET in mmrelay metadata equals source origin_label."""
-    renderer = MatrixRenderer(
-        source_configs={
-            "radio-alpha": _StubMeshtasticConfig(
-                adapter_id="radio-alpha",
-                mmrelay_compatibility=True,
-            ),
-        },
-        source_attribution={
-            "radio-alpha": _StubSourceAttribution(
-                adapter_id="radio-alpha",
-                origin_label="East Radio",
-            ),
-        },
-    )
-    event = _make_meshtastic_event(
-        source_adapter="radio-alpha",
-        native_data={"longname": "Node1", "shortname": "N1", "packet_id": "42"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-    )
-    assert matrix_payload_content(result)[KEY_MESHNET] == "East Radio"
-
-
-async def test_key_meshnet_empty_when_no_origin_label() -> None:
-    """KEY_MESHNET is empty string when source has no origin_label."""
-    renderer = MatrixRenderer(
-        source_configs={
-            "radio-alpha": _StubMeshtasticConfig(
-                adapter_id="radio-alpha",
-                mmrelay_compatibility=True,
-            ),
-        },
-    )
-    event = _make_meshtastic_event(
-        source_adapter="radio-alpha",
-        native_data={"longname": "Node1", "packet_id": "42"},
-    )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-    )
-    assert matrix_payload_content(result)[KEY_MESHNET] == ""
 
 
 # ===================================================================

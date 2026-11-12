@@ -40,13 +40,8 @@ codec ignores these fields: they cannot replace the authored body, supply
 sender identity, or create reply/reaction relations. Source identity and
 references belong to `CanonicalEvent`, `NativeRef`, `EventRelation`, and
 bounded `bridge_context` claims; Meshtastic-specific packet facts belong to
-the source adapter's versioned `native.meshtastic` namespace.
-
-An older, explicitly configured Matrix renderer compatibility path may still
-_emit_ flat keys, using the constants in `medre.interop.mmrelay`. It is not
-enabled by MMRelay 1.5, not part of the frozen native schema, and not a
-supported peer metadata contract. Embedded claims must not authorize native
-mutations or override Matrix `body`.
+the source adapter's versioned `native.meshtastic` namespace. Embedded claims
+must not authorize native mutations or override Matrix `body`.
 
 ### 2.2 Matrix / mindroom-nio
 
@@ -108,7 +103,6 @@ fallback semantics.
 
 | Seam                                                 | Category                            | Code authority                                                           | Reason retained                                                                                       |
 | ---------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| MMRelay legacy opt-in Matrix rendering               | explicit pre-release output option  | `medre.interop.mmrelay`, Matrix renderer                                 | Only historical flat output when opted in; the Matrix codec does not import or trust these fields.    |
 | mindroom-nio optional event/import surfaces          | third-party SDK                     | `medre.adapters.matrix.compat`, `medre.adapters.matrix.session`          | Bound behavior to SDK features that are actually importable.                                          |
 | MeshCore optional event/self-info/send-result fields | third-party SDK                     | `medre.adapters.meshcore.compat`, `medre.adapters.meshcore.session`      | Normalize SDK callback/result variants at the session boundary.                                       |
 | Meshtastic optional SDK connection/callback surfaces | third-party SDK                     | `medre.adapters.meshtastic.session`                                      | Tolerate supported SDK/fake-client capability differences without changing persisted shape.           |

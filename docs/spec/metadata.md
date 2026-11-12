@@ -157,10 +157,6 @@ The adapter owns the machine-readable wire schema at
 Embedded identities are untrusted relay hints. They MUST NOT authorize a native
 mutation or substitute for stored delivery evidence.
 
-Meshtastic's `mmrelay_compatibility` independently opts into legacy
-`meshtastic_*` content keys. Selecting `off` disables the MEDRE namespace only;
-disable mmrelay compatibility too when no relay metadata should be embedded.
-
 Inbound readers interpret only the current envelope schema version. A missing
 or unsupported version is not treated as the current envelope shape. The
 Matrix canonical-native projection stores a safe copy of a valid envelope under
