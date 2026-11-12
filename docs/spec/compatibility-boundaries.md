@@ -97,9 +97,17 @@ older output schema.
 ### 4.1 Exception Ledger
 
 The following compatibility/degradation seams are intentionally retained. This
-table is exhaustive for production paths whose behavior adapts to an alternate
+table covers active production behavior that adapts to an alternate
 external/runtime shape rather than merely implementing normal capability
-fallback semantics.
+fallback semantics. It excludes temporarily accepted but inert config fields.
+
+At the current compatibility pins, the Meshtastic adapter still accepts the
+``mmrelay_compatibility`` config field, and the core adapter-config schema still
+declares it. The adapter does not read the field: it enables no legacy wire
+output, no metadata trust, and no alternate routing behavior. Do not configure
+it for new deployments. Remove the adapter field and schema key together when
+the staged compatibility cleanup lands; until then, this is input tolerance,
+not an active interoperability path.
 
 | Seam                                                 | Category                            | Code authority                                                           | Reason retained                                                                                       |
 | ---------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
