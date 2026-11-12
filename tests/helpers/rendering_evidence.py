@@ -111,4 +111,4 @@ def make_lxmf_renderer() -> LxmfRenderer:
 def make_matrix_renderer() -> MatrixRenderer:
     from medre.adapters.matrix.renderer import MatrixRenderer
 
-    return MatrixRenderer(source_configs=None)
+    return MatrixRenderer()
