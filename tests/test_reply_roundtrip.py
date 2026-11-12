@@ -70,24 +70,6 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ===================================================================
-# Shared helpers for source_configs construction
-# ===================================================================
-
-
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
 # ===================================================================
 # Shared helpers
 # ===================================================================
@@ -251,15 +233,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
         )
         rp.register_adapter_platform(RADIO, "meshtastic")
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    RADIO: _StubMeshtasticConfig(
-                        adapter_id=RADIO,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(MX, "matrix")
@@ -399,13 +373,7 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
         # -- Rendering pipeline -----------------------------------------
         rp = RenderingPipeline()
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    RADIO: _StubMeshtasticConfig(
-                        adapter_id=RADIO,
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(MX, "matrix")
@@ -533,13 +501,7 @@ class TestMultiRadioCrossTargetFallback:
 
         rp1 = RenderingPipeline()
         rp1.register(
-            MatrixRenderer(
-                source_configs={
-                    ALPHA: _StubMeshtasticConfig(
-                        adapter_id=ALPHA,
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp1.register_adapter_platform(MX, "matrix")

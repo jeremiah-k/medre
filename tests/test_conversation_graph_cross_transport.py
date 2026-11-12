@@ -81,20 +81,6 @@ from tests.helpers.matrix import matrix_payload_content
 # ===================================================================
 
 
-class _StubMeshtasticConfig:
-    """Minimal duck-typed config for MatrixRenderer source_configs."""
-
-    def __init__(
-        self,
-        adapter_id: str = "radio",
-        matrix_relay_prefix: str = "",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.matrix_relay_prefix = matrix_relay_prefix
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
 def _make_matrix_config(**overrides: object) -> MatrixConfig:
     defaults: dict[str, object] = dict(
         adapter_id="mx-test",
@@ -304,15 +290,7 @@ class TestReplyMatrixToMeshtastic:
         )
         rp.register_adapter_platform(RADIO, "meshtastic")
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    RADIO: _StubMeshtasticConfig(
-                        adapter_id=RADIO,
-                        mmrelay_compatibility=True,
-                        # mmrelay KEY_MESHNET wire compat
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(MX, "matrix")
@@ -432,13 +410,7 @@ class TestReplyMeshtasticToMatrix:
         # -- Rendering pipeline -----------------------------------------
         rp = RenderingPipeline()
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    RADIO: _StubMeshtasticConfig(
-                        adapter_id=RADIO,
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(MX, "matrix")
@@ -871,16 +843,7 @@ class TestMultipleNativeRefsTargetSelection:
         rp.register_adapter_platform(ALPHA, "meshtastic")
         rp.register_adapter_platform(BRAVO, "meshtastic")
         rp.register(
-            MatrixRenderer(
-                source_configs={
-                    ALPHA: _StubMeshtasticConfig(
-                        adapter_id=ALPHA,
-                    ),
-                    BRAVO: _StubMeshtasticConfig(
-                        adapter_id=BRAVO,
-                    ),
-                },
-            ),
+            MatrixRenderer(),
             priority=50,
         )
         rp.register_adapter_platform(MX, "matrix")

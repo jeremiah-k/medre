@@ -111,36 +111,9 @@ def _make_lxmf_event(
     )
 
 
-class _StubMeshCoreConfig:
-    """Minimal duck-typed config for MeshCore source.
-
-    Matrix outbound prefix is target-local via ``MatrixConfig.relay_prefix``
-    only; MeshCore/LXMF origins do not contribute a Matrix outbound prefix.
-    """
-
-    def __init__(
-        self,
-        adapter_id: str = "meshcore-1",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.mmrelay_compatibility = mmrelay_compatibility
-
-
-class _StubLXMFConfig:
-    """Minimal duck-typed config for LXMF source.
-
-    Matrix outbound prefix is target-local via ``MatrixConfig.relay_prefix``
-    only; MeshCore/LXMF origins do not contribute a Matrix outbound prefix.
-    """
-
-    def __init__(
-        self,
-        adapter_id: str = "lxmf-1",
-        mmrelay_compatibility: bool = False,
-    ) -> None:
-        self.adapter_id = adapter_id
-        self.mmrelay_compatibility = mmrelay_compatibility
+# ---------------------------------------------------------------------------
+# Native-relations-closure: missing-target fallback/suppression tests
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -451,13 +424,7 @@ class TestMatrixCoreAttributionIntegration:
         MeshCoreConfig does not contribute a Matrix outbound prefix.
         The renderer must not crash on non-Meshtastic sources.
         """
-        renderer = MatrixRenderer(
-            source_configs={
-                "meshcore-1": _StubMeshCoreConfig(
-                    adapter_id="meshcore-1",
-                ),
-            },
-        )
+        renderer = MatrixRenderer()
         event = _make_meshcore_event(
             native_data={"pubkey_prefix": "a1b2c3"},
         )
@@ -476,13 +443,7 @@ class TestMatrixCoreAttributionIntegration:
         MeshCoreConfig does not contribute a Matrix outbound prefix.
         The renderer handles MeshCore native keys gracefully without crash.
         """
-        renderer = MatrixRenderer(
-            source_configs={
-                "meshcore-1": _StubMeshCoreConfig(
-                    adapter_id="meshcore-1",
-                ),
-            },
-        )
+        renderer = MatrixRenderer()
         event = _make_meshcore_event(
             native_data={"pubkey_prefix": "deadbeef"},
         )
@@ -503,13 +464,7 @@ class TestMatrixCoreAttributionIntegration:
         only.  LxmfConfig does not contribute a Matrix outbound prefix.
         The renderer must not crash on non-Meshtastic sources.
         """
-        renderer = MatrixRenderer(
-            source_configs={
-                "lxmf-1": _StubLXMFConfig(
-                    adapter_id="lxmf-1",
-                ),
-            },
-        )
+        renderer = MatrixRenderer()
         event = _make_lxmf_event(
             native_data={"source_hash": "feedface"},
         )
@@ -524,13 +479,7 @@ class TestMatrixCoreAttributionIntegration:
 
     async def test_lxmf_prefix_no_sender_safe_empty(self) -> None:
         """LXMF event without source_hash renders body unchanged, not None."""
-        renderer = MatrixRenderer(
-            source_configs={
-                "lxmf-1": _StubLXMFConfig(
-                    adapter_id="lxmf-1",
-                ),
-            },
-        )
+        renderer = MatrixRenderer()
         event = _make_lxmf_event(native_data={})
         result = await renderer.render(
             event,
@@ -597,12 +546,6 @@ class TestMatrixCoreAttributionIntegration:
     async def test_reaction_prefix_missing_vars_no_none(self) -> None:
         """Reaction prefix with missing variables never renders 'None'."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    mmrelay_compatibility=True,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -639,12 +582,6 @@ class TestMatrixCoreAttributionIntegration:
     async def test_meshtastic_prefix_unchanged(self) -> None:
         """Meshtastic → Matrix prefix output is unchanged after wiring."""
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    mmrelay_compatibility=True,
-                ),
-            },
             source_attribution={
                 "radio-alpha": _StubSourceAttribution(
                     adapter_id="radio-alpha",
@@ -713,12 +650,6 @@ class TestMatrixCoreAttributionIntegration:
         related keys — not stale body-level prefix metadata.
         """
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    mmrelay_compatibility=False,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
@@ -758,12 +689,6 @@ class TestMatrixCoreAttributionIntegration:
         metadata from the body path should leak into the result.
         """
         renderer = MatrixRenderer(
-            source_configs={
-                "radio-alpha": _StubMeshtasticConfig(
-                    adapter_id="radio-alpha",
-                    mmrelay_compatibility=False,
-                ),
-            },
             configs={
                 "matrix-1": _StubMatrixConfig(
                     adapter_id="matrix-1",
