@@ -15,6 +15,7 @@
   "startup_backlog_suppress_seconds": 5.0,
   "sync_timeout_ms": 30000,
   "radio_relay_prefix": "{sender_short}: ",
+  "mmrelay_compatibility": false,
   "max_text_bytes": 227,
   "max_text_parts": 1,
   "queue_send_max_attempts": 3,

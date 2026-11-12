@@ -9,15 +9,16 @@ this file once they land.
 
 ## Recent changes
 
-- **495 — MMRelay legacy compatibility removal.** The Meshtastic adapter config
-  surface no longer declares `mmrelay_compatibility`: the published
-  `adapter-config.schema.json`, its Meshtastic example, operator docs, example
-  configs, and the live-validation journey drop the key, and spec sections
-  describing MEDRE's own legacy flat `meshtastic_*` Matrix content emission are
-  rewritten to the native framing. Native origin-label coverage stops setting
-  the flag; the trust boundary that treats foreign MMRelay wire fields as
-  untrusted participant metadata is unchanged. Deployments must drop
-  `mmrelay_compatibility` from Meshtastic source configs.
+- **495 — MMRelay legacy compatibility removal.** Operator docs, example
+  configs, and the live-validation journey no longer reference the
+  `mmrelay_compatibility` option, and spec sections describing MEDRE's own
+  legacy flat `meshtastic_*` Matrix content emission are rewritten to the
+  native framing. Native origin-label coverage stops setting the flag; the
+  trust boundary that treats foreign MMRelay wire fields as untrusted
+  participant metadata is unchanged. The schema key stays declared until the
+  sequenced adapter change drops the field: the schema-source drift contract
+  couples the published schema to the installed adapter dataclass. Deployments
+  should stop setting `mmrelay_compatibility` on Meshtastic source configs.
 
 - **491 — Meshtastic, MeshCore and Chatmail pin promotions.** Promote the
   Meshtastic adapter carrying the updated `mtjk` runtime pin with its license
