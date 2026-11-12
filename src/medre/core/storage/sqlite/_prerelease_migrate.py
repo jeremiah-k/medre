@@ -88,6 +88,16 @@ def _stored_table_sql(db: sqlite3.Connection, table: str) -> str | None:
     return str(row[0])
 
 
+def known_decision_current_table_sql(table: str) -> str | None:
+    """Return the authoritative current CREATE TABLE text for *table*."""
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(_SCHEMA + _INDEXES)
+        return _stored_table_sql(reference, table)
+    finally:
+        reference.close()
+
+
 @lru_cache(maxsize=1)
 def known_decision_table_forms() -> _DecisionForms:
     """Derive the exact predecessor and current forms of the decision table.
@@ -352,6 +362,342 @@ def rebuild_inbound_pressure_outage_gaps(db: sqlite3.Connection) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Strip of the retired inline diagnostic columns (delivery evidence families)
+# ---------------------------------------------------------------------------
+
+#: Evidence families whose free-form diagnostic columns were removed from the
+#: declared schema.  Every diagnostic value lives only in the append-only
+#: ``delivery_evidence_diagnostics`` side table; these allowlisted predecessor
+#: layouts still carry the retired inline columns and are rebuilt without
+#: them, with their historical inline text copied into the side table.
+_STRIP_DIAGNOSTIC_COLUMNS_STEP = "strip-inline-diagnostic-columns"
+
+_DIAGNOSTICS_TABLE = "delivery_evidence_diagnostics"
+
+#: Per family: (table, row_id column, attempt column, timestamp column,
+#: retired inline columns).  ``attempt`` is the side-table attempt key the
+#: family's writes use.
+_DIAGNOSTIC_FAMILY_TABLES: dict[str, tuple[str, str, str, str, tuple[str, ...]]] = {
+    "receipt": (
+        "delivery_receipts",
+        "receipt_id",
+        "attempt_number",
+        "created_at",
+        ("error", "capability_reason", "rendering_evidence"),
+    ),
+    "observation": (
+        "delivery_observations",
+        "observation_id",
+        "attempt_number",
+        "observed_at",
+        ("error",),
+    ),
+    "outbox": (
+        "delivery_outbox",
+        "outbox_id",
+        "attempt_number",
+        "updated_at",
+        ("failure_kind_detail", "error_summary"),
+    ),
+    "ingress": (
+        "durable_ingress_work",
+        "event_id",
+        "attempts",
+        "updated_at",
+        ("last_error",),
+    ),
+}
+
+#: Exact insertion anchors in the authoritative DDL.  Each anchor is unique to
+#: its table after the strip; inserting the retired column lines reproduces
+#: the exact predecessor CREATE TABLE text byte for byte.
+_DIAGNOSTIC_COLUMN_ANCHORS: dict[str, tuple[tuple[str, str], ...]] = {
+    "delivery_receipts": (
+        ("    receipt_kind TEXT NOT NULL,\n", "    error TEXT,\n"),
+        ("    capability_field TEXT,\n", "    capability_reason TEXT,\n"),
+        ("    retry_jitter INTEGER,\n", "    rendering_evidence TEXT,\n"),
+    ),
+    "delivery_outbox": (
+        (
+            "    active_attempt INTEGER,\n"
+            "    status TEXT NOT NULL DEFAULT 'pending',\n"
+            "    failure_kind TEXT,\n",
+            "    failure_kind_detail TEXT,\n",
+        ),
+        (
+            (
+                "    payload_hash TEXT,\n"
+                "    receipt_id TEXT,\n"
+                "    parent_receipt_id TEXT,\n"
+            ),
+            "    error_summary TEXT,\n",
+        ),
+    ),
+    "delivery_observations": (
+        (
+            "    adapter_message_id TEXT,\n"
+            "    state TEXT NOT NULL,\n"
+            "    confirmation_level TEXT NOT NULL DEFAULT 'unknown',\n",
+            "    error TEXT,\n",
+        ),
+    ),
+    "durable_ingress_work": (
+        (
+            "    attempts INTEGER NOT NULL DEFAULT 0,\n",
+            "    last_error TEXT,\n",
+        ),
+    ),
+}
+
+
+@lru_cache(maxsize=1)
+def known_stripped_diagnostic_table_forms() -> dict[str, str]:
+    """Derive the exact predecessor CREATE TABLE text per evidence family.
+
+    The predecessor form is the authoritative DDL with the retired inline
+    diagnostic columns re-inserted at their declared anchors — the same
+    derivation scheme as the other allowlisted forms — so detection cannot
+    drift from the declared shape.  Raises :class:`StorageInitializationError`
+    when an anchor no longer matches, so a future schema edit fails loudly
+    instead of silently treating the current shape as a predecessor.
+    """
+    legacy_schema = _SCHEMA
+    for table, anchors in _DIAGNOSTIC_COLUMN_ANCHORS.items():
+        for anchor, column_line in anchors:
+            if anchor not in legacy_schema:
+                raise StorageInitializationError(
+                    f"Authoritative DDL no longer contains the expected anchor "
+                    f"for the {table} inline-diagnostic predecessor; the "
+                    "allowlisted predecessor cannot be derived."
+                )
+            legacy_schema = legacy_schema.replace(
+                anchor, anchor + column_line, 1
+            )
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(legacy_schema + _INDEXES)
+        forms: dict[str, str] = {}
+        for family, (table, *_rest) in _DIAGNOSTIC_FAMILY_TABLES.items():
+            stored = _stored_table_sql(reference, table)
+            if stored is None:
+                raise StorageInitializationError(
+                    f"The allowlisted inline-diagnostic predecessor form of "
+                    f"{table} could not be derived from the authoritative DDL."
+                )
+            forms[table] = stored
+        return forms
+    finally:
+        reference.close()
+
+
+@lru_cache(maxsize=1)
+def known_stripped_diagnostic_view_form() -> str:
+    """Return the exact predecessor ``delivery_status`` view definition.
+
+    The predecessor view enumerates the retired receipt columns directly; the
+    receipt rebuild recreates the view from the authoritative slice.  Derived
+    from the same authoritative DDL as the table forms so detection cannot
+    drift.
+    """
+    legacy_schema = _SCHEMA
+    for anchors in _DIAGNOSTIC_COLUMN_ANCHORS.values():
+        for anchor, column_line in anchors:
+            legacy_schema = legacy_schema.replace(anchor, anchor + column_line, 1)
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(legacy_schema + _INDEXES)
+        row = reference.execute(
+            "SELECT sql FROM sqlite_master WHERE type='view' AND name='delivery_status'"
+        ).fetchone()
+        if row is None:
+            raise StorageInitializationError(
+                "The allowlisted delivery_status view predecessor could not be "
+                "derived from the authoritative DDL."
+            )
+        return str(row[0])
+    finally:
+        reference.close()
+
+
+def _stripped_diagnostic_table_applies(db: sqlite3.Connection, table: str) -> bool:
+    """Report whether the stored table is exactly the retired-column predecessor."""
+    legacy = known_stripped_diagnostic_table_forms().get(table)
+    return legacy is not None and _stored_table_sql(db, table) == legacy
+
+
+def _copy_inline_diagnostics_to_side_table(
+    db: sqlite3.Connection, family: str, table: str
+) -> None:
+    """Copy the legacy table's inline diagnostic text into the side table.
+
+    Runs before the predecessor table is dropped so historical inline values
+    keep resolving through the same side-table reads every current row uses.
+    Empty strings never copy: they carry no diagnostic content.
+    """
+    _family_table, row_id_column, attempt_column, created_column, fields = (
+        _DIAGNOSTIC_FAMILY_TABLES[family]
+    )
+    for field in fields:
+        db.execute(
+            "INSERT INTO delivery_evidence_diagnostics"
+            " (family, row_id, attempt, field, diagnostic, created_at)"
+            f" SELECT '{family}', {row_id_column}, {attempt_column},"
+            f" '{field}', {field}, {created_column}"
+            f" FROM {table}"
+            f" WHERE {field} IS NOT NULL AND {field} <> ''"
+        )
+
+
+def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> None:
+    """Rebuild one evidence table without its retired inline diagnostic columns.
+
+    The rebuild avoids ``ALTER TABLE ... RENAME`` on the live table name
+    because three tables hold foreign-key references to ``delivery_outbox``:
+    the current-shape table is created under a temporary name, the legacy
+    rows and their inline diagnostic text are copied, the legacy table is
+    dropped, and the temporary table takes the real name.  The table's own
+    indexes are recreated verbatim from the stored catalog.
+
+    Raises :class:`StorageInitializationError` when the rebuilt row count
+    differs from the original.  The caller rolls back the transaction,
+    leaving the database unchanged.
+    """
+    table, _row_id, _attempt, _created, retired_columns = (
+        _DIAGNOSTIC_FAMILY_TABLES[family]
+    )
+    if not _stripped_diagnostic_table_applies(db, table):
+        return
+    current = known_decision_current_table_sql(table)
+    if current is None:
+        raise StorageInitializationError(
+            f"The current declared form of {table} could not be derived."
+        )
+    before_row = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+    assert before_row is not None  # COUNT(*) always yields one row
+    before = int(before_row[0])
+    legacy_columns = [
+        str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")
+    ]
+    kept_columns = [c for c in legacy_columns if c not in retired_columns]
+    columns = ", ".join(kept_columns)
+    index_rows = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=?"
+        " AND sql IS NOT NULL",
+        (table,),
+    ).fetchall()
+    index_sql = [str(row[0]) for row in index_rows]
+    # The delivery_status view enumerates receipt columns and joins the
+    # outbox; SQLite re-parses views after every rename, so the view is
+    # dropped before the table swap and recreated from the authoritative
+    # slice afterwards.
+    db.execute("DROP VIEW IF EXISTS delivery_status")
+    temp_table = f"{table}__strip_tmp"
+    db.execute(f"DROP TABLE IF EXISTS {temp_table}")
+    temp_sql = current.replace(
+        f"CREATE TABLE IF NOT EXISTS {table} ",
+        f"CREATE TABLE IF NOT EXISTS {temp_table} ",
+        1,
+    )
+    if temp_sql == current:
+        temp_sql = current.replace(
+            f"CREATE TABLE {table} ",
+            f"CREATE TABLE {temp_table} ",
+            1,
+        )
+    if temp_sql == current:
+        raise StorageInitializationError(
+            f"The declared CREATE TABLE statement for {table} could not be "
+            "renamed for the strip rebuild."
+        )
+    # The rows round-trip through the temporary table so the final stored
+    # CREATE TABLE text is the declared DDL verbatim: an ALTER TABLE rename
+    # stores the name quoted, which the prerelease identity contract rejects.
+    db.execute(temp_sql)
+    _copy_inline_diagnostics_to_side_table(db, family, table)
+    db.execute(f"INSERT INTO {temp_table} ({columns}) SELECT {columns} FROM {table}")
+    db.execute(f"DROP TABLE {table}")
+    db.execute(current)
+    db.execute(f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {temp_table}")
+    db.execute(f"DROP TABLE {temp_table}")
+    for sql in index_sql:
+        db.execute(sql)
+    _recreate_delivery_status_view(db)
+    after_row = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+    assert after_row is not None  # COUNT(*) always yields one row
+    after = int(after_row[0])
+    if after != before:
+        raise StorageInitializationError(
+            f"Pre-release migration '{_STRIP_DIAGNOSTIC_COLUMNS_STEP}' "
+            f"changed the {table} record count; the rebuild was rolled back."
+        )
+
+
+def _recreate_delivery_status_view(db: sqlite3.Connection) -> None:
+    """Recreate the ``delivery_status`` view from the authoritative DDL slice.
+
+    The view enumerates receipt columns directly, so stripping the retired
+    inline diagnostic columns from ``delivery_receipts`` leaves the stored
+    view stale.  Recreated from the same authoritative slice the fresh-database
+    path executes, byte for byte.
+    """
+    drop_start = _SCHEMA.index("DROP VIEW IF EXISTS delivery_status;")
+    create_start = _SCHEMA.index("CREATE VIEW delivery_status AS", drop_start)
+    end = _SCHEMA.index("WHERE authority_rank = 1;")
+    end = _SCHEMA.index(";", end) + 1
+    db.execute(_SCHEMA[drop_start:_SCHEMA.index(";", drop_start) + 1])
+    db.execute(_SCHEMA[create_start:end])
+
+
+def rebuild_delivery_receipts_without_inline_diagnostics(
+    db: sqlite3.Connection,
+) -> None:
+    """Strip the retired receipt diagnostic columns."""
+    _rebuild_stripped_diagnostic_table(db, "receipt")
+
+
+def rebuild_delivery_observations_without_inline_diagnostics(
+    db: sqlite3.Connection,
+) -> None:
+    """Strip the retired observation diagnostic column."""
+    _rebuild_stripped_diagnostic_table(db, "observation")
+
+
+def rebuild_delivery_outbox_without_inline_diagnostics(
+    db: sqlite3.Connection,
+) -> None:
+    """Strip the retired outbox diagnostic columns."""
+    _rebuild_stripped_diagnostic_table(db, "outbox")
+
+
+def rebuild_durable_ingress_work_without_inline_diagnostics(
+    db: sqlite3.Connection,
+) -> None:
+    """Strip the retired ingress diagnostic column."""
+    _rebuild_stripped_diagnostic_table(db, "ingress")
+
+
+def delivery_receipts_strip_applies(db: sqlite3.Connection) -> bool:
+    """Report whether the stored receipt table is the retired-column predecessor."""
+    return _stripped_diagnostic_table_applies(db, "delivery_receipts")
+
+
+def delivery_observations_strip_applies(db: sqlite3.Connection) -> bool:
+    """Report whether the stored observation table is the retired-column predecessor."""
+    return _stripped_diagnostic_table_applies(db, "delivery_observations")
+
+
+def delivery_outbox_strip_applies(db: sqlite3.Connection) -> bool:
+    """Report whether the stored outbox table is the retired-column predecessor."""
+    return _stripped_diagnostic_table_applies(db, "delivery_outbox")
+
+
+def durable_ingress_work_strip_applies(db: sqlite3.Connection) -> bool:
+    """Report whether the stored ingress table is the retired-column predecessor."""
+    return _stripped_diagnostic_table_applies(db, "durable_ingress_work")
+
+
+
 @dataclass(frozen=True)
 class _MigrationStep:
     """One named, self-detecting, idempotent additive migration step."""
@@ -379,8 +725,28 @@ _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (
         name=_ADD_GAP_RETRY_TOKEN_STEP,
         applies=outage_gap_token_rebuild_applies,
         apply=rebuild_inbound_pressure_outage_gaps,
+    ),    _MigrationStep(
+        name=_STRIP_DIAGNOSTIC_COLUMNS_STEP + "-receipts",
+        applies=delivery_receipts_strip_applies,
+        apply=rebuild_delivery_receipts_without_inline_diagnostics,
+    ),
+    _MigrationStep(
+        name=_STRIP_DIAGNOSTIC_COLUMNS_STEP + "-observations",
+        applies=delivery_observations_strip_applies,
+        apply=rebuild_delivery_observations_without_inline_diagnostics,
+    ),
+    _MigrationStep(
+        name=_STRIP_DIAGNOSTIC_COLUMNS_STEP + "-outbox",
+        applies=delivery_outbox_strip_applies,
+        apply=rebuild_delivery_outbox_without_inline_diagnostics,
+    ),
+    _MigrationStep(
+        name=_STRIP_DIAGNOSTIC_COLUMNS_STEP + "-ingress",
+        applies=durable_ingress_work_strip_applies,
+        apply=rebuild_durable_ingress_work_without_inline_diagnostics,
     ),
 )
+
 
 
 def apply_prerelease_migrations(db: sqlite3.Connection) -> None:

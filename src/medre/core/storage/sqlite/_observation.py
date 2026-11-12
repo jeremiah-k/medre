@@ -41,13 +41,13 @@ _INSERT_OBSERVATION = """
 INSERT INTO delivery_observations (
     observation_id, event_id, delivery_plan_id, target_adapter,
     target_channel, native_channel_id, outbox_id, attempt_number, adapter_message_id,
-    state, confirmation_level, error, metadata, observed_at
+    state, confirmation_level, metadata, observed_at
 )
 SELECT
     ?, o.event_id, o.delivery_plan_id, o.target_adapter,
     o.target_channel, ?, o.outbox_id,
     COALESCE(o.active_attempt, o.attempt_number), ?,
-    ?, ?, ?, ?, ?
+    ?, ?, ?, ?
 FROM delivery_outbox AS o
 WHERE o.outbox_id = ?
   AND o.event_id = ?
@@ -74,8 +74,7 @@ ORDER BY sequence ASC
 def _observation_insert_params(observation: DeliveryObservation) -> tuple[object, ...]:
     """Validate and serialize one immutable delivery observation.
 
-    The free-form ``error`` column is separated at write time: new rows keep
-    it ``NULL`` inline and the text lands in
+    The free-form ``error`` text is separated at write time: it lands only in
     ``delivery_evidence_diagnostics`` in the same transaction.
     """
     if observation.state not in DELIVERY_OBSERVATION_STATE_VALUES:
@@ -96,7 +95,6 @@ def _observation_insert_params(observation: DeliveryObservation) -> tuple[object
         observation.adapter_message_id,
         observation.state,
         observation.confirmation_level,
-        None,
         _encode_json(dict(observation.metadata)),
         observation.observed_at.isoformat(),
         observation.outbox_id,
@@ -244,9 +242,9 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 """INSERT INTO delivery_observations (
                     observation_id, event_id, delivery_plan_id, target_adapter,
                     target_channel, native_channel_id, outbox_id, attempt_number,
-                    adapter_message_id, state, confirmation_level, error,
+                    adapter_message_id, state, confirmation_level,
                     metadata, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(observation_id) DO NOTHING""",
                 (
                     observation.observation_id,
@@ -291,7 +289,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             (event_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "observation", rows, identity_column="observation_id"
             )
         return [_row_to_delivery_observation(row) for row in rows]
@@ -307,7 +305,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             (outbox_id,),
         )
         if not metadata_only:
-            rows = await self._coalesce_evidence_diagnostics(
+            rows = await self._resolve_evidence_diagnostics(
                 "observation", rows, identity_column="observation_id"
             )
         return [_row_to_delivery_observation(row) for row in rows]

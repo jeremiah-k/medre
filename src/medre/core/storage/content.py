@@ -46,18 +46,9 @@ CONTENT_SURFACES = (
     ContentSurface("event_relation_excerpts", ("excerpt",), ("reply_quotes",)),
     ContentSurface("native_message_refs", ("metadata",), ("native_correlation",)),
     ContentSurface(
-        "delivery_receipts",
-        ("error", "capability_reason", "rendering_evidence"),
-        ("delivery_evidence",),
+        "delivery_observations", ("metadata",), ("delivery_evidence",)
     ),
-    ContentSurface(
-        "delivery_observations", ("error", "metadata"), ("delivery_evidence",)
-    ),
-    ContentSurface(
-        "delivery_outbox",
-        ("failure_kind_detail", "error_summary", "metadata"),
-        ("delivery", "recovery"),
-    ),
+    ContentSurface("delivery_outbox", ("metadata",), ("delivery", "recovery")),
     # Write-time separated free-form diagnostics for the delivery-evidence
     # families (receipts, observations, outbox records, ingress work).  A
     # diagnostic row never exists without its parent, but separate diagnostic
@@ -82,7 +73,6 @@ CONTENT_SURFACES = (
         ("context_json",),
         ("delivery", "recovery"),
     ),
-    ContentSurface("durable_ingress_work", ("last_error",), ("ingress_recovery",)),
     ContentSurface("attachment_blobs", ("data",), ("attachment_delivery",)),
     ContentSurface("adapter_checkpoints", ("cursor", "metadata"), ("native_recovery",)),
     ContentSurface("plugin_state", ("value",), ("reserved_plugin_state",)),

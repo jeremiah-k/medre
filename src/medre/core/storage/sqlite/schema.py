@@ -210,11 +210,9 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     receipt_kind TEXT NOT NULL,
-    error TEXT,
     failure_kind TEXT,
     capability_level TEXT,
     capability_field TEXT,
-    capability_reason TEXT,
     delivery_strategy TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
@@ -226,7 +224,6 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     retry_backoff_base REAL,
     retry_max_delay REAL,
     retry_jitter INTEGER,
-    rendering_evidence TEXT,
     outbox_id TEXT,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown',
     created_at TEXT NOT NULL,
@@ -249,8 +246,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 -- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
 -- are treated as the same group, avoiding duplicate rows when some receipts
 -- have NULL and others have '' for target_channel.
--- Drop and recreate to ensure column shape stays current (e.g. when
--- rendering_evidence is added).
+-- Drop and recreate to ensure column shape stays current.
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
 WITH authoritative_receipts AS (
@@ -296,12 +292,12 @@ current_rows AS (
 )
 SELECT sequence, receipt_id, event_id, delivery_plan_id,
        target_adapter, target_channel, route_id, status,
-       receipt_kind, error, failure_kind,
-       capability_level, capability_field, capability_reason, delivery_strategy,
+       receipt_kind, failure_kind,
+       capability_level, capability_field, delivery_strategy,
        adapter_message_id, next_retry_at, attempt_number,
        parent_receipt_id, source, replay_run_id,
        retry_max_attempts, retry_backoff_base,
-       retry_max_delay, retry_jitter, rendering_evidence,
+       retry_max_delay, retry_jitter,
        outbox_id, confirmation_level, created_at
 FROM current_rows
 WHERE authority_rank = 1;
@@ -318,7 +314,6 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     active_attempt INTEGER,
     status TEXT NOT NULL DEFAULT 'pending',
     failure_kind TEXT,
-    failure_kind_detail TEXT,
     next_attempt_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -329,7 +324,6 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     payload_hash TEXT,
     receipt_id TEXT,
     parent_receipt_id TEXT,
-    error_summary TEXT,
     dispatch_source TEXT NOT NULL DEFAULT 'live',
     replay_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
@@ -356,7 +350,6 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
     adapter_message_id TEXT,
     state TEXT NOT NULL,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown',
-    error TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     observed_at TEXT NOT NULL,
     CHECK (attempt_number >= 1),
@@ -366,8 +359,8 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
 
 -- Free-form delivery diagnostic text, separated at write time from the durable
 -- delivery facts that remain inline in the evidence rows.  One append-only row
--- per written field; the legacy inline columns keep historical values and are
--- never rewritten.  A diagnostic row is written in the same transaction as its
+-- per written field; evidence rows carry no inline diagnostic columns and
+-- every read resolves text from this table.  A diagnostic row is written in the same transaction as its
 -- parent evidence row, so it never exists without that parent.  Structured
 -- provider metadata stays inline and content-classified in its family table.
 CREATE TABLE IF NOT EXISTS delivery_evidence_diagnostics (
@@ -414,7 +407,6 @@ CREATE TABLE IF NOT EXISTS durable_ingress_work (
     provenance TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     locked_at TEXT,
@@ -772,11 +764,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "route_id",
             "status",
             "receipt_kind",
-            "error",
             "failure_kind",
             "capability_level",
             "capability_field",
-            "capability_reason",
             "delivery_strategy",
             "adapter_message_id",
             "next_retry_at",
@@ -788,7 +778,6 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "retry_backoff_base",
             "retry_max_delay",
             "retry_jitter",
-            "rendering_evidence",
             "outbox_id",
             "confirmation_level",
             "created_at",
@@ -808,7 +797,6 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "adapter_message_id",
             "state",
             "confirmation_level",
-            "error",
             "metadata",
             "observed_at",
         }
@@ -826,7 +814,6 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "active_attempt",
             "status",
             "failure_kind",
-            "failure_kind_detail",
             "next_attempt_at",
             "created_at",
             "updated_at",
@@ -837,7 +824,6 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "payload_hash",
             "receipt_id",
             "parent_receipt_id",
-            "error_summary",
             "dispatch_source",
             "replay_run_id",
             "metadata",
@@ -849,7 +835,6 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "provenance",
             "status",
             "attempts",
-            "last_error",
             "created_at",
             "updated_at",
             "locked_at",

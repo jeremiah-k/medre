@@ -123,17 +123,16 @@ def _select_unresolved_deliveries(
     """
     status_placeholders = ",".join("?" for _ in UNRESOLVED_RECEIPT_STATUSES)
     since_clause = " AND ce.timestamp >= ?" if since_scoped else ""
-    # Receipt error text coalesces the historical inline value with the
-    # write-time separated side table; metadata-only pages stay content-free.
+    # Receipt error text resolves from the write-time separated side table;
+    # metadata-only pages stay content-free.
     error_column = (
         "NULL AS error"
         if metadata_only
         else (
-            "COALESCE(NULLIF(dr.error, ''), ("
-            "SELECT d.diagnostic FROM delivery_evidence_diagnostics d"
+            "NULLIF((SELECT d.diagnostic FROM delivery_evidence_diagnostics d"
             " WHERE d.family = 'receipt' AND d.row_id = dr.receipt_id"
             " AND d.field = 'error'"
-            " ORDER BY d.diag_id DESC LIMIT 1)) AS error"
+            " ORDER BY d.diag_id DESC LIMIT 1), '') AS error"
         )
     )
     return (

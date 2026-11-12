@@ -24,13 +24,13 @@ VALUES (?, ?, ?, 0, ?, ?)
 
 CLAIM_INGRESS_SELECT = """
 SELECT w.event_id, w.provenance, w.status, w.attempts,
-       NULLIF(COALESCE((
+       NULLIF((
            SELECT d.diagnostic
            FROM delivery_evidence_diagnostics d
            WHERE d.family = 'ingress' AND d.row_id = w.event_id
              AND d.field = 'last_error'
            ORDER BY d.diag_id DESC LIMIT 1
-       ), NULLIF(w.last_error, '')), '') AS last_error,
+       ), '') AS last_error,
        w.created_at, w.updated_at, w.locked_at, w.lease_until, w.worker_id
 FROM durable_ingress_work w
 WHERE w.status = 'pending'

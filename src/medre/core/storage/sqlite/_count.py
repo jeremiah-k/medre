@@ -134,9 +134,10 @@ _LIVE_BLOCKER_PROBES = (
 # Retained durable delivery/native/ingress evidence families. Their rows are
 # evidence that survives collection, so they never block as rows; a family
 # blocks only while a registry content-potential column still carries a value
-# on the event's own rows (historical inline diagnostics, non-empty provider
-# metadata). The column-aware probe is derived from the declared
-# classification registry, never hand-written per column.
+# on the event's own rows (non-empty provider metadata). Delivery diagnostic
+# text lives only in the separated side table. The column-aware probe is
+# derived from the declared classification registry, never hand-written per
+# column.
 _EVIDENCE_FAMILY_TABLES: dict[str, str] = {
     "delivery_receipts": "delivery_receipts",
     "delivery_observations": "delivery_observations",

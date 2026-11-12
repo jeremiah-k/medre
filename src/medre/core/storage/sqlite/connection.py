@@ -431,7 +431,7 @@ def sync_complete_ingress_and_settle(
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
                 "UPDATE durable_ingress_work SET status='completed', updated_at=?, "
-                "locked_at=NULL, lease_until=NULL, worker_id=NULL, last_error=NULL "
+                "locked_at=NULL, lease_until=NULL, worker_id=NULL "
                 "WHERE event_id=? AND status='processing' AND worker_id=?",
                 (at, event_id, worker_id),
             )
