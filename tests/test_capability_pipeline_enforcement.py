@@ -1284,7 +1284,7 @@ class TestValidateStrategyMethod:
 
 
 class TestUnknownStrategyPlannerFailure:
-    """Verifies that unknown strategy in deliver_to_target produces
+    """Verifies that unknown strategy in deliver_execution produces
     PLANNER_FAILURE, not RENDERER_FAILURE."""
 
     @pytest.mark.asyncio
@@ -1337,7 +1337,7 @@ class TestUnknownStrategyPlannerFailure:
 
         try:
             with pytest.raises(_RendererDeliveryError) as exc_info:
-                await runner.deliver_to_target(event, route, bad_plan)
+                await runner.deliver_execution_to_target(event, route, bad_plan)
 
             receipt = exc_info.value.receipt
             assert receipt is not None

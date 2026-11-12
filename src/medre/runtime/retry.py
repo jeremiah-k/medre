@@ -19,7 +19,7 @@ For each due outbox item claimed, the RetryWorker:
 3. Reconstructs minimal Route + DeliveryPlan from outbox/receipt metadata.
 4. Asks ``DeliveryLifecycleService`` to reconcile any receipt evidence from a
    previously interrupted attempt before transport is invoked.
-5. Calls ``PipelineRunner.deliver_to_target(... previous_receipt=...)`` only
+5. Calls ``PipelineRunner.deliver_execution_to_target(... previous_receipt=...)`` only
    when no persisted next-attempt evidence already determines the outcome.
 6. Delegates durable outbox transitions to ``DeliveryLifecycleService``;
    the worker retains polling, capacity, counters, and event orchestration.
@@ -1622,7 +1622,7 @@ class RetryWorker:
                 },
             )
 
-            result_receipt = await self._pipeline.deliver_to_target(
+            evidence = await self._pipeline.deliver_execution_to_target(
                 event=event,
                 route=route,
                 plan=plan,
@@ -1633,6 +1633,10 @@ class RetryWorker:
                 reserved_attempt_number=reserved_attempt,
                 expected_outbox_worker_id=item.worker_id,
             )
+            result_receipt = evidence.primary_receipt
+            if result_receipt is None:
+                # Defensive: every normal execution persists evidence.
+                raise RuntimeError("target delivery produced no receipt evidence")
         except asyncio.CancelledError:
             raise
         except Exception as exc:

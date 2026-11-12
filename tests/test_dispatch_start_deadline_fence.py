@@ -398,14 +398,16 @@ async def test_dispatch_start_passes_before_the_effective_bound(tmp_path, monkey
         )
         route, plan = _make_route_and_plan()
         plan = replace(plan, deadline=deadline)
-        receipt = await service.deliver_to_target(
-            event,
-            route,
-            plan,
-            outbox_id=outbox_id,
-            reserved_attempt_number=1,
-            expected_outbox_worker_id="pipeline:clock",
-        )
+        receipt = (
+    await service.deliver_execution(
+                event,
+                route,
+                plan,
+                outbox_id=outbox_id,
+                reserved_attempt_number=1,
+                expected_outbox_worker_id="pipeline:clock",
+            )
+).primary_receipt
         assert receipt.status == "sent"
         assert adapter.calls == 1
         assert clock.current < deadline
@@ -438,7 +440,7 @@ async def test_dispatch_start_refuses_at_or_after_the_bound(
             store, "authorize_native_submission", cross_after_authorization
         )
         with pytest.raises(_AdapterDeliveryError) as caught:
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -477,7 +479,7 @@ async def test_refusal_records_local_denial_evidence_and_mutates_nothing(
             store, "authorize_native_submission", cross_after_authorization
         )
         with pytest.raises(_AdapterDeliveryError) as caught:
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -526,7 +528,7 @@ async def test_plan_without_deadline_still_fences_on_the_event_ceiling(
             store, "authorize_native_submission", cross_after_authorization
         )
         with pytest.raises(_AdapterDeliveryError) as caught:
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,
@@ -578,14 +580,16 @@ async def test_preflight_stall_before_the_bound_does_not_fence_early(
         )
         route, plan = _make_route_and_plan()
         plan = replace(plan, deadline=deadline)
-        receipt = await service.deliver_to_target(
-            event,
-            route,
-            plan,
-            outbox_id=outbox_id,
-            reserved_attempt_number=1,
-            expected_outbox_worker_id="pipeline:clock",
-        )
+        receipt = (
+    await service.deliver_execution(
+                event,
+                route,
+                plan,
+                outbox_id=outbox_id,
+                reserved_attempt_number=1,
+                expected_outbox_worker_id="pipeline:clock",
+            )
+).primary_receipt
         assert receipt.status == "sent"
         assert adapter.calls == 1
         assert clock.current < deadline
@@ -646,7 +650,7 @@ async def test_retry_reconstruction_restored_deadline_still_fences(
             store, "authorize_native_submission", cross_after_authorization
         )
         with pytest.raises(_AdapterDeliveryError):
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 reconstructed.route,
                 reconstructed.plan,
@@ -868,7 +872,7 @@ async def test_radio_packet_start_recheck_refuses_after_accepted_prefix(
             deadline=deadline,
         )
         with pytest.raises(_AdapterDeliveryError, match="radio handoff incomplete"):
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,

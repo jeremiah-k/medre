@@ -98,7 +98,7 @@ class _TransientThenSucceedAdapter(FakePresentationAdapter):
         return self._call_count
 
 
-# RetryWorker (integration variant — uses real pipeline.deliver_to_target)
+# RetryWorker (integration variant — uses real pipeline.deliver_execution_to_target)
 
 
 @dataclass
@@ -143,7 +143,7 @@ def _plan_from_receipt(
 
 
 class _RetryWorker:
-    """Lightweight retry worker that delegates to PipelineRunner.deliver_to_target."""
+    """Lightweight retry worker that delegates to PipelineRunner.deliver_execution_to_target."""
 
     def __init__(
         self,
@@ -184,7 +184,7 @@ class _RetryWorker:
             plan = _plan_from_receipt(receipt, self._retry_executor.policy)
 
             try:
-                await self.pipeline.deliver_to_target(
+                await self.pipeline.deliver_execution_to_target(
                     event,
                     route,
                     plan,
@@ -566,7 +566,7 @@ class TestRetryLineage:
 
             # Attempt 2 (fails)
             try:
-                await runner.deliver_to_target(
+                await runner.deliver_execution_to_target(
                     event,
                     route_a,
                     plan_a,
@@ -588,7 +588,7 @@ class TestRetryLineage:
 
             # Attempt 3 (fails → dead-lettered)
             try:
-                await runner.deliver_to_target(
+                await runner.deliver_execution_to_target(
                     event,
                     route_a,
                     plan_a,
@@ -744,13 +744,15 @@ class TestRetryLineage:
                 primary_strategy=DeliveryStrategy(method="direct"),
                 retry_policy=RetryPolicy(max_attempts=3),
             )
-            replay_rcpt = await runner.deliver_to_target(
-                event,
-                replay_route,
-                replay_plan,
-                source="replay",
-                replay_run_id=replay_run_id,
-            )
+            replay_rcpt = (
+    await runner.deliver_execution_to_target(
+                    event,
+                    replay_route,
+                    replay_plan,
+                    source="replay",
+                    replay_run_id=replay_run_id,
+                )
+).primary_receipt
             assert replay_rcpt.source == "replay"
             assert replay_rcpt.replay_run_id == replay_run_id
             # Replay does NOT link via parent_receipt_id to the live/retry chain
@@ -926,7 +928,7 @@ class TestRetryWorkerReconstruction:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Outbox item with destination metadata → plan passed to
-        deliver_to_target has restored destination and expected fields."""
+        deliver_execution_to_target has restored destination and expected fields."""
         from datetime import datetime, timezone
 
         from medre.core.planning.delivery_plan import delivery_target_identity
@@ -1028,7 +1030,7 @@ class TestRetryWorkerReconstruction:
             )
         )
         mock_deliver = AsyncMock()
-        skeleton.deliver_to_target = mock_deliver  # type: ignore[method-assign]
+        skeleton.deliver_execution_to_target = mock_deliver  # type: ignore[method-assign]
 
         # -- Create RetryWorker and invoke reconstruction ---------------------
         from unittest.mock import MagicMock
@@ -1047,7 +1049,7 @@ class TestRetryWorkerReconstruction:
 
         await worker._retry_outbox_item(retry_wait_item)
 
-        # -- Assert deliver_to_target was called with the reconstructed plan --
+        # -- Assert deliver_execution_to_target was called with the reconstructed plan --
         mock_deliver.assert_called_once()
         call_args = mock_deliver.call_args
         plan: DeliveryPlan = call_args.kwargs["plan"]

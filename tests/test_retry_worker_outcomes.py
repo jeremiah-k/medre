@@ -21,6 +21,7 @@ from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
 from tests._retry_test_helpers import _make_event, _make_limits
+from tests.helpers.delivery_evidence import evidence_for_receipt
 
 
 @pytest.fixture(autouse=True)
@@ -752,8 +753,8 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     storage.renew_outbox_lease = AsyncMock(return_value=True)
     storage.mark_outbox_abandoned = AsyncMock(return_value=True)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(
-        return_value=DeliveryReceipt(
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(DeliveryReceipt(
             receipt_id="rcpt-suppressed",
             event_id=item.event_id,
             delivery_plan_id=item.delivery_plan_id,
@@ -762,7 +763,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
             status="suppressed",
             error="capability_suppressed",
             attempt_number=1,
-        )
+        ))
     )
     monkeypatch.setattr(
         retry_module,
@@ -839,7 +840,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     next_attempt = datetime.now(timezone.utc) + timedelta(seconds=30)
@@ -880,7 +881,7 @@ async def test_retry_worker_defers_startup_failed_target_without_consuming_attem
             "runtime startup"
         ),
     }
-    pipeline.deliver_to_target.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0
     assert worker.state.failed == 1
@@ -921,7 +922,7 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(
         return_value=RetryAttemptFinalization(
@@ -953,7 +954,7 @@ async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     await worker._retry_outbox_item(item)
 
     lifecycle.reconcile_retry_claim.assert_awaited_once()
-    pipeline.deliver_to_target.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
     assert worker.state.processed == 1
     assert worker.state.succeeded == 1
     assert worker.state.failed == 0
@@ -1007,7 +1008,7 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(
         return_value=RetryAttemptFinalization(
@@ -1038,7 +1039,7 @@ async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
 
     await worker._retry_outbox_item(item)
 
-    pipeline.deliver_to_target.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
     assert worker.state.processed == 1
     assert worker.state.failed == expected_failed
     assert worker.state.dead_lettered == expected_dead_lettered
@@ -1078,7 +1079,7 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError())
+    pipeline.deliver_execution_to_target = AsyncMock(side_effect=ConnectionError())
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)
@@ -1146,7 +1147,7 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(
+    pipeline.deliver_execution_to_target = AsyncMock(
         side_effect=ConnectionError("transport down")
     )
     lifecycle = MagicMock()
@@ -1227,7 +1228,7 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(return_value=sent)
+    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(sent))
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)
@@ -1303,7 +1304,7 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
     storage.renew_outbox_lease = AsyncMock(return_value=True)
     storage.mark_outbox_abandoned = AsyncMock(return_value=True)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",
@@ -1325,7 +1326,7 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
 
     await worker._retry_outbox_item(item)
 
-    pipeline.deliver_to_target.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
     storage.mark_outbox_abandoned.assert_awaited_once()
     abandon_call = storage.mark_outbox_abandoned.await_args
     assert abandon_call.args == (item.outbox_id,)

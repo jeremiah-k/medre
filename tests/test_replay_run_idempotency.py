@@ -34,6 +34,7 @@ from medre.runtime.retry import RetryWorker
 from tests.helpers.delivery_callbacks import make_deferred_failure
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import admit_event
+from tests.helpers.delivery_evidence import evidence_for_receipt
 
 
 def _outbox(
@@ -482,7 +483,7 @@ async def test_retry_preserves_originating_replay_run_provenance(
     )
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(return_value=sent)
+    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(sent))
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)
@@ -507,9 +508,9 @@ async def test_retry_preserves_originating_replay_run_provenance(
 
     await worker._retry_outbox_item(item)
 
-    assert pipeline.deliver_to_target.await_args.kwargs["source"] == "retry"
+    assert pipeline.deliver_execution_to_target.await_args.kwargs["source"] == "retry"
     assert (
-        pipeline.deliver_to_target.await_args.kwargs["replay_run_id"]
+        pipeline.deliver_execution_to_target.await_args.kwargs["replay_run_id"]
         == "run-replay-retry"
     )
 

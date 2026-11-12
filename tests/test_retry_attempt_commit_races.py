@@ -19,6 +19,7 @@ from medre.core.storage.backend import (
     OutboxSnapshotReadError,
 )
 from medre.runtime.retry import RetryWorker
+from tests.helpers.delivery_evidence import evidence_for_receipt
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -220,7 +221,7 @@ async def test_retry_worker_reports_callback_won_queued_race_as_committed_succes
     storage.delivery_status = AsyncMock(return_value=None)
     storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(return_value=queued)
+    pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(queued))
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
     lifecycle.renew_retry_lease = AsyncMock(return_value=True)
@@ -472,7 +473,7 @@ async def test_retry_worker_releases_unstarted_claim_on_transient_snapshot_read_
     lifecycle.release_unstarted_retry_claim = AsyncMock(return_value=True)
     lifecycle.abandon_retry_outbox = AsyncMock()
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
     worker = RetryWorker(
         storage=storage,
         pipeline=pipeline,
@@ -485,7 +486,7 @@ async def test_retry_worker_releases_unstarted_claim_on_transient_snapshot_read_
 
     lifecycle.release_unstarted_retry_claim.assert_awaited_once_with(storage, item)
     lifecycle.abandon_retry_outbox.assert_not_awaited()
-    pipeline.deliver_to_target.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
     assert worker.state.processed == 1
     assert worker.state.failed == 1
     assert worker._adapter_deferred_until[item.target_adapter] > datetime.now(

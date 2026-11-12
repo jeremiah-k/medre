@@ -36,7 +36,7 @@ def _make_worker(
     storage.count_outbox_by_status = AsyncMock(return_value={})
 
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock()
+    pipeline.deliver_execution_to_target = AsyncMock()
 
     return RetryWorker(
         storage=storage,
@@ -256,7 +256,7 @@ class TestAbandonedStopIntegration:
         storage.count_outbox_by_status = AsyncMock(return_value={})
 
         pipeline = MagicMock()
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
 
         worker = RetryWorker(
             storage=storage,

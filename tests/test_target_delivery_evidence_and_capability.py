@@ -275,7 +275,7 @@ class TestRenderingEvidencePropagation:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
 
         assert receipt.rendering_evidence is not None
         import json
@@ -296,7 +296,7 @@ class TestRenderingEvidencePropagation:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         assert exc_info.value.receipt is not None
         assert exc_info.value.receipt.rendering_evidence is None
@@ -407,7 +407,7 @@ class TestDeadLetterOnExhaustedRetry:
         plan.retry_policy = RetryPolicy(max_attempts=1)
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         # Two receipts: primary failure + dead-letter.
         assert len(storage.receipts) == 2
@@ -425,7 +425,7 @@ class TestDeadLetterOnExhaustedRetry:
         plan.retry_policy = RetryPolicy(max_attempts=1)
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         primary = storage.receipts[0]
         dead_letter = storage.receipts[1]
@@ -444,7 +444,7 @@ class TestDeadLetterOnExhaustedRetry:
         plan.retry_policy = RetryPolicy(max_attempts=3)
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         # Only the primary failure receipt — no dead-letter yet.
         assert len(storage.receipts) == 1
@@ -461,7 +461,7 @@ class TestDeadLetterOnExhaustedRetry:
         plan.retry_policy = RetryPolicy(max_attempts=1)
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -515,7 +515,7 @@ class TestCapabilityLevelPropagation:
         event = _make_event(event_kind="message.text")
         route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="direct")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "native"
 
@@ -530,7 +530,7 @@ class TestCapabilityLevelPropagation:
         event = _make_event(event_kind="message.text")
         route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="skip")
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
 
         assert receipt.status == "suppressed"
         assert pipeline.recorded_capability_level is None
@@ -574,7 +574,7 @@ class TestCapabilityLevelPropagation:
         )
         plan.capability_level = "fallback"
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "fallback"
         assert pipeline.recorded_delivery_strategy == "fallback_text"
@@ -615,7 +615,7 @@ class TestCapabilityLevelPropagation:
         )
         route, plan = _make_route_and_plan(adapter_id="cap_adapter", method="direct")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "native"
         assert pipeline.recorded_delivery_strategy == "direct"
@@ -652,7 +652,7 @@ class TestInvalidCapabilityDecision:
         plan.capability_level = "bogus"  # type: ignore[assignment]
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.failure_kind == DeliveryFailureKind.PLANNER_FAILURE
@@ -681,13 +681,13 @@ class TestInvalidCapabilityDecision:
 
 
 class TestPipelineRunnerDelegation:
-    """Verify PipelineRunner.deliver_to_target delegates to TargetDeliveryService."""
+    """Verify PipelineRunner.deliver_execution_to_target delegates to TargetDeliveryService."""
 
     async def test_runner_delegates_to_target_delivery_service(
         self,
         temp_storage: Any,
     ) -> None:
-        """PipelineRunner.deliver_to_target calls TargetDeliveryService.
+        """PipelineRunner.deliver_execution_to_target calls TargetDeliveryService.
 
         This integration test confirms the extraction boundary:
         PipelineRunner does not re-own target execution after the clean
@@ -736,7 +736,7 @@ class TestPipelineRunnerDelegation:
         await temp_storage.append(event)
 
         try:
-            receipt = await runner.deliver_to_target(event, route, plan)
+            receipt = (await runner.deliver_execution_to_target(event, route, plan)).primary_receipt
 
             # PipelineRunner delegated to TargetDeliveryService.
             assert receipt is not None
@@ -749,7 +749,7 @@ class TestPipelineRunnerDelegation:
         finally:
             await runner.stop()
 
-    async def test_runner_deliver_to_target_failure_delegates(
+    async def test_runner_deliver_execution_failure_delegates(
         self,
         temp_storage: Any,
     ) -> None:
@@ -795,7 +795,7 @@ class TestPipelineRunnerDelegation:
 
         try:
             with pytest.raises(_AdapterDeliveryError) as exc_info:
-                await runner.deliver_to_target(event, route, plan)
+                await runner.deliver_execution_to_target(event, route, plan)
 
             # Delegation preserved the failure kind.
             assert exc_info.value.failure_kind == DeliveryFailureKind.ADAPTER_MISSING
@@ -974,7 +974,7 @@ class TestRenderingBoundaryNoPayloadMutation:
         event = _make_event()
         route, plan = _make_route_and_plan(adapter_id="rec_adapter")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] == original_payload
@@ -1063,7 +1063,7 @@ class TestOutboundNativeRefNullChannel:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
 
         assert receipt.status == "sent"
         assert len(storage.native_refs) == 1
@@ -1111,7 +1111,7 @@ class TestOutboundNativeRefNullChannel:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert len(storage.native_refs) == 1
         nref = storage.native_refs[0]

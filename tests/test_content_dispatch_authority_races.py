@@ -90,7 +90,7 @@ async def test_deadline_crossed_during_final_authorization_never_invokes_adapter
             ),
         )
         with pytest.raises(_AdapterDeliveryError) as caught:
-            await service.deliver_to_target(
+            await service.deliver_execution(
                 event,
                 route,
                 plan,

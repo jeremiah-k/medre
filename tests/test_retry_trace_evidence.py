@@ -425,7 +425,7 @@ class TestRetryTraceEvidence:
                     )
                 ],
             )
-            await runner.deliver_to_target(
+            await runner.deliver_execution_to_target(
                 event,
                 route_obj,
                 plan,

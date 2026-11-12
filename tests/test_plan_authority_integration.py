@@ -194,7 +194,7 @@ class TestRenderingContextCapabilityFromPlan:
         event = _make_event()
         route, plan = _make_route_and_plan(capability_level="fallback")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "fallback"
         assert pipeline.recorded_delivery_strategy == "direct"
@@ -213,7 +213,7 @@ class TestRenderingContextCapabilityFromPlan:
         event = _make_event()
         route, plan = _make_route_and_plan(capability_level="unsupported")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "unsupported"
 
@@ -230,7 +230,7 @@ class TestRenderingContextCapabilityFromPlan:
         route, plan = _make_route_and_plan(capability_level=None)
         assert plan.capability_level is None
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         # The pipeline normalises None → "native" before calling render.
         assert pipeline.recorded_capability_level == "native"
@@ -242,7 +242,7 @@ class TestRenderingContextCapabilityFromPlan:
         event = _make_event()
         route, plan = _make_route_and_plan(capability_level="native")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "native"
 
@@ -256,7 +256,7 @@ class TestRenderingContextCapabilityFromPlan:
             capability_level="fallback",
         )
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_capability_level == "fallback"
         assert pipeline.recorded_delivery_strategy == "fallback_text"
@@ -285,7 +285,7 @@ class TestRenderingContextCapabilityFromPlan:
             capability_level="native",
         )
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_source_origin_label == "East Radio"
 
@@ -296,7 +296,7 @@ class TestRenderingContextCapabilityFromPlan:
         event = _make_event()
         route, plan = _make_route_and_plan(capability_level="native")
 
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
 
         assert pipeline.recorded_source_origin_label is None
 

@@ -14,6 +14,7 @@ from medre.core.routing.router import Router
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.delivery_evidence import evidence_for_receipt
 from tests.helpers.retry_runtime import (
     build_retry_runner,
     make_retry_event,
@@ -31,7 +32,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
       outbox.metadata (destination_kind/hash/name/metadata)
         + receipt.retry_* fields
         -> reconstruct_retry_delivery_plan()
-        -> pipeline.deliver_to_target(route=..., plan=...)
+        -> pipeline.deliver_execution_to_target(route=..., plan=...)
     """
     from medre.config.model import RuntimeLimits
     from medre.core.supervision.capacity import CapacityController
@@ -100,7 +101,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
     )
     await temp_storage.create_outbox_item(outbox_item)
 
-    # -- 4. Build a pipeline and intercept deliver_to_target ----------
+    # -- 4. Build a pipeline and intercept deliver_execution_to_target ----------
     adapter = FakePresentationAdapter(adapter_id=adapter_id)
     route = Route(
         id=route_id,
@@ -120,7 +121,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
     await runner.start()
 
     try:
-        # Capture what deliver_to_target receives
+        # Capture what deliver_execution_to_target receives
         captured: dict = {}
 
         async def capturing_deliver(
@@ -135,7 +136,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
             captured["kwargs"] = kwargs
             # Return a fake "sent" receipt for the reserved attempt so the
             # worker succeeds and the finalization fence accepts the commit.
-            return DeliveryReceipt(
+            return evidence_for_receipt(DeliveryReceipt(
                 sequence=2,
                 receipt_id=f"recon-rcpt-{uuid.uuid4().hex[:8]}",
                 event_id=event_id,
@@ -148,11 +149,11 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
                 parent_receipt_id=receipt.receipt_id,
                 source="retry",
                 created_at=datetime.now(timezone.utc),
-            )
+            ))
 
         # Intercept the pipeline boundary to assert reconstructed Route/DeliveryPlan
         # passed by RetryWorker without invoking adapter delivery/rendering.
-        runner.deliver_to_target = capturing_deliver
+        runner.deliver_execution_to_target = capturing_deliver
 
         # -- 5. Instantiate real RetryWorker and process the item ------
         limits = RuntimeLimits(
@@ -177,7 +178,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         await worker._retry_outbox_item(outbox_item)
 
         # -- 6. Assert reconstruction carried correct metadata ---------
-        assert captured, "deliver_to_target was never called"
+        assert captured, "deliver_execution_to_target was never called"
 
         # Route identity
         cap_route = captured["route"]

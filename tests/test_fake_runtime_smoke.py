@@ -872,7 +872,7 @@ class TestFailureKindIntegration:
             assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_MISSING
             assert outcomes[0].status == "permanent_failure"
             assert outcomes[0].target_adapter == "ghost_adapter"
-            # ADAPTER_MISSING still persists a receipt via deliver_to_target.
+            # ADAPTER_MISSING still persists a receipt via deliver_execution_to_target.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
             assert_terminal_failure_pair(receipts, failure_kind="adapter_missing")
         finally:
@@ -902,7 +902,7 @@ class TestFailureKindIntegration:
             assert outcomes[0].failure_kind == DeliveryFailureKind.RENDERER_FAILURE
             assert outcomes[0].status == "permanent_failure"
             assert outcomes[0].target_adapter == "mx_beta"
-            # RENDERER_FAILURE persists a receipt via deliver_to_target.
+            # RENDERER_FAILURE persists a receipt via deliver_execution_to_target.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
             assert_terminal_failure_pair(receipts, failure_kind="renderer_failure")
         finally:
@@ -964,7 +964,7 @@ class TestFailureKindIntegration:
                 deadline=past_deadline,
             )
             with pytest.raises(_AdapterDeliveryError) as exc_info:
-                await app.pipeline_runner.deliver_to_target(
+                await app.pipeline_runner.deliver_execution_to_target(
                     event,
                     route,
                     plan,

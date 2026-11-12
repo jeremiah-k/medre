@@ -234,7 +234,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.adapter_id == "test_adapter"
@@ -254,7 +254,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = exc_info.value.receipt
         assert receipt is not None
@@ -275,7 +275,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         snap = diag.snapshot()
         assert snap["renderer_failures"]["test_adapter"] == 1
@@ -301,7 +301,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(
+            await svc.deliver_execution(
                 event,
                 route,
                 plan,
@@ -345,7 +345,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert "Invalid rendering attempt provenance" in err.error
@@ -373,7 +373,7 @@ class TestRenderingFailure:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert "expected RenderingResult" in err.error
@@ -401,7 +401,7 @@ class TestAdapterLookupFailure:
         route, plan = _make_route_and_plan(adapter_id="nonexistent")
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.adapter_id == "nonexistent"
@@ -414,7 +414,7 @@ class TestAdapterLookupFailure:
         route, plan = _make_route_and_plan(adapter_id="ghost")
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         _assert_terminal_failure_chain(
             storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_MISSING
@@ -428,7 +428,7 @@ class TestAdapterLookupFailure:
         route, plan = _make_route_and_plan(adapter_id="absent")
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err_receipt = exc_info.value.receipt
         assert err_receipt is not None
@@ -451,7 +451,7 @@ class TestAdapterDeliveryException:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert "deferred hand-off requires durable attempt provenance" in err.error
@@ -469,7 +469,7 @@ class TestAdapterDeliveryException:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert "RuntimeError" in err.error
@@ -484,7 +484,7 @@ class TestAdapterDeliveryException:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         _assert_terminal_failure_chain(
             storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT
@@ -498,7 +498,7 @@ class TestAdapterDeliveryException:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         assert len(storage.native_refs) == 0
 
@@ -519,7 +519,7 @@ class TestFailureKindClassification:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = storage.receipts[0]
         assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT.value
@@ -532,7 +532,7 @@ class TestFailureKindClassification:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = storage.receipts[0]
         assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT.value
@@ -545,7 +545,7 @@ class TestFailureKindClassification:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = storage.receipts[0]
         assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT.value
@@ -558,7 +558,7 @@ class TestFailureKindClassification:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = storage.receipts[0]
         assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT.value
@@ -580,7 +580,7 @@ class TestFailureKindPropagationOnReRaise:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         receipt = storage.receipts[0]
@@ -597,7 +597,7 @@ class TestFailureKindPropagationOnReRaise:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         receipt = storage.receipts[0]
@@ -612,7 +612,7 @@ class TestFailureKindPropagationOnReRaise:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         receipt = storage.receipts[0]
@@ -637,7 +637,7 @@ class TestDeadlineExceeded:
         plan.deadline = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED
@@ -652,7 +652,7 @@ class TestDeadlineExceeded:
         plan.deadline = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         _assert_terminal_failure_chain(
             storage.receipts, failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED
@@ -666,7 +666,7 @@ class TestDeadlineExceeded:
         route, plan = _make_route_and_plan()
         assert plan.deadline is None
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
 
         assert receipt.status == "sent"
 
@@ -687,7 +687,7 @@ class TestInvalidDeliveryStrategy:
         route, plan = _make_route_and_plan(method="bogus_strategy")
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.adapter_id == "test_adapter"
@@ -701,7 +701,7 @@ class TestInvalidDeliveryStrategy:
         route, plan = _make_route_and_plan(method="nonexistent")
 
         with pytest.raises(_RendererDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = exc_info.value.receipt
         assert receipt is not None
@@ -715,7 +715,7 @@ class TestInvalidDeliveryStrategy:
         route, plan = _make_route_and_plan(method="garbage")
 
         with pytest.raises(_RendererDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         _assert_terminal_failure_chain(
             storage.receipts, failure_kind=DeliveryFailureKind.PLANNER_FAILURE
@@ -748,7 +748,7 @@ class TestAdapterWithoutDeliver:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         err = exc_info.value
         assert err.adapter_id == "test_adapter"
@@ -762,7 +762,7 @@ class TestAdapterWithoutDeliver:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError) as exc_info:
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         receipt = exc_info.value.receipt
         assert receipt is not None
@@ -776,7 +776,7 @@ class TestAdapterWithoutDeliver:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(_AdapterDeliveryError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         _assert_terminal_failure_chain(
             storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT
@@ -817,7 +817,7 @@ class TestCancelledErrorPropagation:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(asyncio.CancelledError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
     async def test_cancelled_error_no_receipt_persisted(self) -> None:
         """CancelledError does not persist a failure receipt."""
@@ -829,7 +829,7 @@ class TestCancelledErrorPropagation:
         route, plan = _make_route_and_plan()
 
         with pytest.raises(asyncio.CancelledError):
-            await svc.deliver_to_target(event, route, plan)
+            await svc.deliver_execution(event, route, plan)
 
         # No receipts — CancelledError bypasses receipt recording.
         assert len(storage.receipts) == 0
@@ -862,7 +862,7 @@ async def test_adapter_retry_hint_persists_into_failed_receipt() -> None:
 
     before = datetime.now(tz=timezone.utc)
     with pytest.raises(_AdapterDeliveryError) as exc_info:
-        await svc.deliver_to_target(event, route, plan)
+        await svc.deliver_execution(event, route, plan)
     after = datetime.now(tz=timezone.utc)
 
     receipt = exc_info.value.receipt

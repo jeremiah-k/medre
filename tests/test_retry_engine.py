@@ -25,6 +25,7 @@ from medre.core.planning.delivery_plan import (
 )
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.delivery_evidence import evidence_for_receipt
 
 # ---------------------------------------------------------------------------
 # RetryWorker under test
@@ -127,7 +128,7 @@ class RetryWorker:
                 )
 
                 try:
-                    await self.pipeline.deliver_to_target(
+                    await self.pipeline.deliver_execution_to_target(
                         event,
                         route,
                         plan,
@@ -274,9 +275,9 @@ def _mock_storage(receipts: list[DeliveryReceipt], event: CanonicalEvent):
 def _mock_pipeline(return_receipt: DeliveryReceipt | None = None):
     pipeline = MagicMock()
     if return_receipt is not None:
-        pipeline.deliver_to_target = AsyncMock(return_value=return_receipt)
+        pipeline.deliver_execution_to_target = AsyncMock(return_value=evidence_for_receipt(return_receipt))
     else:
-        pipeline.deliver_to_target = AsyncMock()
+        pipeline.deliver_execution_to_target = AsyncMock()
     return pipeline
 
 
@@ -304,7 +305,7 @@ class TestRetryEngine:
         assert worker.state.succeeded == 1
         assert worker.state.processed == 1
         assert processed == 1
-        pipeline.deliver_to_target.assert_called_once()
+        pipeline.deliver_execution_to_target.assert_called_once()
 
     async def test_retry_attempt_number_increments(self):
         """Retry passes previous_receipt so pipeline increments attempt."""
@@ -321,7 +322,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         await worker._process_due(datetime.now(timezone.utc))
 
-        call_kwargs = pipeline.deliver_to_target.call_args
+        call_kwargs = pipeline.deliver_execution_to_target.call_args
         prev = call_kwargs.kwargs.get("previous_receipt")
         assert prev is not None
         assert prev.attempt_number == 1
@@ -345,7 +346,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         await worker._process_due(datetime.now(timezone.utc))
 
-        call_kwargs = pipeline.deliver_to_target.call_args
+        call_kwargs = pipeline.deliver_execution_to_target.call_args
         prev = call_kwargs.kwargs.get("previous_receipt")
         assert prev is receipt
         assert prev.receipt_id == "rcpt-original"
@@ -362,10 +363,10 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         await worker._process_due(datetime.now(timezone.utc))
 
-        # The real pipeline persists native refs inside deliver_to_target.
-        # Here we verify the worker called deliver_to_target (which in
+        # The real pipeline persists native refs inside deliver_execution_to_target.
+        # Here we verify the worker called deliver_execution_to_target (which in
         # production persists the native ref on success).
-        pipeline.deliver_to_target.assert_called_once()
+        pipeline.deliver_execution_to_target.assert_called_once()
         assert worker.state.succeeded == 1
         # storage.store_native_ref is NOT called by the worker itself —
         # the pipeline does it. Verify the mock was not called by worker:
@@ -384,7 +385,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         processed = await worker._process_due(datetime.now(timezone.utc))
 
-        pipeline.deliver_to_target.assert_not_called()
+        pipeline.deliver_execution_to_target.assert_not_called()
         assert worker.state.succeeded == 0
         assert worker.state.processed == 0
         assert processed == 0
@@ -402,7 +403,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         processed = await worker._process_due(datetime.now(timezone.utc))
 
-        pipeline.deliver_to_target.assert_not_called()
+        pipeline.deliver_execution_to_target.assert_not_called()
         assert worker.state.processed == 0
         assert processed == 0
 
@@ -418,7 +419,7 @@ class TestRetryEngine:
         storage = _mock_storage([receipt], event)
         pipeline = _mock_pipeline()
         # Simulate pipeline raising on retry
-        pipeline.deliver_to_target = AsyncMock(
+        pipeline.deliver_execution_to_target = AsyncMock(
             side_effect=RuntimeError("ConnectionError: still failing"),
         )
 
@@ -442,7 +443,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy)
         processed = await worker._process_due(datetime.now(timezone.utc))
 
-        pipeline.deliver_to_target.assert_not_called()
+        pipeline.deliver_execution_to_target.assert_not_called()
         assert worker.state.processed == 0
         assert processed == 0
 
@@ -459,7 +460,7 @@ class TestRetryEngine:
         worker = RetryWorker(storage, pipeline, policy, shutdown_event=shutdown)
         processed = await worker._process_due(datetime.now(timezone.utc))
 
-        pipeline.deliver_to_target.assert_not_called()
+        pipeline.deliver_execution_to_target.assert_not_called()
         assert worker.state.processed == 0
         assert processed == 0
 
@@ -491,7 +492,7 @@ class TestRetryEngineEdgeCases:
         assert worker.state.succeeded == 2
         assert worker.state.processed == 2
         assert processed == 2
-        assert pipeline.deliver_to_target.call_count == 2
+        assert pipeline.deliver_execution_to_target.call_count == 2
 
     async def test_skips_receipt_when_event_missing(self):
         """Worker skips receipts whose event has been removed."""
@@ -518,7 +519,7 @@ class TestRetryEngineEdgeCases:
         )
         storage = _mock_storage([receipt], event)
         pipeline = _mock_pipeline()
-        pipeline.deliver_to_target = AsyncMock(
+        pipeline.deliver_execution_to_target = AsyncMock(
             side_effect=RuntimeError("ConnectionError: still transient"),
         )
 
@@ -552,7 +553,7 @@ class TestRetryEngineEdgeCases:
 
         assert worker.state.succeeded == 1
         assert worker.state.processed == 1
-        assert pipeline.deliver_to_target.call_count == 1
+        assert pipeline.deliver_execution_to_target.call_count == 1
 
 
 class TestRetryWorkerFalsyFallbackSafety:

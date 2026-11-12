@@ -125,14 +125,16 @@ class TestQueuedReceiptCreation:
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 
-        receipt = await svc.deliver_to_target(
-            event,
-            route,
-            plan,
-            outbox_id="obox-queued-q",
-            reserved_attempt_number=1,
-            expected_outbox_worker_id="pipeline:queueing",
-        )
+        receipt = (
+    await svc.deliver_execution(
+                event,
+                route,
+                plan,
+                outbox_id="obox-queued-q",
+                reserved_attempt_number=1,
+                expected_outbox_worker_id="pipeline:queueing",
+            )
+).primary_receipt
 
         assert receipt is not None
         assert receipt.status == "queued"
@@ -195,7 +197,7 @@ class TestQueuedReceiptCreation:
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = (await svc.deliver_execution(event, route, plan)).primary_receipt
 
         assert receipt is not None
         assert receipt.status == "sent"
