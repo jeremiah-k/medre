@@ -307,6 +307,7 @@ adapters:
 | `startup_backlog_suppress_seconds` | number     | `60.0`        | Tolerance before the adapter start baseline: inbound events with an older origin server timestamp are startup history and never forward on any ingress path. `0` disables the suppression. |
 | `encryption_mode`              | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                                                                                           |
 | `require_encrypted_rooms`      | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`.                                                                   |
+| `relay_prefix`                 | `string or null` | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.                                                                             |
 
 `device_id` and `store_path` are not operator-facing — the runtime derives them automatically.
 
@@ -351,6 +352,7 @@ adapters:
 | `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                     |
 | `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                |
 | `sync_timeout_ms`                  | int                | `30000`       | Positive initial wait budget and SDK phase timeout in milliseconds.                   |
+| `relay_prefix`                     | `string or null`   | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.       |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                       |
 | `outbound_mode`                    | string             | `"enabled"`   | `"enabled"` allows RF transmission; `"listen_only"` suppresses all outbound delivery. |
 
@@ -399,6 +401,7 @@ adapters:
 | `max_text_bytes`                                | int        | `512`         | Maximum UTF-8 byte budget for rendered radio text.                 |
 | `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                                   |
 | `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.                     |
+| `relay_prefix`                                  | `string`   | `""`          | `""` disables; otherwise a prefix template. Null is not accepted.  |
 
 ### `adapters.lxmf.<instance_name>`
 
@@ -438,6 +441,7 @@ adapters:
 | `metadata_embedding`        | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.                                                     |
 | `identity_path`             | string | `None`        | Path to Reticulum identity file. Supports path placeholders.                                        |
 | `storage_path`              | string | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders.  |
+| `relay_prefix`              | `string` | `""`          | `""` disables; otherwise a prefix template. Null is not accepted.                                   |
 
 ### `adapters.xmpp.<instance_name>`
 

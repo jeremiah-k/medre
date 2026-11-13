@@ -33,7 +33,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `require_encrypted_rooms`                  | `bool`                                                 | `False`        | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`                             |
 | `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`           | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite   |
 | `origin_label`                             | `str`                                                  | `""`           | Platform-neutral operator-defined source label for relay prefixes                                         |
-| `relay_prefix`                             | `str`                                                  | `""`           | Target-local prefix template for Matrix outbound body text (empty = no prefix)                            |
+| `relay_prefix`                             | `str \| None`                                          | `None`         | Target-local prefix template for Matrix outbound body text (`None` = automatic `[{sender}/{origin_label}]: ` or `[{sender}]: ` attribution, `""` = disabled) |
 
 ---
 
@@ -108,10 +108,7 @@ The Matrix renderer prepends a human-readable relay attribution prefix to the
 message body when a prefix template is available. The prefix template is
 resolved from the target-local configuration:
 
-1. **Target-local:** `MatrixConfig.relay_prefix` (string, default `""`). When
-   non-empty, this template is used for all Matrix outbound renders. This is
-   the target-local prefix — it lives on the adapter that owns the rendering,
-   not on the source adapter.
+1. **Target-local:** `MatrixConfig.relay_prefix` (`str | None`, default `None`). An omitted or null value selects the automatic prefix — `[{sender}/{origin_label}]: ` when an origin label is available, otherwise `[{sender}]: `. Explicit `""` disables prefixing; a non-empty string is a custom template applied to all Matrix outbound renders. This is the target-local prefix — it lives on the adapter that owns the rendering, not on the source adapter.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
