@@ -1250,9 +1250,7 @@ async def test_lxmf_source_hash_in_sender_short() -> None:
 
 async def test_no_native_data_no_none_in_prefix() -> None:
     """Event with no native metadata renders empty prefix vars, not 'None'."""
-    renderer = _make_renderer(
-        "mesh-1", relay_prefix="[{sender}][{sender_short}]: "
-    )
+    renderer = _make_renderer("mesh-1", relay_prefix="[{sender}][{sender_short}]: ")
     event = CanonicalEvent(
         event_id="evt-empty",
         event_kind="message.created",
