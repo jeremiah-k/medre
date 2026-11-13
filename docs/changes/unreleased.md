@@ -9,6 +9,11 @@ this file once they land.
 
 ## Recent changes
 
+- **501 — Prefix truncation variables.** The shared relay-prefix formatter
+  accepts a per-renderer declaration of truncatable variables: declared
+  names resolve `{nameN}` to the first N Unicode code points, undeclared
+  stems treat suffixed placeholders as unknown, and invalid declaration
+  names report through the formatter's error diagnostics without raising.
 - **500 — Adapter pin promotion and Matrix reaction profile.** The Matrix
   adapter revision that delivers cross-network reactions as described
   attributed `m.emote` messages (exact key, bounded one-line target preview,

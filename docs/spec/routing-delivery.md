@@ -1653,6 +1653,16 @@ Formatting rules: `None`/missing values format as empty strings. Unknown
 placeholders are left unchanged in the output and recorded in diagnostic
 metadata. The formatter never raises exceptions.
 
+**Truncation variables.** Each renderer declares which variables are
+truncatable for its transport: a declared name additionally resolves
+`{nameN}` placeholders to the first N Unicode code points of its value
+(N ≥ 1; code points, never bytes). Radio-facing transports with
+constrained displays declare truncatable sender labels; roomy transports
+declare none, so numeric-suffixed placeholders are unknown there and pass
+through as literals. Invalid names in a renderer's truncatable
+declaration are reported in the formatter's `formatting_error` without
+raising.
+
 The following placeholders are outside the current attribution surface and
 are no longer resolved. They pass through as literals:
 

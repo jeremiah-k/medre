@@ -37,6 +37,10 @@ __all__ = [
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
+# Truncation variable: {stemN} where the stem is a declared variable
+# name and N >= 1 counts Unicode code points.
+_TRUNCATION_RE = re.compile(r"^(.+?)([1-9]\d*)$")
+
 # ---------------------------------------------------------------------------
 # All known variable names (canonical + preferred aliases)
 # ---------------------------------------------------------------------------
@@ -272,6 +276,8 @@ class PrefixFormatterResult:
 def format_relay_prefix(
     template: str,
     attr: RelayAttribution,
+    *,
+    truncatable: tuple[str, ...] = (),
 ) -> PrefixFormatterResult:
     """Render a relay prefix template against attribution data.
 
@@ -289,12 +295,27 @@ def format_relay_prefix(
     unchanged in the output (e.g. ``"{bogus}"`` stays ``"{bogus}"``) and
     recorded in ``unknown_variables`` with ``formatting_error`` set.
 
+    **Truncation variables:**
+
+    Each name listed in *truncatable* additionally accepts a numeric
+    suffix: ``{sender5}`` renders the first five Unicode code points of
+    the ``sender`` value.  The suffix counts code points, never bytes,
+    and must be at least 1 (``{sender0}`` is unknown).  A numeric-
+    suffixed name whose stem is not declared in *truncatable* is
+    treated as unknown, so each adapter declares truncation only where
+    constrained displays make it useful.  Invalid *truncatable* entries
+    (names outside the known schema) set ``formatting_error`` without
+    raising.
+
     Parameters
     ----------
     template:
         Template string with ``{name}`` placeholders.
     attr:
         Attribution data to fill into the template.
+    truncatable:
+        Variable names (aliases or canonical field names) that accept
+        the ``{nameN}`` first-N-code-points suffix in this template.
 
     Returns
     -------
@@ -303,6 +324,11 @@ def format_relay_prefix(
     """
     try:
         var_map = _build_variable_map(attr)
+
+        truncatable_stems = frozenset(truncatable)
+        invalid_truncatable = sorted(
+            name for name in truncatable_stems if name not in _ALL_KNOWN_NAMES
+        )
 
         variables_used: list[str] = []
         missing_variables: list[str] = []
@@ -316,9 +342,18 @@ def format_relay_prefix(
                 if not value:
                     missing_variables.append(name)
                 return value
-            else:
-                unknown_variables.append(name)
-                return m.group(0)  # leave unchanged
+            truncation_match = _TRUNCATION_RE.match(name)
+            if truncation_match is not None and (
+                truncation_match.group(1) in truncatable_stems
+            ):
+                stem = truncation_match.group(1)
+                stem_value = var_map.get(stem, "")
+                variables_used.append(name)
+                if not stem_value:
+                    missing_variables.append(name)
+                return stem_value[: int(truncation_match.group(2))]
+            unknown_variables.append(name)
+            return m.group(0)  # leave unchanged
 
         rendered = _PLACEHOLDER_RE.sub(_replace, template)
 
@@ -326,6 +361,11 @@ def format_relay_prefix(
         if unknown_variables:
             formatting_error = (
                 f"unknown placeholder(s): {', '.join(sorted(unknown_variables))}"
+            )
+        if invalid_truncatable:
+            detail = f"invalid truncatable name(s): {', '.join(invalid_truncatable)}"
+            formatting_error = (
+                f"{formatting_error}; {detail}" if formatting_error else detail
             )
 
         return PrefixFormatterResult(
