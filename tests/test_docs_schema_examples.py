@@ -72,7 +72,7 @@ def _example_schema_pairs() -> list[tuple[Path, Path]]:
         else:
             schema_stem = name
         # Per-transport adapter examples validate against the shared
-        # adapter-config.schema.json oneOf, not per-transport schemas.
+        # adapter-config.schema.json anyOf, not per-transport schemas.
         if schema_stem.startswith("adapter-config-"):
             schema_stem = "adapter-config"
         schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
@@ -190,7 +190,7 @@ class TestExamplesValidateAgainstSchemas:
                 name[: -len("-example")] if name.endswith("-example") else name
             )
             # Per-transport adapter examples validate against the shared
-            # adapter-config.schema.json oneOf, not per-transport schemas.
+            # adapter-config.schema.json anyOf, not per-transport schemas.
             if schema_stem.startswith("adapter-config-"):
                 schema_stem = "adapter-config"
             schema = _SCHEMAS_DIR / f"{schema_stem}.schema.json"
@@ -1158,11 +1158,11 @@ class TestEvidenceBundleSchemaNewFields:
 
 
 # ===========================================================================
-# 6. Per-transport adapter-config example coverage and oneOf validation
+# 6. Per-transport adapter-config example coverage and intended-arm validation
 # ===========================================================================
 
 
-#: Distinctive required/property fields per adapter-config oneOf arm title.
+#: Distinctive required/property fields per adapter-config anyOf arm title.
 _ADAPTER_ARM_DISTINCTIVE_FIELDS: dict[str, frozenset[str]] = {
     "MatrixConfig": frozenset({"homeserver", "user_id"}),
     "MeshtasticConfig": frozenset({"relay_prefix", "encrypted_action"}),
@@ -1178,14 +1178,14 @@ _ADAPTER_CONFIG_EXAMPLES = sorted(_EXAMPLES_DIR.glob("adapter-config*-example.js
 
 class TestAdapterConfigExampleCoverage:
     """Verify per-transport example coverage (TC-008) and that each example
-    validates against exactly one arm of the adapter-config oneOf.
+    validates against its intended provider arm of the adapter-config anyOf.
     """
 
-    def test_each_oneof_arm_has_example(self) -> None:
-        """Each arm of adapter-config.schema.json oneOf must have at least
+    def test_each_anyof_arm_has_example(self) -> None:
+        """Each arm of adapter-config.schema.json anyOf must have at least
         one example payload in docs/schemas/examples/."""
         schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
-        arm_titles = [arm["title"] for arm in schema["oneOf"]]
+        arm_titles = [arm["title"] for arm in schema["anyOf"]]
 
         examples = {p.name: _load_json(p) for p in _ADAPTER_CONFIG_EXAMPLES}
 
@@ -1196,7 +1196,7 @@ class TestAdapterConfigExampleCoverage:
             distinctive = _ADAPTER_ARM_DISTINCTIVE_FIELDS[title]
             has_example = any(distinctive <= set(ex.keys()) for ex in examples.values())
             assert has_example, (
-                f"No example payload found for adapter-config oneOf arm "
+                f"No example payload found for adapter-config anyOf arm "
                 f"{title!r}. Expected an example with fields: {sorted(distinctive)}"
             )
 
@@ -1205,42 +1205,41 @@ class TestAdapterConfigExampleCoverage:
         _ADAPTER_CONFIG_EXAMPLES,
         ids=lambda p: p.name,
     )
-    def test_each_example_validates_against_exactly_one_arm(
+    def test_each_example_validates_against_its_named_provider_arm(
         self, example_path: Path
     ) -> None:
-        """Each adapter-config-*-example.json must validate against exactly
-        one arm of the adapter-config.schema.json oneOf."""
+        """Do not require mutual exclusivity: runtime chooses the transport.
+
+        A standalone config can legitimately match multiple adapter classes
+        when those classes expose common keys such as relay_prefix.  Validate
+        the example against the named provider, not an arbitrary first match.
+        """
         schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
         example = _load_json(example_path)
-
+        suffix = example_path.name.removeprefix("adapter-config-").removesuffix(
+            "-example.json"
+        )
+        transport = (
+            "MatrixConfig"
+            if suffix == "example.json"
+            else {
+                "meshtastic": "MeshtasticConfig",
+                "meshcore": "MeshCoreConfig",
+                "lxmf": "LxmfConfig",
+                "xmpp": "XMPPConfig",
+                "chatmail": "ChatmailConfig",
+                "simplexchat": "SimplexChatConfig",
+            }[suffix]
+        )
+        arm = next(item for item in schema["anyOf"] if item["title"] == transport)
         if _HAS_JSONSCHEMA:
             import jsonschema
 
-            matches = 0
-            for arm in schema["oneOf"]:
-                try:
-                    jsonschema.validate(instance=example, schema=arm)
-                    matches += 1
-                except jsonschema.ValidationError:
-                    pass
-            assert matches == 1, (
-                f"{example_path.name}: expected to validate against exactly "
-                f"1 arm, got {matches}"
-            )
+            jsonschema.validate(instance=example, schema=arm)
+            jsonschema.validate(instance=example, schema=schema)
         else:
-            # Manual: check required fields + additionalProperties: false.
-            matches = 0
-            for arm in schema["oneOf"]:
-                required = arm.get("required", [])
-                if not all(r in example for r in required):
-                    continue
-                props = set(arm.get("properties", {}).keys())
-                if set(example.keys()) <= props:
-                    matches += 1
-            assert matches == 1, (
-                f"{example_path.name}: expected to match exactly 1 arm "
-                f"manually, got {matches}"
-            )
+            assert all(key in example for key in arm.get("required", []))
+            assert set(example) <= set(arm.get("properties", {}))
 
 
 # ===========================================================================

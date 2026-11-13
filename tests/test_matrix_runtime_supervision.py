@@ -35,7 +35,7 @@ def test_runtime_supervision_defaults_match_schema_example_and_sample() -> None:
         (root / "docs/schemas/adapter-config.schema.json").read_text(encoding="utf-8")
     )
     matrix_schema = next(
-        branch for branch in schema["oneOf"] if branch.get("title") == "MatrixConfig"
+        branch for branch in schema["anyOf"] if branch.get("title") == "MatrixConfig"
     )
     properties = matrix_schema["properties"]
     example = json.loads(
