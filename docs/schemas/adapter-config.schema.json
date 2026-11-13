@@ -185,9 +185,9 @@
         },
         "message_delay_seconds": {
           "type": "number",
-          "default": 0.5,
+          "default": 2.2,
           "minimum": 0,
-          "description": "Minimum delay between outbound messages (pacing)."
+          "description": "Minimum delay between outbound radio messages (pacing). The 2.2-second default leaves margin above current Meshtastic firmware's two-second limit for phone-originated text; shorter configured intervals can cause RATE_LIMIT_EXCEEDED even when the SDK returns a packet ID. Use a lower interval only with separately qualified firmware."
         },
         "startup_backlog_suppress_seconds": {
           "type": "number",
@@ -387,9 +387,9 @@
         },
         "max_text_bytes": {
           "type": "integer",
-          "default": 512,
+          "default": 160,
           "minimum": 0,
-          "description": "Maximum UTF-8 byte budget for final radio text after rendering."
+          "description": "Maximum UTF-8 byte budget for final radio text after rendering. The 160-byte default matches the MeshCore firmware's complete group-text limit, which includes the firmware-prepended node name and ': ' separator; the advertised planning budget is prefix-aware (127 bytes worst case) until the live device name is known."
         },
         "max_text_parts": {
           "type": "integer",
@@ -527,7 +527,7 @@
     },
     {
       "title": "XMPPConfig",
-      "description": "Immutable configuration for the xmpp adapter. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the XMPP adapter: explicitly configured bare-JID rooms and peers, text limits, and optional relay attribution. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {
@@ -538,12 +538,14 @@
         },
         "jid": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Bot account JID in bare lowercase user@domain form; an optional resource suffix selects the bot's resource. ASCII uppercase is rejected because RFC 7622 preparation case-folds server-supplied addresses, so a mixed-case conversation could never match inbound traffic."
         },
         "password": {
           "type": "string",
           "writeOnly": true,
-          "default": ""
+          "default": "",
+          "description": "Account password for the bot JID; sensitive — never exposed in diagnostics, logs, or errors."
         },
         "rooms": {
           "type": "array",
@@ -552,7 +554,8 @@
             "minLength": 3
           },
           "uniqueItems": true,
-          "default": []
+          "default": [],
+          "description": "Bare JIDs of multi-user chat rooms to join and relay; must be distinct and disjoint from peers."
         },
         "peers": {
           "type": "array",
@@ -561,51 +564,61 @@
             "minLength": 3
           },
           "uniqueItems": true,
-          "default": []
+          "default": [],
+          "description": "Bare JIDs of direct conversations allowed to relay; must be distinct and disjoint from rooms."
         },
         "nickname": {
           "type": "string",
           "minLength": 1,
-          "default": "medre"
+          "default": "medre",
+          "description": "Room nickname used when joining; must be non-empty XML text."
         },
         "host": {
           "type": ["string", "null"],
           "minLength": 1,
-          "default": null
+          "default": null,
+          "description": "Optional server host override; must be supplied together with port — omit both for DNS SRV discovery."
         },
         "port": {
           "type": ["integer", "null"],
           "minimum": 1,
           "maximum": 65535,
-          "default": null
+          "default": null,
+          "description": "Server port (1..65535) for the host override; must be supplied together with host."
         },
         "connect_timeout_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 30.0
+          "default": 30.0,
+          "description": "Bounded startup time for the native connection and room joins; must be a positive finite number."
         },
         "reconnect_delay_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 5.0
+          "default": 5.0,
+          "description": "Positive delay between reconnection attempts."
         },
         "max_text_bytes": {
           "type": "integer",
           "minimum": 1,
-          "default": 16384
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget for outbound message bodies."
         },
         "inbound_queue_size": {
           "type": "integer",
           "minimum": 1,
-          "default": 100
+          "default": 100,
+          "description": "Bounded ingress queue depth; must be a positive integer."
         },
         "origin_label": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "relay_prefix": {
           "type": "string",
-          "default": "[{origin_label}] {sender}: "
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
         },
         "metadata_embedding": {
           "type": "boolean",
@@ -618,7 +631,7 @@
     },
     {
       "title": "ChatmailConfig",
-      "description": "Immutable configuration for the chatmail adapter. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the Chatmail adapter: one private native account with an explicit allowlist of ordinary chats. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {
@@ -629,13 +642,15 @@
         },
         "accounts_dir": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Private native accounts directory owned exclusively by this adapter instance; held under an exclusive profile lease at runtime."
         },
         "account_id": {
           "type": "integer",
           "minimum": 1,
           "maximum": 4294967295,
-          "default": 1
+          "default": 1,
+          "description": "Native account ID inside the accounts directory (1..4294967295)."
         },
         "chats": {
           "type": "array",
@@ -645,48 +660,58 @@
             "maximum": 4294967295
           },
           "uniqueItems": true,
-          "default": []
+          "default": [],
+          "description": "Distinct native chat IDs allowed as sources and destinations; only ordinary chats (10..4294967295) are routable — special chats never route."
         },
         "state_dir": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Private persistent state directory for the durable outbound journal and admission checkpoints."
         },
         "rpc_server_path": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Optional explicit path to the deltachat-rpc-server executable; empty resolves the server binary from the installed pinned package."
         },
         "rpc_timeout_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 30.0
+          "default": 30.0,
+          "description": "Positive timeout for native RPC calls."
         },
         "poll_interval_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 5.0
+          "default": 5.0,
+          "description": "Positive interval between native inbox polls; a full outbound queue also reports this interval as the retry-after."
         },
         "reconnect_delay_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 5.0
+          "default": 5.0,
+          "description": "Positive delay between RPC reconnect attempts."
         },
         "max_text_bytes": {
           "type": "integer",
           "minimum": 1,
-          "default": 16384
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget enforced on rendered text before native submission."
         },
         "max_pending": {
           "type": "integer",
           "minimum": 1,
-          "default": 100
+          "default": 100,
+          "description": "Positive bound on the durable outbound journal queue; a full queue fails delivery with a retryable error."
         },
         "origin_label": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "relay_prefix": {
           "type": "string",
-          "default": "[{origin_label}] {sender}: "
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
         },
         "native_sender_attribution": {
           "type": "boolean",
@@ -699,7 +724,7 @@
     },
     {
       "title": "SimplexChatConfig",
-      "description": "Immutable configuration for the simplexchat adapter. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the SimpleX Chat adapter: one native profile with explicit group and contact allowlists. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {
@@ -710,18 +735,21 @@
         },
         "database_prefix": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Path prefix for the native SimpleX database files (the profile database lives at '<prefix>_chat.db'); empty derives under the adapter transport state directory. Held under an exclusive profile lease at runtime."
         },
         "database_key": {
           "type": "string",
           "writeOnly": true,
-          "default": ""
+          "default": "",
+          "description": "Optional passphrase for the native database; sensitive — forwarded only to the native worker, never exposed in diagnostics or logs."
         },
         "user_id": {
           "type": "integer",
           "minimum": 1,
           "maximum": 9223372036854775807,
-          "default": 1
+          "default": 1,
+          "description": "Native user profile ID (1..9223372036854775807) owning the bridged conversations."
         },
         "chats": {
           "type": "array",
@@ -730,47 +758,57 @@
             "pattern": "^(group|contact):[1-9][0-9]{0,18}$"
           },
           "uniqueItems": true,
-          "default": []
+          "default": [],
+          "description": "Distinct allowlisted conversation channels as native 'group:ID' or 'contact:ID' strings; both sources and destinations must be in this allowlist, and IDs from another profile are not interchangeable."
         },
         "state_dir": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Private adapter state directory for handoff and inbox ledgers and admission cursors; empty derives under the adapter transport state directory."
         },
         "native_cache_dir": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Native client cache directory; empty derives under the core cache directory."
         },
         "libs_dir": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Optional directory of native SimpleX client libraries, exported to the worker as SIMPLEX_LIBS_DIR."
         },
         "command_timeout_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 30.0
+          "default": 30.0,
+          "description": "Positive timeout for individual native worker commands."
         },
         "startup_timeout_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 90.0
+          "default": 90.0,
+          "description": "Positive startup budget for the native worker and profile connection."
         },
         "poll_interval_seconds": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0
+          "default": 1.0,
+          "description": "Positive interval between native event polls."
         },
         "max_text_bytes": {
           "type": "integer",
           "minimum": 1,
-          "default": 16384
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget enforced on rendered text before native submission; oversized text fails the delivery instead of truncating."
         },
         "origin_label": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
         },
         "relay_prefix": {
           "type": "string",
-          "default": "[{origin_label}] {sender}: "
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
         }
       },
       "required": ["adapter_id"],
