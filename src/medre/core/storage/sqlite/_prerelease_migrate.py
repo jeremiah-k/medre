@@ -23,6 +23,7 @@ from functools import lru_cache
 from typing import NamedTuple
 
 from medre.core.storage.backend import StorageInitializationError
+from medre.core.storage.sqlite._evidence_diagnostics import outbox_diagnostic_ops
 from medre.core.storage.sqlite.schema import (
     _INDEXES,
     _OPERATOR_DECISIONS_DDL,
@@ -648,6 +649,21 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
     # stores the name quoted, which the prerelease identity contract rejects.
     db.execute(temp_sql)
     _copy_inline_diagnostics_to_side_table(db, family, table)
+    if family == "outbox":
+        # A predecessor queued row can still carry an inline failure. The
+        # current read masks it while queued, but cancellation would expose it
+        # again unless the migration records the acceptance-time clear. Use
+        # the same append-only, attempt-scoped writes as normal transitions.
+        queued_rows = db.execute(
+            f"SELECT outbox_id, updated_at FROM {table} WHERE status = 'queued'"
+        ).fetchall()
+        for outbox_id, updated_at in queued_rows:
+            for sql, params in outbox_diagnostic_ops(
+                {"failure_kind_detail": "", "error_summary": ""},
+                str(updated_at),
+                str(outbox_id),
+            ):
+                db.execute(sql, params)
     db.execute(f"INSERT INTO {temp_table} ({columns}) SELECT {columns} FROM {table}")
     db.execute(f"DROP TABLE {table}")
     db.execute(current)

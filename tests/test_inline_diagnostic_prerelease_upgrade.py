@@ -161,3 +161,63 @@ def test_populated_predecessor_upgrades_without_losing_fk_or_clear(tmp_path) -> 
         assert reopened.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         reopened.close()
+
+
+async def test_queued_predecessor_clear_survives_later_cancellation(tmp_path) -> None:
+    """An old inline error must not reappear after queued becomes cancelled."""
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    path = tmp_path / "queued-before-strip.db"
+    db = sqlite3.connect(path)
+    try:
+        db.executescript(_retired_schema() + _INDEXES)
+        db.execute("INSERT INTO _medre_schema_meta VALUES ('schema_version', '1')")
+        db.execute(
+            "INSERT INTO canonical_events (event_id, event_kind, schema_version,"
+            " timestamp, source_adapter, source_transport_id, lineage, payload,"
+            " metadata, created_at) VALUES ('queued-event', 'text', 1, '2026-11-12',"
+            " 'fake', 'n', '[]', '{}', '{}', '2026-11-12')"
+        )
+        db.execute(
+            "INSERT INTO delivery_outbox (outbox_id, event_id, delivery_plan_id,"
+            " target_adapter, status, attempt_number, failure_kind_detail,"
+            " error_summary, created_at, updated_at) VALUES"
+            " ('queued-outbox', 'queued-event', 'plan', 'fake', 'queued', 1,"
+            " 'old-kind', 'old-error', '2026-11-12', '2026-11-12')"
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    storage = SQLiteStorage(str(path))
+    await storage.initialize()
+    try:
+        queued = await storage.get_outbox_item("queued-outbox")
+        assert queued is not None
+        assert queued.status == "queued"
+        assert queued.error_summary is None
+        assert await storage.mark_outbox_cancelled("queued-outbox")
+        cancelled = await storage.get_outbox_item("queued-outbox")
+        assert cancelled is not None
+        assert cancelled.status == "cancelled"
+        assert cancelled.error_summary is None
+        assert cancelled.failure_kind_detail is None
+    finally:
+        await storage.close()
+
+    db = sqlite3.connect(path)
+    try:
+        rows = db.execute(
+            "SELECT field, diagnostic FROM delivery_evidence_diagnostics"
+            " WHERE family='outbox' AND row_id='queued-outbox' AND attempt=1"
+            " ORDER BY diag_id"
+        ).fetchall()
+        assert rows == [
+            ("failure_kind_detail", "old-kind"),
+            ("error_summary", "old-error"),
+            ("failure_kind_detail", ""),
+            ("error_summary", ""),
+        ]
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        db.close()

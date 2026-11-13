@@ -666,7 +666,7 @@ transaction, and the evidence tables carry no inline diagnostic columns
 Diagnostics and evidence consumers read every diagnostic value from the side
 table. Outbox lookups are attempt-scoped: a superseded outbox failure never
 surfaces on a later settled attempt. Transitions to `queued` or `sent`
-append explicit clears for preceding attempt failures, so later transitions
+append explicit clears for failures on the committed attempt, so later transitions
 cannot surface that stale text. Terminal failures may retain their own
 error summary; attempt scoping excludes only diagnostics belonging to a
 different attempt. Appended side-table rows
