@@ -9,6 +9,16 @@ this file once they land.
 
 ## Recent changes
 
+- **499 — Self-compat vocabulary guard.** Source docstrings and comments no
+  longer tolerate phrase framing that presents MEDRE's own surfaces as
+  retained compatibility baggage: a fragment-assembled phrase family joins
+  the shared forbidden-term helpers and scans `src/` Python files only,
+  outside the generic durable-term union. Foreign-contract wording belongs
+  in the self-asserting allowlist module as tight path-prefix and phrase
+  pairs with the foreign contract named; the allowlist ships empty because
+  `src/` scans clean today. Retention accounting, backward boundary guards,
+  foreign identifiers used as names, and predecessor-layout descriptions
+  keep their ordinary vocabulary.
 - **498 — Interop module retirement.** The `medre.interop.mmrelay`
   compatibility module is deleted from core with no alias left behind: the
   last adapter import left the tree at the pinned Meshtastic revision, and
