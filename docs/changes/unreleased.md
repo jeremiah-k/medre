@@ -319,8 +319,8 @@ this file once they land.
   now match the typed model in `src/medre/config/`. No runtime behavior
   changed.
 - **Attribution config fields:** `relay_prefix` on Meshtastic, MeshCore,
-  and Matrix targets; `lxmf_relay_prefix` on LXMF targets; and shared
-  source `origin_label` labels. Meshtastic permits `None` for automatic
+  Matrix, and LXMF targets; and shared source `origin_label` labels.
+  Meshtastic permits `None` for automatic
   attribution; `""` disables it. `announce_interval_seconds` (float, default
   `600.0`) configures periodic LXMF announce for mesh path discovery. Meshtastic
   packet classification policy is now configurable.
