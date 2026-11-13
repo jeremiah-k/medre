@@ -43,7 +43,7 @@ adapters:
       announce_interval_seconds: 8
       stamp_cost: 0
       origin_label: Reticulum lab
-      lxmf_relay_prefix: "[{origin_label}] {sender}: "
+      relay_prefix: "[{origin_label}] {sender}: "
   xmpp:
     xmpp:
       enabled: true

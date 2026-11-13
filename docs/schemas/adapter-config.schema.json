@@ -496,10 +496,10 @@
           "minimum": 0,
           "description": "Interval in seconds between periodic LXMF announces for mesh path discovery. 0 disables."
         },
-        "lxmf_relay_prefix": {
+        "relay_prefix": {
           "type": "string",
           "default": "",
-          "description": "Optional relay prefix template prepended to outbound LXMF message body text. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
+          "description": "Optional relay prefix template prepended to outbound LXMF message body text. Empty string disables prefixing. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1)."
         }
       },
       "required": ["adapter_id"],

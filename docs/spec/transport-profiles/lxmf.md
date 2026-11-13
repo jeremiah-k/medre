@@ -28,7 +28,7 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 | `reticulum_config_dir`      | `str \| None`                                            | `None`       | Explicit Reticulum configuration directory for embedded/local isolation (e.g. one RNodeInterface, `share_instance = No`); `None` = SDK discovery    |
 | `storage_path`              | `str \| None`                                            | `None`       | **Required** when `connection_type="reticulum"` — config validation raises `LxmfConfigError`; session start raises `LxmfConnectionError` without it |
 | `announce_interval_seconds` | `float`                                                  | `600.0`      | Interval in seconds between periodic LXMF announces; `0` disables                                                                                   |
-| `lxmf_relay_prefix`         | `str`                                                    | `""`         | Relay prefix template for outbound body text (empty = no prefix; see §Relay Attribution Prefix)                                                     |
+| `relay_prefix`              | `str`                                                    | `""`         | Relay prefix template for outbound body text (empty = no prefix; see §Relay Attribution Prefix)                                                     |
 
 ---
 
@@ -99,7 +99,7 @@ No reply or reaction rendering — capabilities declare both as `"unsupported"`.
 The LXMF renderer prepends a human-readable relay attribution prefix to
 outbound message body text when a relay prefix is configured.
 
-**Configuration:** `lxmf_relay_prefix` (string, default `""`) on `LxmfConfig`.
+**Configuration:** `relay_prefix` (string, default `""`) on `LxmfConfig`.
 When empty, no prefix is prepended. The runtime resolves the prefix per target
 adapter — the LXMF renderer is **target-aware**: the prefix template comes from
 the target LXMF adapter's config, not from a collapsed single-prefix model.
@@ -197,7 +197,7 @@ objects are absent.
 When no display name is present, both label fields are `None`. The
 opaque `source_hash` never populates `source_sender_label`, so `{sender}`
 renders empty rather than a truncated hash. Operators who want the hash
-in a prefix use `{sender_id}`. The default `lxmf_relay_prefix` is `""`;
+in a prefix use `{sender_id}`. The default `relay_prefix` is `""`;
 templates referencing `{sender}` or `{sender_short}` resolve to empty
 strings when no display name is captured (neither message-carried nor
 announce-resolved).
