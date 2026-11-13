@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from medre.config.model import RuntimeLimits
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -104,13 +105,29 @@ class RetryWorker:
                 route = self._make_route(receipt)
                 plan = self._make_plan(receipt)
                 try:
-                    await self.pipeline.deliver_execution_to_target(
+                    evidence = await self.pipeline.deliver_execution_to_target(
                         event,
                         route,
                         plan,
                         previous_receipt=receipt,
                     )
-                    self.state.succeeded += 1
+                    if not isinstance(evidence, DeliveryExecutionEvidence):
+                        raise TypeError(
+                            "Retry test pipeline must return execution evidence"
+                        )
+                    result = evidence.primary_receipt
+                    if result is None:
+                        raise TypeError("Retry test execution has no primary receipt")
+                    if result.status in {"queued", "sent"}:
+                        self.state.succeeded += 1
+                    elif (
+                        result.status == "failed"
+                        and result.failure_kind == "adapter_transient"
+                        and not self._retry_executor.is_exhausted(next_attempt)
+                    ):
+                        self.state.failed += 1
+                    else:
+                        self.state.dead_lettered += 1
                 except asyncio.CancelledError:
                     raise
                 except (AssertionError, TypeError):

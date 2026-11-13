@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -33,6 +35,40 @@ from tests.helpers.delivery_evidence import evidence_for_receipt
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "failure_kind,expected_counter",
+    [("adapter_transient", "failed"), ("adapter_permanent", "dead_lettered")],
+)
+async def test_lightweight_retry_worker_classifies_returned_failure(
+    failure_kind: str, expected_counter: str
+) -> None:
+    """A normal evidence return is not proof that retry delivery succeeded."""
+    storage = MagicMock()
+    storage.list_due_retry_receipts = AsyncMock(return_value=[_make_failed_receipt()])
+    storage.get = AsyncMock(return_value=_make_event())
+    result = DeliveryReceipt(
+        receipt_id=f"returned-{failure_kind}",
+        event_id="evt-001",
+        delivery_plan_id="plan-1",
+        target_adapter="target_a",
+        route_id="route-1",
+        status="failed",
+        error="provider rejected delivery",
+        failure_kind=failure_kind,
+        attempt_number=2,
+    )
+    pipeline = MagicMock()
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(result)
+    )
+    worker = RetryWorker(storage, pipeline, RetryPolicy(max_attempts=3))
+
+    assert await worker._process_due(datetime.now(timezone.utc)) == 1
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert getattr(worker.state, expected_counter) == 1
 
 
 class TestRetryShutdown:
