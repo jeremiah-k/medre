@@ -9,6 +9,13 @@ this file once they land.
 
 ## Recent changes
 
+- **497 — Adapter pin promotion.** The Meshtastic adapter revision that
+  drops the last adapter import of `medre.interop.mmrelay` is pinned: the
+  reaction sentinel is a native decoded-packet property in the classifier
+  and no adapter in the manifest imports the interop module, unblocking its
+  core retirement. The remaining adapter pins advance to their terminology
+  revisions, where present-tense contracts replace historical framing in
+  docstrings and test suites; no adapter wire behavior changes.
 - **495 — MMRelay legacy compatibility removal.** Operator docs, example
   configs, and the live-validation journey no longer reference the
   `mmrelay_compatibility` option, and spec sections describing MEDRE's own
