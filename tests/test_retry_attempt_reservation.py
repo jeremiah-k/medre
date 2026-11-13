@@ -15,6 +15,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 import medre.runtime.retry as retry_module
 from medre.core.contracts.adapter import (
     AdapterHandoffResult,
@@ -175,6 +177,67 @@ async def _claim_due(storage, worker_id: str = _WORKER):
         now=datetime.now(timezone.utc).isoformat(),
         worker_id=worker_id,
     )
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+async def test_error_finalization_obeys_persisted_attempt_authority(
+    temp_storage, terminal: bool
+) -> None:
+    """A generic error cannot reclassify a persisted permanent or terminal result."""
+    event = await _seed_event(temp_storage, f"evt-evidence-{terminal}")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id=f"obox-evidence-{terminal}",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+    await _append_receipt(
+        temp_storage,
+        outbox_id=item.outbox_id,
+        event_id=event.event_id,
+        status="failed",
+        attempt_number=1,
+    )
+    claimed = next(
+        row for row in await _claim_due(temp_storage) if row.outbox_id == item.outbox_id
+    )
+    lifecycle = DeliveryLifecycleService()
+    assert await lifecycle.reserve_retry_attempt(temp_storage, claimed) == 2
+    failed = DeliveryReceipt(
+        receipt_id=f"rcpt-permanent-{terminal}",
+        event_id=event.event_id,
+        delivery_plan_id=_PLAN_ID,
+        target_adapter="lxmf-main",
+        target_channel="aa" * 16,
+        route_id="route-reservation",
+        status="failed",
+        failure_kind="adapter_permanent",
+        error="permanent provider refusal",
+        attempt_number=2,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    await temp_storage.append_receipt(failed)
+    if terminal:
+        await temp_storage.append_receipt(
+            lifecycle.build_terminal_lifecycle_receipt(
+                failed, status="cancelled", error="cancelled by operator"
+            )
+        )
+    result = await lifecycle.finalize_retry_attempt_error(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=5),
+        error=RuntimeError("generic failure wrapper"),
+        attempt_number=2,
+    )
+    assert result.outcome == ("cancelled" if terminal else "dead_lettered")
+    assert result.failure_kind == "adapter_permanent"
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert row.status == result.outcome
+    assert row.next_attempt_at is None
+    assert row.attempt_number == 2
 
 
 # ---------------------------------------------------------------------------
