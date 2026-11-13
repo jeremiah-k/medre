@@ -115,7 +115,7 @@ class _MeshInteropHarness:
             MeshtasticConfig(
                 adapter_id=MT_ADAPTER,
                 default_channel=0,
-                radio_relay_prefix=prefix_template,
+                relay_prefix=prefix_template,
                 origin_label="mtlab",
             )
         )
@@ -123,7 +123,7 @@ class _MeshInteropHarness:
             MeshCoreConfig(
                 adapter_id=MC_ADAPTER,
                 default_channel=1,
-                meshcore_relay_prefix=prefix_template,
+                relay_prefix=prefix_template,
                 origin_label="mclab",
                 max_text_bytes=MC_MAX_BYTES,
             )

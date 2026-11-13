@@ -35,13 +35,13 @@ from tests.helpers.native_metadata import (
 def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
-    radio_relay_prefix: str = "",
+    relay_prefix: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
-        radio_relay_prefix=radio_relay_prefix,
+        relay_prefix=relay_prefix,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -168,7 +168,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """All Test D requirements in one test: spaces, casing, reply_id, no emoji."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(
@@ -229,7 +229,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
         """Prefix without trailing space gets separator space before 'reacted'."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}]",
+            relay_prefix="[{sender}]",
         )
 
         rel = _make_cross_platform_relation(
@@ -393,10 +393,10 @@ class TestMatrixDisplayNameInPrefix:
     """Verify that Matrix display names flow through to the prefix template."""
 
     async def test_sender_in_prefix_from_matrix_display_name(self) -> None:
-        """radio_relay_prefix {sender} uses Matrix display name."""
+        """relay_prefix {sender} uses Matrix display name."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}]: ",
+            relay_prefix="[{sender}]: ",
         )
 
         event = CanonicalEvent(
@@ -432,7 +432,7 @@ class TestMatrixDisplayNameInPrefix:
         """Prefix shows display name, not raw MXID like @user:server."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{sender}: ",
+            relay_prefix="{sender}: ",
         )
 
         event = CanonicalEvent(
@@ -488,7 +488,7 @@ class TestByteBudgetTruncation:
         """ASCII text over budget truncates to fit within max_text_bytes."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}]: ",
+            relay_prefix="[{sender}]: ",
             max_text_bytes=20,
         )
 
@@ -694,7 +694,7 @@ class TestDescriptiveReactionByteBudget:
         """Long descriptive reaction text is truncated to byte budget."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
             max_text_bytes=30,
         )
 
@@ -782,12 +782,12 @@ class TestTargetAwareMeshtasticRenderer:
         """Prefix matches target adapter, not a random one."""
         config_a = MeshtasticConfig(
             adapter_id="radio-a",
-            radio_relay_prefix="[A]: ",
+            relay_prefix="[A]: ",
             max_text_bytes=227,
         )
         config_b = MeshtasticConfig(
             adapter_id="radio-b",
-            radio_relay_prefix="[B]: ",
+            relay_prefix="[B]: ",
             max_text_bytes=227,
         )
 
@@ -862,12 +862,12 @@ def _make_multi_radio_renderer() -> MeshtasticRenderer:
         configs={
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
-                radio_relay_prefix="[{sender_short}@alpha] ",
+                relay_prefix="[{sender_short}@alpha] ",
                 max_text_bytes=60,
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
-                radio_relay_prefix="[{sender_short}@bravo] ",
+                relay_prefix="[{sender_short}@bravo] ",
                 max_text_bytes=200,
             ),
         }
@@ -1140,7 +1140,7 @@ class TestMultiRadioTargetAware:
 
 async def test_meshcore_pubkey_prefix_in_sender_id() -> None:
     """MeshCore event with pubkey_prefix populates sender_id."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender_id}: ")
     event = CanonicalEvent(
         event_id="mc-1",
         event_kind="message.created",
@@ -1169,7 +1169,7 @@ async def test_meshcore_pubkey_prefix_in_sender_id() -> None:
 
 async def test_meshcore_pubkey_prefix_in_sender_id_template() -> None:
     """MeshCore event pubkey_prefix is available as {sender_id}."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="<{sender_id}> ")
+    renderer = _make_renderer("mesh-1", relay_prefix="<{sender_id}> ")
     event = CanonicalEvent(
         event_id="mc-2",
         event_kind="message.created",
@@ -1197,7 +1197,7 @@ async def test_meshcore_pubkey_prefix_in_sender_id_template() -> None:
 
 async def test_lxmf_source_hash_in_sender_id() -> None:
     """LXMF event with source_hash populates {sender_id}."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_id}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender_id}: ")
     event = CanonicalEvent(
         event_id="lx-1",
         event_kind="message.created",
@@ -1223,7 +1223,7 @@ async def test_lxmf_source_hash_in_sender_id() -> None:
 
 async def test_lxmf_source_hash_in_sender_short() -> None:
     """LXMF event with source_hash: sender_short is empty (no short label)."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender_short}: ")
     event = CanonicalEvent(
         event_id="lx-2",
         event_kind="message.created",
@@ -1251,7 +1251,7 @@ async def test_lxmf_source_hash_in_sender_short() -> None:
 async def test_no_native_data_no_none_in_prefix() -> None:
     """Event with no native metadata renders empty prefix vars, not 'None'."""
     renderer = _make_renderer(
-        "mesh-1", radio_relay_prefix="[{sender}][{sender_short}]: "
+        "mesh-1", relay_prefix="[{sender}][{sender_short}]: "
     )
     event = CanonicalEvent(
         event_id="evt-empty",
@@ -1277,7 +1277,7 @@ async def test_no_native_data_no_none_in_prefix() -> None:
 
 async def test_partial_native_data_no_none() -> None:
     """Event with only longname renders sender_short empty, not 'None'."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}/{sender_short}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender}/{sender_short}: ")
     event = CanonicalEvent(
         event_id="evt-partial",
         event_kind="message.created",
@@ -1311,7 +1311,7 @@ async def test_partial_native_data_no_none() -> None:
 
 async def test_prefix_metadata_records_template_and_variables() -> None:
     """Result metadata includes relay_prefix_template and relay_prefix_variables_used."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender_short}: ")
     event = CanonicalEvent(
         event_id="evt-meta",
         event_kind="message.created",
@@ -1359,7 +1359,7 @@ async def test_prefix_metadata_no_prefix_keys_when_no_prefix() -> None:
 
 async def test_prefix_metadata_records_missing_variables() -> None:
     """Result metadata records variables that resolved to empty."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender}: ")
     event = CanonicalEvent(
         event_id="evt-miss",
         event_kind="message.created",

@@ -36,12 +36,12 @@ from tests.helpers.lxmf_renderer import lxmf_renderer_with_prefix
 def _make_meshcore_config(
     adapter_id: str = "mc-1",
     *,
-    meshcore_relay_prefix: str = "",
+    relay_prefix: str = "",
     max_text_bytes: int = 512,
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
-        meshcore_relay_prefix=meshcore_relay_prefix,
+        relay_prefix=relay_prefix,
         max_text_bytes=max_text_bytes,
     )
 
@@ -74,7 +74,7 @@ def _make_event(
 async def test_meshcore_mocked_exception_guard() -> None:
     """On formatting_exception, raw template is NOT prepended to text."""
     template = "[{origin_label}]: "
-    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    cfg = _make_meshcore_config(relay_prefix=template)
     renderer = MeshCoreRenderer(configs={"mc-1": cfg})
     event = _make_event()
     # Patch inside the defining module so the real format_relay_prefix
@@ -97,7 +97,7 @@ async def test_meshcore_mocked_exception_guard() -> None:
 async def test_meshcore_mocked_metadata_records_all_six_keys() -> None:
     """All 6 normalized metadata keys are recorded even on exception."""
     template = "[{origin_label}]: "
-    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    cfg = _make_meshcore_config(relay_prefix=template)
     renderer = MeshCoreRenderer(configs={"mc-1": cfg})
     event = _make_event()
     with patch(
@@ -122,7 +122,7 @@ async def test_meshcore_normal_unknown_placeholder_still_prepended() -> None:
     """Non-exception formatting (unknown placeholder) still prepends prefix."""
     # {meshnet_name} is unknown → rendered as literal, no exception
     template = "[{meshnet_name}]: "
-    cfg = _make_meshcore_config(meshcore_relay_prefix=template)
+    cfg = _make_meshcore_config(relay_prefix=template)
     renderer = MeshCoreRenderer(configs={"mc-1": cfg})
     event = _make_event()
     result = await renderer.render(

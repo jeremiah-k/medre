@@ -380,7 +380,7 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    RADIO: MeshtasticConfig(adapter_id=RADIO, radio_relay_prefix="")
+                    RADIO: MeshtasticConfig(adapter_id=RADIO, relay_prefix="")
                 }
             ),
             priority=50,
@@ -559,7 +559,7 @@ class TestMultiRadioCrossTargetFallback:
         rp2.register(
             MeshtasticRenderer(
                 configs={
-                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix="")
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, relay_prefix="")
                 }
             ),
             priority=50,
@@ -653,8 +653,8 @@ class TestMultiRadioCorrectTargetSelection:
         rp1.register(
             MeshtasticRenderer(
                 configs={
-                    ALPHA: MeshtasticConfig(adapter_id=ALPHA, radio_relay_prefix=""),
-                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix=""),
+                    ALPHA: MeshtasticConfig(adapter_id=ALPHA, relay_prefix=""),
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, relay_prefix=""),
                 }
             ),
             priority=50,
@@ -732,7 +732,7 @@ class TestMultiRadioCorrectTargetSelection:
         rp2.register(
             MeshtasticRenderer(
                 configs={
-                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, radio_relay_prefix="")
+                    BRAVO: MeshtasticConfig(adapter_id=BRAVO, relay_prefix="")
                 }
             ),
             priority=50,
@@ -812,7 +812,7 @@ class TestMissingNativeRefRoundtrip:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    RADIO: MeshtasticConfig(adapter_id=RADIO, radio_relay_prefix="")
+                    RADIO: MeshtasticConfig(adapter_id=RADIO, relay_prefix="")
                 }
             ),
             priority=50,

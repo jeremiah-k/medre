@@ -835,7 +835,7 @@ class TestMatrixReplyToMeshtasticNativeReplyId:
             MeshtasticRenderer(
                 configs={
                     _MESH_ADAPTER: MeshtasticConfig(
-                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                        adapter_id=_MESH_ADAPTER, relay_prefix=""
                     )
                 }
             ),
@@ -926,7 +926,7 @@ class TestMatrixReplyMissingMappingNoCrash:
             MeshtasticRenderer(
                 configs={
                     _MESH_ADAPTER: MeshtasticConfig(
-                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                        adapter_id=_MESH_ADAPTER, relay_prefix=""
                     )
                 }
             ),
@@ -1073,7 +1073,7 @@ class TestMatrixToMatrixReplyLinksOnMeshnet:
             MeshtasticRenderer(
                 configs={
                     _MESH_ADAPTER: MeshtasticConfig(
-                        adapter_id=_MESH_ADAPTER, radio_relay_prefix=""
+                        adapter_id=_MESH_ADAPTER, relay_prefix=""
                     )
                 }
             ),

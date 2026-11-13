@@ -169,7 +169,7 @@ async def test_meshtastic_route_label_overrides_adapter_label() -> None:
     """Route context origin_label overrides adapter registry."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshtasticRenderer(
         configs={"mesh-1": config},
@@ -197,7 +197,7 @@ async def test_meshtastic_adapter_label_used_when_no_route_label() -> None:
     """Adapter registry label used when no route label."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshtasticRenderer(
         configs={"mesh-1": config},
@@ -224,7 +224,7 @@ async def test_meshtastic_missing_label_safe() -> None:
     """Missing label renders empty, not 'None'."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshtasticRenderer(configs={"mesh-1": config})
     event = _make_event(source_adapter="src-a")
@@ -249,7 +249,7 @@ async def test_meshcore_route_label_overrides_adapter_label() -> None:
     """Route context origin_label overrides adapter registry."""
     config = MeshCoreConfig(
         adapter_id="mc-1",
-        meshcore_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshCoreRenderer(
         configs={"mc-1": config},
@@ -277,7 +277,7 @@ async def test_meshcore_adapter_label_used_when_no_route_label() -> None:
     """Adapter registry label used when no route label."""
     config = MeshCoreConfig(
         adapter_id="mc-1",
-        meshcore_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshCoreRenderer(
         configs={"mc-1": config},
@@ -403,7 +403,7 @@ async def test_matrix_to_meshtastic_sender_short_and_origin_label() -> None:
     """Matrix→Meshtastic: {sender_short} and {origin_label} in prefix."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="<{sender_short}/{origin_label}> ",
+        relay_prefix="<{sender_short}/{origin_label}> ",
     )
     renderer = MeshtasticRenderer(
         configs={"mesh-1": config},
@@ -440,7 +440,7 @@ async def test_meshcore_to_meshtastic_sender_id_and_origin_label() -> None:
     """MeshCore→Meshtastic: {sender_id} and {origin_label} in prefix."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="({sender_id}@{origin_label}) ",
+        relay_prefix="({sender_id}@{origin_label}) ",
     )
     renderer = MeshtasticRenderer(
         configs={"mesh-1": config},
@@ -471,7 +471,7 @@ async def test_lxmf_to_meshcore_sender_id_and_origin_label() -> None:
     """LXMF→MeshCore: {sender_id} and {origin_label} in prefix."""
     config = MeshCoreConfig(
         adapter_id="mc-1",
-        meshcore_relay_prefix="[{sender_id}@{origin_label}] ",
+        relay_prefix="[{sender_id}@{origin_label}] ",
     )
     renderer = MeshCoreRenderer(
         configs={"mc-1": config},
@@ -507,7 +507,7 @@ async def test_meshcore_exception_does_not_prepend_raw_template() -> None:
     """MeshCore: formatting_exception does not prepend raw template text."""
     config = MeshCoreConfig(
         adapter_id="mc-1",
-        meshcore_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     renderer = MeshCoreRenderer(configs={"mc-1": config})
     event = _make_event(source_adapter="src-a")
@@ -587,7 +587,7 @@ async def test_meshnet_name_unknown_in_meshtastic_prefix() -> None:
     """{meshnet_name} is not a known template variable."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="[{meshnet_name}] ",
+        relay_prefix="[{meshnet_name}] ",
     )
     renderer = MeshtasticRenderer(configs={"mesh-1": config})
     event = _make_event(source_adapter="src-a")
@@ -644,7 +644,7 @@ async def test_meshtastic_empty_route_label_suppresses_adapter_label() -> None:
     """Meshtastic: source_origin_label='' suppresses adapter origin_label."""
     config = MeshtasticConfig(
         adapter_id="mesh-1",
-        radio_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshtasticRenderer(
         configs={"mesh-1": config},
@@ -673,7 +673,7 @@ async def test_meshcore_empty_route_label_suppresses_adapter_label() -> None:
     """MeshCore: source_origin_label='' suppresses adapter origin_label."""
     config = MeshCoreConfig(
         adapter_id="mc-1",
-        meshcore_relay_prefix="[{origin_label}] ",
+        relay_prefix="[{origin_label}] ",
     )
     renderer = MeshCoreRenderer(
         configs={"mc-1": config},

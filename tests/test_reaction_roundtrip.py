@@ -400,7 +400,7 @@ class TestMatrixReactionToMeshtasticRoundtrip:
         # -- Setup adapters and pipeline -----------------------------------
         radio_config = MeshtasticConfig(
             adapter_id=_RADIO_ALPHA,
-            radio_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         radio_adapter = FakeMeshtasticAdapter(radio_config)
 

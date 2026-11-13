@@ -1165,8 +1165,8 @@ class TestEvidenceBundleSchemaNewFields:
 #: Distinctive required/property fields per adapter-config oneOf arm title.
 _ADAPTER_ARM_DISTINCTIVE_FIELDS: dict[str, frozenset[str]] = {
     "MatrixConfig": frozenset({"homeserver", "user_id"}),
-    "MeshtasticConfig": frozenset({"radio_relay_prefix", "encrypted_action"}),
-    "MeshCoreConfig": frozenset({"meshcore_relay_prefix", "serial_baudrate"}),
+    "MeshtasticConfig": frozenset({"relay_prefix", "encrypted_action"}),
+    "MeshCoreConfig": frozenset({"relay_prefix", "serial_baudrate"}),
     "LxmfConfig": frozenset({"lxmf_relay_prefix", "default_delivery_method"}),
     "XMPPConfig": frozenset({"jid", "rooms"}),
     "ChatmailConfig": frozenset({"account_id", "chats"}),

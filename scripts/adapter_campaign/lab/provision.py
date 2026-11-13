@@ -524,7 +524,7 @@ async def campaign(root: Path, *, suite: str = "smoke") -> None:
                 "default_channel": channel,
                 "identity": pair["gateway"]["name"],
                 "message_delay_seconds": 2.5,
-                "meshcore_relay_prefix": "[{origin_label}] {sender}: ",
+                "relay_prefix": "[{origin_label}] {sender}: ",
             }
             endpoint = {
                 "transport": name,
@@ -590,8 +590,8 @@ async def campaign(root: Path, *, suite: str = "smoke") -> None:
         }
         if suite == "baseline-v1":
             prefix_field = {
-                "meshtastic": "radio_relay_prefix",
-                "meshcore": "meshcore_relay_prefix",
+                "meshtastic": "relay_prefix",
+                "meshcore": "relay_prefix",
                 "lxmf": "lxmf_relay_prefix",
             }.get(name, "relay_prefix")
             config[prefix_field] = (

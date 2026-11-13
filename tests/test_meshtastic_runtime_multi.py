@@ -107,7 +107,7 @@ adapters:
       origin_label: RenderNet
       default_channel: 3
       max_text_bytes: 50
-      radio_relay_prefix: '[{origin_label}] '
+      relay_prefix: '[{origin_label}] '
   matrix:
     matrix-fake:
       enabled: true
@@ -292,11 +292,11 @@ class TestMeshtasticRuntimeMulti:
         """Matrix→radio-b without target_channel uses radio-b config.
 
         Verifies that the rendering pipeline honours radio-b's
-        ``default_channel``, ``max_text_bytes``, and ``radio_relay_prefix``
+        ``default_channel``, ``max_text_bytes``, and ``relay_prefix``
         when no explicit target_channel is provided.
         """
         # The config uses [{origin_label}] template syntax in
-        # radio_relay_prefix.  Bypass _expand_paths_in_dict so the
+        # relay_prefix.  Bypass _expand_paths_in_dict so the
         # template string survives config loading intact.
         monkeypatch.setattr(
             "medre.config.loader._expand_paths_in_dict",
@@ -316,7 +316,7 @@ class TestMeshtasticRuntimeMulti:
             assert cfg_b is not None
             assert cfg_b.default_channel == 3
             assert cfg_b.max_text_bytes == 50
-            assert cfg_b.radio_relay_prefix == "[{origin_label}] "
+            assert cfg_b.relay_prefix == "[{origin_label}] "
             assert cfg_b.origin_label == "RenderNet"
 
             # Render a Matrix event targeting radio-b without target_channel.
@@ -338,7 +338,7 @@ class TestMeshtasticRuntimeMulti:
             assert result.metadata["max_text_bytes"] == 50
             assert len(result.payload["text"].encode("utf-8")) <= 50
 
-            # radio_relay_prefix template resolves with the source adapter's
+            # relay_prefix template resolves with the source adapter's
             # (matrix-fake) origin_label, not the target radio-b's origin_label.
             text = result.payload["text"]
             assert (

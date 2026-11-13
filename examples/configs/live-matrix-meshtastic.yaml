@@ -59,15 +59,15 @@ adapters:
       connection_type: serial
       serial_port: /dev/ttyACM0
       origin_label: medre-radio # platform-neutral label used in cross-platform prefixes
-      radio_relay_prefix: "{sender_short}: " # Matrix→Meshtastic: prepend short name (default)
-      # radio_relay_prefix: ""                            # empty = no prefix for radio direction
+      relay_prefix: "{sender_short}: " # Matrix→Meshtastic: prepend short name (default)
+      # relay_prefix: ""                            # empty = no prefix for radio direction
 
       # # --- TCP alternative (uncomment and comment out serial lines above) ---
       # connection_type: tcp
       # host: meshtastic.local
       # port: 4403
       # origin_label: medre-radio
-      # radio_relay_prefix: "{sender_short}: "
+      # relay_prefix: "{sender_short}: "
 
 # ---------------------------------------------------------------------------
 # Route — bidirectional bridge between Matrix and Meshtastic

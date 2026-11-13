@@ -345,7 +345,7 @@ class TestMeshtasticdSdkBridge:
                 configs={
                     "sdk-bridge-fake-out": MeshtasticConfig(
                         adapter_id="sdk-bridge-fake-out",
-                        radio_relay_prefix="",
+                        relay_prefix="",
                     )
                 }
             ),
