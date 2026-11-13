@@ -175,6 +175,27 @@ async def test_settled_transitions_suppress_seeded_diagnostics(temp_storage, mar
     assert {row["attempt"] for row in rows} == {1}
 
 
+async def test_queued_then_cancelled_keeps_prior_failure_cleared(temp_storage):
+    """A cancelled queued attempt must not expose its old failure summary."""
+    item = await _seeded_outbox(
+        temp_storage, "ob-queued-cancelled", "evt-queued-cancelled"
+    )
+    assert await temp_storage.mark_outbox_queued(item.outbox_id, attempt_number=1)
+    assert await temp_storage.mark_outbox_cancelled(item.outbox_id)
+    cancelled = await temp_storage.get_outbox_item(item.outbox_id)
+    assert cancelled is not None
+    assert cancelled.status == "cancelled"
+    assert cancelled.failure_kind_detail is None
+    assert cancelled.error_summary is None
+    rows = await _outbox_side_rows(temp_storage, item.outbox_id)
+    assert [(row["field"], row["diagnostic"], row["attempt"]) for row in rows] == [
+        ("failure_kind_detail", "seeded detail", 1),
+        ("error_summary", "seeded summary", 1),
+        ("failure_kind_detail", "", 1),
+        ("error_summary", "", 1),
+    ]
+
+
 async def test_terminal_finalization_suppresses_seeded_diagnostics(temp_storage):
     item = await _seeded_outbox(temp_storage, "ob-seeded-final", "evt-seeded-final")
     receipt = DeliveryReceipt(

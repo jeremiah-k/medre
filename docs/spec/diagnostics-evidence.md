@@ -665,9 +665,11 @@ transaction, and the evidence tables carry no inline diagnostic columns
 
 Diagnostics and evidence consumers read every diagnostic value from the side
 table. Outbox lookups are attempt-scoped: a superseded outbox failure never
-surfaces on a later settled attempt, and a transition to `queued`, `sent`, or
-a terminal status suppresses the current attempt's failure text while the
-append-only side-table rows preserve that history. Appended side-table rows
+surfaces on a later settled attempt. Transitions to `queued` or `sent`
+append explicit clears for preceding attempt failures, so later transitions
+cannot surface that stale text. Terminal failures may retain their own
+error summary; attempt scoping excludes only diagnostics belonging to a
+different attempt. Appended side-table rows
 are never rewritten, backfilled, or erased, so previously collected evidence
 reads unchanged. Structured provider/adapter metadata (the `metadata`
 columns) is NOT part of this separation: it stays inline, content-classified,

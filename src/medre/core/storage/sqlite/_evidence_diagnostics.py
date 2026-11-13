@@ -49,12 +49,12 @@ INSERT INTO delivery_evidence_diagnostics
 SELECT 'outbox', outbox_id, attempt_number, ?, ?, ?
 FROM delivery_outbox WHERE outbox_id = ?
   AND (? <> ''
-       OR EXISTS (
-           SELECT 1 FROM delivery_evidence_diagnostics d
+       OR (
+           SELECT d.diagnostic FROM delivery_evidence_diagnostics d
            WHERE d.family='outbox' AND d.row_id=delivery_outbox.outbox_id
              AND d.attempt=delivery_outbox.attempt_number AND d.field=?
-             AND d.diagnostic<>''
-       ))
+           ORDER BY d.diag_id DESC LIMIT 1
+       ) <> '')
 """
 
 _INSERT_INGRESS_DIAGNOSTIC = """
@@ -97,8 +97,9 @@ def outbox_diagnostic_ops(
 
     Each op reads ``attempt_number`` from the outbox row inside the parent
     write's transaction, so the key always matches the generation the parent
-    transition just finalized. Empty strings record an explicit clear so a
-    previous diagnostic cannot reappear in the same attempt.
+    transition just finalized. Empty strings record an explicit clear only
+    when the latest diagnostic is nonempty; redundant clears do not grow the
+    append-only history.
     """
     ops: list[tuple[str, tuple[Any, ...]]] = []
     for field in _DIAGNOSTIC_FIELDS["outbox"]:
