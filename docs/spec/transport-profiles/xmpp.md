@@ -71,7 +71,7 @@ Machine-readable capability declaration: [`xmpp-capabilities.json`](xmpp-capabil
 | edits               | `"unsupported"`                                                                            |
 | deletes             | `"unsupported"`                                                                            |
 | attachments         | `False`                                                                                    |
-| metadata_fields     | `False`                                                                                    |
+| metadata_fields     | `True`                                                                                     |
 | store_and_forward   | `False`                                                                                    |
 | direct_messages     | `True`                                                                                     |
 | channels            | `True`                                                                                     |
