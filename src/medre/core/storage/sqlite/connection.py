@@ -640,8 +640,12 @@ def sync_admit_ingress(
     content limit is represented consistently by both the ceiling row and
     the mandatory dependency deadline. A mismatched existing policy raises
     :class:`~medre.core.storage.backend.ContentCeilingMismatchError` and
-    rolls the whole admission back. Admission grants no optional read
-    authority: the installed row carries an empty consumer allowlist.
+    rolls the whole admission back. The installed row allowlists exactly one
+    optional consumer — ``reply_quotes`` — and the same transaction issues
+    one exact bounded body grant for it, expiring with the ceiling. This is
+    the producer-side issuance the reply-context read borrows after ingress
+    completion; it is bounded by the operator-declared ceiling, grants no
+    other consumer, and no grant is issued without a configured ceiling.
     """
     with lock:
         try:
@@ -726,17 +730,30 @@ def sync_admit_ingress(
             for sql, params in chosen_event_ops:
                 db.execute(sql, params)
             if installed_ceiling is not None:
+                # One bounded optional consumer is allowlisted at admission:
+                # reply-context quote reads (described reaction previews and
+                # reply fallbacks) borrow this grant after the source hold
+                # settles. The grant expires with the ceiling, so a lapsed
+                # ceiling degrades quoting honestly instead of extending
+                # retention. No other consumer is allowlisted and no grant
+                # is issued without a configured ceiling.
                 db.execute(
                     "INSERT INTO event_content_access_policies "
                     "(event_id, version, hard_ceiling, allowed_consumers, "
                     "max_optional_hold_microseconds, created_at) "
-                    "VALUES (?, 1, ?, '[]', ?, ?)",
+                    "VALUES (?, 1, ?, '[\"reply_quotes\"]', ?, ?)",
                     (
                         event_id,
                         installed_ceiling[0],
                         installed_ceiling[1],
                         now_iso,
                     ),
+                )
+                db.execute(
+                    "INSERT INTO event_content_access_grants "
+                    "(event_id, scope, consumer, issued_at, expires_at) "
+                    "VALUES (?, 'body', 'reply_quotes', ?, ?)",
+                    (event_id, now_iso, installed_ceiling[0]),
                 )
             if (
                 attachment_plan is not None

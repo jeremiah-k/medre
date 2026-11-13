@@ -87,12 +87,18 @@ expiry is durably observed as `expired_at`, distinct from manual
 `revoked_at`; neither can be undone by a backward clock adjustment. Rejected
 grant replacement or policy mutation preserves expiry observations while
 rolling back the attempted mutation. Issuing a _new_ optional
-grant still requires an active source owner. Reply contexts borrow either the live source or a **previously issued**,
-explicitly bounded `reply_quotes` optional body grant. They never acquire
-a grant implicitly. A body-only quote grant authorizes canonical quote text
-and envelope identity, not opaque native/custom sender metadata; that metadata
-requires live source authority. Sender presentation falls back to recorded
-identity when source context is unavailable. Once both authorities end, native reply identity remains,
+grant still requires an active source owner. The one sanctioned issuance
+point is ceiling-governed admission itself: with a configured content
+ceiling, admission installs the ceiling row allowlisting `reply_quotes` and
+issues that consumer's bounded grant in the same transaction that installs
+the source owner. Reply contexts borrow either the live source or a
+**previously issued**, explicitly bounded `reply_quotes` optional body
+grant. They never acquire a grant implicitly, and reply/reaction
+enrichment never mints one. A body-only quote grant authorizes canonical
+quote text and envelope identity, not opaque native/custom sender metadata;
+that metadata requires live source authority. Sender presentation falls
+back to recorded identity when source context is unavailable. Once both
+authorities end, native reply identity remains,
 but quote text is unavailable instead of being invented.
 `authorize_native_submission` additionally checks the in-progress outbox
 worker, exact attempt, unexpired lease, newer sibling generations, the

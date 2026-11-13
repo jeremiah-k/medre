@@ -428,7 +428,18 @@ async def test_admission_deadline_installs_matching_ceiling_row(tmp_path) -> Non
         assert row is not None
         assert row["version"] == 1
         assert row["hard_ceiling"] == deadline.isoformat(timespec="microseconds")
-        assert row["allowed_consumers"] == "[]"
+        # Admission allowlists exactly the reply-quote consumer and issues its
+        # bounded grant in the same transaction (reaction/reply quote support
+        # after ingress completion); no other consumer is ever allowlisted.
+        assert row["allowed_consumers"] == '["reply_quotes"]'
+        grant = await store._read_one(
+            "SELECT scope, consumer, expires_at FROM event_content_access_grants "
+            "WHERE event_id='ceiling'"
+        )
+        assert grant is not None
+        assert grant["scope"] == "body"
+        assert grant["consumer"] == "reply_quotes"
+        assert grant["expires_at"] == deadline.isoformat(timespec="microseconds")
         # The installed optional-hold bound spans the admitted window, minus
         # the microseconds between the test's sampling and storage's own.
         window_us = (deadline - admitted_at) // timedelta(microseconds=1)

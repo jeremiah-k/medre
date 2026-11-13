@@ -23,10 +23,18 @@ Core SQLite now implements `issue_optional_body_hold`,
 per-event ceiling and one exact `(event_id, body, consumer)` grant are stored
 transactionally; no event receives an implicit grant. Ceiling-governed
 admission — an admission that carries a content deadline — installs that
-per-event ceiling row inside the admission transaction with an empty consumer
-allowlist and an optional-hold bound spanning the admitted window: it records
-the ceiling only and grants no optional read authority. A later hold issuance
-MUST match the installed row exactly or fail closed; an admission deadline
+per-event ceiling row inside the admission transaction with an optional-hold
+bound spanning the admitted window and allowlists exactly one optional
+consumer, `reply_quotes`, for which the same transaction issues one exact
+bounded body grant expiring with the ceiling. This producer-side issuance is
+what lets reply-context quote reads (described reaction previews, reply
+fallbacks) keep working after ingress completion: the grant exists only while
+the source owner is live at admission, is bounded by the operator-declared
+ceiling, and never outlives the content it quotes. Admissions without a
+configured ceiling install no ceiling row and issue no grant. A later hold
+issuance MUST match the installed row exactly or fail closed — the admission
+grant cannot be replaced, resurrected, or extended, and any other consumer is
+refused by the allowlist; an admission deadline
 that disagrees with an installed ceiling MUST fail closed with a typed
 storage refusal. An optional hold MUST
 name an allowlisted consumer, be issued at or before the observation time,

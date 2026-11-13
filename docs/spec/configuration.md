@@ -193,7 +193,11 @@ every ceiling gate dormant. An enabled declaration states one bounded
 window; the producer derives each event's absolute UTC ceiling from the
 trusted local admission time plus that window. Enabling without a declared
 window is refused at load time — an unbounded ceiling is not a
-declaration. The ceiling and its consumers are defined in
+declaration. Enabling the ceiling is also what provisions described-reaction
+and reply quote previews: admission then issues the bounded `reply_quotes`
+grant (see [content availability authority](content-availability-authority.md));
+without it, resolved-target quotes degrade honestly after ingress completes.
+The ceiling and its consumers are defined in
 [content runtime authority](content-runtime-authority.md) and the delivery
 deadline design page.
 
