@@ -2,10 +2,12 @@
 
 Cross-transport limitation summary, inherent constraints, and known gaps.
 
-Transport-specific claims are verified against the seven transport pins
-recorded in `.github/adapter-compatibility.json` (the pin authority) and the
-provider repositories at those commits; "the inspected pin" in a section
-refers to that commit. See
+Transport-specific claims are verified against the **seven transport pins
+recorded in `.github/adapter-compatibility.json`** (the pin authority — the
+inspected commits listed in
+[`known-limitations.md`](known-limitations.md) are exactly those manifest
+refs) and the provider repositories at those commits; "the inspected pin" in
+a section refers to that commit. See
 [`known-limitations.md`](known-limitations.md) for the full provenance table
 and SDK pins.
 

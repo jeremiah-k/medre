@@ -21,14 +21,14 @@ checkout:
 
 | Repository                  | Inspected commit                           |
 | --------------------------- | ------------------------------------------ |
-| `medre`                     | `1d4a181ca418264903603918e6971257ff43abc7` |
-| `medre-adapter-matrix`      | `241e9590035bb18750527c3ea1f02d26f28acfb5` |
-| `medre-adapter-meshtastic`  | `122c502e37528c4fd284d6eb91c4d4349e214ac0` |
-| `medre-adapter-meshcore`    | `ce52cf6d9a4ac587f91090b40d4b5b87d1654b90` |
-| `medre-adapter-lxmf`        | `103c41bc3ef0850a8d0ad0d84ec921fa969c60b9` |
-| `medre-adapter-xmpp`        | `e5b3c34496e8c2fa20ed8f2abd9d0072a6b6fe83` |
-| `medre-adapter-chatmail`    | `312c36cc9a1a1ac9996aec3361430b5a9107e556` |
-| `medre-adapter-simplexchat` | `84071f870f2ee118d9638006aecf47d84168e46e` |
+| `medre`                     | `094deabe60864f10ebb4f0fc9cf0cf9e995b7e02` |
+| `medre-adapter-matrix`      | `4579d350ae9b70fb8562b3339f5c6e475170acd7` |
+| `medre-adapter-meshtastic`  | `150774f04d8f4741ea01f6551da40badcd758b04` |
+| `medre-adapter-meshcore`    | `040cbfe39eead9bdc18a784abb7eae07706034cd` |
+| `medre-adapter-lxmf`        | `438a1497849977fb13218199c6a57f5b99afb3db` |
+| `medre-adapter-xmpp`        | `64a6bf934d32fbd53759d26c8c7cfa5bddb28d83` |
+| `medre-adapter-chatmail`    | `4d98eb9fbd58669a462d83dca022a95a74c4afc6` |
+| `medre-adapter-simplexchat` | `b60e55ea08ad09d7c148493353ae51efbbe3bcff` |
 
 Native SDK pins are declared by each provider's own package metadata at the
 inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,
@@ -107,48 +107,28 @@ paper-specific entry.
   distinguished only at the method level (see
   `_map_delivery_method()`).
 
-## 4. MMRelay Interop Caveats
+## 4. MMRelay Compatibility Surface Removed
 
-The Matrix adapter has a **disabled-by-default, opt-in legacy output path**
-that can emit MMRelay-style flat Matrix content fields. The codec never
-projects these fields to `native.interop.mmrelay`; that namespace is excluded
-from the frozen 0.1.0 native contract. The optional _output_ format has four
-known differences from old MMRelay behavior:
+The Matrix adapter's opt-in MMRelay presentation-compatibility path is
+**removed** at the pinned Matrix adapter revision (commit `bdee94e`, an
+ancestor of the inspected pin): the renderer no longer reads
+`mmrelay_compatibility`, emits flat `meshtastic_*` wire keys, or consults
+the `native.interop.mmrelay` metadata fallback, and the retired core
+`medre.interop` module is deleted. The frozen 0.1.0 native contract never
+included that namespace. Flat MMRelay-style content keys that still arrive
+in Matrix room events are untrusted input: they are ignored when
+normalizing authored text, sender metadata, and reactions, and they never
+override the message body or invent reactions.
 
-1. **`mmrelay_suppress` flag is not honoured.** MEDRE does not consume
-   the upstream `mmrelay_suppress` flag. Operators that rely on it to
-   suppress mmrelay-emitted messages must configure MEDRE directly.
-
-2. **Per-index template variables (`{displayN}`, `{longN}`, `{meshN}`)
-   are unsupported.** MEDRE only renders generic variables such as
-   `{sender}` and `{sender_short}`. Per-index aliases that mmrelay
-   consumers may emit are intentionally not interpolated. See
-   `medre-adapter-matrix/src/medre/adapters/matrix/renderer.py` for the supported template
-   vocabulary.
-
-3. **Reaction body byte-format differences vs upstream MMR.** The legacy
-   Matrix renderer can format a visible emote and flat reaction keys, but the
-   current Matrix codec does **not** interpret these keys as an authoritative
-   reaction. Only native Matrix `m.annotation` relations establish native
-   Matrix reactions; other platform relations are carried as untrusted
-   bounded bridge-context hints until the receiver authorizes a peer.
-
-4. **Hardcoded `TEXT_MESSAGE_APP` portnum in legacy output.** The opt-in
-   Matrix renderer writes `KEY_PORTNUM = PORTNUM_TEXT` for historical flat
-   content. This is not a way to transmit the true source-native portnum.
-   The actual value belongs under `native.meshtastic.portnum`, which is not
-   currently exported in the default, bounded Matrix `bridge_context`.
-   Portnum-sensitive shared-room relays need an explicitly reviewed safe
-   source-native projection before MMRelay 1.5 can claim full parity.
-
-- **Source tests:** `tests/test_matrix_reaction_mmrelay.py` and the
-  `tests/conformance/fixtures/meshtastic/*.json` fixtures, which
-  declare `"portnum": "TEXT_MESSAGE_APP"`.
-- **Direction:** This historical opt-in output mode is **not** an approved
-  shared-room contract for MEDRE 0.1.0 / MMRelay 1.5. The canonical model and
-  bounded relay context supersede it. Any future removal of the optional
-  renderer code requires a separate compatibility review, not a change to the
-  frozen native schema.
+- **Source tests:** `tests/test_matrix_reaction_mmrelay.py` (flat content
+  hints do not override the body or invent reactions) and
+  `tests/test_mmrelay_isolation.py` (AST ban on importing the retired
+  `medre.interop` namespace; Matrix `displayname` trust boundary).
+- **Direction:** There is no MMRelay presentation-compatibility surface to
+  configure. MEDRE 0.1.0 does not claim MMRelay 1.5 parity for shared-room
+  relays; peer relays exchange the canonical `content.medre` envelope. Any
+  future compatibility surface would be a new reviewed contract, not a
+  revival of the deleted renderer path.
 
 ## 5. Diagnostics Granularity Gaps
 
@@ -221,6 +201,27 @@ a local SDK relation test.
 
 - **Source:** `medre-adapter-lxmf/src/medre/adapters/lxmf/codec.py`;
   `medre-adapter-lxmf/tests/test_lxmf_local_integration.py`.
+
+## 7. Encrypted-Transport Live-Tier xfails
+
+The opt-in Synapse and live Matrix integration tiers record known runtime
+limitations as `pytest.xfail` guards instead of hiding them:
+
+- `tests/integration/test_synapse_e2ee_smoke.py:638` — the client-side
+  Megolm-encrypted message was sent but the bot did not decrypt it within
+  the 30 s timeout (outbound session creation / inbound key sharing did not
+  complete in time); the encrypted room, crypto store, and diagnostics are
+  all valid.
+- `tests/integration/test_synapse_e2ee_smoke.py:649` — the second nio
+  client could not be initialised or `room_send` failed, so the run fell
+  back to a plaintext send and cannot prove Megolm decryption.
+- `tests/integration/test_synapse_attachment_smoke.py:826` — the E2EE test
+  client could not join the encrypted room, so the encrypted-attachment
+  path is not exercised on that run.
+- `medre-adapter-matrix/tests/test_matrix_live.py:962` — no inbound message
+  from a third-party sender arrived within 30 s (missing
+  `MATRIX_INBOUND_SENDER` prerequisite or missed manual send window), so
+  inbound relay evidence stays inconclusive for that run.
 
 ## See also
 
