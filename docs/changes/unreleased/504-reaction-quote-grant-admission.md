@@ -20,8 +20,9 @@ admission carries a content deadline (the operator-enabled
 ceiling row allowlisting exactly the `reply_quotes` consumer and issues one
 exact bounded body grant for it, expiring with the ceiling. A reaction (or
 reply) delivered after ingress completion then quotes the target's
-canonical text for exactly as long as the target content itself stays
-retained under the declared ceiling; the hard ceiling, the durable expiry
+canonical text for the grant's lifetime — bounded by the declared ceiling,
+ended by expiry or revocation, independently of how long the canonical
+content remains stored; the hard ceiling, the durable expiry
 tombstones, and explicit revocation all remain enforced on the borrowed
 read. Admissions without a configured ceiling install no ceiling row and
 issue no grant, so their post-completion behavior is unchanged: the
