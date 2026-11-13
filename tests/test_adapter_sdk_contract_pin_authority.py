@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -44,6 +45,7 @@ _SCANNED_SUFFIXES = frozenset(
     {"", ".md", ".py", ".txt", ".json", ".yaml", ".yml", ".toml", ".sh"}
 )
 _IGNORED_SCAN_PARTS = frozenset({"build", "dist", "__pycache__"})
+_VERSION_LITERAL = re.compile(r"\d+(?:\.\d+){1,3}(?:[a-zA-Z0-9.+_-]*)?")
 
 
 def _is_source_file(path: Path) -> bool:
@@ -60,6 +62,70 @@ def _is_source_file(path: Path) -> bool:
     ):
         return False
     return True
+
+
+def _version_literal_comparisons(source: str) -> list[int]:
+    """Find equality checks between installed-version queries and literal pins."""
+    tree = ast.parse(source)
+    hits: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare) or not any(
+            isinstance(op, (ast.Eq, ast.NotEq)) for op in node.ops
+        ):
+            continue
+        operands = (node.left, *node.comparators)
+        version_query = any(
+            isinstance(value, ast.Call)
+            and (
+                isinstance(value.func, ast.Name)
+                and value.func.id == "version"
+                or isinstance(value.func, ast.Attribute)
+                and value.func.attr == "version"
+            )
+            for value in operands
+        )
+        literal_pin = any(
+            isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and _VERSION_LITERAL.fullmatch(value.value)
+            for value in operands
+        )
+        if version_query and literal_pin:
+            hits.append(node.lineno)
+    return hits
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from importlib.metadata import version\nassert version("simplex-chat") == "7.0.2"',
+        'assert "7.0.2" == version("simplex-chat")',
+        'assert metadata.version("simplex-chat") != "7.0.2"',
+    ],
+)
+def test_version_literal_guard_detects_assertion_forms(source: str) -> None:
+    assert _version_literal_comparisons(source) == [2 if "\n" in source else 1]
+
+
+def test_version_literal_guard_allows_metadata_and_derived_versions() -> None:
+    assert not _version_literal_comparisons(
+        'actual = version("simplex-chat")\nassert actual == expected_version'
+    )
+
+
+def test_no_installed_package_version_queries_compare_to_literal_pins() -> None:
+    """Installed SDK versions are dynamic; test expectations follow declared pins."""
+    offenders: list[str] = []
+    for root in (_REPO_ROOT / "src", _REPO_ROOT / "scripts", _REPO_ROOT / "tests"):
+        for path in root.rglob("*.py"):
+            if not _is_source_file(path):
+                continue
+            for line in _version_literal_comparisons(path.read_text(encoding="utf-8")):
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}:{line}")
+    assert not offenders, (
+        "Do not compare installed package versions to hard-coded literals; "
+        "derive expectations from provider metadata:\n" + "\n".join(offenders)
+    )
 
 
 def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> None:
