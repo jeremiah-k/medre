@@ -48,7 +48,6 @@ class ModuleInfo:
 _LAYER_ORDER = [
     "config",
     "core",
-    "interop",
     "runtime",
     "adapters",
     "cli",
