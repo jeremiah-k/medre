@@ -30,7 +30,7 @@ adapters:
       identity: MEDRE-MC
       message_delay_seconds: 2.5
       origin_label: MeshCore lab
-      meshcore_relay_prefix: "[{origin_label}] {sender}: "
+      relay_prefix: "[{origin_label}] {sender}: "
   lxmf:
     lx:
       enabled: true

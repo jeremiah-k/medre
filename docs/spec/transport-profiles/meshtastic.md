@@ -26,7 +26,7 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `message_delay_seconds`             | `float`                                | `2.2`                | Minimum seconds between outbound messages                         |
 | `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
 | `sync_timeout_ms`                   | `int`                                  | `30000`              | Initial wait budget and SDK phase timeout in milliseconds         |
-| `radio_relay_prefix`                | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
+| `relay_prefix`                      | `str \| None`                         | `None`               | Automatic attribution; `""` disables or supply a template              |
 | `max_text_bytes`                    | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
 | `queue_send_max_attempts`           | `int`                                  | `3`                  | Max send attempts per queued item                                 |
 | `queue_max_size`                    | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |
@@ -77,14 +77,18 @@ Machine-readable capability declaration: [`meshtastic-capabilities.json`](meshta
 ## Relay Attribution Prefix
 
 The Meshtastic renderer prepends a human-readable relay attribution prefix to
-outbound radio text when `radio_relay_prefix` is non-empty on the target
+outbound radio text when `relay_prefix` is enabled on the target
 adapter's `MeshtasticConfig`. The prefix is applied for plain text messages
 and replies. It is **not** applied for structured native reactions
 (`emoji=1`) or cross-platform descriptive reactions (which embed their own
 compact prefix in the text body).
 
-**Configuration:** `radio_relay_prefix` (string, default
-`"{sender_short}: "`).
+**Configuration:** `relay_prefix` (`str | None`, default `None`). An omitted or
+null value selects the automatic `{sender5}[M]: ` prefix for Matrix sources
+and `{sender_short}: ` for other sources. Explicit `""` disables prefixing.
+Constrained-display labels `sender`, `sender_short`, and `origin_label`
+accept `{nameN}` truncation by Unicode code points for N >= 1; undeclared
+variables and zero suffixes remain unknown placeholders.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
@@ -283,7 +287,7 @@ Relayed packets are decoded by `MeshtasticCodec` into:
 
 The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
-- **Plain text** — body text with configurable `radio_relay_prefix` (see §Relay Attribution Prefix), UTF-8 byte-budget truncation.
+- **Plain text** — body text with configurable `relay_prefix` (see §Relay Attribution Prefix), UTF-8 byte-budget truncation.
 - **Native reply** — `reply_id` (int) set from relation's Meshtastic native ref; plain text body.
 - **Native reaction** — `reply_id` + `emoji=1` for Meshtastic-originated tapbacks; text is the emoji key.
 - **Cross-platform descriptive reaction** — MMRelay-style text `"reacted {emoji} to \"{text}\""` with `reply_id` but NO `emoji=1`.

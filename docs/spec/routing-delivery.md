@@ -1532,7 +1532,7 @@ The plan is observational: it describes the shape the router will receive. It is
 
 Transport renderers MAY prepend a human-readable relay attribution prefix to
 outbound message text. The prefix is derived from a template string
-configured per adapter (e.g. `radio_relay_prefix`, `meshcore_relay_prefix`,
+configured per adapter (e.g. Meshtastic/MeshCore `relay_prefix`,
 `lxmf_relay_prefix`) or per target adapter (e.g. `relay_prefix` on
 `MatrixConfig`).
 
@@ -1633,9 +1633,8 @@ presentation. The final radio prefix and body MUST share the configured UTF-8
 byte budget. Plain and HTML Matrix bodies MUST show consistent attribution.
 
 For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
-lives on the respective target adapter config (`radio_relay_prefix`,
-`meshcore_relay_prefix`, `lxmf_relay_prefix`). Variables within those
-templates are resolved from the source event's `RelayAttribution`, which
+lives on the respective target adapter config (Meshtastic/MeshCore
+`relay_prefix` or `lxmf_relay_prefix`). Variables within those templates are resolved from the source event's `RelayAttribution`, which
 includes `source_origin_label` from the source-attribution registry.
 
 ### 17.5.5 Shared Formatter and Variable Schema
