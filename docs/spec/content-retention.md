@@ -30,7 +30,11 @@ and quote-context reads MUST borrow the live source rather than create an
 implicit owner. An existing optional grant MAY remain valid after source
 completion only until its original explicit expiry, ceiling or revocation.
 A bounded `reply_quotes` grant can support quote text after ingress completes;
-reply enrichment MUST NOT create such grants implicitly.
+reply enrichment MUST NOT create such grants implicitly. The grant is issued
+producer-side: ceiling-governed admission issues it in the admission
+transaction while the source owner is live, expiring with the ceiling, so a
+resolved-target reaction or reply quotes the target text exactly as long as
+the content itself stays retained, and degrades honestly afterwards.
 
 `SQLiteStorage.assess_event_content_release(event_id)` (schema: [event-content-release-assessment.schema.json](../schemas/event-content-release-assessment.schema.json)) is a read-only,
 metadata-only event-scoped assessment. It MUST classify candidate canonical

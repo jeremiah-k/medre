@@ -241,7 +241,12 @@ The Matrix renderer (`MatrixRenderer`) produces:
 - **Described reactions** — `m.emote` room messages carrying the reacting
   source user's attribution, the exact reaction key, and a bounded one-line
   preview of the target text (`an earlier message` when the target text is
-  unresolvable). Every delivered reaction crosses a network boundary through
+  unresolvable). The preview comes from canonical relation enrichment's
+  authorized quote read only — never the reaction's own body — and is
+  available while the target's source hold is live or its admission-issued
+  bounded `reply_quotes` grant is live (a ceiling-governed deployment);
+  otherwise the body degrades honestly. Every delivered reaction crosses a
+  network boundary through
   the bridge's own session identity, so reactions never annotate natively on
   the deliver path: a native annotation would carry the bridge identity
   instead of the reacting user and collapse same-key reactions from distinct
