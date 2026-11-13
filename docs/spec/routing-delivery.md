@@ -1642,7 +1642,7 @@ The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines a single set of template
 variables (canonical `source_*` fields plus preferred aliases
 `sender`, `sender_short`, `sender_id`, `sender_handle`, `platform`,
-`route_id`, `channel`, `origin_label`). All four transport
+`route_id`, `channel`, `origin_label`). All seven transport
 renderers use the same formatter and the same variable schema. The
 authoritative variable list is documented in the Meshtastic Transport
 Profile §Relay Attribution Prefix.
