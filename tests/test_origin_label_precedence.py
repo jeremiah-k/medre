@@ -311,7 +311,7 @@ async def test_lxmf_route_label_overrides_adapter_label() -> None:
         configs={
             "lxmf_node": LxmfConfig(
                 adapter_id="lxmf_node",
-                lxmf_relay_prefix="[{origin_label}] ",
+                relay_prefix="[{origin_label}] ",
             ),
         },
         source_attribution={
@@ -340,7 +340,7 @@ async def test_lxmf_adapter_label_used_when_no_route_label() -> None:
         configs={
             "lxmf_node": LxmfConfig(
                 adapter_id="lxmf_node",
-                lxmf_relay_prefix="[{origin_label}] ",
+                relay_prefix="[{origin_label}] ",
             ),
         },
         source_attribution={
@@ -545,7 +545,7 @@ async def test_lxmf_exception_does_not_prepend_raw_template() -> None:
         configs={
             "lxmf_node": LxmfConfig(
                 adapter_id="lxmf_node",
-                lxmf_relay_prefix="[{sender}] ",
+                relay_prefix="[{sender}] ",
             ),
         },
     )
@@ -704,7 +704,7 @@ async def test_lxmf_empty_route_label_suppresses_adapter_label() -> None:
         configs={
             "lxmf-1": LxmfConfig(
                 adapter_id="lxmf-1",
-                lxmf_relay_prefix="[{origin_label}] ",
+                relay_prefix="[{origin_label}] ",
             ),
         },
         source_attribution={

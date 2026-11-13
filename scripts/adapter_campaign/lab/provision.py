@@ -592,7 +592,7 @@ async def campaign(root: Path, *, suite: str = "smoke") -> None:
             prefix_field = {
                 "meshtastic": "relay_prefix",
                 "meshcore": "relay_prefix",
-                "lxmf": "lxmf_relay_prefix",
+                "lxmf": "relay_prefix",
             }.get(name, "relay_prefix")
             config[prefix_field] = (
                 "{sender_compact}[{source_adapter_id}]: "
@@ -746,7 +746,7 @@ def lxmf(root: Path) -> tuple[dict, dict]:
             "default_delivery_method": "direct",
             "announce_interval_seconds": 8,
             "stamp_cost": 0,
-            "lxmf_relay_prefix": "[{origin_label}] {sender}: ",
+            "relay_prefix": "[{origin_label}] {sender}: ",
         },
         {
             "transport": "lxmf",

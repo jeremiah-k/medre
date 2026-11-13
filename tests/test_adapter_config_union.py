@@ -67,7 +67,9 @@ def test_example_validates_against_its_selected_adapter_arm(name: str) -> None:
     assert Draft202012Validator(_schema()).is_valid(payload)
 
 
-@pytest.mark.parametrize("field", ["radio_relay_prefix", "meshcore_relay_prefix"])
+@pytest.mark.parametrize(
+    "field", ["radio_relay_prefix", "meshcore_relay_prefix", "lxmf_relay_prefix"]
+)
 def test_removed_config_keys_are_not_accepted_by_any_adapter(field: str) -> None:
     assert not Draft202012Validator(_schema()).is_valid(
         {"adapter_id": "radio", field: "{sender5}: "}
@@ -106,6 +108,12 @@ def test_all_adapter_arms_reject_undeclared_properties() -> None:
             "medre.config.adapters.meshcore",
             "MeshCoreConfig",
             "meshcore_relay_prefix",
+            "",
+        ),
+        (
+            "medre.config.adapters.lxmf",
+            "LxmfConfig",
+            "lxmf_relay_prefix",
             "",
         ),
     ],

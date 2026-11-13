@@ -131,7 +131,7 @@ class _MeshInteropHarness:
         self.lx = FakeLxmfAdapter(
             LxmfConfig(
                 adapter_id=LX_ADAPTER,
-                lxmf_relay_prefix=prefix_template,
+                relay_prefix=prefix_template,
                 origin_label="lxlab",
             )
         )

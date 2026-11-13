@@ -365,7 +365,7 @@ async def _launch(
                 message_delay_seconds=_TX_PACING,
                 stamp_cost=0,
                 default_delivery_method="direct",
-                lxmf_relay_prefix=_LX_PREFIX_TEMPLATE,
+                relay_prefix=_LX_PREFIX_TEMPLATE,
             ).validate(),
         )
         # LXMF inbound events carry the sender's hash as channel, so the

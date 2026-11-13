@@ -565,7 +565,7 @@ class TestLxmfRelayPrefixWiring:
         lxmf_cfg = LxmfConfig(
             adapter_id="lxmf_a",
             connection_type="fake",
-            lxmf_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         ).validate()
         rt = LxmfRuntimeConfig(
             adapter_id="lxmf_a",
@@ -583,12 +583,12 @@ class TestLxmfRelayPrefixWiring:
         renderer = self._find_lxmf_renderer(app)
         assert renderer is not None, "LxmfRenderer not registered in pipeline"
         assert "lxmf_a" in renderer._configs
-        assert renderer._configs["lxmf_a"].lxmf_relay_prefix == ("[{sender}] ")
+        assert renderer._configs["lxmf_a"].relay_prefix == ("[{sender}] ")
 
     def test_empty_configs_default_when_not_configured(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """Default empty prefix when lxmf_relay_prefix is not set."""
+        """Default empty prefix when relay_prefix is not set."""
         lxmf_cfg = LxmfConfig(
             adapter_id="lxmf_b",
             connection_type="fake",
@@ -609,7 +609,7 @@ class TestLxmfRelayPrefixWiring:
         renderer = self._find_lxmf_renderer(app)
         assert renderer is not None
         assert "lxmf_b" in renderer._configs
-        assert renderer._configs["lxmf_b"].lxmf_relay_prefix == ""
+        assert renderer._configs["lxmf_b"].relay_prefix == ""
 
     def test_multi_lxmf_adapters_each_get_own_config(
         self, tmp_paths: MedrePaths
@@ -618,12 +618,12 @@ class TestLxmfRelayPrefixWiring:
         cfg_a = LxmfConfig(
             adapter_id="lxmf_alpha",
             connection_type="fake",
-            lxmf_relay_prefix="",
+            relay_prefix="",
         ).validate()
         cfg_b = LxmfConfig(
             adapter_id="lxmf_beta",
             connection_type="fake",
-            lxmf_relay_prefix="<{sender_short}> ",
+            relay_prefix="<{sender_short}> ",
         ).validate()
         rt_a = LxmfRuntimeConfig(
             adapter_id="lxmf_alpha",
@@ -651,8 +651,8 @@ class TestLxmfRelayPrefixWiring:
         # Both adapter configs present with their own prefix templates
         assert "lxmf_alpha" in renderer._configs
         assert "lxmf_beta" in renderer._configs
-        assert renderer._configs["lxmf_alpha"].lxmf_relay_prefix == ""
-        assert renderer._configs["lxmf_beta"].lxmf_relay_prefix == "<{sender_short}> "
+        assert renderer._configs["lxmf_alpha"].relay_prefix == ""
+        assert renderer._configs["lxmf_beta"].relay_prefix == "<{sender_short}> "
 
 
 # ---------------------------------------------------------------------------
