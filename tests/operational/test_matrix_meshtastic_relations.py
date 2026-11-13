@@ -294,9 +294,10 @@ class TestCrossPlatformReactions:
         ctx = _matrix_rendering_context()
 
         result = await renderer.render(event, ctx)
-        relates = matrix_payload_content(result).get("m.relates_to", {})
-        assert relates.get("rel_type") == "m.annotation"
-        assert relates.get("key") == "\u2764\ufe0f"
+        content = matrix_payload_content(result)
+        assert content.get("msgtype") == "m.emote"
+        assert "reacted \u2764\ufe0f to" in content.get("body", "")
+        assert "m.relates_to" not in content
 
 
 # ===========================================================================

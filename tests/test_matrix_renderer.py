@@ -163,7 +163,7 @@ class TestMatrixRenderer:
         assert "> <" not in _payload_content(result)["body"]
 
     async def test_render_with_reaction_relation(self) -> None:
-        """Reaction relations render as native Matrix m.reaction payloads."""
+        """Reaction relations render as described m.emote messages."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reaction",
@@ -184,14 +184,11 @@ class TestMatrixRenderer:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
-        assert _payload_content(result)["m.relates_to"] == {
-            "rel_type": "m.annotation",
-            "event_id": "$orig-native",
-            "key": "👍",
-        }
-        assert "msgtype" not in _payload_content(result)
-        assert "body" not in _payload_content(result)
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        content = _payload_content(result)
+        assert content["msgtype"] == "m.emote"
+        assert "reacted 👍 to" in content["body"]
+        assert "m.relates_to" not in content
 
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()
@@ -1001,7 +998,7 @@ class TestMatrixExplicitReactionKey:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert _payload_content(result)["m.relates_to"]["key"] == "❤️"
+        assert "reacted ❤️ to" in _payload_content(result)["body"]
 
 
 class TestFallbackAppliedTyping:

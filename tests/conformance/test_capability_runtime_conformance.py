@@ -212,11 +212,11 @@ class TestCapabilityTransportProfileRelationConformance:
         decision = _resolver.decide(event, matrix_capabilities)
         assert decision.delivery_strategy == "direct"
 
-    def test_matrix_profile_reactions_native(self, matrix_capabilities):
-        """Matrix transport profile: reactions=native -> direct."""
+    def test_matrix_profile_reactions_fallback(self, matrix_capabilities):
+        """Matrix transport profile: reactions=fallback -> fallback_text."""
         event = make_reaction_event(target_adapter="matrix_conf")
         decision = _resolver.decide(event, matrix_capabilities)
-        assert decision.delivery_strategy == "direct"
+        assert decision.delivery_strategy == "fallback_text"
 
     def test_matrix_profile_edits_native(self, matrix_capabilities):
         """Matrix transport profile: edits=native -> direct for edits."""

@@ -225,11 +225,10 @@ class TestMatrixMissingTargetFallback:
         assert "canonical-orig-001" not in str(relates)
 
     async def test_reaction_with_resolved_native_ref_correct_structure(self) -> None:
-        """Reaction with resolved Matrix native ref produces correct m.annotation.
+        """Reaction with resolved Matrix native ref renders a described emote.
 
-        The m.relates_to structure must be exactly:
-        {"rel_type": "m.annotation", "event_id": "<matrix_event_id>", "key": "<emoji>"}
-        using the native_message_id from the target_native_ref.
+        Delivered reactions never annotate natively: the resolved native ref
+        feeds the described body, and the payload carries no m.relates_to.
         """
         renderer = MatrixRenderer()
         relation = EventRelation(
@@ -251,19 +250,15 @@ class TestMatrixMissingTargetFallback:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        # Must be a true Matrix reaction
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
-        assert _payload_content(result)["m.relates_to"] == {
-            "rel_type": "m.annotation",
-            "event_id": "$matrix-evt-def456",
-            "key": "❤️",
-        }
-        # No body/msgtype on true reactions
-        assert "msgtype" not in _payload_content(result)
-        assert "body" not in _payload_content(result)
-        # Matrix relations use native IDs; canonical correlation remains in
-        # the explicit bridge-context metadata for cross-platform projection.
-        assert "canonical-orig-002" not in str(_payload_content(result)["m.relates_to"])
+        # Described reaction emote, never a native annotation
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        content = _payload_content(result)
+        assert content["msgtype"] == "m.emote"
+        assert "reacted ❤️ to" in content["body"]
+        assert "m.relates_to" not in content
+        # Canonical correlation stays out of the described body; the
+        # embedded provenance envelope remains its explicit home.
+        assert "canonical-orig-002" not in content["body"]
 
     async def test_reaction_no_target_no_broken_annotation(self) -> None:
         """Reaction without any target produces emote fallback, not m.annotation.
@@ -681,11 +676,11 @@ class TestMatrixCoreAttributionIntegration:
         assert "relay_prefix_rendered" in result.metadata
         assert "sender" in result.metadata["relay_prefix_variables_used"]
 
-    async def test_reaction_true_annotation_no_stale_prefix_metadata(self) -> None:
-        """True m.reaction annotation carries no stale body prefix metadata.
+    async def test_reaction_described_emote_carries_prefix_metadata(self) -> None:
+        """Described reaction emote carries its own prefix metadata.
 
-        When a true m.reaction is produced (body removed), no prefix
-        metadata from the body path should leak into the result.
+        The described body composes the attribution prefix itself, so the
+        result reports the prefix metadata from the reaction path.
         """
         renderer = MatrixRenderer(
             configs={
@@ -716,12 +711,15 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        # True m.reaction — body removed
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
-        assert "body" not in _payload_content(result)
-        # No stale body prefix metadata; true reactions return empty dict
-        assert "relay_prefix_template" not in result.metadata
-        assert "relay_prefix_rendered" not in result.metadata
+        # Described emote with the composed prefix in the body
+        content = _payload_content(result)
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        assert content["msgtype"] == "m.emote"
+        assert "[Alice]" in content["body"]
+        assert "reacted ❤️ to" in content["body"]
+        # Reaction path prefix metadata is reported
+        assert "relay_prefix_template" in result.metadata
+        assert "relay_prefix_rendered" in result.metadata
 
     async def test_plain_text_prefix_metadata_unchanged(self) -> None:
         """Plain text event with prefix: metadata unchanged by reaction fix."""

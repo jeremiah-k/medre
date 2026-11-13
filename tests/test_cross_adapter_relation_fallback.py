@@ -602,18 +602,18 @@ class TestMissingNativeRefCrossAdapterDegradation:
 class TestMeshtasticToMatrixReactionResolution:
     """Focused verification that a Meshtastic reaction resolves through
     the pipeline to produce the correct stored relation target_event_id
-    and a native Matrix annotation on the Matrix side.
+    and a described attributed emote on the Matrix side.
 
     The reaction target resolves to the bridged message's Matrix-native
-    ref, so the renderer emits a true ``m.reaction`` carrying the
-    original emoji key."""
+    ref, and the renderer describes the reaction carrying the original
+    emoji key."""
 
     async def test_reaction_resolves_target_event_id(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Meshtastic reaction targeting a previously-seen message
         resolves the relation to the correct canonical event_id, and the
-        Matrix output is a true m.reaction keyed with the emoji."""
+        Matrix output is a described emote naming the emoji key."""
         _MX = "mx-w6-4"
         _RADIO = "radio-w6-4"
         _ROOM = "!w6-4:server"
@@ -737,17 +737,11 @@ class TestMeshtasticToMatrixReactionResolution:
             assert len(matrix_adapter.delivered_payloads) == 1
             payload = _payload_content(matrix_adapter.delivered_payloads[0])
 
-            # The resolved target carries the bridged message's
-            # Matrix-native ref, so the reaction renders as a true
-            # m.reaction keyed with the emoji.
-            assert payload["m.relates_to"] == {
-                "rel_type": "m.annotation",
-                "event_id": _MX_MSG,
-                "key": _EMOJI,
-            }
-            # True reactions carry no body/msgtype or flat wire keys.
-            assert "msgtype" not in payload
-            assert "body" not in payload
+            # The resolved target feeds the described reaction body; the
+            # delivery never annotates natively on the Matrix side.
+            assert payload["msgtype"] == "m.emote"
+            assert f"reacted {_EMOJI} to" in payload["body"]
+            assert "m.relates_to" not in payload
             assert not any(key.startswith("meshtastic_") for key in payload)
 
             # -- Verify stored relation resolved to correct event --------
