@@ -2,7 +2,7 @@
   "distribution": "medre",
   "release": "0.1.0",
   "schema_files_sha256": {
-    "adapter-config.schema.json": "d6c8f79a1b94777d7e52860dec266bda6295532b986e74b0828460f58918ce0f",
+    "adapter-config.schema.json": "4573f521c50008be3a153b63fea2884fc4d607a2174729b50bc4f9cbf7255ef6",
     "attachment.schema.json": "c3e3e8088e1e63b352da2fc669d31959d150ebd48b166c616baddf10aaf1e2e6",
     "bridge-context.schema.json": "7f9b2717a8b8fdc91b8be2d0e00be7d5c1a2b1f6887c67a8fec5b012ad12da8d",
     "canonical-event.schema.json": "5203c019bffa40c133c9a22c2367ce6295c1471d64c0d0c56c2700e2a4e32738",

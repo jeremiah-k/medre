@@ -110,7 +110,7 @@ def test_route_config_schema_matches_source() -> None:
 
 
 def test_adapter_config_schema_matches_source() -> None:
-    """adapter-config.schema.json each oneOf arm must cover all fields
+    """adapter-config.schema.json each anyOf arm must cover all fields
     from the corresponding source dataclass (source → schema drift).
 
     This would have caught F-001 (missing Meshtastic packet-routing
@@ -119,7 +119,7 @@ def test_adapter_config_schema_matches_source() -> None:
     from medre.adapter_registry import get_adapter_spec
 
     schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
-    arms = {arm["title"]: arm for arm in schema["oneOf"]}
+    arms = {arm["title"]: arm for arm in schema["anyOf"]}
     providers = _load_json(_ROOT / ".github" / "adapter-compatibility.json")
     checks = []
     for provider in providers:
@@ -130,7 +130,7 @@ def test_adapter_config_schema_matches_source() -> None:
         checks.append((config_cls.__name__, config_cls))
     assert set(arms) == {title for title, _ in checks}
     for title, datacls in checks:
-        assert title in arms, f"Schema missing oneOf arm {title!r}"
+        assert title in arms, f"Schema missing anyOf arm {title!r}"
         schema_props = set(arms[title].get("properties", {}).keys())
         source_fields = {f.name for f in dc_fields(datacls)}
         missing = source_fields - schema_props
@@ -341,7 +341,7 @@ def test_radio_multipart_schema_matches_merged_provider_bounds(platform: str) ->
     config_type = {"meshcore": MeshCoreConfig, "meshtastic": MeshtasticConfig}[platform]
     schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
     arm = next(
-        part for part in schema["oneOf"] if part.get("title") == config_type.__name__
+        part for part in schema["anyOf"] if part.get("title") == config_type.__name__
     )
     field = arm["properties"]["max_text_parts"]
     assert field["type"] == "integer"
@@ -413,7 +413,7 @@ def test_matrix_verification_policy_schema_preserves_provider_default() -> None:
     spec = get_adapter_spec("matrix")
     assert spec is not None
     schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
-    matrix_arm = next(arm for arm in schema["oneOf"] if arm["title"] == "MatrixConfig")
+    matrix_arm = next(arm for arm in schema["anyOf"] if arm["title"] == "MatrixConfig")
     payload = {
         "adapter_id": "matrix-test",
         "homeserver": "https://matrix.example.org",

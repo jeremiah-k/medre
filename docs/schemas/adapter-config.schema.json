@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/adapter-config.schema.json",
   "title": "AdapterConfig",
-  "description": "Adapter configuration shapes for all supported transports. Each adapter has its own frozen config dataclass.",
-  "oneOf": [
+  "description": "Untagged union of installed adapter config shapes. The enclosing runtime adapters.<transport>.<instance> path selects the transport-specific dataclass; this standalone schema has no transport discriminator, so overlapping valid shapes must not fail validation.",
+  "anyOf": [
     {
       "title": "MatrixConfig",
       "description": "Immutable configuration for the Matrix adapter.",

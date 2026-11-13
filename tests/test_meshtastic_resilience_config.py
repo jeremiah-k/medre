@@ -40,7 +40,7 @@ def test_resilience_defaults_match_schema_example_and_sample() -> None:
     )
     meshtastic_schema = next(
         branch
-        for branch in schema["oneOf"]
+        for branch in schema["anyOf"]
         if branch.get("title") == "MeshtasticConfig"
     )
     properties = meshtastic_schema["properties"]

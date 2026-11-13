@@ -545,6 +545,15 @@ files to avoid false editor errors:
   at the component level. Use these only when editing a single adapter
   table or route definition in isolation.
 
+The standalone `adapter-config.schema.json` is an untagged `anyOf` of adapter
+config shapes. Several adapters intentionally share fields such as `adapter_id`
+and `relay_prefix`, so an exclusive `oneOf` would reject legitimate shapes.
+The enclosing `adapters.<transport>.<instance>` runtime configuration selects
+the installed transport and its config dataclass, which validates that precise
+provider contract; the standalone schema cannot infer it from shared fields.
+Do not add a redundant discriminator, accept old config-key aliases, or rely
+on the union alone for transport-specific validation.
+
 The full-config schema MUST accept structurally valid community transport
 names. Installed-provider availability and native destination rules MUST be
 validated by `medre config check`, using adapter-owned models and validators.
