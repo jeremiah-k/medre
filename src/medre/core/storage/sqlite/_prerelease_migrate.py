@@ -451,6 +451,46 @@ _DIAGNOSTIC_COLUMN_ANCHORS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+# The retired view projected the receipt diagnostics explicitly. Restoring the
+# table columns alone does not restore this view's stored SQL identity.
+_DIAGNOSTIC_VIEW_PROJECTION_ANCHORS: tuple[tuple[str, str], ...] = (
+    (
+        "       receipt_kind, failure_kind,\n",
+        "       receipt_kind, error, failure_kind,\n",
+    ),
+    (
+        "       capability_level, capability_field, delivery_strategy,\n",
+        "       capability_level, capability_field, capability_reason, delivery_strategy,\n",
+    ),
+    (
+        "       retry_max_delay, retry_jitter,\n",
+        "       retry_max_delay, retry_jitter, rendering_evidence,\n",
+    ),
+)
+
+
+@lru_cache(maxsize=1)
+def _stripped_diagnostic_predecessor_schema() -> str:
+    """Reconstruct the exact prior tables *and* receipt view from current DDL."""
+    predecessor = _SCHEMA
+    for table, anchors in _DIAGNOSTIC_COLUMN_ANCHORS.items():
+        for anchor, column_line in anchors:
+            if predecessor.count(anchor) != 1:
+                raise StorageInitializationError(
+                    f"Authoritative DDL no longer contains one expected anchor "
+                    f"for the {table} inline-diagnostic predecessor."
+                )
+            predecessor = predecessor.replace(anchor, anchor + column_line, 1)
+    for current, previous in _DIAGNOSTIC_VIEW_PROJECTION_ANCHORS:
+        if predecessor.count(current) != 1:
+            raise StorageInitializationError(
+                "Authoritative delivery_status view no longer contains one "
+                "expected inline-diagnostic predecessor projection."
+            )
+        predecessor = predecessor.replace(current, previous, 1)
+    return predecessor
+
+
 @lru_cache(maxsize=1)
 def known_stripped_diagnostic_table_forms() -> dict[str, str]:
     """Derive the exact predecessor CREATE TABLE text per evidence family.
@@ -462,19 +502,9 @@ def known_stripped_diagnostic_table_forms() -> dict[str, str]:
     when an anchor no longer matches, so a future schema edit fails loudly
     instead of silently treating the current shape as a predecessor.
     """
-    legacy_schema = _SCHEMA
-    for table, anchors in _DIAGNOSTIC_COLUMN_ANCHORS.items():
-        for anchor, column_line in anchors:
-            if anchor not in legacy_schema:
-                raise StorageInitializationError(
-                    f"Authoritative DDL no longer contains the expected anchor "
-                    f"for the {table} inline-diagnostic predecessor; the "
-                    "allowlisted predecessor cannot be derived."
-                )
-            legacy_schema = legacy_schema.replace(anchor, anchor + column_line, 1)
     reference = sqlite3.connect(":memory:")
     try:
-        reference.executescript(legacy_schema + _INDEXES)
+        reference.executescript(_stripped_diagnostic_predecessor_schema() + _INDEXES)
         forms: dict[str, str] = {}
         for _family, (table, *_rest) in _DIAGNOSTIC_FAMILY_TABLES.items():
             stored = _stored_table_sql(reference, table)
@@ -498,13 +528,9 @@ def known_stripped_diagnostic_view_form() -> str:
     from the same authoritative DDL as the table forms so detection cannot
     drift.
     """
-    legacy_schema = _SCHEMA
-    for anchors in _DIAGNOSTIC_COLUMN_ANCHORS.values():
-        for anchor, column_line in anchors:
-            legacy_schema = legacy_schema.replace(anchor, anchor + column_line, 1)
     reference = sqlite3.connect(":memory:")
     try:
-        reference.executescript(legacy_schema + _INDEXES)
+        reference.executescript(_stripped_diagnostic_predecessor_schema() + _INDEXES)
         row = reference.execute(
             "SELECT sql FROM sqlite_master WHERE type='view' AND name='delivery_status'"
         ).fetchone()
@@ -531,12 +557,18 @@ def _copy_inline_diagnostics_to_side_table(
 
     Runs before the predecessor table is dropped so historical inline values
     keep resolving through the same side-table reads every current row uses.
-    Empty strings never copy: they carry no diagnostic content.
+    Empty strings never copy: they carry no diagnostic content. A side-table
+    value (including an explicit empty-string clear) already written for the
+    same read-resolution identity remains authoritative over retired inline
+    text (attempt-scoped for outbox, row-scoped for the other families).
     """
     _family_table, row_id_column, attempt_column, created_column, fields = (
         _DIAGNOSTIC_FAMILY_TABLES[family]
     )
     for field in fields:
+        attempt_filter = (
+            f" AND d.attempt = {table}.{attempt_column}" if family == "outbox" else ""
+        )
         db.execute(
             "INSERT INTO delivery_evidence_diagnostics"
             " (family, row_id, attempt, field, diagnostic, created_at)"
@@ -544,6 +576,11 @@ def _copy_inline_diagnostics_to_side_table(
             f" '{field}', {field}, {created_column}"
             f" FROM {table}"
             f" WHERE {field} IS NOT NULL AND {field} <> ''"
+            " AND NOT EXISTS ("
+            "SELECT 1 FROM delivery_evidence_diagnostics d"
+            f" WHERE d.family = '{family}' AND d.row_id = {table}.{row_id_column}"
+            f"{attempt_filter} AND d.field = '{field}'"
+            ")"
         )
 
 
