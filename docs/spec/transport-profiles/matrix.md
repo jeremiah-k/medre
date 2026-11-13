@@ -50,7 +50,7 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 | text              | `True`     |
 | threads           | `"native"` |
 | replies           | `"native"` |
-| reactions         | `"native"` |
+| reactions         | `"fallback"` |
 | edits             | `"native"` |
 | deletes           | `"native"` |
 | attachments       | `True`     |
@@ -241,10 +241,17 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 - **Plain text messages** — `m.room.message` with `m.text` msgtype, optional relay prefix, and MEDRE metadata envelope.
 - **Native replies** — `m.relates_to.m.in_reply_to` with `event_id`.
-- **Native reactions** — `m.reaction` event type with `m.annotation` (a deliberately plaintext event type; see E2EE notes below).
+- **Described reactions** — `m.emote` room messages carrying the reacting
+  source user's attribution, the exact reaction key, and a bounded one-line
+  preview of the target text (`an earlier message` when the target text is
+  unresolvable). Every delivered reaction crosses a network boundary through
+  the bridge's own session identity, so reactions never annotate natively on
+  the deliver path: a native annotation would carry the bridge identity
+  instead of the reacting user and collapse same-key reactions from distinct
+  source users into one event.
 - **Native edits** — `m.replace` / `m.new_content` room messages with exactly one relay attribution and a `"* "` fallback body, targeted at the bound original copy.
 - **Native deletes** — `redact_event` operations through the dedicated redaction endpoint, guarded by the mutation-eligibility rules above.
-- **Emote reaction fallback** — `m.emote` carrying the reaction symbol and original-message reference in the body, used when no Matrix-native target event exists to annotate.
+- **Emote reaction fallback** — `m.emote` carrying the reaction symbol and original-message reference in the body; described reaction delivery above renders this shape for every delivered reaction under either delivery strategy.
 
 ---
 
@@ -537,7 +544,7 @@ Matrix is a presentation adapter with rich native relation support. The Matrix r
 | Relation type | Capability level | Strategy | Rendering path                                                                                   |
 | ------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------ |
 | Replies       | `"native"`       | `direct` | `m.in_reply_to` with `event_id` in `m.relates_to`                                                |
-| Reactions     | `"native"`       | `direct` | `m.reaction` event type with `m.annotation`                                                      |
+| Reactions     | `"fallback"`     | `fallback_text` | Described `m.emote` room message (attribution, exact key, bounded target preview) rendered identically under either delivery strategy |
 | Edits         | `"native"`       | `direct` | `m.replace` / `m.new_content` — only for `bound_owned` targets; otherwise suppressed (see above) |
 | Deletes       | `"native"`       | `direct` | `redact_event` — only for `bound_owned` targets; otherwise suppressed (see above)                |
 | Threads       | `"native"`       | `direct` | `m.thread` rooted at the bound thread root, with spec reply-fallback parent semantics            |
@@ -651,10 +658,11 @@ so a hostile or broken value cannot park delivery indefinitely.
   path) and carries no message content — only the `redacts` target and an
   optional neutral reason. There is nothing to encrypt and nothing to leak;
   MEDRE does not attempt to encrypt it.
-- **Reactions are plaintext event types.** `m.reaction` annotation events are
-  intentionally not encrypted (per the pinned SDK: "Reactions do not support
-  encryption yet"); their content is only the annotation relationship and key.
-  MEDRE surfaces no message content through them.
+- **Observed reactions are plaintext event types.** Inbound `m.reaction`
+  annotation events are intentionally not encrypted (per the pinned SDK:
+  "Reactions do not support encryption yet"); their content is only the
+  annotation relationship and key. MEDRE emits no `m.reaction` events and
+  surfaces no message content through them.
 - Crypto secrets are never persisted: native metadata keeps only safe
   provenance booleans, and session diagnostics expose no tokens or keys.
 

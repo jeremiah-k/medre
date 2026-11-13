@@ -5,7 +5,7 @@
     "title": false,
     "replies": "native",
     "threads": "native",
-    "reactions": "native",
+    "reactions": "fallback",
     "edits": "native",
     "deletes": "native",
     "attachments": true,
