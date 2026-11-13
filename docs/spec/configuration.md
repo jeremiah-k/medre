@@ -510,7 +510,11 @@ resolved and pass through as literal text in prefix templates:
 
 The canonical variables are `{origin_label}`, `{sender}`, `{sender_short}`,
 `{sender_id}`, `{sender_handle}`, `{platform}`, `{route_id}`, and
-`{channel}`. Operators with prefix templates still referencing the removed
+`{channel}`. Transports with constrained displays additionally accept a
+numeric suffix on their declared truncatable variables (`{sender5}`
+renders the first five code points); transports that declare no
+truncatable variables treat suffixed placeholders as unknown. Operators
+with prefix templates still referencing the removed
 names MUST be updated. See
 [routing-delivery.md §17.5.5](routing-delivery.md#1755-shared-formatter-and-variable-schema)
 for the formatter rules.
