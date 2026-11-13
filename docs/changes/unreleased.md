@@ -9,6 +9,13 @@ this file once they land.
 
 ## Recent changes
 
+- **500 — Adapter pin promotion and Matrix reaction profile.** The Matrix
+  adapter revision that delivers cross-network reactions as described
+  attributed `m.emote` messages (exact key, bounded one-line target preview,
+  honest degradation, output budgets in both delivery strategies) is pinned,
+  and the Matrix transport profile declares `"fallback"` reactions with the
+  described delivery path. Meshtastic, LXMF, XMPP, Chatmail, and SimpleX
+  Chat pin release-workflow revisions with no wire-behavior change.
 - **499 — Self-compat vocabulary guard.** Source docstrings and comments no
   longer tolerate phrase framing that presents MEDRE's own surfaces as
   retained compatibility baggage: a fragment-assembled phrase family joins
