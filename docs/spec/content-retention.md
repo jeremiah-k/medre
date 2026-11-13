@@ -33,8 +33,10 @@ A bounded `reply_quotes` grant can support quote text after ingress completes;
 reply enrichment MUST NOT create such grants implicitly. The grant is issued
 producer-side: ceiling-governed admission issues it in the admission
 transaction while the source owner is live, expiring with the ceiling, so a
-resolved-target reaction or reply quotes the target text exactly as long as
-the content itself stays retained, and degrades honestly afterwards.
+resolved-target reaction or reply quotes the target text for the grant's
+lifetime — bounded by the ceiling, ended by expiry or revocation,
+independently of how long the canonical content remains stored — and
+degrades honestly afterwards.
 
 `SQLiteStorage.assess_event_content_release(event_id)` (schema: [event-content-release-assessment.schema.json](../schemas/event-content-release-assessment.schema.json)) is a read-only,
 metadata-only event-scoped assessment. It MUST classify candidate canonical
