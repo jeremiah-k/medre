@@ -344,8 +344,15 @@ class TestCrossPlatformReactionDescriptive:
         assert "metadata original" in text
         assert "fallback text" not in text
 
-    async def test_falls_back_to_payload_body(self) -> None:
-        """When no fallback_text, uses event payload body/text."""
+    async def test_degrades_to_earlier_message_when_target_unresolvable(self) -> None:
+        """Unresolvable reaction targets degrade honestly to "an earlier message".
+
+        Enrichment-only ruling: the target preview comes from relation
+        enrichment only. The meshtastic adapter's PR #44 removed the
+        event-body fallback (the reaction's own payload body is never used
+        as the preview), and the #496 pin promotion to 25b5583b activated
+        that contract here.
+        """
         renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
@@ -359,7 +366,8 @@ class TestCrossPlatformReactionDescriptive:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert "payload body text" in text
+        assert "an earlier message" in text
+        assert "payload body text" not in text
 
     async def test_preserves_channel(self) -> None:
         """Cross-platform reaction preserves channel_index."""
