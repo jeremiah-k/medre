@@ -94,9 +94,7 @@ class TestMeshtasticRendererStandalone:
             payload={"body": "hello from matrix"},
         )
         renderer = MeshtasticRenderer(
-            configs={
-                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")
-            }
+            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")}
         )
         result = await renderer.render(
             event,
