@@ -1074,6 +1074,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
 
         if new_status in ("queued", "sent"):
             sets.append("failure_kind = NULL")
+            # The read projection hides earlier failures while queued/sent.
+            # Persist the same clear in the attempt's append-only history so
+            # a later cancellation cannot resurrect the hidden text.
+            diagnostics["failure_kind_detail"] = ""
+            diagnostics["error_summary"] = ""
         elif new_status in (TERMINAL_OUTBOX_STATUSES - {"sent"}):
             # "sent" is terminal but happy-path; record the failure-detail
             # clear only for error terminals (dead_lettered, cancelled,
