@@ -176,8 +176,8 @@ class TestMatrixFallbackText:
     async def test_fallback_reaction_emits_msgtype_body_no_native_relations(
         self,
     ) -> None:
-        """Reaction fallback: msgtype/body present, no m.relates_to or
-        magic keys."""
+        """Reaction fallback: described emote body present, no m.relates_to
+        or magic keys."""
         renderer = MatrixRenderer()
         event = _make_reaction_event(
             emoji="\U0001f44d",
@@ -187,8 +187,8 @@ class TestMatrixFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        # Matrix payload shape: msgtype and body always present.
-        assert _payload_content(result).get("msgtype") == "m.text"
+        # Matrix payload shape: reactions render as described emotes.
+        assert _payload_content(result).get("msgtype") == "m.emote"
         assert isinstance(_payload_content(result).get("body"), str)
         assert len(str(_payload_content(result)["body"])) > 0
 
@@ -231,17 +231,13 @@ class TestMatrixFallbackText:
         assert result.fallback_applied == "strategy_fallback_text"
 
     @pytest.mark.asyncio
-    async def test_direct_reaction_has_native_relation_fields(
+    async def test_direct_reaction_renders_described_emote(
         self,
     ) -> None:
-        """Direct strategy: native m.relates_to present
-        for Matrix-native target (contrast with fallback)."""
+        """Direct strategy: described emote even with a Matrix-native
+        target (delivered reactions never annotate natively)."""
         renderer = MatrixRenderer()
-        event = _make_reaction_event(
-            emoji="\U0001f44d",
-            target_event_id="evt-target",
-        )
-        # With a native Matrix target ref, direct mode produces m.relates_to.
+        # With a native Matrix target ref, direct mode still describes.
         rel = EventRelation(
             relation_type="reaction",
             target_event_id="evt-target",
@@ -274,12 +270,11 @@ class TestMatrixFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        # Direct mode with native Matrix target: has relation fields.
-        has_relates_to = "m.relates_to" in _payload_content(result)
-        assert has_relates_to, (
-            "Direct strategy with Matrix-native target should produce "
-            "native relation fields"
-        )
+        # Delivered reactions render as described emotes in every strategy.
+        content = _payload_content(result)
+        assert content.get("msgtype") == "m.emote"
+        assert "reacted \U0001f44d to" in content.get("body", "")
+        assert "m.relates_to" not in content
         # No strategy fallback applied.
         assert result.fallback_applied is None
 

@@ -244,8 +244,8 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
     ) -> None:
         """End-to-end: radio-alpha node reacts with 👍 to a bridged
         Matrix message.  The reaction resolves through SQLite
-        NativeMessageRef, and MatrixRenderer produces a true m.reaction
-        annotation carrying the original emoji key."""
+        NativeMessageRef, and MatrixRenderer produces a described
+        attributed m.emote message carrying the original emoji key."""
         _PKT_ID = 111111
         _REACTION_PKT_ID = 222222
         _EMOJI = "👍"
@@ -332,16 +332,10 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
             result = matrix_adapter.delivered_payloads[0]
             payload = _payload_content(result)
 
-            # -- Verify native Matrix reaction annotation ------------------
-            relates = payload["m.relates_to"]
-            assert relates == {
-                "rel_type": "m.annotation",
-                "event_id": "$orig-rt1",
-                "key": _EMOJI,
-            }
-            # True reactions carry no body/msgtype or flat wire keys.
-            assert "msgtype" not in payload
-            assert "body" not in payload
+            # -- Verify described Matrix reaction emote --------------------
+            assert payload["msgtype"] == "m.emote"
+            assert f"reacted {_EMOJI} to" in payload["body"]
+            assert "m.relates_to" not in payload
             assert not any(key.startswith("meshtastic_") for key in payload)
 
             # -- Verify relation resolved to canonical event ---------------
@@ -494,9 +488,9 @@ class TestMultiRadioReactionRoundtrip:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """radio-alpha node reacts to a message; reaction routes to Matrix
-        (native annotation — the target resolves to the Matrix-native ref)
-        and radio-bravo (descriptive text, not native tapback because
-        source_adapter != target_adapter)."""
+        (described attributed emote — delivered reactions never annotate
+        natively) and radio-bravo (descriptive text, not native tapback
+        because source_adapter != target_adapter)."""
         _ORIG_PKT_ALPHA = 444444
         _ORIG_PKT_BRAVO = 555555
         _REACTION_PKT = 666666
@@ -652,17 +646,12 @@ class TestMultiRadioReactionRoundtrip:
             assert len(outcomes) == 2
             assert all(o.status == "success" for o in outcomes)
 
-            # -- Verify Matrix output (native annotation) ------------------
+            # -- Verify Matrix output (described attributed emote) ---------
             assert len(matrix_adapter.delivered_payloads) == 1
             mx_payload = _payload_content(matrix_adapter.delivered_payloads[0])
-            assert mx_payload["m.relates_to"] == {
-                "rel_type": "m.annotation",
-                "event_id": "$orig-rt3",
-                "key": _EMOJI,
-            }
-            # True reactions carry no body/msgtype or flat wire keys.
-            assert "msgtype" not in mx_payload
-            assert "body" not in mx_payload
+            assert mx_payload["msgtype"] == "m.emote"
+            assert f"reacted {_EMOJI} to" in mx_payload["body"]
+            assert "m.relates_to" not in mx_payload
 
             # -- Verify radio-bravo output (descriptive, NOT native tapback)
             assert len(bravo_adapter.delivered_payloads) == 1

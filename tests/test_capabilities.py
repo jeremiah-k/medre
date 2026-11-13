@@ -358,7 +358,7 @@ class TestFakeMatrixCapabilities:
         assert caps.text is True
         assert caps.replies == "native"
         assert caps.threads == "native"
-        assert caps.reactions == "native"
+        assert caps.reactions == "fallback"
         assert caps.edits == "native"
         assert caps.deletes == "native"
         assert caps.attachments is True

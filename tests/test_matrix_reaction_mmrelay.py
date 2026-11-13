@@ -257,21 +257,21 @@ class TestCodecTrueReaction:
 # ===========================================================================
 
 
-class TestRendererTrueReaction:
-    """MatrixRenderer renders true m.reaction as a send_event operation."""
+class TestRendererDescribedReaction:
+    """MatrixRenderer renders reactions as described m.emote room messages."""
 
     @pytest.mark.asyncio
-    async def test_true_reaction_has_matrix_event_type(self) -> None:
+    async def test_described_reaction_has_matrix_event_type(self) -> None:
         renderer = MatrixRenderer()
         event = _make_canonical_reaction(key="👍", target_event_id="$msg-1")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
     @pytest.mark.asyncio
-    async def test_true_reaction_has_annotation_relates_to(self) -> None:
+    async def test_described_reaction_names_key_in_body(self) -> None:
         renderer = MatrixRenderer()
         event = _make_canonical_reaction(key="❤️", target_event_id="$msg-2")
         result = await renderer.render(
@@ -279,22 +279,20 @@ class TestRendererTrueReaction:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        relates = _payload_content(result)["m.relates_to"]
-        assert relates["rel_type"] == "m.annotation"
-        assert relates["event_id"] == "$msg-2"
-        assert relates["key"] == "❤️"
+        content = _payload_content(result)
+        assert content["msgtype"] == "m.emote"
+        assert "reacted ❤️ to" in content["body"]
 
     @pytest.mark.asyncio
-    async def test_true_reaction_has_no_msgtype_or_body(self) -> None:
+    async def test_described_reaction_has_no_annotation_relates_to(self) -> None:
         renderer = MatrixRenderer()
         event = _make_canonical_reaction(key="🔥", target_event_id="$msg-3")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
-        assert "msgtype" not in _payload_content(result)
-        assert "body" not in _payload_content(result)
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        assert "m.relates_to" not in _payload_content(result)
 
 
 class TestReactionEmoteFallback:
@@ -415,10 +413,10 @@ class TestMatrixAdapterEventType:
         assert "_matrix_operation" not in actual_content
         assert actual_content.get("m.relates_to", {}).get("key") == "👍"
 
-    def test_adapter_reactions_capability_is_native(self) -> None:
+    def test_adapter_reactions_capability_is_fallback(self) -> None:
         from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
 
-        assert _MATRIX_CAPABILITIES.reactions == "native"
+        assert _MATRIX_CAPABILITIES.reactions == "fallback"
 
 
 # ===========================================================================

@@ -113,7 +113,7 @@ def matrix_capabilities() -> AdapterCapabilities:
         title=False,
         replies="native",
         threads="native",
-        reactions="native",
+        reactions="fallback",
         edits="native",
         deletes="native",
         attachments=False,
