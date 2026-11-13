@@ -7,7 +7,6 @@ Tests cover:
 - Unknown replyId fallback (no crash)
 - Codec ignores KEY_REACTION_KEY and other flat reaction claims
 - Authored emotes remain messages regardless of flat reaction keys
-- KEY_REACTION_KEY constant verification
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
-from medre.interop.mmrelay import KEY_REACTION_KEY
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 
@@ -210,15 +208,3 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
 
         assert _payload_content(result)["msgtype"] == "m.emote"
         assert "reacted 🔥" in _payload_content(result)["body"]
-
-
-# ===========================================================================
-# KEY_REACTION_KEY round-trip tests
-# ===========================================================================
-
-
-class TestReactionKeyConstant:
-    """Verify KEY_REACTION_KEY constant."""
-
-    def test_key_reaction_key_value(self) -> None:
-        assert KEY_REACTION_KEY == "meshtastic_reaction_key"

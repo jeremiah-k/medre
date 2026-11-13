@@ -1,7 +1,7 @@
 # medre-test-tier: compatibility
 """Import side-effect tests for reusable adapter modules.
 
-Verify that importing codec, renderer, and interop modules does not:
+Verify that importing codec and renderer modules does not:
 - Configure root logging (attach handlers, change levels)
 - Pull in runtime.builder, core.engine.pipeline, core.storage, or adapter wrappers
 - Call setup_logging
@@ -32,7 +32,6 @@ _REUSABLE_MODULES = [
     "medre.adapters.meshcore.renderer",
     "medre.adapters.lxmf.codec",
     "medre.adapters.lxmf.renderer",
-    "medre.interop.mmrelay",
 ]
 
 # Modules that MUST NOT be imported as a side effect.

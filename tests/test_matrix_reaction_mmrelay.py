@@ -10,7 +10,6 @@ Tests cover:
 - renderer: original-text preview extraction from canonical relation
   enrichment (relation metadata, then fallback_text)
 - adapter: closed _matrix_operation envelope dispatch, event_type wiring
-- legacy constants: KEY_REPLY_ID/KEY_EMOJI/EMOJI_FLAG_VALUE
 """
 
 from __future__ import annotations
@@ -29,16 +28,6 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from medre.interop.mmrelay import (
-    EMOJI_FLAG_VALUE,
-    KEY_EMOJI,
-    KEY_ID,
-    KEY_MESHNET,
-    KEY_PORTNUM,
-    KEY_REPLY_ID,
-    KEY_TEXT,
-    PORTNUM_TEXT,
-)
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
@@ -322,10 +311,10 @@ class TestReactionEmoteFallback:
         )
 
         assert _payload_content(result)["msgtype"] == "m.emote"
-        assert KEY_EMOJI not in _payload_content(result)
-        assert KEY_REPLY_ID not in _payload_content(
-            result
-        )  # no target or metadata to populate it
+        # Foreign MMRelay wire keys stay absent: no target or metadata exists
+        # to populate them.
+        assert "meshtastic_emoji" not in _payload_content(result)
+        assert "meshtastic_replyId" not in _payload_content(result)
         assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
@@ -430,39 +419,6 @@ class TestMatrixAdapterEventType:
         from medre.adapters.matrix.adapter import _MATRIX_CAPABILITIES
 
         assert _MATRIX_CAPABILITIES.reactions == "native"
-
-
-# ===========================================================================
-# mmrelay constants tests
-# ===========================================================================
-
-
-class TestMMRelayConstants:
-    """Verify mmrelay constants are correct."""
-
-    def test_key_reply_id(self) -> None:
-        assert KEY_REPLY_ID == "meshtastic_replyId"
-
-    def test_key_emoji(self) -> None:
-        assert KEY_EMOJI == "meshtastic_emoji"
-
-    def test_emoji_flag_value(self) -> None:
-        assert EMOJI_FLAG_VALUE == 1
-
-    def test_key_id(self) -> None:
-        assert KEY_ID == "meshtastic_id"
-
-    def test_key_text(self) -> None:
-        assert KEY_TEXT == "meshtastic_text"
-
-    def test_key_meshnet(self) -> None:
-        assert KEY_MESHNET == "meshtastic_meshnet"
-
-    def test_key_portnum(self) -> None:
-        assert KEY_PORTNUM == "meshtastic_portnum"
-
-    def test_portnum_text_value(self) -> None:
-        assert PORTNUM_TEXT == "TEXT_MESSAGE_APP"
 
 
 # ===========================================================================

@@ -1,23 +1,22 @@
 # medre-test-tier: compatibility
-"""Durable isolation guards for the mmrelay wire-format boundary.
+"""Durable isolation guards for the retired mmrelay interop namespace.
 
-Locks the architectural boundary that the mmrelay external Matrix wire
-fields (the ``KEY_*`` constants defined in :mod:`medre.interop.mmrelay`)
-and the ``derive_meshnet_value`` helper stay confined to the Matrix
-interop surface and never become a core model concept: no core planning
-module and no non-Matrix adapter may import them.
+Locks the architectural boundary that the retired ``medre.interop``
+namespace stays out of the MEDRE tree and that the Matrix ``displayname``
+trust boundary holds: through the sender projection and the full
+``render()`` path, a Matrix ``displayname`` in native metadata never
+becomes participant identity.
 
 The guards add:
 
-1. **Structural (AST) isolation guard** — no mmrelay wire-field constant
-   or ``derive_meshnet_value`` is imported outside the allowed Matrix
-   interop/renderer/codec modules.
+1. **Retired-namespace ban (AST)** — no module under the MEDRE tree may
+   import ``medre.interop`` or any submodule of it, in any import shape.
+   Synthetic matcher probes lock the ban's coverage of whole-module,
+   symbol-level, and package-level import forms.
 2. **Behavioral displayname trust boundary** — through the sender
    projection and the full ``render()`` path, a Matrix ``displayname``
    in native metadata never becomes participant identity: it never
    reaches the projected sender label or a rendered attribution prefix.
-3. **Unit-level precedence locks on ``derive_meshnet_value``** — the
-   helper resolves only from origin labels, never from wire data.
 """
 
 from __future__ import annotations
@@ -25,52 +24,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
-from medre.interop.mmrelay import derive_meshnet_value
 from tests.helpers.ast_imports import all_imports, parse_python
 from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
-# Structural isolation guard (AST-based)
+# Retired-namespace ban (AST-based)
 # ---------------------------------------------------------------------------
 
-# mmrelay wire-field constants + helper that define the external Matrix wire
-# compatibility surface.  These MUST stay confined to the Matrix
-# interop/renderer/codec modules.
-_GUARDED_MMRELAY_SYMBOLS: frozenset[str] = frozenset(
-    {
-        "KEY_ID",
-        "KEY_LONGNAME",
-        "KEY_SHORTNAME",
-        "KEY_MESHNET",
-        "KEY_PORTNUM",
-        "KEY_TEXT",
-        "KEY_REPLY_ID",
-        "KEY_EMOJI",
-        "KEY_REACTION_KEY",
-        "derive_meshnet_value",
-    }
-)
-
-# Modules allowed to import the guarded mmrelay symbols: the definition
-# site plus the two Matrix consumers (codec decodes wire fields from
-# inbound Matrix content; renderer re-emits them on outbound Matrix
-# content).  Core planning and non-Matrix adapters are NOT permitted.
-_ALLOWED_MODULES: frozenset[str] = frozenset(
-    {
-        "medre.interop.mmrelay",
-        "medre.adapters.matrix.codec",
-        "medre.adapters.matrix.renderer",
-    }
-)
+# The interop package was retired with the mmrelay compatibility module;
+# the last adapter import left the tree at the pinned Meshtastic revision.
+_RETIRED_NAMESPACE = "medre.interop"
 
 
 def _src_roots() -> tuple[Path, ...]:
@@ -90,114 +60,122 @@ def _module_dotted(path: Path, src_root: Path) -> str:
     return ".".join(["medre", *parts])
 
 
-def _find_guarded_imports(path: Path) -> set[str]:
-    """Return the set of guarded mmrelay symbols imported by *path*.
+def _is_interop_import(module: str) -> bool:
+    """Return True when *module* resolves into the retired namespace."""
+    return module == _RETIRED_NAMESPACE or module.startswith(_RETIRED_NAMESPACE + ".")
 
-    ``from medre.interop.mmrelay import KEY_LONGNAME`` is mapped to the
-    specific guarded symbol.  A whole-module ``import
-    medre.interop.mmrelay`` (optionally aliased, e.g. ``... as mmrelay``)
-    binds the module object itself, so every guarded symbol becomes
-    reachable via attribute access (``mmrelay.KEY_LONGNAME``); such a
-    binding is therefore treated as importing the full guarded surface.
+
+def _find_interop_imports(path: Path) -> list[str]:
+    """Return the retired-namespace import targets found in *path*.
+
+    Every import shape is covered: ``import medre.interop`` and
+    ``import medre.interop.mmrelay [as <alias>]`` bind the retired
+    modules directly; ``from medre.interop.mmrelay import KEY_LONGNAME``
+    records both the parent module and the imported symbol path; and
+    ``from medre.interop import mmrelay`` records both the package and
+    the submodule.  Any record resolving into ``medre.interop`` is a
+    violation.
     """
     tree = parse_python(str(path))
     records = all_imports(tree, file_path=str(path))
-    found: set[str] = set()
-    for rec in records:
-        if rec.module.startswith("medre.interop.mmrelay."):
-            # rec.module for ``from medre.interop.mmrelay import KEY_LONGNAME``
-            # resolves to ``medre.interop.mmrelay.KEY_LONGNAME``.
-            symbol = rec.module.split(".", 3)[-1]
-            if symbol in _GUARDED_MMRELAY_SYMBOLS:
-                found.add(symbol)
-        elif rec.kind == "import" and rec.module == "medre.interop.mmrelay":
-            # ``import medre.interop.mmrelay [as <alias>]`` binds the
-            # module object; any guarded symbol is reachable via attribute
-            # access (``mmrelay.KEY_LONGNAME``), so the full guarded
-            # surface is considered imported.  Only a true ``import``
-            # record (kind="import") unambiguously binds the whole module
-            # — a ``from``-import record with the same resolved module
-            # name may simply be the parent of a symbol-specific import.
-            found |= _GUARDED_MMRELAY_SYMBOLS
-    return found
+    return sorted({rec.module for rec in records if _is_interop_import(rec.module)})
 
 
-def test_mmrelay_wire_constants_isolated_to_matrix_surface() -> None:
-    """No guarded mmrelay symbol is imported outside the allowed surface.
+def test_interop_namespace_is_retired_from_medre_tree() -> None:
+    """No module in the MEDRE tree imports the retired namespace.
 
-    Scans every ``.py`` file under ``src/medre/`` via AST import analysis
-    and asserts that the mmrelay wire-field constants and
-    ``derive_meshnet_value`` are referenced only by:
-      * ``medre.interop.mmrelay`` (definition site)
-      * ``medre.adapters.matrix.codec`` (inbound Matrix wire decode)
-      * ``medre.adapters.matrix.renderer`` (outbound Matrix wire encode)
-
-    Core planning, core rendering, and non-Matrix adapters must not import
-    these symbols — doing so would leak an external Matrix wire-compat
-    shape into the core model.
+    Scans every ``.py`` file under every contributor to the ``medre``
+    package and fails on any import resolving into ``medre.interop`` —
+    whole-module, aliased, or symbol-level.  Reintroducing the namespace
+    would resurrect a historical Matrix wire-compat surface the frozen
+    schema rejects.
     """
     violations: list[str] = []
 
     for src_root in _src_roots():
         for path in sorted(src_root.rglob("*.py")):
             module_name = _module_dotted(path, src_root)
-            if module_name in _ALLOWED_MODULES:
-                continue
-            found = _find_guarded_imports(path)
+            found = _find_interop_imports(path)
             if found:
                 violations.append(
-                    f"{module_name} ({path.name}) imports guarded mmrelay "
-                    f"symbols: {sorted(found)}"
+                    f"{module_name} ({path.name}) imports the retired "
+                    f"medre.interop namespace: {found}"
                 )
 
-    assert not violations, (
-        "mmrelay wire-field isolation violated — guarded symbols imported "
-        "outside the Matrix interop/renderer/codec surface:\n  "
-        + "\n  ".join(violations)
+    assert (
+        not violations
+    ), "medre.interop is retired — imports found in the MEDRE tree:\n  " + "\n  ".join(
+        violations
     )
 
 
-def test_whole_module_mmrelay_import_flags_all_guarded_symbols(
-    tmp_path: Path,
-) -> None:
-    """A whole-module import binds the module; all guarded symbols reachable.
+def test_matcher_flags_whole_module_interop_import(tmp_path: Path) -> None:
+    """``import medre.interop.mmrelay as mmrelay`` is flagged.
 
-    Regression for the matcher gap where ``import medre.interop.mmrelay
-    as mmrelay`` (resolved module ``medre.interop.mmrelay`` with no
-    trailing dot) was missed, allowing attribute access such as
-    ``mmrelay.KEY_LONGNAME`` to slip past the isolation guard.  After the
-    fix, any whole-module import of the mmrelay package is treated as
-    importing the entire guarded surface.
+    Regression coverage for the whole-module binding shape: the alias
+    makes every former constant reachable through attribute access, so
+    the import itself is the violation.
     """
     probe = tmp_path / "probe_whole_module.py"
     probe.write_text(
         "import medre.interop.mmrelay as mmrelay\n" "x = mmrelay.KEY_LONGNAME\n",
         encoding="utf-8",
     )
-    found = _find_guarded_imports(probe)
-    assert _GUARDED_MMRELAY_SYMBOLS.issubset(found), (
-        f"whole-module mmrelay import must flag the full guarded surface; "
-        f"got {sorted(found)}"
-    )
+    found = _find_interop_imports(probe)
+    assert found == [
+        "medre.interop.mmrelay"
+    ], f"whole-module interop import must be flagged; got {found}"
 
 
-def test_from_import_reports_only_the_named_symbol(tmp_path: Path) -> None:
-    """``from ... import KEY_LONGNAME`` reports only ``KEY_LONGNAME``.
-
-    Locks the precision of the matcher so the active-use guard above
-    (``test_allowed_matrix_modules_actively_use_guarded_surface``) stays
-    meaningful: a symbol-specific ``from``-import must not be over-reported
-    as the full guarded surface.
-    """
+def test_matcher_flags_from_import_of_retired_symbol(tmp_path: Path) -> None:
+    """``from medre.interop.mmrelay import KEY_LONGNAME`` is flagged."""
     probe = tmp_path / "probe_from_import.py"
     probe.write_text(
         "from medre.interop.mmrelay import KEY_LONGNAME\n",
         encoding="utf-8",
     )
-    found = _find_guarded_imports(probe)
-    assert found == {"KEY_LONGNAME"}, (
-        f"from-import must report only the imported symbol; " f"got {sorted(found)}"
+    found = _find_interop_imports(probe)
+    assert found == [
+        "medre.interop.mmrelay",
+        "medre.interop.mmrelay.KEY_LONGNAME",
+    ], f"symbol-level interop import must be flagged; got {found}"
+
+
+def test_matcher_flags_package_level_interop_import(tmp_path: Path) -> None:
+    """``from medre.interop import mmrelay`` flags package and submodule."""
+    probe = tmp_path / "probe_package_level.py"
+    probe.write_text(
+        "from medre.interop import mmrelay\n",
+        encoding="utf-8",
     )
+    found = _find_interop_imports(probe)
+    assert found == [
+        "medre.interop",
+        "medre.interop.mmrelay",
+    ], f"package-level interop import must be flagged; got {found}"
+
+
+def test_matcher_flags_bare_package_import(tmp_path: Path) -> None:
+    """``import medre.interop`` alone is flagged."""
+    probe = tmp_path / "probe_bare_package.py"
+    probe.write_text(
+        "import medre.interop\n",
+        encoding="utf-8",
+    )
+    found = _find_interop_imports(probe)
+    assert found == [
+        "medre.interop"
+    ], f"bare package import must be flagged; got {found}"
+
+
+def test_matcher_ignores_live_namespaces(tmp_path: Path) -> None:
+    """Imports outside the retired namespace produce no findings."""
+    probe = tmp_path / "probe_live_namespaces.py"
+    probe.write_text(
+        "from medre.core.events.kinds import EventKind\n" "import medre.runtime\n",
+        encoding="utf-8",
+    )
+    assert _find_interop_imports(probe) == []
 
 
 # ---------------------------------------------------------------------------
@@ -349,40 +327,3 @@ async def test_displayname_ignored_even_alongside_empty_names() -> None:
     # The projection chain terminates at the transport ID fallback; the
     # displayname must NOT fill in.
     assert body == "[!node-1] hello"
-
-
-# ---------------------------------------------------------------------------
-# Unit-level locks on derive_meshnet_value precedence (origin-label only)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "source_label, adapter_label, expected",
-    [
-        ("Route Net", "Adapter Net", "Route Net"),
-        (None, "Adapter Net", "Adapter Net"),
-        ("", "Adapter Net", ""),
-        (None, None, ""),
-        ("", "", ""),
-    ],
-    ids=[
-        "route-wins",
-        "adapter-fallback",
-        "empty-route-suppresses-adapter",
-        "both-none-empty",
-        "both-empty",
-    ],
-)
-def test_derive_meshnet_value_origin_label_precedence(
-    source_label: str | None,
-    adapter_label: str | None,
-    expected: str,
-) -> None:
-    """derive_meshnet_value resolves only from origin labels (never wire data).
-
-    Locks the precedence: source origin label (``""`` preserved as
-    intentionally blank) > adapter origin label > empty string.  The
-    helper takes no wire-data argument by construction — this test makes
-    that contract explicit and durable.
-    """
-    assert derive_meshnet_value(source_label, adapter_label) == expected

@@ -8,7 +8,6 @@ from tests.helpers.import_side_effects import check_in_subprocess
 @pytest.mark.parametrize(
     "module",
     [
-        "medre.interop.mmrelay",
         "medre.core.observability.sanitization",
         "medre.core.events.text",
         "medre",
