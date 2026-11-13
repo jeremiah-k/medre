@@ -20,7 +20,7 @@ def lxmf_renderer_with_prefix(
     config = LxmfConfig(
         adapter_id=target_adapter,
         connection_type="fake",
-        lxmf_relay_prefix=prefix,
+        relay_prefix=prefix,
     )
     return LxmfRenderer(
         metadata_embedding=metadata_embedding,

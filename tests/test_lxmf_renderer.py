@@ -592,9 +592,7 @@ class TestLxmfRelayPrefix:
     async def test_empty_prefix_preserves_body(self) -> None:
         """Default empty prefix leaves content unchanged."""
         renderer = LxmfRenderer(
-            configs={
-                "lxmf_node": LxmfConfig(adapter_id="lxmf_node", lxmf_relay_prefix="")
-            }
+            configs={"lxmf_node": LxmfConfig(adapter_id="lxmf_node", relay_prefix="")}
         )
         event = _make_event(payload={"body": "original text"})
         result = await renderer.render(
@@ -609,7 +607,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -632,7 +630,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                    adapter_id="lxmf_node", relay_prefix="<{sender_short}> "
                 )
             }
         )
@@ -659,7 +657,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="({sender_id}) "
+                    adapter_id="lxmf_node", relay_prefix="({sender_id}) "
                 )
             }
         )
@@ -679,7 +677,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="{source_sender_id}: "
+                    adapter_id="lxmf_node", relay_prefix="{source_sender_id}: "
                 )
             }
         )
@@ -700,7 +698,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -721,7 +719,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -771,7 +769,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                    adapter_id="lxmf_node", relay_prefix="<{sender_short}> "
                 )
             }
         )
@@ -807,7 +805,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="{bogus_var} "
+                    adapter_id="lxmf_node", relay_prefix="{bogus_var} "
                 )
             }
         )
@@ -829,7 +827,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -865,7 +863,7 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_a": LxmfConfig(
                 adapter_id="lxmf_a",
                 connection_type="fake",
-                lxmf_relay_prefix="[{sender}] ",
+                relay_prefix="[{sender}] ",
             )
         }
         renderer = LxmfRenderer(configs=configs)
@@ -887,12 +885,12 @@ class TestLxmfTargetAwareConfigs:
             "lxmf_alpha": LxmfConfig(
                 adapter_id="lxmf_alpha",
                 connection_type="fake",
-                lxmf_relay_prefix="[{sender}] ",
+                relay_prefix="[{sender}] ",
             ),
             "lxmf_beta": LxmfConfig(
                 adapter_id="lxmf_beta",
                 connection_type="fake",
-                lxmf_relay_prefix="<{sender_short}> ",
+                relay_prefix="<{sender_short}> ",
             ),
         }
         renderer = LxmfRenderer(configs=configs)
@@ -915,10 +913,10 @@ class TestLxmfTargetAwareConfigs:
         assert result_b.payload["content"] == "<RAD> hello"
 
     async def test_empty_prefix_from_config(self) -> None:
-        """Adapter config with empty lxmf_relay_prefix produces no prefix."""
+        """Adapter config with empty relay_prefix produces no prefix."""
         configs = {
             "lxmf_plain": LxmfConfig(
-                adapter_id="lxmf_plain", connection_type="fake", lxmf_relay_prefix=""
+                adapter_id="lxmf_plain", connection_type="fake", relay_prefix=""
             )
         }
         renderer = LxmfRenderer(configs=configs)
@@ -935,7 +933,7 @@ class TestLxmfTargetAwareConfigs:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -966,7 +964,7 @@ class TestLxmfSourceOriginLabel:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{origin_label}] "
+                    adapter_id="lxmf_node", relay_prefix="[{origin_label}] "
                 )
             },
             source_attribution=source_attr,
@@ -995,7 +993,7 @@ class TestLxmfSourceOriginLabel:
             "lxmf_a": LxmfConfig(
                 adapter_id="lxmf_a",
                 connection_type="fake",
-                lxmf_relay_prefix="<{origin_label}> ",
+                relay_prefix="<{origin_label}> ",
             )
         }
         renderer = LxmfRenderer(configs=configs, source_attribution=source_attr)
@@ -1014,7 +1012,7 @@ class TestLxmfSourceOriginLabel:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{origin_label}] "
+                    adapter_id="lxmf_node", relay_prefix="[{origin_label}] "
                 )
             }
         )
@@ -1044,7 +1042,7 @@ class TestLxmfSourceAttributionPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -1067,7 +1065,7 @@ class TestLxmfSourceAttributionPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                    adapter_id="lxmf_node", relay_prefix="[{sender}] "
                 )
             }
         )
@@ -1089,7 +1087,7 @@ class TestLxmfSourceAttributionPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="({sender_id}) "
+                    adapter_id="lxmf_node", relay_prefix="({sender_id}) "
                 )
             }
         )
@@ -1109,7 +1107,7 @@ class TestLxmfSourceAttributionPrefix:
         renderer = LxmfRenderer(
             configs={
                 "lxmf_node": LxmfConfig(
-                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                    adapter_id="lxmf_node", relay_prefix="<{sender_short}> "
                 )
             }
         )

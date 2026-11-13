@@ -1167,7 +1167,7 @@ _ADAPTER_ARM_DISTINCTIVE_FIELDS: dict[str, frozenset[str]] = {
     "MatrixConfig": frozenset({"homeserver", "user_id"}),
     "MeshtasticConfig": frozenset({"relay_prefix", "encrypted_action"}),
     "MeshCoreConfig": frozenset({"relay_prefix", "serial_baudrate"}),
-    "LxmfConfig": frozenset({"lxmf_relay_prefix", "default_delivery_method"}),
+    "LxmfConfig": frozenset({"relay_prefix", "default_delivery_method"}),
     "XMPPConfig": frozenset({"jid", "rooms"}),
     "ChatmailConfig": frozenset({"account_id", "chats"}),
     "SimplexChatConfig": frozenset({"user_id", "chats"}),
