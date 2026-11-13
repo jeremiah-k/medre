@@ -113,9 +113,9 @@ def test_all_adapter_arms_reject_undeclared_properties() -> None:
 def test_pinned_adapter_rejects_old_key_and_accepts_new_key(
     module: str, class_name: str, old_field: str, default: str | None
 ) -> None:
-    from importlib import import_module
-
-    config_type = getattr(import_module(module), class_name)
+    # The core tier runs without adapter distributions installed; the
+    # pinned dataclass contract is only asserted where the module exists.
+    config_type = getattr(pytest.importorskip(module), class_name)
     assert config_type(adapter_id="test-radio").relay_prefix == default
     assert (
         config_type(adapter_id="test-radio", relay_prefix="").validate().relay_prefix
