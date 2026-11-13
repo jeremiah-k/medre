@@ -107,28 +107,6 @@ Key design differences:
 6. MEDRE's encrypted packets get `drop` (no decryption infrastructure),
    while MMRelay gives them `PLUGIN_ONLY`.
 
-### MMRelay wire-format constants
-
-MEDRE's `src/medre/interop/mmrelay.py` defines wire-format protocol constants
-for cross-adapter message exchange. These key names come from MMRelay's Matrix
-message schema:
-
-```python
-KEY_ID = "meshtastic_id"
-KEY_LONGNAME = "meshtastic_longname"
-KEY_SHORTNAME = "meshtastic_shortname"
-KEY_MESHNET = "meshtastic_meshnet"
-KEY_PORTNUM = "meshtastic_portnum"
-KEY_TEXT = "meshtastic_text"
-KEY_REPLY_ID = "meshtastic_replyId"
-KEY_EMOJI = "meshtastic_emoji"
-KEY_REACTION_KEY = "meshtastic_reaction_key"  # MEDRE extension
-```
-
-These constants live outside any adapter package because they define a
-cross-adapter wire contract, not an implementation detail of any single
-adapter.
-
 ### Queue semantics differences
 
 MMRelay's outbound queue silently evicts the oldest item when at capacity.

@@ -9,6 +9,13 @@ this file once they land.
 
 ## Recent changes
 
+- **498 — Interop module retirement.** The `medre.interop.mmrelay`
+  compatibility module is deleted from core with no alias left behind: the
+  last adapter import left the tree at the pinned Meshtastic revision, and
+  no adapter in the compatibility manifest imports the module. Foreign
+  MMRelay wire-packet handling and the Matrix `displayname` trust boundary
+  are unchanged and keep their coverage; the retired namespace is banned
+  across the MEDRE tree by the AST guard.
 - **497 — Adapter pin promotion.** The Meshtastic adapter revision that
   drops the last adapter import of `medre.interop.mmrelay` is pinned: the
   reaction sentinel is a native decoded-packet property in the classifier
