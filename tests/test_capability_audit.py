@@ -297,9 +297,9 @@ def test_json_has_exactly_all_adapter_capability_fields() -> None:
 class TestReactions:
     """reactions: emoji / reaction support level."""
 
-    def test_matrix_reactions_native(self) -> None:
+    def test_matrix_reactions_fallback(self) -> None:
         fake_caps = _get_fake_caps("matrix")
-        assert fake_caps.reactions == "native"
+        assert fake_caps.reactions == "fallback"
 
     def test_meshtastic_reactions_native(self) -> None:
         fake_caps = _get_fake_caps("meshtastic")
