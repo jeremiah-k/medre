@@ -1674,6 +1674,41 @@ class RetryWorker:
             )
         else:
             self.state.processed += 1
+            if result_receipt.status not in {"queued", "sent", "suppressed"}:
+                # A completed execution can return persisted failure or terminal
+                # evidence instead of raising. Reconcile that evidence through
+                # the failure lifecycle; never present it as a successful send.
+                try:
+                    finalization = await self._lifecycle.finalize_retry_attempt_error(
+                        self._lifecycle_storage,
+                        item,
+                        retry_context.retry_policy,
+                        error=RuntimeError(
+                            result_receipt.error
+                            or f"Retry delivery returned {result_receipt.status}"
+                        ),
+                        attempt_number=reserved_attempt,
+                    )
+                except RetryAttemptCommitRejected as stale:
+                    self._log_superseded_transition(item, stale)
+                except Exception as lifecycle_exc:
+                    _logger.exception(
+                        "RetryWorker: failed to reconcile returned retry evidence "
+                        "for outbox %s",
+                        item.outbox_id,
+                    )
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=result_receipt.attempt_number,
+                    )
+                else:
+                    self._record_retry_finalization(
+                        item,
+                        finalization,
+                        error_summary=result_receipt.error,
+                    )
+                return
             try:
                 retry_succeeded = await self._lifecycle.finalize_retry_success(
                     self._lifecycle_storage,
