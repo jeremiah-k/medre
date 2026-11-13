@@ -253,7 +253,6 @@ class TestReusableAdapterModuleBoundary:
         ("src/medre/adapters/lxmf/codec.py", "lxmf"),
         ("src/medre/adapters/lxmf/renderer.py", "lxmf"),
         ("src/medre/adapters/lxmf/session.py", "lxmf"),
-        ("src/medre/interop/mmrelay.py", ""),
     ]
 
     def _check_module(self, py_file: Path, rel: str, transport: str) -> list[str]:
@@ -291,7 +290,7 @@ class TestReusableAdapterModuleBoundary:
 
         # 2b. Cross-adapter isolation: reusable modules must not import
         #     other transport adapter packages (e.g. matrix/codec importing
-        #     meshtastic/*).  interop modules are exempt.
+        #     meshtastic/*).
         #     Underscore-prefixed modules (e.g. _attribution_dispatch) are
         #     shared infrastructure and exempt from the cross-adapter check.
         if transport:

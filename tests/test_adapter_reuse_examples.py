@@ -1,10 +1,10 @@
 # medre-test-tier: compatibility
 """Standalone adapter reuse examples — API-boundary tests.
 
-These tests demonstrate that core adapter components (renderers, codecs,
-interop constants) are usable **without** RuntimeBuilder, PipelineRunner,
-storage, sessions, or any runtime infrastructure.  Each test constructs the
-minimum viable inputs and calls the adapter component directly.
+These tests demonstrate that core adapter components (renderers, codecs)
+are usable **without** RuntimeBuilder, PipelineRunner, storage, sessions,
+or any runtime infrastructure.  Each test constructs the minimum viable
+inputs and calls the adapter component directly.
 
 The purpose is two-fold:
 
@@ -28,18 +28,6 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.metadata import EventMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from medre.interop.mmrelay import (
-    EMOJI_FLAG_VALUE,
-    KEY_EMOJI,
-    KEY_ID,
-    KEY_LONGNAME,
-    KEY_MESHNET,
-    KEY_PORTNUM,
-    KEY_REPLY_ID,
-    KEY_SHORTNAME,
-    KEY_TEXT,
-    PORTNUM_TEXT,
-)
 from tests.helpers.matrix import matrix_payload_content
 
 
@@ -153,32 +141,3 @@ class TestMeshtasticCodecStandalone:
         assert isinstance(result.event_kind, str) and result.event_kind.startswith(
             "message"
         )
-
-
-# ======================================================================
-# Test Class 4: MMRelay interop constants standalone
-# ======================================================================
-
-
-class TestMMRelayInteropStandalone:
-    """mmrelay constants are plain strings with zero medre imports."""
-
-    def test_all_constants_are_non_empty_strings(self) -> None:
-        for name in (
-            KEY_ID,
-            KEY_LONGNAME,
-            KEY_SHORTNAME,
-            KEY_MESHNET,
-            KEY_PORTNUM,
-            KEY_TEXT,
-            KEY_REPLY_ID,
-            KEY_EMOJI,
-        ):
-            assert isinstance(name, str)
-            assert len(name) > 0
-
-    def test_portnum_text_value(self) -> None:
-        assert PORTNUM_TEXT == "TEXT_MESSAGE_APP"
-
-    def test_emoji_flag_value(self) -> None:
-        assert EMOJI_FLAG_VALUE == 1

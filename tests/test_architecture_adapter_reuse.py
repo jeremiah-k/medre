@@ -1,7 +1,7 @@
 # medre-test-tier: compatibility
 """Architecture boundary tests: reusable adapter module boundaries.
 
-Ensures codec/renderer/interop/session modules don't import runtime, CLI,
+Ensures codec/renderer/session modules don't import runtime, CLI,
 storage, engine, adapter wrappers, or protocol SDKs at module level.
 """
 
@@ -41,7 +41,6 @@ _REUSABLE_MODULES: list[tuple[str, str]] = [
     ("src/medre/adapters/meshtastic/session.py", "meshtastic"),
     ("src/medre/adapters/meshcore/session.py", "meshcore"),
     ("src/medre/adapters/lxmf/session.py", "lxmf"),
-    ("src/medre/interop/mmrelay.py", ""),
 ]
 
 # Heavy SDKs — codec/renderer must not import these at module level.
@@ -126,7 +125,7 @@ def _check_module(
 
 
 class TestCodecRendererBoundary:
-    """Codec, renderer, interop, and session modules must not import runtime, SDKs, or adapters."""
+    """Codec, renderer, and session modules must not import runtime, SDKs, or adapters."""
 
     @pytest.mark.parametrize("rel_path,transport", _REUSABLE_MODULES)
     def test_module_no_forbidden_imports(self, rel_path: str, transport: str) -> None:
