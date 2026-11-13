@@ -11,7 +11,7 @@
   {
     "transport": "meshtastic",
     "repository": "jeremiah-k/medre-adapter-meshtastic",
-    "ref": "25b5583b2caae3b699f3fdff59b470b29e6eadcd",
+    "ref": "150774f04d8f4741ea01f6551da40badcd758b04",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-meshtastic"
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "8b14baf71fec1768631b2698058e54c67b0da029",
+    "ref": "4d98eb9fbd58669a462d83dca022a95a74c4afc6",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
@@ -51,7 +51,7 @@
   {
     "transport": "simplexchat",
     "repository": "jeremiah-k/medre-adapter-simplexchat",
-    "ref": "5a02e85988ad39bbee3fa924ee7bfb0c38dba0e1",
+    "ref": "b60e55ea08ad09d7c148493353ae51efbbe3bcff",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-simplexchat"
