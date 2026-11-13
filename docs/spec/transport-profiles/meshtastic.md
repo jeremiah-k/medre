@@ -172,9 +172,10 @@ When a prefix is rendered, the following diagnostic keys are set on the
 
 When the Meshtastic adapter is the **source** of a relay to a Matrix target,
 the Matrix renderer resolves the prefix template. The preferred path is
-`MatrixConfig.relay_prefix` (target-local, default `""`). When that is empty,
-the renderer falls back to an empty string (no prefix). Matrix prefix is now
-target-local only — there is no `matrix_relay_prefix` on MeshtasticConfig.
+`MatrixConfig.relay_prefix` (target-local, default `None`). When omitted or
+`None`, the Matrix renderer supplies automatic sender attribution; an explicit
+`""` disables the prefix. Matrix prefix is target-local only — there is no
+`matrix_relay_prefix` on MeshtasticConfig.
 
 For cross-platform prefix templates, operators SHOULD prefer `{origin_label}`
 — the MEDRE-generic source label populated on all adapter configs. `{origin_label}` is resolved
