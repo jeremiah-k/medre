@@ -398,7 +398,7 @@ adapters:
 | `message_delay_seconds`                         | float      | `0.5`         | Pacing.                                                            |
 | `identity`                                      | string     | `None`        | MeshCore node identity string.                                     |
 | `pubkey`                                        | string     | `None`        | Public key as hex string.                                          |
-| `max_text_bytes`                                | int        | `512`         | Maximum UTF-8 byte budget for rendered radio text.                 |
+| `max_text_bytes`                                | int        | `160`         | Maximum UTF-8 byte budget for rendered radio text.                 |
 | `serial_baudrate`                               | int        | `115200`      | Baud rate for serial connection.                                   |
 | `node_config`                                   | dict       | `{}`          | Opaque node-specific settings. No secret keys.                     |
 | `relay_prefix`                                  | `string`   | `""`          | `""` disables; otherwise a prefix template. Null is not accepted.  |
