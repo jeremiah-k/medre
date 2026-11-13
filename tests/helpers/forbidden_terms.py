@@ -96,6 +96,43 @@ PLANNING_CYCLE_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\b" + "P" + r"art\s+[A-Z]\b"),
 ]
 
+#: Self-compatibility retention phrases banned from ``src/`` docstrings and
+#: comments: phrase framing that presents an alias, wrapper, signature, or
+#: surface as legacy baggage kept around for earlier callers, or asserts
+#: that some prior spelling of a name still works. The family is scanned
+#: case-insensitively and ONLY over ``.py`` files under ``src/``; it is
+#: deliberately NOT part of ``ALL_FORBIDDEN_PATTERNS`` so the
+#: durable-language enforcers keep their existing docs/tests/examples
+#: scope. Words alone are never banned: retention-accounting prose,
+#: boundary guards that never move backward, foreign SDK/protocol
+#: identifiers used as names, and the prerelease migration's description of
+#: predecessor table layouts all scan clean. Each pattern is assembled from
+#: concatenated fragments so no blocked phrase appears as a literal
+#: substring of this file. Allowlist carve-outs for foreign contracts live
+#: in ``tests/helpers/self_compat_keep_paths.py``.
+SELF_COMPAT_TERMS: list[re.Pattern[str]] = [
+    re.compile(r"\bcompatibility " + r"surface\b", re.IGNORECASE),
+    re.compile(r"\bcompat(?:ibility)? " + r"shim\b", re.IGNORECASE),
+    re.compile(
+        r"\bkept " + r"for (?:compatibility|older|legacy|existing callers?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bretained " + r"for (?:older|legacy|existing|call-?sites?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bfor " + r"backwards? compat\b", re.IGNORECASE),
+    re.compile(
+        r"\bbackwards?-compat(?:ible|ibility)? " + r"(?:surface|path|alias|wrapper)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:legacy|deprecated) " + r"(?:alias|wrapper|call-?site|signature)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bstill " + r"(?:accepted|supported|passes) for\b", re.IGNORECASE),
+]
+
 #: Union of all forbidden patterns — use for full-scope durable-artifact scans.
 ALL_FORBIDDEN_PATTERNS: list[re.Pattern[str]] = PLANNING_CYCLE_TERMS + FORBIDDEN_TERMS
 
