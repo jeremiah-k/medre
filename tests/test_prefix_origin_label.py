@@ -104,12 +104,12 @@ async def test_uses_source_origin_label_not_target() -> None:
         configs={
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
-                radio_relay_prefix="",
+                relay_prefix="",
                 origin_label="East Radio",
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
-                radio_relay_prefix="[{origin_label}]: ",
+                relay_prefix="[{origin_label}]: ",
                 origin_label="West Radio",
             ),
         },
@@ -149,7 +149,7 @@ async def test_matrix_origin_label_in_meshtastic_prefix() -> None:
         configs={
             "mesh-1": MeshtasticConfig(
                 adapter_id="mesh-1",
-                radio_relay_prefix="[{origin_label}] ",
+                relay_prefix="[{origin_label}] ",
             ),
         },
         source_attribution={
@@ -180,7 +180,7 @@ async def test_meshnet_name_unchanged_in_meshtastic_prefix() -> None:
         configs={
             "mesh-1": MeshtasticConfig(
                 adapter_id="mesh-1",
-                radio_relay_prefix="[{meshnet_name}] ",
+                relay_prefix="[{meshnet_name}] ",
             ),
         },
     )
@@ -205,7 +205,7 @@ async def test_meshnet_name_in_reaction_compact_prefix() -> None:
         configs={
             "mesh-1": MeshtasticConfig(
                 adapter_id="mesh-1",
-                radio_relay_prefix="[{meshnet_name}/{sender_short}] ",
+                relay_prefix="[{meshnet_name}/{sender_short}] ",
             ),
         },
     )

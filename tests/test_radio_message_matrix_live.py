@@ -259,7 +259,7 @@ async def _launch(
             default_channel=0,
             message_delay_seconds=_TX_PACING,
             max_text_bytes=_MT_BUDGET,
-            radio_relay_prefix=_MT_PREFIX_TEMPLATE,
+            relay_prefix=_MT_PREFIX_TEMPLATE,
         ).validate(),
     )
     mc = MeshCoreRuntimeConfig(
@@ -274,7 +274,7 @@ async def _launch(
             message_delay_seconds=_TX_PACING,
             max_text_bytes=_MC_BUDGET,
             identity=_MC_MEDRE_NAME,
-            meshcore_relay_prefix=_MC_PREFIX_TEMPLATE,
+            relay_prefix=_MC_PREFIX_TEMPLATE,
         ).validate(),
     )
     route_list = [

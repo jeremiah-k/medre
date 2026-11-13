@@ -29,13 +29,13 @@ def _make_config(
     *,
     max_text_bytes: int = 512,
     default_channel: int = 0,
-    meshcore_relay_prefix: str = "",
+    relay_prefix: str = "",
 ) -> MeshCoreConfig:
     return MeshCoreConfig(
         adapter_id=adapter_id,
         max_text_bytes=max_text_bytes,
         default_channel=default_channel,
-        meshcore_relay_prefix=meshcore_relay_prefix,
+        relay_prefix=relay_prefix,
     )
 
 
@@ -1059,7 +1059,7 @@ class TestMeshCoreRendererRelayPrefix:
     """Relay prefix: prepended before truncation, counts toward budget.
 
     These tests verify that:
-    - A non-empty ``meshcore_relay_prefix`` template triggers prefix
+    - A non-empty ``relay_prefix`` template triggers prefix
       formatting via the shared attribution formatter.
     - The rendered prefix is prepended to the body text before
       byte-budget truncation, so the prefix counts toward
@@ -1075,7 +1075,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Matrix source: prefix template resolves {sender}."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1096,7 +1096,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Meshtastic source: prefix template resolves {sender_short}."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="<{sender_short}> ",
+            relay_prefix="<{sender_short}> ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1120,7 +1120,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Missing attribution variables produce empty strings, not 'None'."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         # Event with no native data — display_name will be empty.
@@ -1143,7 +1143,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=15,
-            meshcore_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1171,7 +1171,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Metadata records template and rendered prefix when configured."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{source_platform}] ",
+            relay_prefix="[{source_platform}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(source_adapter="matrix-bridge")
@@ -1189,7 +1189,7 @@ class TestMeshCoreRendererRelayPrefix:
         """Unknown placeholder produces formatting_error in metadata."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{bogus_var}] ",
+            relay_prefix="[{bogus_var}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(source_adapter="matrix-bridge")
@@ -1236,7 +1236,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=0,
-            meshcore_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1259,7 +1259,7 @@ class TestMeshCoreRendererRelayPrefix:
         cfg = _make_config(
             "mc-relay",
             max_text_bytes=6,
-            meshcore_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
@@ -1297,7 +1297,7 @@ class TestMeshCoreSourceOriginLabel:
         """MeshCore target prefix uses source origin_label from registry."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{origin_label}]: ",
+            relay_prefix="[{origin_label}]: ",
         )
         renderer = MeshCoreRenderer(
             configs={"mc-relay": cfg},
@@ -1322,7 +1322,7 @@ class TestMeshCoreSourceOriginLabel:
         """LXMF→MeshCore: source origin_label appears in prefix."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{origin_label}] ",
+            relay_prefix="[{origin_label}] ",
         )
         renderer = MeshCoreRenderer(
             configs={"mc-relay": cfg},
@@ -1347,7 +1347,7 @@ class TestMeshCoreSourceOriginLabel:
         """Missing source_attribution entry: origin_label is empty, not 'None'."""
         cfg = _make_config(
             "mc-relay",
-            meshcore_relay_prefix="[{origin_label}] ",
+            relay_prefix="[{origin_label}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(

@@ -29,13 +29,13 @@ from medre.core.rendering.renderer import RenderingContext
 def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
-    radio_relay_prefix: str = "",
+    relay_prefix: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
-        radio_relay_prefix=radio_relay_prefix,
+        relay_prefix=relay_prefix,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -217,7 +217,7 @@ class TestCrossPlatformReactionDescriptive:
         """Display name spaces are stripped in the prefix; casing preserved."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(
@@ -242,7 +242,7 @@ class TestCrossPlatformReactionDescriptive:
         """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender}] ",
+            relay_prefix="[{sender}] ",
         )
 
         rel = _make_cross_platform_relation(key="👋", fallback_text="hi")
@@ -435,7 +435,7 @@ async def test_direct_descriptive_reaction_metadata_has_real_template() -> None:
     prefix_template_used, not blank."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(
         key="👍",
@@ -459,7 +459,7 @@ async def test_direct_descriptive_reaction_metadata_has_rendered_prefix() -> Non
     rendered prefix (spaces stripped from display name)."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(
         key="👍",
@@ -482,7 +482,7 @@ async def test_direct_descriptive_reaction_metadata_has_variables_used() -> None
     prefix_variables_used."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
     event = _make_matrix_event(
@@ -503,7 +503,7 @@ async def test_direct_descriptive_reaction_metadata_not_blank_sentinel() -> None
     the template has variables."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(key="👍", fallback_text="msg")
     event = _make_matrix_event(
@@ -525,7 +525,7 @@ async def test_fallback_descriptive_reaction_metadata_has_real_prefix() -> None:
     prefix formatter result, not blank sentinel."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(
         key="👍",
@@ -554,7 +554,7 @@ async def test_fallback_descriptive_reaction_metadata_includes_descriptive_flag(
     and delivery_strategy."""
     renderer = _make_renderer(
         "mesh-1",
-        radio_relay_prefix="[{sender}] ",
+        relay_prefix="[{sender}] ",
     )
     rel = _make_cross_platform_relation(
         key="👍",
@@ -794,10 +794,10 @@ class TestFallbackTextReplyRelationContext:
         assert "reply_id" not in result.payload
 
     async def test_prefix_applied_to_fallback_reply(self) -> None:
-        """Fallback-text reply gets radio_relay_prefix prepended."""
+        """Fallback-text reply gets relay_prefix prepended."""
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender_short}] ",
+            relay_prefix="[{sender_short}] ",
         )
         native_ref = NativeRef(
             adapter="mesh-1",

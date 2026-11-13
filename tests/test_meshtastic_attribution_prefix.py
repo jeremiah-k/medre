@@ -29,13 +29,13 @@ from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_
 def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
-    radio_relay_prefix: str = "",
+    relay_prefix: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with a single-adapter config mapping."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
-        radio_relay_prefix=radio_relay_prefix,
+        relay_prefix=relay_prefix,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -75,13 +75,13 @@ def _make_matrix_event(
 def _make_renderer_with_attribution(
     target_adapter: str = "mesh-1",
     *,
-    radio_relay_prefix: str = "",
+    relay_prefix: str = "",
     source_attribution: dict | None = None,
 ) -> MeshtasticRenderer:
     """Create a MeshtasticRenderer with source_attribution."""
     config = MeshtasticConfig(
         adapter_id=target_adapter,
-        radio_relay_prefix=radio_relay_prefix,
+        relay_prefix=relay_prefix,
     )
     return MeshtasticRenderer(
         configs={target_adapter: config},
@@ -104,7 +104,7 @@ class _StubSourceAttribution:
 
 async def test_meshtastic_loop_prefix_clean() -> None:
     """Meshtastic-origin event with prefix produces no 'None' or garbled output."""
-    renderer = _make_renderer("mesh-1", radio_relay_prefix="{sender_short}: ")
+    renderer = _make_renderer("mesh-1", relay_prefix="{sender_short}: ")
     event = CanonicalEvent(
         event_id="mesh-evt-1",
         event_kind="message.created",
@@ -182,7 +182,7 @@ async def test_source_origin_label_in_prefix() -> None:
     """Source origin_label from registry appears in prefix."""
     renderer = _make_renderer_with_attribution(
         "mesh-1",
-        radio_relay_prefix="[{origin_label}]: ",
+        relay_prefix="[{origin_label}]: ",
         source_attribution={
             "matrix-1": _StubSourceAttribution(
                 adapter_id="matrix-1",
@@ -225,7 +225,7 @@ async def test_matrix_to_meshtastic_uses_source_origin_label() -> None:
     """Matrix→Meshtastic: Matrix source origin_label appears in Meshtastic prefix."""
     renderer = _make_renderer_with_attribution(
         "mesh-1",
-        radio_relay_prefix="[{origin_label}/{sender_short}]: ",
+        relay_prefix="[{origin_label}/{sender_short}]: ",
         source_attribution={
             "matrix-1": _StubSourceAttribution(
                 adapter_id="matrix-1",
@@ -250,11 +250,11 @@ async def test_mesh_to_mesh_uses_source_origin_label() -> None:
         configs={
             "radio-alpha": MeshtasticConfig(
                 adapter_id="radio-alpha",
-                radio_relay_prefix="",
+                relay_prefix="",
             ),
             "radio-bravo": MeshtasticConfig(
                 adapter_id="radio-bravo",
-                radio_relay_prefix="[{origin_label}]: ",
+                relay_prefix="[{origin_label}]: ",
             ),
         },
         source_attribution={

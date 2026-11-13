@@ -52,7 +52,7 @@ adapters:
       connection_type: serial
       serial_port: /dev/ttyACM0
       origin_label: medre-radio
-      radio_relay_prefix: "{sender_short}: " # Matrix→Meshtastic prefix
+      relay_prefix: "{sender_short}: " # Matrix→Meshtastic prefix
 
       # # --- TCP alternative (uncomment to use instead of serial) ---
       # connection_type: tcp

@@ -68,7 +68,7 @@ def _make_pipeline() -> RenderingPipeline:
     # bridge tests' target adapter "mesh-target" with empty prefix.
     _mesh_config = MeshtasticConfig(
         adapter_id="mesh-target",
-        radio_relay_prefix="",
+        relay_prefix="",
         max_text_bytes=227,
     )
     pipeline.register(

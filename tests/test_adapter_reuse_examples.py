@@ -95,7 +95,7 @@ class TestMeshtasticRendererStandalone:
         )
         renderer = MeshtasticRenderer(
             configs={
-                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
+                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")
             }
         )
         result = await renderer.render(

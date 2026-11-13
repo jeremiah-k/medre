@@ -417,7 +417,7 @@ class TestReplyMeshtasticToMatrix:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    RADIO: MeshtasticConfig(adapter_id=RADIO, radio_relay_prefix="")
+                    RADIO: MeshtasticConfig(adapter_id=RADIO, relay_prefix="")
                 }
             ),
             priority=50,
