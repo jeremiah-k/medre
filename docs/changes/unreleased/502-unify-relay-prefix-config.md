@@ -13,6 +13,9 @@ renderers permit `{senderN}`, `{sender_shortN}`, and `{origin_labelN}` for N >= 
 
 This pre-first-release operator-schema correction intentionally updates only the
 `adapter-config.schema.json` digest in `v0.1.0.freeze.json`. The canonical event
-and bridge-context wire formats remain byte-for-byte unchanged. Promote both
-adapter revisions and rerun core schema, docs-drift, cross-adapter and live
-campaign checks before accepting the final first-release schema snapshot.
+and bridge-context wire formats remain byte-for-byte unchanged. The adapter pins
+are promoted with this change: Meshtastic
+`25b5583b2caae3b699f3fdff59b470b29e6eadcd` and MeshCore
+`040cbfe39eead9bdc18a784abb7eae07706034cd`. Rerun core schema, docs-drift,
+cross-adapter and live campaign checks before accepting the final first-release
+schema snapshot.
