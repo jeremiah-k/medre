@@ -157,14 +157,25 @@ class _RetryWorker:
             plan = _plan_from_receipt(receipt, self._retry_executor.policy)
 
             try:
-                await self.pipeline.deliver_execution_to_target(
+                evidence = await self.pipeline.deliver_execution_to_target(
                     event,
                     route,
                     plan,
                     previous_receipt=receipt,
                     source="retry",
                 )
-                self.state.succeeded += 1
+                result = evidence.primary_receipt
+                if result is None:
+                    raise RuntimeError("Retry execution returned no receipt evidence")
+                if result.status in {"queued", "sent"}:
+                    self.state.succeeded += 1
+                elif (
+                    result.status == "dead_lettered"
+                    or self._retry_executor.is_exhausted(next_attempt)
+                ):
+                    self.state.dead_lettered += 1
+                else:
+                    self.state.failed += 1
             except asyncio.CancelledError:
                 raise
             except Exception:

@@ -815,6 +815,95 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     assert failed_event.args[1]["error"] == "capability_suppressed"
 
 
+async def test_retry_worker_reconciles_returned_failure_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A returned failed receipt is failure evidence, not a successful retry."""
+    import medre.runtime.retry as retry_module
+    from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-failure-return",
+        event_id="evt-failure-return",
+        route_id="route-failure-return",
+        delivery_plan_id="plan-failure-return",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker-test",
+    )
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-failure-return",
+        event_id=item.event_id,
+        delivery_plan_id=item.delivery_plan_id,
+        target_adapter=item.target_adapter,
+        route_id=item.route_id,
+        status="failed",
+        failure_kind="adapter_transient",
+        error="remote failure",
+        attempt_number=2,
+        outbox_id=item.outbox_id,
+        source="retry",
+    )
+    storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
+    storage.get_metadata = AsyncMock(return_value=object())
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=object())
+    )
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_execution_to_target = AsyncMock(
+        return_value=evidence_for_receipt(receipt)
+    )
+    lifecycle = MagicMock()
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=True)
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.finalize_retry_attempt_error = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome="retry_wait",
+            receipt_id=receipt.receipt_id,
+            failure_kind="adapter_transient",
+            attempt_number=2,
+        )
+    )
+    lifecycle.finalize_retry_success = AsyncMock()
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: ReconstructedRetryPlan(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
+    lifecycle.finalize_retry_success.assert_not_awaited()
+    lifecycle.finalize_retry_attempt_error.assert_awaited_once()
+    assert (
+        lifecycle.finalize_retry_attempt_error.call_args.kwargs["attempt_number"] == 2
+    )
+    assert any(call.args[0] == "retry_failed" for call in emit.call_args_list)
+
+
 async def test_retry_worker_defers_startup_failed_target_without_consuming_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
