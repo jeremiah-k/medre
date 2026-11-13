@@ -15,5 +15,5 @@
   "node_config": {},
   "max_text_bytes": 512,
   "max_text_parts": 1,
-  "meshcore_relay_prefix": "[{origin_label}] "
+  "relay_prefix": "[{origin_label}] "
 }

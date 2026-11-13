@@ -200,10 +200,10 @@
           "default": 30000,
           "description": "Timeout in milliseconds for sync operations."
         },
-        "radio_relay_prefix": {
+        "relay_prefix": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Target-local radio prefix. Omitted/null selects five display-name characters plus [M]: for Matrix sources and generic short-name attribution for others. An empty string disables it. The final prefix and body share max_text_bytes."
+          "description": "Target-local relay prefix. Omitted/null selects the automatic Matrix sender5[M]: template or the generic sender_short template for other sources. An empty string disables it. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1); the final text uses the max_text_bytes UTF-8 budget."
         },
         "max_text_bytes": {
           "type": "integer",
@@ -403,10 +403,10 @@
           "default": null,
           "description": "Optional BLE pairing PIN. Sensitive; forwarded only to the SDK create_ble call; never exposed in diagnostics or logs."
         },
-        "meshcore_relay_prefix": {
+        "relay_prefix": {
           "type": "string",
           "default": "",
-          "description": "Optional relay prefix template prepended to outbound text before byte-budget truncation. Empty string means no prefix. Uses {placeholder} syntax resolved by the shared prefix formatter."
+          "description": "Optional relay prefix template applied before final UTF-8 byte-budget truncation. Empty string disables prefixing. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1)."
         }
       },
       "required": ["adapter_id"],
