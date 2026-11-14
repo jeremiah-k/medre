@@ -34,3 +34,7 @@ preview is available; the content authority, availability, and retention
 spec pages describe the producer-side issuance contract, and the
 configuration reference notes that enabling the ceiling is what provisions
 quote previews.
+The shipped live bridge examples now declare the ceiling (24 hours) so
+configurations copied from them get quoted previews out of the box; the
+code default remains unset — deployments without a ceiling keep the
+honest degradation unchanged.
