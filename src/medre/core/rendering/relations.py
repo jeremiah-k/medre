@@ -150,8 +150,22 @@ def compose_relation_text(
     additional message content; the exact canonical relation key represents
     it. A delete event has no authored replacement text. Native renderers can
     exclude the exact relations they have already represented on the wire.
+    If the event kind has no matching mutation/reaction relation, a neutral
+    kind marker preserves that fact without inventing a target or reaction key.
     """
     parts: list[str] = []
+    # A kind-level marker is needed when the canonical event lacks its
+    # corresponding relation. An explicitly represented mutation still counts
+    # as a matching relation and must not gain a duplicate marker.
+    mutation = {
+        EventKind.MESSAGE_EDITED: ("edit", "[edited]"),
+        EventKind.MESSAGE_DELETED: ("delete", "[deleted]"),
+        EventKind.MESSAGE_REACTED: ("reaction", "[reacted]"),
+    }.get(event.event_kind)
+    if mutation is not None and not any(
+        rel.relation_type == mutation[0] for rel in event.relations
+    ):
+        parts.append(mutation[1])
     for rel in event.relations:
         if rel in represented:
             continue

@@ -39,6 +39,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+_BALANCED_FIELD_RE = re.compile(r"\{[^{}]*\}")
 
 # Truncation variable: {stemN} where the stem is a declared variable
 # name and N >= 1 counts Unicode code points.
@@ -405,6 +406,13 @@ def validate_relay_prefix(
     """
     if template is None:
         return
+    # Inspect complete fields too: the legacy formatter deliberately ignores
+    # syntax outside its simple named-placeholder grammar.
+    for field in _BALANCED_FIELD_RE.finditer(template):
+        if _PLACEHOLDER_RE.fullmatch(field.group()) is None:
+            raise ValueError(
+                f"Invalid relay_prefix: unsupported placeholder {field.group()!r}"
+            )
     result = format_relay_prefix(template, RelayAttribution(), truncatable=truncatable)
     if result.formatting_error:
         raise ValueError(f"Invalid relay_prefix: {result.formatting_error}")
@@ -420,20 +428,21 @@ def resolve_relay_attribution(
 ) -> RelayAttribution:
     """Apply route > supplied snapshot > source config label precedence.
 
-    A supplied snapshot contributes presentation fields, not authority over
-    event-native identifiers. Empty labels are intentional overrides.
+    Snapshots and projected fields contribute presentation data, not authority
+    over event-native identifiers. Empty labels are intentional overrides.
     """
     label = source_origin_label
     if label is None and source_attribution is not None:
         label = source_attribution.source_origin_label
     if label is None:
         label = configured_origin_label
-    if source_attribution is None:
-        return build_relay_attribution(
-            event, source_origin_label=label, projected_fields=projected_fields
-        )
+    attr = (
+        source_attribution
+        if source_attribution is not None
+        else build_relay_attribution(event, projected_fields=projected_fields)
+    )
     attr = replace(
-        source_attribution,
+        attr,
         source_origin_label=label,
         source_adapter_id=event.source_adapter,
         source_transport=event.source_transport_id,

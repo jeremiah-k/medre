@@ -266,20 +266,15 @@ def truncate_text_bytes(
 def extract_event_text(event: CanonicalEvent) -> str:
     """Extract text and describe every relation not represented natively."""
     kind = event.event_kind
-    if event.relations:
+    if event.relations or kind in (
+        EventKind.MESSAGE_EDITED,
+        EventKind.MESSAGE_DELETED,
+        EventKind.MESSAGE_REACTED,
+    ):
         return compose_relation_text(event, extract_message_body(event))
 
     # Kind-based rendering
     if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
-        return extract_message_body(event)
-
-    if kind == EventKind.MESSAGE_EDITED:
-        return "[edited] " + extract_message_body(event)
-
-    if kind == EventKind.MESSAGE_DELETED:
-        return "[deleted]"
-
-    if kind == EventKind.MESSAGE_REACTED:
         return extract_message_body(event)
 
     if kind == EventKind.PRESENCE_CHANGED:

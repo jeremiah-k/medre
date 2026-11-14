@@ -67,6 +67,8 @@ def test_represented_relations_never_repeat_and_mutation_payload_is_suppressed(
         event, "authored", represented=(relation,) if represented else ()
     )
     expected = [] if represented else ["reacted 👍 to an earlier message"]
+    if kind == "message.deleted":
+        expected.insert(0, "[deleted]")
     if kind == "message.created":
         expected.append("authored")
     assert text == " ".join(expected)
@@ -109,6 +111,7 @@ def test_composition_covers_other_relation_kinds(
         ("message.created", "authored"),
         ("message.edited", "[edited] authored"),
         ("message.deleted", "[deleted]"),
+        ("message.reacted", "[reacted]"),
     ],
 )
 def test_relation_free_event_text(kind: str, expected: str) -> None:
@@ -177,9 +180,27 @@ def test_prefix_validation_supports_declared_placeholders(template: str | None) 
     validate_relay_prefix(template, truncatable=TRUNCATABLE_RELAY_LABELS)
 
 
-def test_unsupported_prefix_placeholder_fails_before_delivery() -> None:
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{unsupported}",
+        "{sender:>10}",
+        "{unsupported-name}",
+        "{sender!r}",
+        "{sender.name}",
+        "{sender[0]}",
+        "{}",
+        "{ sender }",
+    ],
+)
+def test_unsupported_prefix_placeholder_fails_before_delivery(template: str) -> None:
     with pytest.raises(ValueError, match="Invalid relay_prefix"):
-        validate_relay_prefix("{unsupported}")
+        validate_relay_prefix(template)
+
+
+@pytest.mark.parametrize("template", ["{{sender}}", "{literal", "literal}", "{sender}{"])
+def test_prefix_validation_preserves_literal_unmatched_braces(template: str) -> None:
+    validate_relay_prefix(template)
 
 
 @pytest.mark.parametrize(
@@ -224,3 +245,58 @@ def test_snapshot_labels_cannot_override_event_identity() -> None:
         "native-id",
     )
     assert snapshot.source_adapter_id == "wrong"
+
+
+@pytest.mark.parametrize("has_native_ref", [False, True])
+def test_projected_fields_cannot_override_event_identity(has_native_ref: bool) -> None:
+    event = _event()
+    if has_native_ref:
+        event = replace(
+            event, source_native_ref=NativeRef("source", "native-channel", "native-id")
+        )
+    projected = {
+        "source_adapter_id": "wrong",
+        "source_transport": "wrong",
+        "source_room_or_channel": "wrong",
+        "source_native_channel_id": "wrong",
+        "source_native_message_id": "wrong",
+        "source_origin_label": "wrong",
+        "source_sender_label": "display",
+    }
+    attr = resolve_relay_attribution(event, projected_fields=projected)
+    assert (
+        attr.source_adapter_id,
+        attr.source_transport,
+        attr.source_room_or_channel,
+    ) == ("source", "sender", "channel")
+    assert (attr.source_native_channel_id, attr.source_native_message_id) == (
+        ("native-channel", "native-id") if has_native_ref else (None, None)
+    )
+    assert attr.source_origin_label is None
+    assert attr.source_sender_label == "display"
+    assert projected["source_adapter_id"] == "wrong"
+
+
+@pytest.mark.parametrize(
+    "kind,marker,body",
+    [
+        ("message.edited", "[edited]", " authored"),
+        ("message.deleted", "[deleted]", ""),
+        ("message.reacted", "[reacted]", ""),
+    ],
+)
+def test_kind_marker_survives_unrelated_or_represented_relation(kind, marker, body):
+    rel = EventRelation("reply", None, None, None, "parent")
+    event = _event(rel, kind=kind)
+    assert extract_event_text(event) == marker + " [replying to: parent]" + body
+    assert compose_relation_text(event, "authored", represented=(rel,)) == marker + body
+
+
+@pytest.mark.parametrize(
+    "kind,relation_type", [("message.edited", "edit"), ("message.deleted", "delete")]
+)
+def test_represented_mutation_does_not_gain_kind_marker(kind, relation_type):
+    rel = EventRelation(relation_type, None, None, None, "parent")
+    event = _event(rel, kind=kind)
+    expected = "authored" if kind == "message.edited" else ""
+    assert compose_relation_text(event, "authored", represented=(rel,)) == expected
