@@ -1003,7 +1003,7 @@ def test_raw_short_sender_and_unknown_verification_defaults():
 @pytest.mark.parametrize(
     "name,expected",
     [
-        ("Jeremiah", "Jerem"),
+        ("Margaret", "Marga"),
         ("Élodie", "Élodi"),
         ("雪山ラジオ局", "雪山ラジオ"),
         ("", ""),

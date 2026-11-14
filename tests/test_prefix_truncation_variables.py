@@ -19,9 +19,9 @@ def _attr(**kwargs: object) -> RelayAttribution:
 
 class TestTruncationRendering:
     def test_truncation_renders_first_n_code_points(self) -> None:
-        attr = _attr(source_sender_label="TadChesapeake")
+        attr = _attr(source_sender_label="BobSmith")
         result = format_relay_prefix("{sender5}[M]: ", attr, truncatable=("sender",))
-        assert result.rendered_prefix == "TadCh[M]: "
+        assert result.rendered_prefix == "BobSm[M]: "
         assert result.formatting_error is None
         assert result.variables_used == ("sender5",)
 
@@ -37,34 +37,34 @@ class TestTruncationRendering:
         assert result.missing_variables == ()
 
     def test_canonical_stem_name_is_declared(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix(
             "{source_sender_label4}", attr, truncatable=("source_sender_label",)
         )
-        assert result.rendered_prefix == "Jere"
+        assert result.rendered_prefix == "Marg"
 
     def test_plain_variable_unaffected_by_declaration(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix("{sender}", attr, truncatable=("sender",))
-        assert result.rendered_prefix == "Jeremiah"
+        assert result.rendered_prefix == "Margaret"
 
 
 class TestTruncationGating:
     def test_suffix_zero_is_unknown(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix("{sender0}", attr, truncatable=("sender",))
         assert result.rendered_prefix == "{sender0}"
         assert result.unknown_variables == ("sender0",)
         assert result.formatting_error is not None
 
     def test_undeclared_stem_is_unknown(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix("{sender5}", attr, truncatable=("origin_label",))
         assert result.rendered_prefix == "{sender5}"
         assert result.unknown_variables == ("sender5",)
 
     def test_no_declaration_rejects_every_suffix(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix("{sender5}", attr)
         assert result.unknown_variables == ("sender5",)
 
@@ -78,9 +78,9 @@ class TestTruncationGating:
 
 class TestTruncatableValidation:
     def test_invalid_truncatable_name_sets_error_without_raising(self) -> None:
-        attr = _attr(source_sender_label="Jeremiah")
+        attr = _attr(source_sender_label="Margaret")
         result = format_relay_prefix("{sender}", attr, truncatable=("bogus", "sender"))
-        assert result.rendered_prefix == "Jeremiah"
+        assert result.rendered_prefix == "Margaret"
         assert "invalid truncatable name(s): bogus" in (result.formatting_error or "")
 
     def test_invalid_truncatable_names_are_sorted_in_error(self) -> None:
