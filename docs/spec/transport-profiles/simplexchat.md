@@ -14,6 +14,32 @@ and invitation acceptance do not occur implicitly during runtime startup.
 
 ## Capability contract
 
+The values below bind directly to the [machine-readable capability declaration](simplexchat-capabilities.json).
+
+| Capability | Value |
+| --- | --- |
+| text | `True` |
+| title | `False` |
+| replies | `"fallback"` |
+| reactions | `"unsupported"` |
+| edits | `"unsupported"` |
+| deletes | `"unsupported"` |
+| attachments | `False` |
+| metadata_fields | `False` |
+| store_and_forward | `True` |
+| direct_messages | `True` |
+| channels | `True` |
+| identity_encryption | `True` |
+| presence | `False` |
+| topic_rooms | `True` |
+| mesh_routing | `False` |
+| priority_delivery | `False` |
+| max_text_bytes | `16384` |
+| max_text_chars | `None` |
+| threads | `"fallback"` |
+| typing | `False` |
+
+
 The [machine-readable declaration](simplexchat-capabilities.json) is checked
 against the real adapter and SDK-free fake. Ordinary text, groups, direct
 conversations, reply/thread text fallbacks, encrypted identities, and native
