@@ -29,6 +29,7 @@ __all__ = [
     "RelayAttribution",
     "build_relay_attribution",
     "format_relay_prefix",
+    "format_checked_relay_prefix",
     "validate_relay_prefix",
     "resolve_relay_attribution",
     "TRUNCATABLE_RELAY_LABELS",
@@ -417,6 +418,30 @@ def _unsupported_balanced_field(template: str) -> str | None:
     return None
 
 
+def format_checked_relay_prefix(
+    template: str,
+    attr: RelayAttribution,
+    *,
+    truncatable: tuple[str, ...] = (),
+) -> PrefixFormatterResult:
+    """Apply the same complete-field grammar at configuration and render time.
+
+    Like the legacy formatter, return diagnostics rather than raising. A
+    renderer must reject any result with a formatting error before delivery.
+    """
+    field = _unsupported_balanced_field(template)
+    if field is not None:
+        return PrefixFormatterResult(
+            rendered_prefix=template,
+            template_used=template,
+            variables_used=(),
+            missing_variables=(),
+            unknown_variables=(),
+            formatting_error=f"unsupported placeholder {field!r}",
+        )
+    return format_relay_prefix(template, attr, truncatable=truncatable)
+
+
 def validate_relay_prefix(
     template: str | None, *, truncatable: tuple[str, ...] = ()
 ) -> None:
@@ -427,12 +452,9 @@ def validate_relay_prefix(
     """
     if template is None:
         return
-    # Inspect complete fields too: the legacy formatter deliberately ignores
-    # syntax outside its simple named-placeholder grammar.
-    field = _unsupported_balanced_field(template)
-    if field is not None:
-        raise ValueError(f"Invalid relay_prefix: unsupported placeholder {field!r}")
-    result = format_relay_prefix(template, RelayAttribution(), truncatable=truncatable)
+    result = format_checked_relay_prefix(
+        template, RelayAttribution(), truncatable=truncatable
+    )
     if result.formatting_error:
         raise ValueError(f"Invalid relay_prefix: {result.formatting_error}")
 

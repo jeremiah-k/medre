@@ -11,6 +11,8 @@ from medre.core.rendering import extract_event_text
 from medre.core.rendering.attribution import (
     TRUNCATABLE_RELAY_LABELS,
     RelayAttribution,
+    format_checked_relay_prefix,
+    format_relay_prefix,
     resolve_relay_attribution,
     validate_relay_prefix,
 )
@@ -197,6 +199,8 @@ def test_prefix_validation_supports_declared_placeholders(template: str | None) 
 def test_unsupported_prefix_placeholder_fails_before_delivery(template: str) -> None:
     with pytest.raises(ValueError, match="Invalid relay_prefix"):
         validate_relay_prefix(template)
+    result = format_checked_relay_prefix(template, RelayAttribution())
+    assert result.formatting_error
 
 
 @pytest.mark.parametrize(
@@ -204,6 +208,10 @@ def test_unsupported_prefix_placeholder_fails_before_delivery(template: str) -> 
 )
 def test_prefix_validation_preserves_literal_unmatched_braces(template: str) -> None:
     validate_relay_prefix(template)
+    attr = RelayAttribution()
+    assert format_checked_relay_prefix(template, attr) == format_relay_prefix(
+        template, attr
+    )
 
 
 @pytest.mark.parametrize(

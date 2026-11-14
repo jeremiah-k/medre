@@ -52,7 +52,8 @@ a stale legacy `text` alias. Unstyled messages retain legacy text-first behavior
 Providers adopting the shared policy use `compose_relation_text` from
 `medre.core.rendering.relations` for supplied text and `extract_event_text`
 from `medre.core.rendering.text_helpers` for kind-based body selection.
-The latter is also exported by `medre.core.rendering`. These opt-in APIs do
+The latter is also exported by `medre.core.rendering`. Presence events retain
+their kind-specific user/status description when relation context is added. These opt-in APIs do
 not change the existing rendering helpers or `TextRenderer` during the
 coordinated pre-release migration. Consumers migrate before the old paths
 are removed; this staging does not approve a mixed-policy release.
@@ -90,3 +91,7 @@ MUST reject unsupported balanced fields (including format specifications and
 attribute/index access) and formatting errors using the formatter's declared
 truncatable fields. Unmatched literal braces retain their existing semantics;
 `None` selects provider defaults and an empty template disables the prefix.
+Provider renderers MUST use `format_checked_relay_prefix` for configured or
+resolved templates and reject its formatting errors, including when a caller
+constructs a renderer directly without validating configuration first. The
+legacy `format_relay_prefix` retains its original lexical behavior.

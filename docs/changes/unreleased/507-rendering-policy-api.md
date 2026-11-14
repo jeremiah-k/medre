@@ -8,3 +8,7 @@ neutral kind markers for incomplete mutations, and strict prefix validation
 without changing the legacy formatter. Remove superseded paths in the final
 coordinated core change before publication. No schema or compatibility pin
 changes are required.
+
+The checked prefix formatter shares configuration-time grammar validation with
+direct rendering, without changing the legacy formatter. Presence text keeps
+its user/status semantics when relations are supplied.
