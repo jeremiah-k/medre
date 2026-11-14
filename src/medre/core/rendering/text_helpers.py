@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.events.text import select_message_body
+from medre.core.rendering.relations import compose_relation_text
 
 __all__ = [
     "extract_message_body",
+    "extract_event_text",
     "extract_relation_text",
     "truncate_text",
     "truncate_text_bytes",
@@ -259,3 +261,33 @@ def truncate_text_bytes(
         truncated = truncated[:-1]
 
     return truncated, True, original_bytes, len(truncated.encode("utf-8"))
+
+
+def extract_event_text(event: CanonicalEvent) -> str:
+    """Extract text and describe every relation not represented natively."""
+    kind = event.event_kind
+    if event.relations:
+        return compose_relation_text(event, extract_message_body(event))
+
+    # Kind-based rendering
+    if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
+        return extract_message_body(event)
+
+    if kind == EventKind.MESSAGE_EDITED:
+        return "[edited] " + extract_message_body(event)
+
+    if kind == EventKind.MESSAGE_DELETED:
+        return "[deleted]"
+
+    if kind == EventKind.MESSAGE_REACTED:
+        return extract_message_body(event)
+
+    if kind == EventKind.PRESENCE_CHANGED:
+        user = str(event.payload.get("user", "unknown"))
+        status = str(event.payload.get("status", "unknown"))
+        return f"{user} is now {status}"
+
+    if kind == EventKind.PLUGIN_CUSTOM:
+        return extract_message_body(event)
+
+    return extract_message_body(event)

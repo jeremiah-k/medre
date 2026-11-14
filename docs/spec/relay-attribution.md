@@ -45,3 +45,42 @@ native client displays the original sender as its own authenticated identity.
 Renderers MAY use `extract_message_body` to select text without adding relation
 fallbacks. A string `body` accompanied by `formatting` MUST take precedence over
 a stale legacy `text` alias. Unstyled messages retain legacy text-first behavior.
+
+
+## Shared rendering policy API
+
+Providers adopting the shared policy use `compose_relation_text` from
+`medre.core.rendering.relations` for supplied text and `extract_event_text`
+from `medre.core.rendering.text_helpers` for kind-based body selection.
+The latter is also exported by `medre.core.rendering`. These opt-in APIs do
+not change the existing rendering helpers or `TextRenderer` during the
+coordinated pre-release migration. Consumers migrate before the old paths
+are removed; this staging does not approve a mixed-policy release.
+
+The composer MUST describe every unrepresented relation in canonical tuple
+order before authored message text, preserving that text once. Native
+renderers MAY omit the exact relations represented by their protocol fields.
+Reaction-event and delete-event payload bodies MUST NOT become additional
+message text, including when every relation is represented natively.
+An ordinary message carrying reaction context MUST retain its authored body.
+
+Reactions MUST use an explicit nonblank canonical relation key without
+altering its code points. A preview MUST come only from supplied target text
+(`original_text` before `fallback_text`), normalize whitespace, and contain
+at most 40 Unicode code points followed by `...` when abbreviated. Missing
+quotes MUST be described as `an earlier message`; authored reaction payloads
+and opaque IDs MUST NOT be treated as target content. These pure helpers
+provide no storage access or retained-content read authority.
+
+`destination_native_message_id` MUST honor a supplied core binding fact over
+raw native references. Negative facts, wrong adapter/channel scopes and blank
+IDs MUST NOT produce native targets. Direct embedding callers MAY supply a
+matching native reference without a fact; callers requiring a core proof
+MUST set `require_fact=True`. This lookup does not authorize native mutations.
+
+`resolve_relay_attribution` MUST prefer an explicit route label, then a supplied
+attribution snapshot label, then source configuration. Explicit empty labels
+MUST remain empty. Snapshot presentation fields MUST NOT override event-native
+identifiers. `validate_relay_prefix` MUST reject unsupported placeholders and
+formatting errors using the formatter's declared truncatable fields; `None`
+selects provider defaults and an empty template disables the prefix.
