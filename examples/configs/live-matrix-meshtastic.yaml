@@ -30,6 +30,15 @@ storage:
   backend: sqlite
   path: "{state}/medre.sqlite" # {state} resolves to XDG state dir
 
+# Hard content privacy ceiling: content older than this leaves the readable
+# set and unstarted work retires past it. Enabling it also provisions the
+# bounded reply-quote grant, so resolved-target reactions and replies quote
+# the target text for the ceiling's lifetime instead of degrading to
+# "an earlier message".
+content_ceiling:
+  enabled: true
+  max_age_seconds: 86400 # 24 hours
+
 # ---------------------------------------------------------------------------
 # Matrix transport
 # ---------------------------------------------------------------------------
