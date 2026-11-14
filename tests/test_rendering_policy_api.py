@@ -303,3 +303,14 @@ def test_represented_mutation_does_not_gain_kind_marker(kind, relation_type):
     event = _event(rel, kind=kind)
     expected = "authored" if kind == "message.edited" else ""
     assert compose_relation_text(event, "authored", represented=(rel,)) == expected
+
+
+@pytest.mark.parametrize("with_relation", [False, True])
+def test_presence_status_survives_relation_composition(with_relation: bool) -> None:
+    relation = EventRelation("reply", None, None, None, "parent")
+    event = replace(
+        _event(*((relation,) if with_relation else ()), kind="presence.changed"),
+        payload={"user": "alice", "status": "online", "body": "stale"},
+    )
+    expected = "[replying to: parent] " if with_relation else ""
+    assert extract_event_text(event) == expected + "alice is now online"
