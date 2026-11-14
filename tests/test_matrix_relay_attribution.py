@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import msgspec
+import pytest
+
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import (
     CanonicalEvent,
@@ -180,6 +183,7 @@ class TestMatrixMissingTargetFallback:
             payload={"body": "👍"},
             relations=(relation,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
@@ -246,6 +250,7 @@ class TestMatrixMissingTargetFallback:
             payload={"body": "❤️"},
             relations=(relation,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
@@ -278,6 +283,7 @@ class TestMatrixMissingTargetFallback:
             payload={"body": "🔥"},
             relations=(relation,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
@@ -484,10 +490,10 @@ class TestMatrixCoreAttributionIntegration:
         # No prefix — body is unchanged
         assert body == "hello lxmf"
 
-    # -- Unknown placeholder policy: left unchanged --
+    # -- Unsupported placeholders fail closed --
 
-    async def test_unknown_placeholder_left_unchanged(self) -> None:
-        """Unknown template variable {bogus} is left as {bogus} in output."""
+    async def test_unknown_placeholder_rejected(self) -> None:
+        """Unsupported fields fail closed even with unvalidated configuration."""
         renderer = MatrixRenderer(
             configs={
                 "matrix-1": _StubMatrixConfig(
@@ -500,22 +506,14 @@ class TestMatrixCoreAttributionIntegration:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        body = _payload_content(result)["body"]
-        # Unknown variable left unchanged in prefix
-        assert "{bogus}" in body
-        assert body == "[{bogus}] hello mesh"
-        # Metadata records the unknown variable
-        assert "relay_prefix_template" in result.metadata
-        assert "relay_prefix_unknown_variables" in result.metadata
-        assert "bogus" in result.metadata["relay_prefix_unknown_variables"]
-        assert result.metadata["relay_prefix_formatting_error"] is not None
+        with pytest.raises(ValueError, match="unknown placeholder.*bogus"):
+            await renderer.render(
+                event,
+                RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+            )
 
-    async def test_unknown_placeholder_mixed_with_known(self) -> None:
-        """Mixed known + unknown variables: known resolved, unknown left."""
+    async def test_unknown_placeholder_rejected_when_mixed_with_known(self) -> None:
+        """Unsupported fields fail closed even with unvalidated configuration."""
         renderer = MatrixRenderer(
             configs={
                 "matrix-1": _StubMatrixConfig(
@@ -528,12 +526,11 @@ class TestMatrixCoreAttributionIntegration:
             source_adapter="radio-alpha",
             native_data={"longname": "Alice"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        body = _payload_content(result)["body"]
-        assert "[Alice/{weird}]" in body
+        with pytest.raises(ValueError, match="unknown placeholder.*weird"):
+            await renderer.render(
+                event,
+                RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
+            )
 
     # -- Reaction prefix still uses core formatter --
 
@@ -664,6 +661,7 @@ class TestMatrixCoreAttributionIntegration:
             payload={"body": "👍"},
             relations=(relation,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
@@ -707,6 +705,7 @@ class TestMatrixCoreAttributionIntegration:
             payload={"body": "❤️"},
             relations=(relation,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),

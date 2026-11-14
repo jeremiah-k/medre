@@ -118,6 +118,38 @@ def resolve_adapters(path: Path, *, resolve: bool) -> list[dict[str, Any]]:
     return entries
 
 
+def candidate_snapshot(
+    entries: list[dict[str, Any]], refs_json: str
+) -> list[dict[str, Any]]:
+    """Select exact candidate commits for qualification without promoting pins.
+
+    Only refs may change; repository identities and qualification tiers remain
+    owned by the compatibility manifest. Require the complete transport set so
+    a coordinated run cannot silently mix candidates and baseline providers.
+    """
+
+    def unique_refs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        refs: dict[str, Any] = {}
+        for name, ref in pairs:
+            if name in refs:
+                raise ValueError(f"candidate refs contain duplicate transport: {name}")
+            refs[name] = ref
+        return refs
+
+    refs = json.loads(refs_json, object_pairs_hook=unique_refs)
+    if not isinstance(refs, dict) or set(refs) != {
+        entry["transport"] for entry in entries
+    }:
+        raise ValueError(
+            "candidate refs must name every manifest transport exactly once"
+        )
+    if any(
+        not isinstance(ref, str) or not _SHA.fullmatch(ref) for ref in refs.values()
+    ):
+        raise ValueError("candidate refs must be full lowercase commit SHAs")
+    return [{**entry, "ref": refs[entry["transport"]]} for entry in entries]
+
+
 def reconcile_local(
     entries: list[dict[str, Any]], *, repo_parent: Path, update: bool = False
 ) -> list[dict[str, Any]]:
@@ -292,6 +324,11 @@ def main() -> None:
     parser.add_argument("--resolve", action="store_true")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--requirements", action="store_true")
+    parser.add_argument(
+        "--candidate-refs",
+        default="",
+        help="Qualification-only JSON mapping of every transport to a full commit SHA",
+    )
     local = parser.add_mutually_exclusive_group()
     local.add_argument(
         "--check-local",
@@ -316,13 +353,17 @@ def main() -> None:
     )
     args = parser.parse_args()
     if (args.check_local or args.sync_local or args.check_merged) and (
-        args.resolve or args.github_output or args.requirements
+        args.resolve or args.github_output or args.requirements or args.candidate_refs
     ):
         parser.error(
             "local verification/synchronization cannot be combined "
             "with CI output or resolution"
         )
-    entries = resolve_adapters(args.manifest, resolve=args.resolve)
+    entries = resolve_adapters(
+        args.manifest, resolve=args.resolve and not args.candidate_refs
+    )
+    if args.candidate_refs:
+        entries = candidate_snapshot(entries, args.candidate_refs)
     if args.check_merged:
         check_merged(entries)
         return

@@ -87,7 +87,7 @@ The LXMF renderer (`LxmfRenderer`) produces:
 
 - **Plain text with optional title** — `content` (body) and `title` extracted from the canonical event payload.
 - **MEDRE metadata envelope** — when `metadata_embedding=True`, a provenance envelope is embedded in the LXMF `fields` dict under key `0xFD` (`FIELD_MEDRE_ENVELOPE`). The envelope contains: `schema_version`, `event_id`, `source_adapter`, `source_transport_id`, `source_channel_id`, `lineage`, `relations`, and `metadata_keys`. Adapters MAY add the bounded shared `bridge_context` described in [relay attribution](../relay-attribution.md#structured-relay-context). No secrets or private keys are ever embedded.
-- **fallback_text envelope semantics** — under `delivery_strategy="fallback_text"`, the envelope's `relations` field is always an empty list (`[]`). Relations are represented **exclusively** as inline text in the content field (via `_degrade_relations_inline`). This prevents duplicate representation of relation data as both structured envelope fields and inline text, maintaining strict fallback semantics where the degraded text is the sole relation carrier.
+- **fallback_text envelope semantics** — under `delivery_strategy="fallback_text"`, the envelope's `relations` field is always an empty list (`[]`). Relations are represented **exclusively** as inline text in the content field (via `_compose_relation_text`). This prevents duplicate representation of relation data as both structured envelope fields and inline text, maintaining strict fallback semantics where the degraded text is the sole relation carrier.
 - **Destination hash** — empty string placeholder in current release scope; populated by the routing layer before delivery.
 
 No reply or reaction rendering — capabilities declare both as `"unsupported"`.
@@ -103,16 +103,18 @@ outbound message body text when a relay prefix is configured.
 When empty, no prefix is prepended. The runtime resolves the prefix per target
 adapter — the LXMF renderer is **target-aware**: the prefix template comes from
 the target LXMF adapter's config, not from a collapsed single-prefix model.
-`{origin_label}` within the template is resolved from the source adapter's
-config via the runtime source-attribution registry.
+`{origin_label}` within the template follows the shared render-time
+attribution precedence, not the target adapter's source label.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
 the source event. Operators SHOULD prefer `{origin_label}` for
 cross-platform prefix templates — `origin_label` is the MEDRE-generic source
-label. `{origin_label}` is resolved through a precedence chain: route-level
-`source_origin_label` (or `dest_origin_label` for reverse legs) takes
-priority over the source adapter's config-level `origin_label`. See the
+label. `{origin_label}` uses the expanded route label (`source_origin_label`
+or `dest_origin_label` for reverse legs), then a supplied presentation
+snapshot label, then the source adapter's configured `origin_label`. An
+explicit empty route or snapshot label overrides lower tiers. Event envelope
+identifiers remain authoritative. See the
 Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
 list of supported template variables.
 
@@ -136,8 +138,8 @@ character budget.
 | `relay_prefix_rendered`          | The rendered prefix string                                 |
 | `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)            |
 | `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty      |
-| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix |
-| `relay_prefix_formatting_error`  | Error description when unknown placeholders encountered    |
+| `relay_prefix_unknown_variables` | Empty on successful rendering; unsupported placeholders are rejected |
+| `relay_prefix_formatting_error`  | None on successful rendering; formatting errors reject delivery    |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It
 does not constitute delivery evidence. The MEDRE metadata namespace

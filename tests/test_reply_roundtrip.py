@@ -24,7 +24,7 @@ Test 2: Meshtastic → Matrix → Meshtastic roundtrip
 Test 3a: Multi-radio cross-target fallback
     Message from ``radio-alpha`` is delivered to Matrix.  A Matrix reply
     routed to ``radio-bravo`` (which has no native ref for the original
-    message) falls back safely with no ``reply_id`` — plain text only.
+    message) falls back safely with no ``reply_id`` — readable target context.
 
 Test 3b: Multi-radio correct target selection
     Matrix message is broadcast to both ``radio-alpha`` and ``radio-bravo``
@@ -469,7 +469,7 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
 class TestMultiRadioCrossTargetFallback:
     """Message from ``radio-alpha`` is delivered to Matrix.  A Matrix reply
     routed to ``radio-bravo`` (which has no native ref for the original
-    message) falls back safely — no ``reply_id``, plain text only."""
+    message) falls back safely — no ``reply_id``, readable target context."""
 
     async def test_cross_radio_fallback_no_reply_id(
         self, temp_storage: SQLiteStorage
@@ -596,8 +596,8 @@ class TestMultiRadioCrossTargetFallback:
 
             # Bravo has no native ref → safe fallback, no reply_id.
             assert "reply_id" not in payload
-            # Text is delivered as a plain message.
-            assert payload["text"] == "Cross-radio reply"
+            # Unbound cross-radio targets retain readable reply context.
+            assert payload["text"] == "[replying to: From alpha] Cross-radio reply"
         finally:
             await runner2.stop()
 
@@ -844,8 +844,8 @@ class TestMissingNativeRefRoundtrip:
             assert len(radio.delivered_payloads) == 1
             payload = radio.delivered_payloads[0].payload
 
-            # No crash, no reply_id, plain text only.
+            # No crash or invented native reply ID; readable context remains.
             assert "reply_id" not in payload
-            assert payload["text"] == "Orphan reply"
+            assert payload["text"] == "[replying to: $nonexistent-event] Orphan reply"
         finally:
             await runner.stop()

@@ -382,14 +382,8 @@ class TestReplyThreadContext:
         assert "m.relates_to" not in matrix_payload_content(result)
 
     @pytest.mark.asyncio
-    async def test_meshtastic_reply_no_special_handling(self) -> None:
-        """Meshtastic renderer does not embed reply relations in payload.
-
-        Radio renderers pass text through without relation-aware formatting.
-        The relation data remains on the CanonicalEvent for the pipeline to
-        use; the renderer itself does not add reply context to the radio
-        text payload. Non-native replies use plain text only.
-        """
+    async def test_meshtastic_unbound_reply_preserves_context(self) -> None:
+        """An unbound radio reply describes its target without a native reply ID."""
         relation = EventRelation(
             relation_type="reply",
             target_event_id="evt-orig-003",
@@ -406,8 +400,8 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "mesh-target", "meshtastic")
 
-        # Non-native replies use plain text only, no "[replying to: ...]" prefix
-        assert result.payload["text"] == "a reply"
+        # Unbound replies retain readable context without native Matrix fields.
+        assert result.payload["text"] == "[replying to: original text] a reply"
         assert "m.relates_to" not in result.payload
 
 

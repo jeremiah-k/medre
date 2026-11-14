@@ -228,3 +228,19 @@ Core keeps cross-adapter routing/lifecycle checks. See
 The installed-package proof defaults to core alone. Supply repeated
 `--adapter-wheel PATH` arguments, including Matrix and Meshtastic wheels, to
 also exercise the sample bridge entirely from installed artifacts.
+
+## Qualify coordinated adapter candidates
+
+The Tests and Coverage and Docker Integration workflows accept an optional
+`adapter_refs` JSON object through manual dispatch. Supply every transport in
+`.github/adapter-compatibility.json`, each mapped to its exact candidate commit
+SHA. The selected workflow ref supplies the core revision. The workflow logs the
+resolved snapshot before installing providers; adapter repositories and tier
+selection still come from the compatibility manifest.
+
+This input selects a temporary qualification snapshot. It does not edit the
+compatibility manifest, its packaged copy, or the merged-pin guard. Candidate
+refs cannot be combined with merged/local verification or pin promotion.
+Normal pull-request and push runs continue to qualify the committed pins.
+After coordinated changes land, promote their actual merged adapter commits
+and rerun qualification against those committed pins.

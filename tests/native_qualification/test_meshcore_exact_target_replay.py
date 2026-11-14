@@ -49,7 +49,12 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem, OutboxDispatchSnapshotWrite
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
-from scripts.ci.native_qualification import build_record, observation_summary, sha256
+from scripts.ci.native_qualification import (
+    build_record,
+    observation_summary,
+    qualification_rows,
+    sha256,
+)
 from tests.helpers.async_utils import wait_until
 
 pytestmark = [
@@ -72,7 +77,9 @@ def _provider_checkout() -> Path:
 
 
 def _provider_row():
-    rows = json.loads((_ROOT / ".github/adapter-compatibility.json").read_text())
+    rows = qualification_rows(
+        _ROOT, candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS")
+    )
     selected = [row for row in rows if row["transport"] == "meshcore"]
     assert len(selected) == 1
     return selected[0]
@@ -329,6 +336,7 @@ async def test_core_replay_companion_acceptance(
         _ROOT,
         checkout,
         transport="meshcore",
+        candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS"),
         observation=observation_summary(evidence),
         binding=(binding.state, binding.reason),
         observer_kind="companion_protocol",

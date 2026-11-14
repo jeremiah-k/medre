@@ -388,7 +388,7 @@ class TestRenderingBoundary:
         )
         assert renderer.can_render(event, ctx)
         result = await renderer.render(event, ctx)
-        assert result.payload["text"] == "alice reacted with 👍"
+        assert result.payload["text"] == "reacted 👍 to an earlier message"
         assert result.fallback_applied == "relation_reaction"
 
     async def test_adapter_does_not_mutate_canonical_event(self) -> None:

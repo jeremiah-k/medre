@@ -126,9 +126,11 @@ empty, no prefix is prepended.
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
 the source event. Operators SHOULD prefer `{origin_label}` for
 cross-platform prefix templates — `origin_label` is the MEDRE-generic source
-label. `{origin_label}` is resolved through a precedence chain: route-level
-`source_origin_label` (or `dest_origin_label` for reverse legs) takes
-priority over the source adapter's config-level `origin_label`. See the
+label. `{origin_label}` uses the expanded route label (`source_origin_label`
+or `dest_origin_label` for reverse legs), then a supplied presentation
+snapshot label, then the source adapter's configured `origin_label`. An
+explicit empty route or snapshot label overrides lower tiers. Event envelope
+identifiers remain authoritative. See the
 Meshtastic Transport Profile §Relay Attribution Prefix for the authoritative
 list of supported template variables.
 
@@ -152,8 +154,8 @@ The prefix is prepended before UTF-8 byte-budget truncation (the effective firmw
 | `relay_prefix_rendered`          | The rendered prefix string                                  |
 | `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)             |
 | `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty       |
-| `relay_prefix_unknown_variables` | Unknown placeholders left unchanged in the rendered prefix  |
-| `relay_prefix_formatting_error`  | Error description when unknown placeholders are encountered |
+| `relay_prefix_unknown_variables` | Empty on successful rendering; unsupported placeholders are rejected  |
+| `relay_prefix_formatting_error`  | None on successful rendering; formatting errors reject delivery |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It does not constitute delivery evidence. The MEDRE metadata namespace remains the authoritative source for machine-readable provenance. Local send acceptance does not confirm MeshCore RF delivery.
 

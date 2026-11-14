@@ -373,7 +373,7 @@ class TestLxmflFallbackText:
         assert isinstance(content, str)
         assert len(content) > 0
         # The inline text contains the relation type indicator.
-        assert "reaction" in content.lower()
+        assert "reacted" in content.lower()
 
     @pytest.mark.asyncio
     async def test_direct_no_fallback_applied(self) -> None:
@@ -636,7 +636,7 @@ class TestMeshCoreFallbackText:
         text = _payload_content(result)["text"]
         assert isinstance(text, str)
         assert len(text) > 0
-        assert "reaction" in text.lower()
+        assert "reacted" in text.lower()
         assert result.fallback_applied == "strategy_fallback_text"
 
     @pytest.mark.asyncio

@@ -77,6 +77,7 @@ from typing import Any
 import pytest
 
 from tests.helpers.lxmf_scenario import run_owned_scenario
+from scripts.ci.native_qualification import provider_provenance
 
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF
@@ -98,6 +99,21 @@ pytestmark = [
 
 _RESULT_PREFIX = "MEDRE_EXACT_TARGET_PROPAGATION_RESULT="
 _SCENARIO_TIMEOUT = 300.0
+
+
+@pytest.fixture(autouse=True)
+def selected_provider_provenance() -> None:
+    """CI qualifies the selected editable provider, not just matching SDK peers."""
+    checkout = os.environ.get("MEDRE_LXMF_PROVIDER_ROOT")
+    candidate_refs = os.environ.get("MEDRE_CI_CANDIDATE_REFS")
+    if checkout or candidate_refs:
+        root = Path(__file__).resolve().parents[2]
+        provider_provenance(
+            root,
+            Path(checkout) if checkout else root / ".adapter",
+            "lxmf",
+            candidate_refs=candidate_refs,
+        )
 
 
 # The receiver (instance B) runs on the raw pinned SDKs. It is the

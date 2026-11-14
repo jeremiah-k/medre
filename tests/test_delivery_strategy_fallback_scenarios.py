@@ -321,13 +321,8 @@ class TestFallbackReactionText:
         )
         ctx = _ctx(delivery_strategy="fallback_text")
 
-        result = await renderer.render(event, ctx)
-
-        text = result.payload.get("text", "")
-        assert isinstance(text, str)
-        assert len(text) > 0
-        # Still says "reacted".
-        assert "reacted" in text.lower()
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(event, ctx)
 
     @pytest.mark.asyncio
     async def test_reaction_with_emoji_no_target_matrix_fallback(
@@ -610,7 +605,7 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert text == "[edited] corrected text"
+        assert text == "[edit of: evt-orig…] corrected text"
         assert result.fallback_applied == "relation_edit"
 
     @pytest.mark.asyncio
@@ -623,7 +618,7 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert text == "[edited]"
+        assert text == "[edit of: evt-orig…]"
         assert result.fallback_applied == "relation_edit"
 
     @pytest.mark.asyncio
@@ -640,13 +635,13 @@ class TestTextRendererEditDeleteThread:
 
         assert result.fallback_applied == "strategy_fallback_text"
         assert result.metadata.get("strategy_relation_type") == "edit"
-        assert "[edited]" in _payload_content(result)["text"]
+        assert "[edit of:" in _payload_content(result)["text"]
 
     # -- Delete relation fallback ----------------------------------------
 
     @pytest.mark.asyncio
     async def test_delete_with_target_context_includes_target(self) -> None:
-        """Delete relation with fallback_text target: '[deleted: {target}]'."""
+        """Delete relation with fallback_text target: '[delete of: {target}]'."""
         renderer = TextRenderer()
         event = _make_delete_event(
             fallback_text="the original message",
@@ -657,7 +652,7 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert text == "[deleted: the original message]"
+        assert text == "[delete of: the original message]"
         assert result.fallback_applied == "relation_delete"
 
     @pytest.mark.asyncio
@@ -690,14 +685,14 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert text == "[deleted]"
+        assert text == "[delete of: unknown message]"
         assert result.fallback_applied == "relation_delete"
 
     # -- Thread relation fallback ----------------------------------------
 
     @pytest.mark.asyncio
     async def test_thread_with_body_includes_target_and_text(self) -> None:
-        """Thread relation with body: '[thread: {target}] {body}'."""
+        """Thread relation with body: '[thread on: {target}] {body}'."""
         renderer = TextRenderer()
         event = _make_thread_event(body="a thread reply")
         ctx = _ctx()
@@ -705,13 +700,13 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert "[thread: thread root msg]" in text
+        assert "[thread on: thread root msg]" in text
         assert "a thread reply" in text
         assert result.fallback_applied == "relation_thread"
 
     @pytest.mark.asyncio
     async def test_thread_empty_body_includes_target_only(self) -> None:
-        """Thread relation with empty body: '[thread: {target}]' (no trailing
+        """Thread relation with empty body: '[thread on: {target}]' (no trailing
         space)."""
         renderer = TextRenderer()
         event = _make_thread_event(body="")
@@ -720,7 +715,7 @@ class TestTextRendererEditDeleteThread:
         result = await renderer.render(event, ctx)
 
         text = _payload_content(result)["text"]
-        assert text == "[thread: thread root msg]"
+        assert text == "[thread on: thread root msg]"
         assert result.fallback_applied == "relation_thread"
 
     @pytest.mark.asyncio
@@ -737,7 +732,7 @@ class TestTextRendererEditDeleteThread:
 
         assert result.fallback_applied == "strategy_fallback_text"
         assert result.metadata.get("strategy_relation_type") == "thread"
-        assert "[thread:" in _payload_content(result)["text"]
+        assert "[thread on:" in _payload_content(result)["text"]
 
 
 # ===================================================================
@@ -792,12 +787,8 @@ class TestReactionKeyFromPayload:
         )
         ctx = _ctx(delivery_strategy="fallback_text")
 
-        result = await renderer.render(event, ctx)
-
-        text = _payload_content(result)["text"]
-        assert isinstance(text, str)
-        assert "👍" in text
-        assert "reacted" in text.lower()
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(event, ctx)
 
     @pytest.mark.asyncio
     async def test_rel_key_takes_precedence_over_payload_key(self) -> None:

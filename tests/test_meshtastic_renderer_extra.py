@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import msgspec
 import pytest
 
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
@@ -160,7 +161,7 @@ class TestMatrixToMeshtasticReactionComprehensive:
     """Test D: Matrix→Meshtastic reaction with generic display name.
 
     Verifies: compact prefix with space before 'reacted', casing preserved,
-    display-name spaces removed, reply_id == 2728143522 when mapping exists,
+    display-name spaces preserved, reply_id == 2728143522 when mapping exists,
     no emoji=1 field.
     """
 
@@ -186,25 +187,13 @@ class TestMatrixToMeshtasticReactionComprehensive:
         payload = result.payload
         text = payload["text"]
 
-        # Display-name spaces removed: "Alpha Bravo" → "AlphaBravo"
-        assert "[AlphaBravo]" in text
-        assert "[Alpha Bravo]" not in text
-
-        # Casing preserved (not lowercased)
-        assert "[AlphaBravo]" in text  # exact casing match
-        assert "[alphabravo]" not in text  # would appear if lowercased
-
-        # Space after compact prefix before 'reacted'
-        assert "AlphaBravo] reacted" in text
-        assert "AlphaBravo]reacted" not in text
-
-        # Descriptive reaction pattern
-        assert 'reacted 👍 to "original mesh message text"' in text
-
-        # reply_id == 2728143522 when mapping exists
+        # Reaction and message prefixes preserve the same display name.
+        assert text.startswith(
+            '[Alpha Bravo] reacted 👍 to "original mesh message text"'
+        )
+        assert "[alpha bravo]" not in text
+        assert "Alpha Bravo]reacted" not in text
         assert payload["reply_id"] == 2728143522
-
-        # No emoji=1 field (descriptive, not native tapback)
         assert "emoji" not in payload
 
     async def test_no_prefix_space_before_reacted(self) -> None:
@@ -244,9 +233,9 @@ class TestMatrixToMeshtasticReactionComprehensive:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        # "[TestUser]" (no trailing space) + separator " " + "reacted"
-        assert "[TestUser] reacted" in text
-        assert "[TestUser]reacted" not in text
+        # "[Test User]" (no trailing space) + separator " " + "reacted"
+        assert "[Test User] reacted" in text
+        assert "[Test User]reacted" not in text
 
 
 # ===================================================================
@@ -337,6 +326,7 @@ class TestNativeReactionPreserved:
             payload={"body": "👍"},
             relations=(rel,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
@@ -356,14 +346,16 @@ class TestNativeReactionPreserved:
             payload={"body": "❤️"},
             relations=(rel,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         assert "emoji" not in result.payload
-        assert "[reacted: ❤️]" in result.payload["text"]
+        assert result.payload["text"] == "reacted ❤️ to an earlier message"
+        assert "reply_id" not in result.payload
 
-    async def test_native_reaction_with_mmrelay_meta(self) -> None:
-        """Native reaction with mmrelay metadata still gets emoji=1."""
+    async def test_native_reaction_metadata_cannot_select_target(self) -> None:
+        """Unbound native metadata cannot authorize a destination packet."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
@@ -377,11 +369,13 @@ class TestNativeReactionPreserved:
             payload={"body": "🔥"},
             relations=(rel,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert result.payload["reply_id"] == 77
-        assert result.payload["emoji"] == 1
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert result.payload["text"] == "reacted 🔥 to an earlier message"
 
 
 # ===================================================================
@@ -730,6 +724,7 @@ class TestDescriptiveReactionByteBudget:
             payload={"body": "👍"},
             relations=(rel,),
         )
+        event = msgspec.structs.replace(event, event_kind="message.reacted")
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )

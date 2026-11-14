@@ -49,6 +49,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -62,6 +63,8 @@ from typing import Any, cast
 
 import msgspec
 import pytest
+
+from scripts.ci.native_qualification import qualification_rows
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
@@ -340,10 +343,9 @@ async def _assert_provider_observation_bound(
     """
     assert observed_event.get("event_id") == native_event_id
     assert receipt.outbox_id and receipt.receipt_id
-    manifest = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
-        ).read_text(encoding="utf-8")
+    manifest = qualification_rows(
+        Path(__file__).resolve().parents[2],
+        candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS"),
     )
     pin = next(row["ref"] for row in manifest if row["transport"] == "matrix")
     observation = NativeEvidenceObservation(

@@ -1,5 +1,5 @@
-"""Tests for text_helpers: _resolve_target_display, _resolve_reaction_key,
-extract_relation_text, and truncate_text.
+"""Tests for text_helpers: relation_target_display, reaction_key,
+extract_event_text, and truncate_text.
 
 Covers all uncovered branches reported by coverage analysis.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from medre.core.events import (
     CanonicalEvent,
     EventKind,
@@ -15,10 +16,9 @@ from medre.core.events import (
     EventRelation,
     NativeRef,
 )
+from medre.core.rendering.relations import reaction_key, relation_target_display
 from medre.core.rendering.text_helpers import (
-    _resolve_reaction_key,
-    _resolve_target_display,
-    extract_relation_text,
+    extract_event_text,
     truncate_text,
     truncate_text_bytes,
 )
@@ -86,48 +86,44 @@ def test_styled_plain_body_remains_authoritative_in_relation_fallback() -> None:
     for relations, expected in (
         ((), "correct 🦉"),
         ((_rel("reply", fallback_text="parent"),), "[replying to: parent] correct 🦉"),
-        ((_rel("edit", fallback_text="parent"),), "[edited] correct 🦉"),
-        ((_rel("thread", fallback_text="parent"),), "[thread: parent] correct 🦉"),
+        ((_rel("edit", fallback_text="parent"),), "[edit of: parent] correct 🦉"),
+        ((_rel("thread", fallback_text="parent"),), "[thread on: parent] correct 🦉"),
     ):
         assert (
-            extract_relation_text(_evt(payload=payload, relations=relations))
-            == expected
+            extract_event_text(_evt(payload=payload, relations=relations)) == expected
         )
     assert (
-        extract_relation_text(
-            _evt(event_kind=EventKind.MESSAGE_EDITED, payload=payload)
-        )
+        extract_event_text(_evt(event_kind=EventKind.MESSAGE_EDITED, payload=payload))
         == "[edited] correct 🦉"
     )
     # A pre-presentation legacy event still uses its established text alias.
     assert (
-        extract_relation_text(_evt(payload={"body": "body", "text": "alias"}))
-        == "alias"
+        extract_event_text(_evt(payload={"body": "body", "text": "alias"})) == "alias"
     )
 
 
 # ===================================================================
-# _resolve_target_display (lines 25-35)
+# relation_target_display (lines 25-35)
 # ===================================================================
 
 
 class TestResolveTargetDisplay:
-    """Cover every branch of _resolve_target_display."""
+    """Cover every branch of relation_target_display."""
 
     def test_fallback_text_present(self) -> None:
         """fallback_text is the highest-priority return value."""
         rel = _rel(fallback_text="hello world")
-        assert _resolve_target_display(rel) == "hello world"
+        assert relation_target_display(rel) == "hello world"
 
     def test_no_fallback_short_eid(self) -> None:
         """Short target_event_id (≤8 chars) returned as-is."""
         rel = _rel(target_event_id="abc123")
-        assert _resolve_target_display(rel) == "abc123"
+        assert relation_target_display(rel) == "abc123"
 
     def test_no_fallback_long_eid(self) -> None:
         """Long target_event_id (>8 chars) truncated with ellipsis."""
         rel = _rel(target_event_id="abcdefghijklmnop")
-        assert _resolve_target_display(rel) == "abcdefgh…"
+        assert relation_target_display(rel) == "abcdefgh…"
 
     def test_no_fallback_no_eid_but_native_message_id(self) -> None:
         """Falls back to native_message_id when no eid is available."""
@@ -137,81 +133,32 @@ class TestResolveTargetDisplay:
             native_message_id="$msg123",
         )
         rel = _rel(target_native_ref=nref)
-        assert _resolve_target_display(rel) == "$msg123"
+        assert relation_target_display(rel) == "$msg123"
 
     def test_nothing_at_all(self) -> None:
         """Returns 'unknown message' when nothing is available."""
         rel = _rel()
-        assert _resolve_target_display(rel) == "unknown message"
+        assert relation_target_display(rel) == "unknown message"
 
 
 # ===================================================================
-# _resolve_reaction_key (lines 49-60)
+# reaction_key (lines 49-60)
 # ===================================================================
 
 
-class TestResolveReactionKey:
-    """Cover every branch of _resolve_reaction_key."""
+@pytest.mark.parametrize("key", ["👍", "  👍  ", "custom key"])
+def test_exact_reaction_key(key):
+    assert reaction_key(_rel("reaction", key=key)) == key
 
-    def test_rel_key_present(self) -> None:
-        """rel.key is the highest-priority key source."""
-        rel = _rel(relation_type="reaction", key="👍")
-        event = _evt(payload={})
-        assert _resolve_reaction_key(rel, event) == "👍"
 
-    def test_payload_key_present(self) -> None:
-        """Falls back to payload['key'] when rel.key is None."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={"key": "❤"})
-        assert _resolve_reaction_key(rel, event) == "❤"
-
-    def test_payload_emoji_present(self) -> None:
-        """Falls back to payload['emoji'] when no key."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={"emoji": "🔥"})
-        assert _resolve_reaction_key(rel, event) == "🔥"
-
-    def test_payload_body_present(self) -> None:
-        """Falls back to payload['body'] when nothing else."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={"body": "+1"})
-        assert _resolve_reaction_key(rel, event) == "+1"
-
-    def test_nothing_returns_none(self) -> None:
-        """Returns None when no key source is available."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={})
-        assert _resolve_reaction_key(rel, event) is None
-
-    def test_whitespace_stripped_from_rel_key(self) -> None:
-        """Whitespace-padded rel.key is stripped."""
-        rel = _rel(relation_type="reaction", key="  👍  ")
-        event = _evt(payload={})
-        assert _resolve_reaction_key(rel, event) == "👍"
-
-    def test_whitespace_stripped_from_payload_key(self) -> None:
-        """Whitespace-padded payload['key'] is stripped."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={"key": "  ❤  "})
-        assert _resolve_reaction_key(rel, event) == "❤"
-
-    def test_whitespace_stripped_from_payload_emoji(self) -> None:
-        """Whitespace-padded payload['emoji'] is stripped."""
-        rel = _rel(relation_type="reaction")
-        event = _evt(payload={"emoji": "  🔥  "})
-        assert _resolve_reaction_key(rel, event) == "🔥"
-
-    def test_whitespace_only_key_falls_through(self) -> None:
-        """A whitespace-only rel.key is stripped to empty and falls through
-        to the next resolution source."""
-        rel = _rel(relation_type="reaction", key="   ")
-        event = _evt(payload={"emoji": "👍"})
-        # "   ".strip() → "" (falsy) → falls through to payload["emoji"]
-        assert _resolve_reaction_key(rel, event) == "👍"
+@pytest.mark.parametrize("key", [None, "", "  ", 123])
+def test_invalid_reaction_key_is_rejected(key):
+    with pytest.raises(ValueError, match="explicit nonempty key"):
+        reaction_key(_rel("reaction", key=key))
 
 
 # ===================================================================
-# extract_relation_text — relation branches (lines 96-170)
+# extract_event_text — relation branches (lines 96-170)
 # ===================================================================
 
 
@@ -226,7 +173,7 @@ class TestExtractRelationTextReply:
             metadata={"sender_displayname": "Alice"},
         )
         event = _evt(relations=(rel,), payload={"text": "hello"})
-        result = extract_relation_text(event)
+        result = extract_event_text(event)
         assert result == "[replying to: short by Alice] hello"
 
     def test_reply_with_original_sender_displayname(self) -> None:
@@ -237,7 +184,7 @@ class TestExtractRelationTextReply:
             metadata={"original_sender_displayname": "Alice"},
         )
         event = _evt(relations=(rel,), payload={"text": "hello"})
-        result = extract_relation_text(event)
+        result = extract_event_text(event)
         assert result == "[replying to: short by Alice] hello"
 
     def test_reply_original_sender_displayname_empty_body(self) -> None:
@@ -248,7 +195,7 @@ class TestExtractRelationTextReply:
             metadata={"original_sender_displayname": "Bob"},
         )
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
+        result = extract_event_text(event)
         assert result == "[replying to: short by Bob]"
 
     def test_reply_empty_payload_text(self) -> None:
@@ -259,7 +206,7 @@ class TestExtractRelationTextReply:
             metadata={"sender_displayname": "Bob"},
         )
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
+        result = extract_event_text(event)
         assert result == "[replying to: short by Bob]"
 
 
@@ -274,8 +221,8 @@ class TestExtractRelationTextReaction:
             relations=(rel,),
             payload={"displayname": "Alice"},
         )
-        result = extract_relation_text(event)
-        assert result == "Alice reacted with 👍"
+        result = extract_event_text(event)
+        assert result == "reacted 👍 to an earlier message"
 
     def test_reaction_without_key(self) -> None:
         """Reaction without a key omits it."""
@@ -285,8 +232,8 @@ class TestExtractRelationTextReaction:
             relations=(rel,),
             payload={"displayname": "Bob"},
         )
-        result = extract_relation_text(event)
-        assert result == "Bob reacted"
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            extract_event_text(event)
 
 
 class TestExtractRelationTextEdit:
@@ -296,15 +243,15 @@ class TestExtractRelationTextEdit:
         """Edit relation with payload text returns prefixed text."""
         rel = _rel(relation_type="edit")
         event = _evt(relations=(rel,), payload={"text": "corrected"})
-        result = extract_relation_text(event)
-        assert result == "[edited] corrected"
+        result = extract_event_text(event)
+        assert result == "[edit of: unknown message] corrected"
 
     def test_edit_without_text(self) -> None:
         """Edit relation with no payload text returns bare prefix."""
         rel = _rel(relation_type="edit")
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
-        assert result == "[edited]"
+        result = extract_event_text(event)
+        assert result == "[edit of: unknown message]"
 
 
 class TestExtractRelationTextDelete:
@@ -314,15 +261,15 @@ class TestExtractRelationTextDelete:
         """Delete with a known target includes it."""
         rel = _rel(relation_type="delete", target_event_id="abc123")
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
-        assert result == "[deleted: abc123]"
+        result = extract_event_text(event)
+        assert result == "[delete of: abc123]"
 
     def test_delete_unknown_target(self) -> None:
         """Delete with no target info returns bare [deleted]."""
         rel = _rel(relation_type="delete")
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
-        assert result == "[deleted]"
+        result = extract_event_text(event)
+        assert result == "[delete of: unknown message]"
 
 
 class TestExtractRelationTextThread:
@@ -332,19 +279,19 @@ class TestExtractRelationTextThread:
         """Thread with payload text includes both target and text."""
         rel = _rel(relation_type="thread", target_event_id="abc")
         event = _evt(relations=(rel,), payload={"text": "thread msg"})
-        result = extract_relation_text(event)
-        assert result == "[thread: abc] thread msg"
+        result = extract_event_text(event)
+        assert result == "[thread on: abc] thread msg"
 
     def test_thread_without_text(self) -> None:
         """Thread with no payload text returns just target prefix."""
         rel = _rel(relation_type="thread", target_event_id="xyz")
         event = _evt(relations=(rel,), payload={})
-        result = extract_relation_text(event)
-        assert result == "[thread: xyz]"
+        result = extract_event_text(event)
+        assert result == "[thread on: xyz]"
 
 
 # ===================================================================
-# extract_relation_text — kind-based branches (no relations)
+# extract_event_text — kind-based branches (no relations)
 # ===================================================================
 
 
@@ -354,29 +301,29 @@ class TestExtractRelationTextKindBranches:
     def test_message_text_kind(self) -> None:
         """MESSAGE_TEXT returns payload text."""
         event = _evt(event_kind=EventKind.MESSAGE_TEXT, payload={"text": "hi"})
-        assert extract_relation_text(event) == "hi"
+        assert extract_event_text(event) == "hi"
 
     def test_message_created_kind(self) -> None:
         """MESSAGE_CREATED returns payload text."""
         event = _evt(event_kind=EventKind.MESSAGE_CREATED, payload={"body": "yo"})
-        assert extract_relation_text(event) == "yo"
+        assert extract_event_text(event) == "yo"
 
     def test_message_edited_kind(self) -> None:
         """MESSAGE_EDITED without relations prefixes with [edited]."""
         event = _evt(event_kind=EventKind.MESSAGE_EDITED, payload={"text": "fixed"})
-        assert extract_relation_text(event) == "[edited] fixed"
+        assert extract_event_text(event) == "[edited] fixed"
 
     def test_message_deleted_kind(self) -> None:
         """MESSAGE_DELETED without relations returns [deleted]."""
         event = _evt(event_kind=EventKind.MESSAGE_DELETED, payload={})
-        assert extract_relation_text(event) == "[deleted]"
+        assert extract_event_text(event) == "[deleted]"
 
     def test_message_reacted_kind(self) -> None:
-        """MESSAGE_REACTED without relations returns payload text."""
+        """MESSAGE_REACTED without a relation never renders authored text."""
         event = _evt(
             event_kind=EventKind.MESSAGE_REACTED, payload={"text": "reacted-text"}
         )
-        assert extract_relation_text(event) == "reacted-text"
+        assert extract_event_text(event) == "[reacted]"
 
     def test_presence_changed_kind(self) -> None:
         """PRESENCE_CHANGED renders user status string."""
@@ -384,17 +331,17 @@ class TestExtractRelationTextKindBranches:
             event_kind=EventKind.PRESENCE_CHANGED,
             payload={"user": "carol", "status": "online"},
         )
-        assert extract_relation_text(event) == "carol is now online"
+        assert extract_event_text(event) == "carol is now online"
 
     def test_plugin_custom_kind(self) -> None:
         """PLUGIN_CUSTOM returns payload text."""
         event = _evt(event_kind=EventKind.PLUGIN_CUSTOM, payload={"text": "custom-msg"})
-        assert extract_relation_text(event) == "custom-msg"
+        assert extract_event_text(event) == "custom-msg"
 
     def test_unknown_kind_fallback(self) -> None:
         """Unknown kind falls through to payload text."""
         event = _evt(event_kind="system.audit", payload={"text": "audit-entry"})
-        assert extract_relation_text(event) == "audit-entry"
+        assert extract_event_text(event) == "audit-entry"
 
 
 # ===================================================================

@@ -27,6 +27,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
+from medre.core.rendering.relations import reaction_target_preview
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
@@ -566,17 +567,17 @@ class TestOriginalTextExtraction:
             rel_metadata={"original_text": "original from meta"},
             fallback_text="fallback",
         )
-        text = MatrixRenderer._extract_original_text(event.relations[0])
+        text = reaction_target_preview(event.relations[0])
         assert text == "original from meta"
 
     def test_from_fallback_text(self) -> None:
         event = _make_mesh_reaction(key="👍", fallback_text="fallback text")
-        text = MatrixRenderer._extract_original_text(event.relations[0])
+        text = reaction_target_preview(event.relations[0])
         assert text == "fallback text"
 
     def test_empty_when_no_sources(self) -> None:
         event = _make_mesh_reaction(key="👍")
-        text = MatrixRenderer._extract_original_text(event.relations[0])
+        text = reaction_target_preview(event.relations[0])
         assert text == ""
 
 
@@ -584,23 +585,45 @@ class TestAbbreviateText:
     """Text abbreviation: normalize newlines, truncate at 40 chars."""
 
     def test_short_text_unchanged(self) -> None:
-        assert MatrixRenderer._abbreviate_text("hello") == "hello"
+        assert (
+            reaction_target_preview(
+                EventRelation("reaction", "target", None, "👍", "hello")
+            )
+            == "hello"
+        )
 
     def test_exact_40_chars_unchanged(self) -> None:
         text = "A" * 40
-        assert MatrixRenderer._abbreviate_text(text) == text
+        assert (
+            reaction_target_preview(
+                EventRelation("reaction", "target", None, "👍", text)
+            )
+            == text
+        )
 
     def test_41_chars_truncated_with_ellipsis(self) -> None:
         text = "A" * 41
-        result = MatrixRenderer._abbreviate_text(text)
+        result = reaction_target_preview(
+            EventRelation("reaction", "target", None, "👍", text)
+        )
         assert result == "A" * 40 + "..."
         assert len(result) == 43
 
     def test_newlines_normalized_to_spaces(self) -> None:
-        assert MatrixRenderer._abbreviate_text("line1\nline2") == "line1 line2"
+        assert (
+            reaction_target_preview(
+                EventRelation("reaction", "target", None, "👍", "line1\nline2")
+            )
+            == "line1 line2"
+        )
 
     def test_carriage_returns_normalized(self) -> None:
-        assert MatrixRenderer._abbreviate_text("a\r\nb") == "a b"
+        assert (
+            reaction_target_preview(
+                EventRelation("reaction", "target", None, "👍", "a\r\nb")
+            )
+            == "a b"
+        )
 
 
 class TestReactionPrefixPreservesLongname:

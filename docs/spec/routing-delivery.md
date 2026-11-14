@@ -1507,12 +1507,13 @@ expansion. Its properties:
   precedence chain. Provenance categories: `per_entry` (a structured
   `context_map` entry label), `route` (route-level
   `source_origin_label` / `dest_origin_label`), `adapter` (the source
-  adapter's `origin_label` applied as fallback at plan time, mirroring
-  render-time attribution), or `unset` (no label resolved at any level
-  and the source adapter's `origin_label` is empty). An explicit empty
+  adapter's `origin_label` applied as fallback at plan time, before an
+  event-specific presentation snapshot is available), or `unset` (no label
+  resolved at any level and the source adapter's `origin_label` is empty). An explicit empty
   string at the per-entry or route level is preserved as an
-  `explicit_empty` suppression at that level. The relay-prefix
-  resolution is therefore traceable end-to-end before runtime.
+  `explicit_empty` suppression at that level. The configured fallback is
+  therefore traceable before runtime; an event-specific snapshot may override it when no per-entry or route label
+  is present.
 - **Forward-only fan-in is shown as allowed.** When a `context_map`
   maps two or more source contexts to one `dest_context` and the route
   creates no reverse legs (§17.6), the plan renders the fan-in legs
@@ -1544,7 +1545,8 @@ LXMF, `RenderingResult.metadata` on all transports).
 ### 17.5.2 origin_label
 
 `origin_label` is the platform-neutral, operator-defined source label for
-relay prefixes. It can be set at three levels:
+relay prefixes. It can be configured at three levels; a supplied event
+presentation snapshot is an additional render-time source:
 
 1. **Per-entry (context_map only)** — `source_origin_label` and
    `dest_origin_label` on a structured `context_map` entry. These
@@ -1567,10 +1569,11 @@ The precedence chain for `source_origin_label` on `RelayAttribution` is:
    matched `context_map` entry), when it is not `nil`.
 2. Route-level label (`source_origin_label` or `dest_origin_label` after
    expansion) from the matched route, when it is not `None`.
-3. Adapter config `origin_label` from the source-attribution registry.
-4. Empty string (no fallback to native metadata).
+3. `source_origin_label` from the supplied presentation snapshot, when not `None`.
+4. Adapter config `origin_label` from the source-attribution registry.
+5. Empty string (no fallback to native metadata).
 
-An explicit empty string (`""`) set at the per-entry or route level
+An explicit empty string (`""`) at the per-entry, route, or snapshot level
 suppresses fallback below that level for that leg; an absent or `nil`/`None`
 label falls through to the next level. See §17.5.8 for the full per-entry
 semantics, including the bool-before-string validation rule and the
@@ -1590,7 +1593,7 @@ template alias is `{origin_label}`.
 
 | Concept               | Template variable | Source                                                       | Scope                                                           |
 | --------------------- | ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
-| `origin_label`        | `{origin_label}`  | Resolved source label (route-level > adapter config > empty) | Platform-neutral operator label                                 |
+| `origin_label`        | `{origin_label}`  | Resolved source label (per-entry > route > snapshot > adapter config > empty) | Platform-neutral operator label                                 |
 | `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata                  | Per-transport native identity                                   |
 | `source_sender_label` | `{sender}`        | Primary human-readable sender label                          | Per-transport display name / long name                          |
 | `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
@@ -1599,8 +1602,8 @@ Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
 `origin_label` is the single MEDRE-generic label. For `context_map`
 legs, precedence is per-entry label > route-level
 `source_origin_label`/`dest_origin_label` (after direction expansion) >
-adapter config `origin_label` > empty string. General routes use the same
-chain without the per-entry level. Adapter-level `origin_label` is fallback
+presentation snapshot > adapter config `origin_label` > empty string.
+General routes use the same chain without the per-entry level. Adapter-level `origin_label` is fallback
 only.
 
 ### 17.5.4 Renderer Lookup
@@ -1609,9 +1612,12 @@ Renderers resolve `source_origin_label` through the precedence chain
 described in §17.5.2. When the matched route carries a route-level label
 (`source_origin_label` for forward legs, `dest_origin_label` for reverse
 legs), that value is used directly. When the route has no direction-aware
-label, the renderer falls back to the source adapter's `origin_label` config
-via the runtime source-attribution registry. When neither source provides a
-label, the variable resolves to empty string.
+label, the renderer uses the supplied presentation snapshot's
+`source_origin_label`, including an explicit empty string. Only an absent
+snapshot label falls back to the source adapter's `origin_label` config via
+the runtime source-attribution registry. When no source provides a label, the
+variable resolves to empty string. The event envelope remains authoritative
+for source adapter, transport and channel identifiers.
 
 The source-attribution registry maps adapter instance names to their
 `origin_label` config value. It is constructed at assembly time and consulted
@@ -1634,7 +1640,7 @@ byte budget. Plain and HTML Matrix bodies MUST show consistent attribution.
 For Meshtastic, MeshCore, and LXMF outbound prefixes, the prefix template
 lives on the respective target adapter config (Meshtastic, MeshCore, and
 LXMF `relay_prefix`). Variables within those templates are resolved from the source event's `RelayAttribution`, which
-includes `source_origin_label` from the source-attribution registry.
+includes `source_origin_label` resolved through the precedence chain above.
 
 ### 17.5.5 Shared Formatter and Variable Schema
 
@@ -1648,34 +1654,53 @@ authoritative variable list is documented in the Meshtastic Transport
 Profile §Relay Attribution Prefix.
 
 Formatting rules: `None`/missing values format as empty strings. Unknown
-placeholders are left unchanged in the output and recorded in diagnostic
-metadata. The formatter never raises exceptions.
+placeholders are left unchanged in the low-level formatter result and
+recorded as errors; the formatter itself never raises exceptions. Adapter
+configuration validation MUST reject unsupported placeholders before
+delivery. Renderers MUST use `format_checked_relay_prefix` and fail closed
+on formatting errors (including when called directly with an unvalidated config). Missing values are not errors.
 
 **Truncation variables.** Each renderer declares which variables are
 truncatable for its transport: a declared name additionally resolves
 `{nameN}` placeholders to the first N Unicode code points of its value
 (N ≥ 1; code points, never bytes). Radio-facing transports with
 constrained displays declare truncatable sender labels; roomy transports
-declare none, so numeric-suffixed placeholders are unknown there and pass
-through as literals. Invalid names in a renderer's truncatable
+declare none, so numeric-suffixed placeholders are rejected there. Invalid names in a renderer's truncatable
 declaration are reported in the formatter's `formatting_error` without
 raising.
 
 The following placeholders are outside the current attribution surface and
-are no longer resolved. They pass through as literals:
+are not supported and are rejected by configuration validation:
 
 | Removed placeholder | Current behavior                |
 | ------------------- | ------------------------------- |
-| `{meshnet_name}`    | Unknown — left as literal text. |
-| `{longname}`        | Unknown — left as literal text. |
-| `{shortname}`       | Unknown — left as literal text. |
-| `{shortname5}`      | Unknown — left as literal text. |
-| `{from_id}`         | Unknown — left as literal text. |
+| `{meshnet_name}`    | Unsupported — rejected. |
+| `{longname}`        | Unsupported — rejected. |
+| `{shortname}`       | Unsupported — rejected. |
+| `{shortname5}`      | Unsupported — rejected. |
+| `{from_id}`         | Unsupported — rejected. |
 
 Prefix templates using these names MUST be updated to the canonical variables
 listed in the Meshtastic Transport
 Profile §Relay Attribution Prefix (e.g. `{origin_label}`, `{sender}`,
 `{sender_short}`, `{sender_id}`).
+
+The shared attribution resolver applies route origin label, then supplied
+presentation snapshot, then source adapter config precedence. An explicit
+empty label is an override, not absence. Event envelope identifiers remain
+authoritative; supplied sender labels are presentation claims.
+
+Degraded relations use one core text policy: describe each unrepresented
+relation in supplied tuple order before the authored body, which appears
+once. Matrix's reply-context priority is specified in its transport profile
+and uses an immutable presentation copy; the canonical tuple MUST remain
+unchanged. Native renderers omit the relations they actually represent. A reaction
+uses its explicit key and a whitespace-flattened target preview bounded to 40
+Unicode code points plus an ellipsis when shortened; an unavailable preview
+is described as `an earlier message`, never the reaction payload. Renderer
+inputs contain already-authorized context; renderer helpers do not read storage
+or confer quote authority. Byte limits apply to composed output, with the
+transport deciding whether to truncate, segment, or reject.
 
 ### 17.5.6 Relay-Prefix Metadata Keys
 
@@ -1683,7 +1708,9 @@ Every renderer that supports a relay prefix MUST emit the following
 normalized metadata keys when a prefix template is configured on the
 target adapter. The keys are always present when the prefix template is
 non-empty, regardless of whether the prefix is prepended to the payload
-text (e.g. native tapbacks populate metadata without modifying text).
+text (e.g. native tapbacks populate metadata without modifying text). An
+explicitly empty template disables the prefix and omits these diagnostics;
+automatic non-empty templates report their resolved template and values.
 
 | Key                              | Type              | Description                                                         |
 | -------------------------------- | ----------------- | ------------------------------------------------------------------- |

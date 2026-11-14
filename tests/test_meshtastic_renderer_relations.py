@@ -19,6 +19,7 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
 )
+from medre.core.rendering.relations import relation_target_display
 from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
@@ -48,7 +49,13 @@ def _make_event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id=event_id,
-        event_kind="message.created",
+        event_kind=(
+            "message.reacted"
+            if relations
+            and len(relations) == 1
+            and relations[0].relation_type == "reaction"
+            else "message.created"
+        ),
         schema_version=1,
         timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
@@ -213,8 +220,8 @@ class TestCrossPlatformReactionDescriptive:
         )
         assert result.payload.get("emoji") is None
 
-    async def test_compact_prefix_strips_spaces_preserves_casing(self) -> None:
-        """Display name spaces are stripped in the prefix; casing preserved."""
+    async def test_reaction_prefix_preserves_spaces_and_casing(self) -> None:
+        """Display name spacing and casing match ordinary message prefixes."""
         renderer = _make_renderer(
             "mesh-1",
             relay_prefix="[{sender}] ",
@@ -225,7 +232,7 @@ class TestCrossPlatformReactionDescriptive:
             fallback_text="test msg",
             meshtastic_reply_id="10",
         )
-        # "Display Name" → "DisplayName" in prefix
+        # "Display Name" retains its spaces in the prefix
         event = _make_matrix_event(
             display_name="Display Name",
             relations=(rel,),
@@ -234,12 +241,12 @@ class TestCrossPlatformReactionDescriptive:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert "[DisplayName] reacted" in text
+        assert "[Display Name] reacted" in text
         # NOT lowercased
         assert "[displayname]" not in text
 
-    async def test_compact_prefix_not_lowercased(self) -> None:
-        """Casing is preserved: 'MeshUser' stays 'MeshUser', not 'meshuser'."""
+    async def test_reaction_prefix_not_lowercased(self) -> None:
+        """Display-name casing is preserved."""
         renderer = _make_renderer(
             "mesh-1",
             relay_prefix="[{sender}] ",
@@ -254,7 +261,7 @@ class TestCrossPlatformReactionDescriptive:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert "[MeshUser] reacted" in text
+        assert "[Mesh User] reacted" in text
 
     async def test_abbreviated_preview_40_chars(self) -> None:
         """Original text preview is abbreviated to 40 chars + '...'."""
@@ -303,8 +310,8 @@ class TestCrossPlatformReactionDescriptive:
         assert "\n" not in text.split('to "')[1]
         assert "line one line two line three" in text
 
-    async def test_quoted_reply_lines_stripped(self) -> None:
-        """Quoted reply lines (> ...) are stripped from preview."""
+    async def test_authored_quote_lines_preserved(self) -> None:
+        """Authored quote lines are preserved in the flattened preview."""
         renderer = _make_renderer("mesh-1")
         rel = _make_cross_platform_relation(
             key="👍",
@@ -315,7 +322,7 @@ class TestCrossPlatformReactionDescriptive:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         text = result.payload["text"]
-        assert "> quoted" not in text
+        assert "> quoted line actual message" in text
         assert "actual message" in text
 
     async def test_original_text_from_metadata_preferred(self) -> None:
@@ -412,8 +419,8 @@ class TestCrossPlatformReactionDescriptive:
         )
         assert "relay_prefix_rendered" not in result.metadata
 
-    async def test_mmrelay_metadata_reply_id_still_works(self) -> None:
-        """Cross-platform reaction with mmrelay metadata gets reply_id."""
+    async def test_unbound_numeric_metadata_does_not_bind(self) -> None:
+        """Numeric metadata alone cannot bind a destination reply."""
         renderer = _make_renderer("mesh-1")
         # No native ref (meshtastic_reply_id=None in helper means no native ref)
         # but we add meshtastic_reply_id via metadata
@@ -429,7 +436,7 @@ class TestCrossPlatformReactionDescriptive:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert result.payload["reply_id"] == 88
+        assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
 
 
@@ -463,8 +470,8 @@ async def test_direct_descriptive_reaction_metadata_has_real_template() -> None:
 
 
 async def test_direct_descriptive_reaction_metadata_has_rendered_prefix() -> None:
-    """Direct-mode descriptive reaction metadata reports the compact
-    rendered prefix (spaces stripped from display name)."""
+    """Direct-mode descriptive reaction metadata reports the rendered
+    prefix with the same display-name spacing as messages."""
     renderer = _make_renderer(
         "mesh-1",
         relay_prefix="[{sender}] ",
@@ -481,8 +488,8 @@ async def test_direct_descriptive_reaction_metadata_has_rendered_prefix() -> Non
         event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
     )
 
-    # relay_prefix_rendered is the compact rendered prefix (spaces stripped)
-    assert result.metadata["relay_prefix_rendered"] == "[AlphaBravo] "
+    # relay_prefix_rendered preserves display-name spacing
+    assert result.metadata["relay_prefix_rendered"] == "[Alpha Bravo] "
 
 
 async def test_direct_descriptive_reaction_metadata_has_variables_used() -> None:
@@ -529,7 +536,7 @@ async def test_direct_descriptive_reaction_metadata_not_blank_sentinel() -> None
 
 
 async def test_fallback_descriptive_reaction_metadata_has_real_prefix() -> None:
-    """Fallback-mode cross-platform reaction metadata includes the compact
+    """Fallback-mode cross-platform reaction metadata includes the configured
     prefix formatter result, not blank sentinel."""
     renderer = _make_renderer(
         "mesh-1",
@@ -551,7 +558,7 @@ async def test_fallback_descriptive_reaction_metadata_has_real_prefix() -> None:
     meta = result.metadata
     # Metadata should contain real prefix diagnostics
     assert meta["relay_prefix_template"] == "[{sender}] "
-    assert meta["relay_prefix_rendered"] == "[FallbackUser] "
+    assert meta["relay_prefix_rendered"] == "[Fallback User] "
     assert "sender" in meta["relay_prefix_variables_used"]
 
 
@@ -689,13 +696,13 @@ class TestFallbackTextReplyRelationContext:
             ),
         )
         text = result.payload["text"]
-        assert "[replying to: evt-abc123]" in text
+        assert "[replying to: evt-abc1…]" in text
         assert "my reply" in text
         assert "reply_id" not in result.payload
 
-    async def test_reply_no_target_info_plain_text(self) -> None:
+    async def test_reply_no_target_info_described(self) -> None:
         """When no fallback_text, no native_ref, no target_event_id,
-        no marker is prepended — plain body text."""
+        the unknown target is described before the body."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reply",
@@ -715,8 +722,8 @@ class TestFallbackTextReplyRelationContext:
             ),
         )
         text = result.payload["text"]
-        assert text == "my reply"
-        assert "[replying to:" not in text
+        assert text == "[replying to: unknown message] my reply"
+        assert "[replying to: unknown message]" in text
         assert "reply_id" not in result.payload
 
     async def test_target_event_id_preferred_over_native_ref(self) -> None:
@@ -746,7 +753,7 @@ class TestFallbackTextReplyRelationContext:
             ),
         )
         text = result.payload["text"]
-        assert "[replying to: evt-override]" in text
+        assert "[replying to: evt-over…]" in text
         assert "99" not in text
 
     async def test_preserves_channel_index(self) -> None:
@@ -925,7 +932,7 @@ class TestTargetedCoveragePaths:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert result.payload["text"] == "thread message content"
+        assert result.payload["text"] == "[thread on: evt-0] thread message content"
         # No reply_id or emoji fields for unknown relation types
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
@@ -953,7 +960,7 @@ class TestTargetedCoveragePaths:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        result = relation_target_display(rel)
         assert result == "42"
 
 
@@ -970,9 +977,9 @@ class TestFallbackTextOtherRelationTypes:
     @pytest.mark.parametrize(
         ("relation_type", "body", "expected_in_text"),
         [
-            ("edit", "updated content", "[edited] updated content"),
-            ("delete", "unused", "[deleted: evt-0]"),
-            ("thread", "thread reply text", "[thread: evt-0] thread reply text"),
+            ("edit", "updated content", "[edit of: evt-0] updated content"),
+            ("delete", "unused", "[delete of: evt-0]"),
+            ("thread", "thread reply text", "[thread on: evt-0] thread reply text"),
         ],
         ids=["edit", "delete", "thread"],
     )
@@ -1023,11 +1030,11 @@ class TestRelationDegradationAndTruncationEvidence:
                 target_adapter="mesh-1", delivery_strategy="fallback_text"
             ),
         )
-        assert "[reacted: 👍]" in result.payload["text"]
+        assert "reacted 👍 to an earlier message" in result.payload["text"]
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert result.fallback_applied == "strategy_fallback_text"
-        assert "descriptive_reaction" not in result.metadata
+        assert result.metadata["descriptive_reaction"] is True
 
     async def test_fallback_reply_truncation_preserves_context(self) -> None:
         """Truncated fallback reply still shows [replying to: X] marker."""

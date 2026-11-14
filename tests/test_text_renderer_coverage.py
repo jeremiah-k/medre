@@ -18,7 +18,6 @@ from medre.core.events import CanonicalEvent, EventKind, EventRelation, NativeRe
 from medre.core.events.metadata import EventMetadata
 from medre.core.rendering.renderer import RenderingContext
 from medre.core.rendering.text import TextRenderer
-from medre.core.rendering.text_helpers import _resolve_reaction_key
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,7 +89,9 @@ def _rel(
 @pytest.mark.asyncio
 async def test_render_sets_fallback_applied_for_all_relation_types(rtype: str) -> None:
     """Line 153: each relation type sets fallback_applied = f"relation_{rtype}"."""
-    rel = _rel(rtype, fallback_text="some target")
+    rel = _rel(
+        rtype, fallback_text="some target", key="👍" if rtype == "reaction" else None
+    )
     event = _event(
         kind=EventKind.MESSAGE_TEXT, relations=(rel,), payload={"text": "hi"}
     )
@@ -135,18 +136,13 @@ async def test_render_fallback_text_strategy_with_reaction_preserves_relation_ty
 # ===================================================================
 
 
-def test_resolve_reaction_key_returns_body_when_no_key_no_emoji() -> None:
-    """Lines 248-250: payload["body"] used when no rel.key, payload["key"], payload["emoji"]."""
-    rel = _rel("reaction", key=None)
-    event = _event(payload={"body": "thumbsup"})
-    assert _resolve_reaction_key(rel, event) == "thumbsup"
-
-
-def test_resolve_reaction_key_returns_none_when_nothing_present() -> None:
-    """Line 251: returns None when no key source exists at all."""
-    rel = _rel("reaction", key=None)
-    event = _event(payload={})
-    assert _resolve_reaction_key(rel, event) is None
+@pytest.mark.parametrize(
+    "payload", [{"body": "thumbsup"}, {"key": "👍"}, {"emoji": "👍"}, {}]
+)
+def test_missing_explicit_reaction_key_is_not_inferred(payload):
+    event = _event(relations=(_rel("reaction"),), payload=payload)
+    with pytest.raises(ValueError, match="explicit nonempty key"):
+        TextRenderer._extract_text(event)
 
 
 # ===================================================================
@@ -172,7 +168,7 @@ def test_extract_text_reply_empty_payload_returns_prefix_only() -> None:
 
 
 def test_extract_text_thread_with_body() -> None:
-    """Line 331-337: thread relation with body text → "[thread: {target}] {body}"."""
+    """Line 331-337: thread relation with body text → "[thread on: {target}] {body}"."""
     rel = _rel("thread", fallback_text="thread-root")
     event = _event(
         kind=EventKind.MESSAGE_TEXT,
@@ -180,11 +176,11 @@ def test_extract_text_thread_with_body() -> None:
         payload={"text": "thread message"},
     )
     text = TextRenderer._extract_text(event)
-    assert text == "[thread: thread-root] thread message"
+    assert text == "[thread on: thread-root] thread message"
 
 
 def test_extract_text_thread_without_body() -> None:
-    """Line 338: thread relation with no body → "[thread: {target}]"."""
+    """Line 338: thread relation with no body → "[thread on: {target}]"."""
     rel = _rel("thread", fallback_text="thread-root")
     event = _event(
         kind=EventKind.MESSAGE_TEXT,
@@ -192,7 +188,7 @@ def test_extract_text_thread_without_body() -> None:
         payload={"text": ""},
     )
     text = TextRenderer._extract_text(event)
-    assert text == "[thread: thread-root]"
+    assert text == "[thread on: thread-root]"
 
 
 @pytest.mark.parametrize(

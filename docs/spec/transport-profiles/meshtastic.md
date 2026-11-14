@@ -79,25 +79,26 @@ Machine-readable capability declaration: [`meshtastic-capabilities.json`](meshta
 The Meshtastic renderer prepends a human-readable relay attribution prefix to
 outbound radio text when `relay_prefix` is enabled on the target
 adapter's `MeshtasticConfig`. The prefix is applied for plain text messages
-and replies. It is **not** applied for structured native reactions
-(`emoji=1`) or cross-platform descriptive reactions (which embed their own
-compact prefix in the text body).
+and replies, and uses the same sender labels for descriptive reactions. It
+MUST NOT remove spaces from sender labels based on event kind. Structured native
+reactions (`emoji=1`) MUST NOT receive an added text prefix.
 
 **Configuration:** `relay_prefix` (`str | None`, default `None`). An omitted or
 null value selects the automatic `{sender5}[M]: ` prefix for Matrix sources
 and `{sender_short}: ` for other sources. Explicit `""` disables prefixing.
 Constrained-display labels `sender`, `sender_short`, and `origin_label`
 accept `{nameN}` truncation by Unicode code points for N >= 1; undeclared
-variables and zero suffixes remain unknown placeholders.
+variables and zero suffixes are rejected in configuration.
 
 **Template syntax:** `{placeholder}` variables resolved by the shared core
 formatter (`format_relay_prefix`) against `RelayAttribution` extracted from
 the source event. `{origin_label}` is resolved through a precedence chain:
 route-level `source_origin_label` (or `dest_origin_label` for reverse legs)
-from the matched route's expansion context takes priority; when no route-level
-label is set, the renderer falls back to the source adapter's `origin_label`
-config via the runtime source-attribution registry; when neither source
-provides a label, the variable resolves to empty string.
+from the matched route's expansion context takes priority, followed by the
+supplied presentation snapshot label and the source adapter's `origin_label`
+config. An explicit empty route or snapshot label overrides lower tiers;
+when no source provides a label, the variable resolves to empty string.
+Event envelope identifiers remain authoritative.
 
 ### Supported Template Variables
 
@@ -141,8 +142,8 @@ Matrix, Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat.
 - **None/missing values** format as empty strings. The literal text
   `"None"` is never rendered.
 - **Unknown placeholders** (not in the tables above) are left unchanged in
-  the output (e.g. `{bogus}` stays `{bogus}`) and recorded in
-  `unknown_variables` with `formatting_error` set.
+  the diagnostic formatter result and recorded in `unknown_variables` with
+  `formatting_error` set. Configuration validation and rendering reject them.
 - **Deterministic:** Same inputs always produce the same output.
 - **Never raises:** All internal errors are captured in `formatting_error`.
 
@@ -180,8 +181,9 @@ the Matrix renderer resolves the prefix template. The preferred path is
 For cross-platform prefix templates, operators SHOULD prefer `{origin_label}`
 — the MEDRE-generic source label populated on all adapter configs. `{origin_label}` is resolved
 through a precedence chain: route-level `source_origin_label` (or
-`dest_origin_label` for reverse legs) takes priority over the source adapter's
-config-level `origin_label`.
+`dest_origin_label` for reverse legs), then the supplied presentation snapshot,
+then the source adapter's configured `origin_label`. An explicit empty label
+at either earlier tier suppresses the configured fallback.
 
 The same shared variable table applies. The Matrix renderer has no
 constrained radio byte budget — prefix length is unconstrained in the

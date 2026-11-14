@@ -120,25 +120,25 @@ variables and formatting rules.
 
 **Renderer lookup:** `{origin_label}` is resolved through a precedence chain:
 route-level `source_origin_label` (or `dest_origin_label` for reverse legs)
-from the matched route's expansion context takes priority; when no route-level
-label is set, the renderer falls back to the source adapter's `origin_label`
-config via the runtime source-attribution registry; when neither source
-provides a label, the variable resolves to empty string.
+from the matched route's expansion context takes priority, followed by the
+supplied attribution snapshot and the source adapter's configured `origin_label`.
+Explicit empty labels MUST suppress lower-precedence values. If all three
+sources omit a label, the variable resolves to empty string.
 
 **Application points:**
 
-1. Direct mode body (prefix only, no truncation).
-2. Fallback-text mode body (before truncation).
-3. Reaction emote body (via `_format_reaction_prefix`).
+1. Direct and fallback text bodies, including native replies and threads.
+2. Described reaction emote bodies and media captions.
+3. Native edit replacement bodies, with one attribution in each visible form.
 
 **When no prefix is found** (`MatrixConfig.relay_prefix` is empty), no prefix
 is prepended.
 
-**Truncation:** The Matrix renderer has no constrained radio byte budget.
-Prefix length is unconstrained in the renderer, though Matrix homeservers
-impose their own event size limits. When a `RenderingContext` text budget is
-active (`max_text_chars` or `max_text_bytes`), the prefix counts toward that
-budget **in the fallback-text path**.
+**Text budgets:** When a `RenderingContext` character or UTF-8 byte budget is
+active, the complete attributed body MUST fit it. Ordinary text, threads,
+described reactions and captions MAY be truncated with rendering evidence.
+Native edits MUST fit both the replacement and its `* ` fallback body and MUST
+be rejected rather than clipped. Homeserver event-size limits remain separate.
 
 **Metadata keys** (when prefix is configured):
 
@@ -238,7 +238,8 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 - **Plain text messages** — `m.room.message` with `m.text` msgtype, optional relay prefix, and MEDRE metadata envelope.
 - **Native replies** — `m.relates_to.m.in_reply_to` with `event_id`.
-- **Described reactions** — `m.emote` room messages carrying the reacting
+- **Described reaction events** — a `message.reacted` event with one reaction
+  relation becomes an `m.emote` room message carrying the reacting
   source user's attribution, the exact reaction key, and a bounded one-line
   preview of the target text (`an earlier message` when the target text is
   unresolvable). The preview comes from canonical relation enrichment's
@@ -253,7 +254,10 @@ The Matrix renderer (`MatrixRenderer`) produces:
   source users into one event.
 - **Native edits** — `m.replace` / `m.new_content` room messages with exactly one relay attribution and a `"* "` fallback body, targeted at the bound original copy.
 - **Native deletes** — `redact_event` operations through the dedicated redaction endpoint, guarded by the mutation-eligibility rules above.
-- **Emote reaction fallback** — `m.emote` carrying the reaction symbol and original-message reference in the body; described reaction delivery above renders this shape for every delivered reaction under either delivery strategy.
+- **Reaction context on authored messages** — ordinary messages retain their
+  authored body and describe the reaction inline. The single-relation reaction
+  event shortcut MUST NOT discard authored message content. Mixed relations
+  retain all unrepresented context under either delivery strategy.
 
 ---
 
@@ -558,10 +562,26 @@ its `kind`. The old `_matrix_event_type` magic key no longer exists.
 Mutation deliveries additionally require a `bound_owned` target fact —
 see [Mutation eligibility](#mutation-eligibility-native-edits-and-deletes).
 
-When `fallback_text` is supplied for a relation, the Matrix renderer produces its
-native message format with the relation context embedded as inline text. This is a
-renderer contract, not a test-only quirk; any code path that populates
-`fallback_text` on a routed relation triggers the same inline-text rendering path.
+Under the `fallback_text` delivery strategy, the renderer describes all
+unrepresented relations before the authored body. In direct delivery, only
+relations represented by native fields are omitted from that description;
+supplying a fallback quote alone does not force native replies to degrade.
+Matrix visible text and media captions MUST put unrepresented reply
+descriptions before other relation descriptions so that an earlier reaction cannot consume the reply's budget.
+Other descriptions retain their relative order. This presentation ordering
+MUST NOT rewrite the canonical relation tuple.
+
+Final text budgets apply after attribution and relation composition, including
+media captions. Caption truncation MUST preserve attachment references and
+filename metadata. Native edits MUST fit both the replacement body and the
+`* ` fallback body; oversized edits MUST be rejected rather than clipped.
+Multiple edit/delete targets MUST be rejected as ambiguous before a native
+mutation is constructed.
+Native mutation intent MUST match the event kind: edits require `message.edited`
+and one edit relation; redactions require `message.deleted` and one delete
+relation. Missing or mismatched mutation intent MUST fail closed before an
+operation is constructed, even with an owned target. Explicit text fallback
+continues to describe events without performing native mutations.
 
 **Thread capability:** threads are native. The `m.relates_to` root is the bound
 destination thread root; an explicit bound reply relation on the same event

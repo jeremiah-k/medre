@@ -12,7 +12,7 @@ import platform
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -20,7 +20,13 @@ import jsonschema  # type: ignore[import-untyped]
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
-from medre.core.evidence.native_evidence import NativeEvidenceObservation
+if TYPE_CHECKING:
+    from medre.core.evidence.native_evidence import NativeEvidenceObservation
+
+if __package__:
+    from .adapter_matrix import candidate_snapshot, resolve_adapters
+else:
+    from adapter_matrix import candidate_snapshot, resolve_adapters
 
 _SCHEMA = "docs/schemas/native-qualification.schema.json"
 _OBSERVATION_FIELDS = (
@@ -65,8 +71,20 @@ def observation_summary(observation: NativeEvidenceObservation) -> dict[str, obj
     return {name: getattr(observation, name) for name in _OBSERVATION_FIELDS}
 
 
-def _provider(root: Path, checkout: Path, transport: str) -> dict[str, Any]:
-    rows = json.loads((root / ".github/adapter-compatibility.json").read_text())
+def qualification_rows(
+    root: Path, *, candidate_refs: str | None = None
+) -> list[dict[str, Any]]:
+    """Read committed pins, or explicitly select a complete ephemeral candidate."""
+    manifest = root / ".github/adapter-compatibility.json"
+    rows = resolve_adapters(manifest, resolve=False)
+    return candidate_snapshot(rows, candidate_refs) if candidate_refs else rows
+
+
+def provider_provenance(
+    root: Path, checkout: Path, transport: str, *, candidate_refs: str | None = None
+) -> dict[str, Any]:
+    """Verify the installed, editable provider and its declared SDK requirements."""
+    rows = qualification_rows(root, candidate_refs=candidate_refs)
     matches = [row for row in rows if row["transport"] == transport]
     if len(matches) != 1:
         raise ValueError("qualification requires exactly one manifest provider")
@@ -111,6 +129,24 @@ def _provider(root: Path, checkout: Path, transport: str) -> dict[str, Any]:
     }
 
 
+def _candidate_digest(root: Path, candidate_refs: str) -> str:
+    """Bind all selected transports, independent of JSON key or manifest order."""
+    rows = qualification_rows(root, candidate_refs=candidate_refs)
+    return sha256(_canonical(sorted(rows, key=lambda row: row["transport"])))
+
+
+def _record_schema(root: Path, *, candidate: bool) -> dict[str, Any]:
+    schema: dict[str, Any] = json.loads((root / _SCHEMA).read_text())
+    if candidate:
+        # Version two is CI-only. Never modify the frozen committed-pin v1
+        # schema or allow a candidate statement to validate as v1 evidence.
+        schema.pop("$id", None)
+        schema["properties"]["schema_version"] = {"const": 2}
+        schema["required"].append("candidate_snapshot_sha256")
+        schema["properties"]["candidate_snapshot_sha256"] = {"$ref": "#/$defs/digest"}
+    return schema
+
+
 def build_record(
     root: Path,
     checkout: Path,
@@ -121,13 +157,16 @@ def build_record(
     witness_hashes: list[str],
     harnesses: list[tuple[str, str]],
     binding: tuple[str, str],
+    candidate_refs: str | None = None,
 ) -> dict[str, Any]:
     """Snapshot the actual pair and harness bytes after successful teardown.
 
     Hashes establish consistency and reproducibility, not observer authenticity.
     Dirty core runs remain explicitly marked and cannot serve as CI proof.
     """
-    provider = _provider(root, checkout, transport)
+    provider = provider_provenance(
+        root, checkout, transport, candidate_refs=candidate_refs
+    )
     sources = []
     dirty = bool(_git(root, "status", "--porcelain", "--untracked-files=no"))
     for owner, relative in harnesses:
@@ -178,18 +217,34 @@ def build_record(
             "witness_sha256": witness_hashes,
         },
     }
+    if candidate_refs:
+        record["schema_version"] = 2
+        record["candidate_snapshot_sha256"] = _candidate_digest(root, candidate_refs)
     record["record_sha256"] = sha256(_canonical(record))
-    problems = check_record(root, checkout, record, require_clean=False)
+    problems = check_record(
+        root, checkout, record, require_clean=False, candidate_refs=candidate_refs
+    )
     if problems:
         raise ValueError("; ".join(problems))
     return record
 
 
 def check_record(
-    root: Path, checkout: Path, record: dict[str, Any], *, require_clean: bool = True
+    root: Path,
+    checkout: Path,
+    record: dict[str, Any],
+    *,
+    require_clean: bool = True,
+    candidate_refs: str | None = None,
 ) -> list[str]:
     """Fail closed on stale pins, altered harnesses, malformed data, and replayed CI IDs."""
-    schema = json.loads((root / _SCHEMA).read_text())
+    if not isinstance(record, dict):
+        return ["qualification schema: record must be an object"]
+    if record.get("schema_version") == 2 and not candidate_refs:
+        return ["candidate qualification requires the same explicit snapshot"]
+    if record.get("schema_version") == 1 and candidate_refs:
+        return ["committed-pin qualification cannot verify a candidate snapshot"]
+    schema = _record_schema(root, candidate=bool(candidate_refs))
     errors = list(jsonschema.Draft202012Validator(schema).iter_errors(record))
     if errors:
         return [
@@ -208,7 +263,16 @@ def check_record(
     ):
         problems.append("qualification requires clean core source")
     try:
-        provider = _provider(root, checkout, record["provider"]["transport"])
+        if candidate_refs and record["candidate_snapshot_sha256"] != _candidate_digest(
+            root, candidate_refs
+        ):
+            problems.append("candidate snapshot digest differs")
+        provider = provider_provenance(
+            root,
+            checkout,
+            record["provider"]["transport"],
+            candidate_refs=candidate_refs,
+        )
         if provider != record["provider"]:
             problems.append("provider or SDK provenance differs")
         seen = set()
@@ -264,6 +328,9 @@ def main() -> None:
         "--allow-dirty", action="store_true", help="local experiments only"
     )
     parser.add_argument("--expect-records", type=int)
+    parser.add_argument(
+        "--candidate-refs", help="Complete candidate snapshot; not committed-pin proof"
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     # pytest publishes a "current" symlink alongside each numbered directory.
@@ -286,7 +353,11 @@ def main() -> None:
     for path in paths:
         record = json.loads(Path(path).read_text())
         problems = check_record(
-            root, args.provider, record, require_clean=not args.allow_dirty
+            root,
+            args.provider,
+            record,
+            require_clean=not args.allow_dirty,
+            candidate_refs=args.candidate_refs,
         )
         if problems:
             raise SystemExit(f"{path}: " + "; ".join(problems))

@@ -29,8 +29,6 @@ Exported names
 * :class:`~medre.core.rendering.text.TextRenderer` - concrete
   renderer for plain-text targets.
 * :func:`~medre.core.rendering.text_helpers.extract_event_text` -
-  extract event text using the opt-in shared composition policy.
-* :func:`~medre.core.rendering.text_helpers.extract_relation_text` -
   extract raw text with relation prefixes.
 * :func:`~medre.core.rendering.text_helpers.truncate_text` -
   cap text at a character limit.
@@ -64,8 +62,8 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text import TextRenderer
 from medre.core.rendering.text_helpers import (
-    extract_relation_text,
     extract_event_text,
+    extract_relation_text,
     truncate_text,
     truncate_text_bytes,
 )
@@ -83,8 +81,8 @@ __all__ = [
     "RenderingResult",
     "TextRenderer",
     "build_relay_attribution",
-    "extract_relation_text",
     "extract_event_text",
+    "extract_relation_text",
     "format_relay_prefix",
     "truncate_text",
     "truncate_text_bytes",
