@@ -199,7 +199,9 @@ def test_unsupported_prefix_placeholder_fails_before_delivery(template: str) -> 
         validate_relay_prefix(template)
 
 
-@pytest.mark.parametrize("template", ["{{sender}}", "{literal", "literal}", "{sender}{"])
+@pytest.mark.parametrize(
+    "template", ["{{sender}}", "{literal", "literal}", "{sender}{"]
+)
 def test_prefix_validation_preserves_literal_unmatched_braces(template: str) -> None:
     validate_relay_prefix(template)
 
