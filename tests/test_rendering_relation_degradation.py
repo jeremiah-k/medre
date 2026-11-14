@@ -5,7 +5,7 @@ relation capability tests for renderers.
 Covers:
 - All relation types (reply, reaction, edit, delete, thread) degrade
   deterministically under fallback_text across all renderers.
-- Multi-relation events process only the first relation deterministically.
+- Multi-relation events preserve every relation deterministically.
 - Thread relation: native platforms get direct handling; degraded platforms
   get text-only thread representation.
 """
@@ -292,7 +292,7 @@ class TestRelationFallbackDegradation:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        assert "[deleted" in text
+        assert "[delete of:" in text
 
     async def test_text_renderer_edit_fallback_format(self) -> None:
         """TextRenderer edit fallback includes '[edited]' prefix."""
@@ -316,7 +316,7 @@ class TestRelationFallbackDegradation:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        assert text.startswith("[edited]")
+        assert text.startswith("[edit of:")
 
     async def test_text_renderer_reaction_fallback_format(self) -> None:
         """TextRenderer reaction fallback includes 'reacted with' text."""
@@ -340,11 +340,11 @@ class TestRelationFallbackDegradation:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        assert "reacted with" in text
+        assert "reacted" in text
         assert "👍" in text
 
     async def test_text_renderer_thread_fallback_format(self) -> None:
-        """TextRenderer thread fallback includes '[thread:]' prefix."""
+        """TextRenderer thread fallback includes '[thread on:]' prefix."""
         from medre.core.rendering.text import TextRenderer
 
         renderer = TextRenderer()
@@ -365,7 +365,7 @@ class TestRelationFallbackDegradation:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        assert "[thread:" in text
+        assert "[thread on:" in text
 
 
 # ===================================================================
@@ -374,11 +374,10 @@ class TestRelationFallbackDegradation:
 
 
 class TestMultiRelationDeterminism:
-    """When an event carries multiple relations, only the first is processed
-    and the result is deterministic."""
+    """Describe every relation deterministically and preserve authored text once."""
 
-    async def test_text_renderer_uses_first_relation_only(self) -> None:
-        """TextRenderer processes only the first relation when multiple exist."""
+    async def test_text_renderer_describes_all_relations(self) -> None:
+        """TextRenderer describes every relation while preserving the body once."""
         from medre.core.rendering.text import TextRenderer
 
         renderer = TextRenderer()
@@ -403,13 +402,12 @@ class TestMultiRelationDeterminism:
         ctx = make_context(target_adapter="text-target")
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        # First relation is reply, so text should contain reply formatting
-        assert "replying to" in text or "first target" in text
-        # Second relation (reaction) should NOT appear
-        assert "❤️" not in text and "reacted with" not in text
+        assert "[replying to: first target]" in text
+        assert "reacted ❤️ to an earlier message" in text
+        assert text.count("hello") == 1
 
-    async def test_meshcore_uses_first_relation_only(self) -> None:
-        """MeshCore processes only the first relation."""
+    async def test_meshcore_describes_all_relations(self) -> None:
+        """MeshCore preserves both relation descriptions and the body."""
         renderer = make_meshcore_renderer()
         rel1 = EventRelation(
             relation_type="edit",
@@ -436,10 +434,9 @@ class TestMultiRelationDeterminism:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        # First relation is edit → degrade_relations_inline appends [edit of: ...]
-        assert "edit" in text.lower()
-        # Second relation (delete) must NOT be processed
-        assert "deleted" not in text.lower()
+        assert "[edit of: evt-edit…]" in text
+        assert "[delete of: evt-del-…]" in text
+        assert text.count("multi-rel") == 1
 
     async def test_multi_relation_deterministic_across_calls(self) -> None:
         """Same multi-relation event produces identical output every time."""
@@ -636,7 +633,7 @@ class TestThreadRelationCapability:
         )
         result = await renderer.render(event, ctx)
         text = str(result.payload["text"])
-        assert "[thread:" in text
+        assert "[thread on:" in text
         assert "thread body" in text
 
     async def test_meshcore_thread_text_truncated_by_byte_budget(self) -> None:

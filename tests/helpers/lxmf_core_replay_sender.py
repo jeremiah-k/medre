@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from tests.helpers.async_utils import wait_until
-from scripts.ci.native_qualification import observation_summary
+from scripts.ci.native_qualification import observation_summary, qualification_rows
 
 import msgspec
 
@@ -295,11 +295,9 @@ async def _replay_core(base: Path, target: str, propagation: str) -> dict[str, A
         assert received.get("destination_hash") == target
         assert received.get("message_hash") == receipt.adapter_message_id
         assert received.get("body") == body
-        manifest = json.loads(
-            (
-                Path(__file__).resolve().parents[2]
-                / ".github/adapter-compatibility.json"
-            ).read_text(encoding="utf-8")
+        manifest = qualification_rows(
+            Path(__file__).resolve().parents[2],
+            candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS"),
         )
         providers = [row for row in manifest if row["transport"] == "lxmf"]
         assert len(providers) == 1, "one manifest-authorized LXMF provider is required"

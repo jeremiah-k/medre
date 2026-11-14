@@ -8,6 +8,12 @@ on:
       - main
       - "**-review"
   workflow_dispatch:
+    # checkov:skip=CKV_GHA_7:adapter_refs is a complete SHA-only qualification snapshot, validated by adapter_matrix.py and passed through an environment variable.
+    inputs:
+      adapter_refs:
+        description: Optional JSON mapping of every adapter transport to a candidate commit SHA
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -18,7 +24,7 @@ env:
 
 jobs:
   merge-readiness:
-    name: Merge readiness
+    name: ${{ inputs.adapter_refs && 'Candidate qualification (not merge readiness)' || 'Merge readiness' }}
     if: always()
     needs:
       [
@@ -102,7 +108,9 @@ jobs:
           python-version: "3.13"
       - name: Snapshot adapter compatibility revisions
         id: plan
-        run: uv run --no-project --python 3.13 python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
+        env:
+          CANDIDATE_ADAPTER_REFS: ${{ inputs.adapter_refs }}
+        run: uv run --no-project --python 3.13 python scripts/ci/adapter_matrix.py --resolve --candidate-refs "$CANDIDATE_ADAPTER_REFS" --github-output "$GITHUB_OUTPUT"
 
   core:
     name: Core without adapters (${{ matrix.os }}, py${{ matrix.python-version }}, ${{ matrix.shard }}/${{ matrix.shards }})
@@ -300,6 +308,8 @@ jobs:
         run: ../.venv/bin/python -m pytest -v -m "local_integration and not soak"
       - name: Qualify core-authorized MeshCore replay
         if: matrix.transport == 'meshcore'
+        env:
+          MEDRE_CI_CANDIDATE_REFS: ${{ inputs.adapter_refs }}
         run: |
           mkdir -p ci-artifacts/meshcore-native
           set -o pipefail
@@ -310,6 +320,8 @@ jobs:
             2>&1 | tee ci-artifacts/meshcore-native/pytest-output.txt
       - name: Enforce MeshCore execution and proof provenance
         if: always() && matrix.transport == 'meshcore'
+        env:
+          MEDRE_CI_CANDIDATE_REFS: ${{ inputs.adapter_refs }}
         run: |
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
             --junit ci-artifacts/meshcore-native/junit.xml --expect-tests 15 \
@@ -317,12 +329,12 @@ jobs:
             --require-artifact 'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc1/qualification.json'
           uv run --no-sync python scripts/ci/native_qualification.py \
             'ci-artifacts/meshcore-native/pytest-tmp/test_core_replay_companion_acc[01]/qualification.json' \
-            --expect-records 2
+            --expect-records 2 --candidate-refs "$MEDRE_CI_CANDIDATE_REFS"
       - name: Upload verified MeshCore proof
         if: success() && matrix.transport == 'meshcore'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: meshcore-native-proof-${{ github.sha }}
+          name: meshcore-native-${{ inputs.adapter_refs && 'candidate' || 'proof' }}-${{ github.sha }}
           path: ci-artifacts/meshcore-native/pytest-tmp/**/qualification.json
           if-no-files-found: error
           retention-days: 90
@@ -371,6 +383,9 @@ jobs:
           uv sync --locked --extra dev
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapter --python .venv/bin/python
       - name: Run the core-owned LXMF exact-target propagation suite
+        env:
+          MEDRE_CI_CANDIDATE_REFS: ${{ inputs.adapter_refs }}
+          MEDRE_LXMF_PROVIDER_ROOT: .adapter
         run: |
           mkdir -p ci-artifacts/core-owned-lxmf-integration
           uv run --no-sync python -m pytest tests/integration/test_lxmf_exact_target_propagation.py \
@@ -394,7 +409,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: core-owned-lxmf-integration-${{ github.sha }}
+          name: core-owned-lxmf-integration-${{ inputs.adapter_refs && 'candidate-' || '' }}${{ github.sha }}
           path: |
             ci-artifacts/core-owned-lxmf-integration/junit.xml
             ci-artifacts/core-owned-lxmf-integration/pytest-output.txt

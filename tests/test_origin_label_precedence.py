@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
@@ -520,23 +521,15 @@ async def test_meshcore_exception_does_not_prepend_raw_template() -> None:
         "medre.core.rendering.attribution._build_variable_map",
         side_effect=RuntimeError("boom"),
     ):
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="mc-1",
-                delivery_strategy="direct",
-                target_platform="meshcore",
-            ),
-        )
-    # Body should be unchanged — raw template NOT prepended.
-    assert result.payload["text"] == "hello"
-    # Metadata still records the error and rendered prefix.
-    assert result.metadata.get("relay_prefix_formatting_error") is not None
-    assert "formatting_exception" in str(
-        result.metadata["relay_prefix_formatting_error"]
-    )
-    # Normalized prefix metadata is still recorded.
-    assert result.metadata.get("relay_prefix_rendered") == "[{sender}] "
+        with pytest.raises(ValueError, match="formatting_exception"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="mc-1",
+                    delivery_strategy="direct",
+                    target_platform="meshcore",
+                ),
+            )
 
 
 async def test_lxmf_exception_does_not_prepend_raw_template() -> None:
@@ -559,23 +552,15 @@ async def test_lxmf_exception_does_not_prepend_raw_template() -> None:
         "medre.core.rendering.attribution._build_variable_map",
         side_effect=RuntimeError("boom"),
     ):
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="direct",
-                target_platform="lxmf",
-            ),
-        )
-    # Content should be unchanged — raw template NOT prepended.
-    assert result.payload["content"] == "hello"
-    # Metadata still records the error and rendered prefix.
-    assert result.metadata.get("relay_prefix_formatting_error") is not None
-    assert "formatting_exception" in str(
-        result.metadata["relay_prefix_formatting_error"]
-    )
-    # Normalized prefix metadata is still recorded.
-    assert result.metadata.get("relay_prefix_rendered") == "[{sender}] "
+        with pytest.raises(ValueError, match="formatting_exception"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="lxmf_node",
+                    delivery_strategy="direct",
+                    target_platform="lxmf",
+                ),
+            )
 
 
 # ===================================================================
@@ -591,17 +576,15 @@ async def test_meshnet_name_unknown_in_meshtastic_prefix() -> None:
     )
     renderer = MeshtasticRenderer(configs={"mesh-1": config})
     event = _make_event(source_adapter="src-a")
-    result = await renderer.render(
-        event,
-        RenderingContext(
-            target_adapter="mesh-1",
-            delivery_strategy="direct",
-            target_platform="meshtastic",
-        ),
-    )
-    # {meshnet_name} is not resolved — left unchanged
-    assert result.payload["text"] == "[{meshnet_name}] hello"
-    assert result.metadata.get("relay_prefix_formatting_error") is not None
+    with pytest.raises(ValueError, match="unknown placeholder"):
+        await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="mesh-1",
+                delivery_strategy="direct",
+                target_platform="meshtastic",
+            ),
+        )
 
 
 # ===================================================================

@@ -73,7 +73,22 @@ uv run --no-sync python scripts/ci/native_qualification.py \
 For local uncommitted development, `--allow-dirty` verifies integrity while
 retaining the dirty flag. Such records cannot be promoted to clean CI evidence.
 The provider source remains required to match its clean manifest revision.
-LXMF uses the existing workflow and test, with `MEDRE_LXMF_PROVIDER_ROOT` available
+For an explicit coordinated candidate run, the same complete candidate SHA
+mapping must be supplied to both record creation and verification. CI-only
+version 2 records extend the frozen version 1 format with a required
+`candidate_snapshot_sha256`: the SHA-256 of canonical JSON for the complete
+validated selected manifest, sorted by transport. The record digest covers this
+field. Verification rejects a different snapshot even when the observed
+provider is unchanged, and rejects candidate records when no mapping is supplied.
+Version 1 remains the committed-pin format and rejects candidate verification.
+Candidate records qualify only the named selection; they do not promote pins
+or satisfy the committed release gate. The CI-only extension is validated by
+`scripts/ci/native_qualification.py`, not added to the frozen runtime schema set.
+The required LXMF propagation suite verifies the selected editable provider and
+installed SDKs before either scenario when CI supplies the checkout root. It
+does not emit a core-replay record: its claims are limited to provider handoff
+and independent recipient observation. The opt-in LXMF core replay uses the
+existing workflow and test, with `MEDRE_LXMF_PROVIDER_ROOT` available
 for an explicit local provider checkout. It also needs the Matrix monitor
 distribution; the opt-in workflow installs both manifest-selected providers.
 

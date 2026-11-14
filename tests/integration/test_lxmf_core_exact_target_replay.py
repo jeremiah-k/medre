@@ -20,7 +20,7 @@ import pytest
 
 from tests.helpers.lxmf_scenario import run_owned_scenario
 from tests.integration.test_lxmf_exact_target_propagation import _RECEIVER_SOURCE
-from scripts.ci.native_qualification import build_record, sha256
+from scripts.ci.native_qualification import build_record, qualification_rows, sha256
 
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF
@@ -73,11 +73,8 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
     evidence = json.loads(matching[0])
     assert evidence["scenario"] == "lxmf_core_authorized_exact_target_replay"
     assert evidence["tier"] == "local_integration"
-    manifest = json.loads(
-        (
-            Path(__file__).resolve().parents[2] / ".github/adapter-compatibility.json"
-        ).read_text(encoding="utf-8")
-    )
+    candidate_refs = os.environ.get("MEDRE_CI_CANDIDATE_REFS")
+    manifest = qualification_rows(project_root, candidate_refs=candidate_refs)
     pinned = [row for row in manifest if row["transport"] == "lxmf"]
     assert len(pinned) == 1
     assert evidence["provider_repository"] == pinned[0]["repository"]
@@ -114,6 +111,7 @@ async def test_core_replay_binds_one_lxmf_target_to_independent_recipient(
         project_root,
         Path(os.environ.get("MEDRE_LXMF_PROVIDER_ROOT", project_root / ".adapter")),
         transport="lxmf",
+        candidate_refs=candidate_refs,
         observation=evidence["observation"],
         binding=(evidence["binding"], "exact"),
         observer_kind="recipient_callback",

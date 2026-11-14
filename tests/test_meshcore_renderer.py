@@ -743,7 +743,7 @@ class TestMeshCoreRendererPrefixFormatting:
 
 
 # ===================================================================
-# Reaction emoji fallback resolution in _degrade_relations_inline
+# Reaction emoji fallback resolution in _compose_relation_text
 # ===================================================================
 
 
@@ -798,7 +798,7 @@ class TestMeshCoreRendererReactionEmojiFallback:
                 delivery_strategy="fallback_text",
             ),
         )
-        assert "[reaction 👍 to:" in result.payload["text"]
+        assert "reacted 👍 to" in result.payload["text"]
 
     async def test_reaction_emoji_from_payload_key(self) -> None:
         """When rel.key is None, payload['key'] is used."""
@@ -807,14 +807,14 @@ class TestMeshCoreRendererReactionEmojiFallback:
             rel_key=None,
             payload={"body": "reacted", "key": "💛"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert "[reaction 💛 to:" in result.payload["text"]
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="meshcore_node",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
     async def test_reaction_emoji_from_payload_emoji(self) -> None:
         """When rel.key and payload['key'] are absent, payload['emoji'] is used."""
@@ -823,14 +823,14 @@ class TestMeshCoreRendererReactionEmojiFallback:
             rel_key=None,
             payload={"body": "reacted", "emoji": "❤️"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert "[reaction ❤️ to:" in result.payload["text"]
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="meshcore_node",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
     async def test_reaction_emoji_hardcoded_fallback(self) -> None:
         """When nothing provides an emoji, hardcoded '∟' is used."""
@@ -839,14 +839,14 @@ class TestMeshCoreRendererReactionEmojiFallback:
             rel_key=None,
             payload={"body": "reacted"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert "[reaction ∟ to:" in result.payload["text"]
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="meshcore_node",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
     async def test_reaction_emoji_empty_rel_key_falls_through(self) -> None:
         """Empty string rel.key is falsy and falls through to payload."""
@@ -855,14 +855,14 @@ class TestMeshCoreRendererReactionEmojiFallback:
             rel_key="",
             payload={"body": "reacted", "key": "🔥"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="meshcore_node",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert "[reaction 🔥 to:" in result.payload["text"]
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="meshcore_node",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
 
 # ===================================================================
@@ -880,7 +880,7 @@ class TestMeshCoreTargetSelectionRules:
     - MeshCoreRenderer has **no** native relation support.  No reply_id,
       emoji, or any transport-specific relation field is ever emitted.
     - All relations are degraded to inline text via
-      ``degrade_relations_inline`` (iterates all relations, not just
+      ``compose_relation_text`` (iterates all relations, not just
       ``relations[0]``).
     - Both ``direct`` and ``fallback_text`` strategies produce the same
       relation-free payload for MeshCore (no native rendering path).
@@ -892,7 +892,7 @@ class TestMeshCoreTargetSelectionRules:
     async def test_all_relations_degraded_inline(self) -> None:
         """All relations appear in degraded inline text, not just relations[0].
 
-        MeshCore's ``degrade_relations_inline`` iterates every relation,
+        MeshCore's ``compose_relation_text`` iterates every relation,
         unlike Matrix/Meshtastic which only inspect ``relations[0]``.
         """
         renderer = _make_renderer()
@@ -933,8 +933,8 @@ class TestMeshCoreTargetSelectionRules:
         )
         text = result.payload["text"]
         # Both relations must appear in degraded inline text
-        assert "[reply to:" in text
-        assert "[reaction 👍 to:" in text
+        assert "[replying to:" in text
+        assert "reacted 👍 to" in text
 
     async def test_no_native_target_fields_ever_emitted(self) -> None:
         """MeshCore payload never contains native relation fields.
@@ -1183,24 +1183,21 @@ class TestMeshCoreRendererRelayPrefix:
         assert result.metadata["relay_prefix_rendered"] == "[matrix] "
         assert result.metadata["relay_prefix_formatting_error"] is None
 
-    async def test_metadata_records_formatting_error_for_unknown_placeholder(
+    async def test_render_rejects_unknown_placeholder_in_unvalidated_config(
         self,
     ) -> None:
-        """Unknown placeholder produces formatting_error in metadata."""
+        """Direct rendering refuses an unsupported configured placeholder."""
         cfg = _make_config(
             "mc-relay",
             relay_prefix="[{bogus_var}] ",
         )
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(source_adapter="matrix-bridge")
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
-        )
-        assert result.metadata["relay_prefix_formatting_error"] is not None
-        assert "unknown placeholder" in str(
-            result.metadata["relay_prefix_formatting_error"]
-        )
+        with pytest.raises(ValueError, match="unknown placeholder"):
+            await renderer.render(
+                event,
+                RenderingContext(target_adapter="mc-relay", delivery_strategy="direct"),
+            )
 
     async def test_default_empty_prefix_no_metadata_keys(self) -> None:
         """Default empty prefix: no prefix metadata keys in output."""

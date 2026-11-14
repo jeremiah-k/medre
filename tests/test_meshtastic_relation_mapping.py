@@ -962,8 +962,10 @@ class TestMatrixReplyMissingMappingNoCrash:
             assert len(radio_adapter.delivered_payloads) == 1
             payload = radio_adapter.delivered_payloads[0].payload
             assert "reply_id" not in payload
-            # Text should be just the reply body, no "[replying to: ...]" prefix.
-            assert str(payload["text"]) == "My reply"
+            # Unbound targets retain readable context before the authored reply.
+            assert (
+                str(payload["text"]) == "[replying to: $unknown-matrix-event] My reply"
+            )
         finally:
             await runner.stop()
 

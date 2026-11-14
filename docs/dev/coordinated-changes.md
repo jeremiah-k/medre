@@ -35,8 +35,9 @@ gh workflow run test.yml --repo OWNER/ADAPTER --ref ADAPTER_BRANCH \
   -f core_ref=FULL_CORE_COMMIT_SHA
 ```
 
-Record both SHAs with the result. Adapter push and PR workflows still need to
-pass against core `main`. A candidate dispatch qualifies only its recorded pair;
+Resolve the selected core ref once per adapter workflow run and use that full
+SHA in every job. Record both SHAs with the result. Adapter push and PR workflows
+still need to pass against core `main`. A candidate dispatch qualifies only its recorded pair;
 it is not evidence that an adapter can merge before its dependency.
 
 For local experiments, copy `.github/adapter-compatibility.json` to a file under
@@ -76,6 +77,14 @@ snapshot after syncing core, and do not sync an environment while tests run in i
 When a change cannot pass against an already-merged dependency, split it rather
 than approving red baseline checks. Do not solve the cycle with a moving branch
 pin, a persistent CI variable, skipped assertions, or a promise to fix main later.
+
+A complete `adapter_refs` SHA mapping may be supplied on a one-off core
+workflow dispatch. Candidate runs use the selected revisions in native proof
+records, not the committed pins; verification requires the same explicit
+candidate mapping. The normal verifier always rejects candidate records, even
+when all selected revisions equal the committed pins. Repeat qualification on
+the landed source pair to produce committed-pin evidence. Candidate dispatches publish distinct readiness
+and Docker check names and cannot substitute for ordinary required checks.
 
 `Merge readiness` aggregates every core, adapter, and local-integration result,
 including the ancestry gate. It fails when a required tier fails, is cancelled,

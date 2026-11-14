@@ -4,6 +4,7 @@ title, fields envelope, relay prefix, target-aware configs, and edge cases.
 """
 
 from __future__ import annotations
+import pytest
 
 from datetime import datetime, timezone
 
@@ -13,6 +14,7 @@ from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.metadata import EventMetadata as _EM
 from medre.core.events.metadata import NativeMetadata
+from medre.core.rendering.relations import compose_relation_text
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.builder import SourceAttributionConfig
 from tests.helpers.native_metadata import lxmf_native_data as _lxmf_native
@@ -309,7 +311,7 @@ class TestLxmfRenderer:
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["relations"] == []
         content = result.payload["content"]
-        assert "[reply to:" in content
+        assert "[replying to:" in content
 
     async def test_direct_strategy_keeps_relations_in_envelope(self) -> None:
         """Under direct strategy, envelope retains structured relations."""
@@ -373,48 +375,43 @@ def _make_reaction_event(
 
 
 class TestDegradeRelationsInline:
-    """Tests for _degrade_relations_inline reaction emoji fallback resolution."""
+    """Shared degradation requires the explicit canonical reaction key."""
 
     def test_no_relations_returns_text_unchanged(self) -> None:
         """Early-return path: event with no relations returns text as-is."""
-        renderer = LxmfRenderer()
         event = _make_event()
-        result = renderer._degrade_relations_inline(event, "original text")
+        result = compose_relation_text(event, "original text")
         assert result == "original text"
 
     def test_reaction_emoji_from_rel_key(self) -> None:
         """rel.key takes highest priority for emoji resolution."""
-        renderer = LxmfRenderer()
         event = _make_reaction_event(
             rel_key="👍", payload={"body": "hi", "key": "❤️", "emoji": "🎉"}
         )
-        result = renderer._degrade_relations_inline(event, "msg")
-        assert "[reaction 👍 to:" in result
+        result = compose_relation_text(event, "msg")
+        assert "reacted 👍 to" in result
 
-    def test_reaction_emoji_from_payload_key(self) -> None:
-        """When rel.key is None, payload['key'] is used."""
-        renderer = LxmfRenderer()
+    def test_payload_key_cannot_replace_relation_key(self) -> None:
+        """A payload key does not replace an absent relation key."""
         event = _make_reaction_event(
             rel_key=None, payload={"body": "hi", "key": "❤️", "emoji": "🎉"}
         )
-        result = renderer._degrade_relations_inline(event, "msg")
-        assert "[reaction ❤️ to:" in result
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            compose_relation_text(event, "msg")
 
-    def test_reaction_emoji_from_payload_emoji(self) -> None:
-        """When rel.key and payload['key'] are absent, payload['emoji'] is used."""
-        renderer = LxmfRenderer()
+    def test_payload_emoji_cannot_replace_relation_key(self) -> None:
+        """A payload emoji does not replace an absent relation key."""
         event = _make_reaction_event(
             rel_key=None, payload={"body": "hi", "emoji": "🎉"}
         )
-        result = renderer._degrade_relations_inline(event, "msg")
-        assert "[reaction 🎉 to:" in result
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            compose_relation_text(event, "msg")
 
-    def test_reaction_emoji_hardcoded_fallback(self) -> None:
-        """When nothing else is available, hardcoded '∟' fallback is used."""
-        renderer = LxmfRenderer()
+    def test_missing_reaction_key_rejected(self) -> None:
+        """Do not fabricate a reaction key."""
         event = _make_reaction_event(rel_key=None, payload={"body": "hi"})
-        result = renderer._degrade_relations_inline(event, "msg")
-        assert "[reaction ∟ to:" in result
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            compose_relation_text(event, "msg")
 
 
 class TestLxmfTargetSelectionRules:
@@ -428,7 +425,7 @@ class TestLxmfTargetSelectionRules:
       specific relation fields (reply_id, emoji, m.relates_to) are ever
       emitted in the payload.
     - All relations are degraded to inline text via
-      ``degrade_relations_inline`` which iterates **all** relations, not
+      ``compose_relation_text`` which iterates **all** relations, not
       just ``relations[0]``.
     - In ``direct`` strategy, relations are kept as structured data in the
       MEDRE fields envelope; in ``fallback_text`` strategy, relations are
@@ -441,7 +438,7 @@ class TestLxmfTargetSelectionRules:
     async def test_all_relations_degraded_inline_under_fallback(self) -> None:
         """All relations appear in degraded inline text under fallback_text.
 
-        LXMF's ``degrade_relations_inline`` iterates every relation,
+        LXMF's ``compose_relation_text`` iterates every relation,
         unlike Matrix/Meshtastic which only inspect ``relations[0]``.
         """
         renderer = LxmfRenderer(metadata_embedding=False)
@@ -480,8 +477,8 @@ class TestLxmfTargetSelectionRules:
             ),
         )
         content = result.payload["content"]
-        assert "[reply to:" in content
-        assert "[reaction 👍 to:" in content
+        assert "[replying to:" in content
+        assert "reacted 👍 to" in content
 
     async def test_no_native_target_fields_ever_emitted(self) -> None:
         """LXMF payload never contains native relation fields.
@@ -759,8 +756,8 @@ class TestLxmfRelayPrefix:
             ),
         )
         content = result.payload["content"]
-        assert content.startswith("[Bob] my reply")
-        assert "[reply to:" in content
+        assert content.startswith("[Bob] [replying to: original text] my reply")
+        assert "[replying to:" in content
         envelope = result.payload["fields"][FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["relations"] == []
 
@@ -814,13 +811,13 @@ class TestLxmfRelayPrefix:
             native_data=_matrix_native({"sender_display_name": "Test"}),
             payload={"body": "hello"},
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
-        )
-        assert "relay_prefix_formatting_error" in result.metadata
-        assert "bogus_var" in str(result.metadata["relay_prefix_formatting_error"])
-        assert "{bogus_var}" in result.metadata["relay_prefix_rendered"]
+        with pytest.raises(ValueError, match="unknown placeholder"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="lxmf_node", delivery_strategy="direct"
+                ),
+            )
 
     async def test_prefix_does_not_duplicate_envelope(self) -> None:
         """Prefix is human-readable only; metadata envelope is separate."""

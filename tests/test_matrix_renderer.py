@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from msgspec.structs import replace
+
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import (
     CanonicalEvent,
@@ -163,7 +165,7 @@ class TestMatrixRenderer:
         assert "> <" not in _payload_content(result)["body"]
 
     async def test_render_with_reaction_relation(self) -> None:
-        """Reaction relations render as described m.emote messages."""
+        """Reaction events render as described m.emote messages."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reaction",
@@ -176,9 +178,9 @@ class TestMatrixRenderer:
             key="👍",
             fallback_text=None,
         )
-        event = _make_event(
-            payload={"body": "👍"},
-            relations=(relation,),
+        event = replace(
+            _make_event(payload={"body": "👍"}, relations=(relation,)),
+            event_kind="message.reacted",
         )
         result = await renderer.render(
             event,
@@ -267,7 +269,10 @@ class TestMatrixRendererForeignRefs:
             key="👍",
             fallback_text=None,
         )
-        event = _make_event(payload={"body": "👍"}, relations=(rel,))
+        event = replace(
+            _make_event(payload={"body": "👍"}, relations=(rel,)),
+            event_kind="message.reacted",
+        )
         result = await renderer.render(
             event,
             RenderingContext(
