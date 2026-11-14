@@ -51,8 +51,6 @@ _LEADING_SCALAR_RE = re.compile(
 
 _BARE_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
-_CAPABILITY_ROW_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*(.+?)\s*\|\s*$")
-
 
 def _transport_profiles() -> dict[str, Path]:
     """Discover both sides so orphan Markdown profiles cannot escape checks."""
@@ -95,16 +93,35 @@ def _same_value(md: Any, json_value: Any) -> bool:
     return md == json_value
 
 
+def _table_cells(line: str) -> list[str]:
+    """Split unescaped Markdown pipes and remove optional outer delimiters."""
+    text = line.strip()
+    cells: list[str] = []
+    start = 0
+    escaped = False
+    for index, char in enumerate(text):
+        if char == "|" and not escaped:
+            cells.append(text[start:index])
+            start = index + 1
+        escaped = char == "\\" and not escaped
+    cells.append(text[start:])
+    if cells and not cells[0]:
+        cells.pop(0)
+    if cells and not cells[-1]:
+        cells.pop()
+    return [cell.strip() for cell in cells]
+
+
 def _capability_table_rows(md_text: str) -> dict[str, list[str]]:
     """Return all values, including duplicates, from both Markdown table forms."""
     rows: dict[str, list[str]] = {}
     lines = md_text.splitlines()
     for index, line in enumerate(lines):
-        header = [c.strip().lower() for c in line.strip().strip("|").split("|")]
+        header = [cell.lower() for cell in _table_cells(line)]
         if header != ["capability", "value"]:
             continue
         for row in lines[index + 1 :]:
-            cells = [c.strip() for c in row.strip().strip("|").split("|")]
+            cells = _table_cells(row)
             if len(cells) != 2 or not all(cells):
                 break
             if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
@@ -222,3 +239,28 @@ def test_missing_capability_table_is_not_silently_skipped(monkeypatch, tmp_path)
     (tmp_path / "example.md").write_text("# prose only\n")
     monkeypatch.setattr(sys.modules[__name__], "_PROFILES", tmp_path)
     assert "missing or empty" in _profile_binding_problems("example")[0]
+
+
+@pytest.mark.parametrize("outer_pipes", [False, True])
+def test_escaped_pipe_annotation_does_not_hide_later_conflicts(
+    monkeypatch, tmp_path, outer_pipes
+):
+    import sys
+
+    (tmp_path / "example-capabilities.json").write_text(
+        json.dumps({"transport": "example", "capabilities": {"text": True}})
+    )
+    rows = [
+        "Capability | Value",
+        "--- | ---",
+        "text | `True`",
+        r"text | `True` (preserves an escaped \| character)",
+        "text | `False` (conflicting later value)",
+    ]
+    (tmp_path / "example.md").write_text(
+        "\n".join(f"| {row} |" if outer_pipes else row for row in rows) + "\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_PROFILES", tmp_path)
+    problems = _profile_binding_problems("example")
+    assert len(problems) == 1
+    assert "False" in problems[0]
