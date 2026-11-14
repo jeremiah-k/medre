@@ -4,18 +4,21 @@ Provides :func:`extract_message_body`, :func:`extract_event_text` and
 :func:`truncate_text` as public utilities so adapters do not need to
 reach into the private methods of :class:`~medre.core.rendering.text.TextRenderer`.
 
+The legacy :func:`extract_relation_text` entry point preserves the contract still
+used by pinned MMRelay consumers. New renderers use :func:`extract_event_text`.
 These functions are pure and do not mutate the original event.
 """
 
 from __future__ import annotations
 
-from medre.core.events import CanonicalEvent, EventKind
+from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.events.text import select_message_body
 from medre.core.rendering.relations import compose_relation_text
 
 __all__ = [
     "extract_message_body",
     "extract_event_text",
+    "extract_relation_text",
     "truncate_text",
     "truncate_text_bytes",
 ]
@@ -37,6 +40,155 @@ def extract_message_body(event: CanonicalEvent) -> str:
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_target_display(rel: EventRelation) -> str:
+    """Resolve a human-readable display string for the relation target."""
+    if rel.fallback_text:
+        return rel.fallback_text
+    if rel.target_event_id:
+        eid = rel.target_event_id
+        return f"{eid[:8]}…" if len(eid) > 8 else eid
+    if rel.target_native_ref is not None and rel.target_native_ref.native_message_id:
+        return rel.target_native_ref.native_message_id
+    return "unknown message"
+
+
+def _resolve_actor(event: CanonicalEvent) -> str:
+    """Resolve the best available actor display name."""
+    return str(
+        event.payload.get("displayname")
+        or event.payload.get("user")
+        or event.source_adapter
+    )
+
+
+def _resolve_reaction_key(rel: EventRelation, event: CanonicalEvent) -> str | None:
+    """Resolve the reaction key (emoji or label).
+
+    Resolution order:
+
+    1. ``rel.key`` — canonical reaction key set by the codec.
+    2. ``payload["key"]`` — reaction key from the event payload.
+    3. ``payload["emoji"]`` — common convention for emoji payload.
+    4. ``payload["body"]`` — last-resort text body.
+
+    Whitespace is stripped from resolved values.  Returns ``None`` only
+    when no non-empty key-like value exists.
+    """
+    if rel.key is not None:
+        stripped = rel.key.strip()
+        if stripped:
+            return stripped
+    key = event.payload.get("key")
+    if key:
+        return str(key).strip()
+    emoji = event.payload.get("emoji")
+    if emoji:
+        return str(emoji).strip()
+    body = event.payload.get("body")
+    if body:
+        return str(body).strip()
+    return None
+
+
+def extract_relation_text(event: CanonicalEvent) -> str:
+    """Extract the raw (pre-truncation) text from *event*.
+
+    When the event carries relations the text is augmented with
+    fallback formatting before kind-based logic is applied.
+
+    Both ``payload["text"]`` and ``payload["body"]`` are checked —
+    adapters use either key depending on their native format.
+
+    **Relation handling** — When ``event.relations`` is non-empty
+    only the **first** relation is processed.  Each branch produces
+    deterministic, meaningful degraded text even when relation
+    metadata is partially or fully missing — the function never
+    emits empty or ambiguous fallback when relation payload data
+    exists.
+
+    Parameters
+    ----------
+    event:
+        The canonical event to extract text from.
+
+    Returns
+    -------
+    str
+        The extracted text, possibly including relation prefixes.
+    """
+    kind = event.event_kind
+
+    if event.relations:
+        rel = event.relations[0]
+
+        if rel.relation_type == "reply":
+            payload_text = extract_message_body(event)
+            target = _resolve_target_display(rel)
+            sender_display = (
+                rel.metadata.get("sender_displayname")
+                or rel.metadata.get("displayname")
+                or rel.metadata.get("original_sender_displayname")
+                or rel.metadata.get("original_sender")
+                or rel.metadata.get("sender")
+            )
+            prefix = f"[replying to: {target}"
+            if sender_display:
+                prefix += f" by {sender_display}"
+            prefix += "]"
+            if payload_text:
+                return f"{prefix} {payload_text}"
+            return prefix
+
+        if rel.relation_type == "reaction":
+            actor = _resolve_actor(event)
+            key = _resolve_reaction_key(rel, event)
+            if key:
+                return f"{actor} reacted with {key}"
+            return f"{actor} reacted"
+
+        if rel.relation_type == "edit":
+            payload_text = extract_message_body(event)
+            if payload_text:
+                return f"[edited] {payload_text}"
+            return "[edited]"
+
+        if rel.relation_type == "delete":
+            target = _resolve_target_display(rel)
+            if target != "unknown message":
+                return f"[deleted: {target}]"
+            return "[deleted]"
+
+        if rel.relation_type == "thread":
+            payload_text = extract_message_body(event)
+            target = _resolve_target_display(rel)
+            if payload_text:
+                return f"[thread: {target}] {payload_text}"
+            return f"[thread: {target}]"
+
+    # Kind-based rendering
+    if kind in (EventKind.MESSAGE_TEXT, EventKind.MESSAGE_CREATED):
+        return extract_message_body(event)
+
+    if kind == EventKind.MESSAGE_EDITED:
+        return "[edited] " + extract_message_body(event)
+
+    if kind == EventKind.MESSAGE_DELETED:
+        return "[deleted]"
+
+    if kind == EventKind.MESSAGE_REACTED:
+        return extract_message_body(event)
+
+    if kind == EventKind.PRESENCE_CHANGED:
+        user = str(event.payload.get("user", "unknown"))
+        status = str(event.payload.get("status", "unknown"))
+        return f"{user} is now {status}"
+
+    if kind == EventKind.PLUGIN_CUSTOM:
+        return extract_message_body(event)
+
+    return extract_message_body(event)
 
 
 def extract_event_text(event: CanonicalEvent) -> str:

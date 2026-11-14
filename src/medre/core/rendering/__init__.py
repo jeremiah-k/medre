@@ -63,6 +63,7 @@ from medre.core.rendering.renderer import (
 from medre.core.rendering.text import TextRenderer
 from medre.core.rendering.text_helpers import (
     extract_event_text,
+    extract_relation_text,
     truncate_text,
     truncate_text_bytes,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "TextRenderer",
     "build_relay_attribution",
     "extract_event_text",
+    "extract_relation_text",
     "format_relay_prefix",
     "truncate_text",
     "truncate_text_bytes",

@@ -4,8 +4,7 @@
 Verifies:
 - Meshtastic→Meshtastic uses source origin_label, not target's
 - Matrix→Meshtastic uses Matrix origin_label from source_attribution
-- ``{meshnet_name}`` renders as ``{meshnet_name}`` (unknown placeholder,
-  passed through unchanged)
+- Unsupported ``{meshnet_name}`` fields fail before a payload is emitted
 - ``{origin_label}`` resolves correctly from source_attribution registry
 """
 
@@ -13,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+import pytest
 
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -174,8 +175,8 @@ async def test_matrix_origin_label_in_meshtastic_prefix() -> None:
 # ===================================================================
 
 
-async def test_meshnet_name_unchanged_in_meshtastic_prefix() -> None:
-    """``{meshnet_name}`` in prefix template passes through as literal."""
+async def test_meshnet_name_rejected_in_meshtastic_prefix() -> None:
+    """``{meshnet_name}`` in prefix template is rejected before emitting a payload."""
     renderer = MeshtasticRenderer(
         configs={
             "mesh-1": MeshtasticConfig(
@@ -187,20 +188,15 @@ async def test_meshnet_name_unchanged_in_meshtastic_prefix() -> None:
     event = _make_meshtastic_event(
         native_data={"longname": "Node1", "shortname": "N1", "from_id": "1"},
     )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
-    )
-    text = result.payload["text"]
-    # {meshnet_name} is unknown → passes through as literal
-    assert "[{meshnet_name}] " in text
-    # Verify formatting_error indicates unknown
-    assert result.metadata["relay_prefix_formatting_error"] is not None
-    assert "meshnet_name" in result.metadata["relay_prefix_formatting_error"]
+    with pytest.raises(ValueError, match="unknown placeholder.*meshnet_name"):
+        await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+        )
 
 
-async def test_meshnet_name_in_reaction_compact_prefix() -> None:
-    """``{meshnet_name}`` in reaction compact prefix passes through as literal."""
+async def test_meshnet_name_rejected_in_relation_prefix() -> None:
+    """``{meshnet_name}`` in reaction compact prefix is rejected before emitting a payload."""
     renderer = MeshtasticRenderer(
         configs={
             "mesh-1": MeshtasticConfig(
@@ -221,11 +217,8 @@ async def test_meshnet_name_in_reaction_compact_prefix() -> None:
         display_name="Alice",
         relations=(relation,),
     )
-    result = await renderer.render(
-        event,
-        RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
-    )
-    text = result.payload["text"]
-    # {meshnet_name} stays as literal in the compact prefix
-    assert "{meshnet_name}" in text
-    assert "reacted" in text
+    with pytest.raises(ValueError, match="unknown placeholder.*meshnet_name"):
+        await renderer.render(
+            event,
+            RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+        )

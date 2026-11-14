@@ -18,3 +18,8 @@ SHAs remain explicit qualification inputs.
 Native Matrix mutations additionally require a matching event kind and relation;
 missing or mismatched mutation intent fails closed before a native operation is
 constructed, even for owned targets.
+
+The legacy `extract_relation_text` function and package export retain their existing
+behavior while MMRelay still imports them. Adapter migration does not authorize
+removing the downstream API. Compatibility pins now name the seven actual merged
+provider revisions; candidate qualification remains separate from release proof.

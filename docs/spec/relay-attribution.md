@@ -72,8 +72,11 @@ Sender-label selection MUST NOT change solely because a message is a reaction.
 Providers use `compose_relation_text` from `medre.core.rendering.relations`
 for supplied text and `extract_event_text` from
 `medre.core.rendering.text_helpers` for kind-based body selection. The latter
-is also exported by `medre.core.rendering`. The pre-release migration's
-superseded relation helpers are removed once all providers adopt these APIs.
+is also exported by `medre.core.rendering`. The legacy `extract_relation_text`
+entry point retains its existing behavior for pinned MMRelay consumers, including
+its package-level export. New renderers MUST use the shared policy APIs. Removing
+the legacy entry point requires migrating and qualifying all declared downstream
+consumers first; migration of the seven providers alone is insufficient.
 Presence events retain their kind-specific user/status description when
 relation context is added.
 
