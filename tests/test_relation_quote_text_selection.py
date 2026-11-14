@@ -10,7 +10,7 @@ import pytest
 from medre.core.events.canonical import CanonicalEvent, EventRelation
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
-from medre.core.rendering.relations import degrade_relations_inline
+from medre.core.rendering.relations import compose_relation_text
 from tests.helpers.content_reads import CannedContentReads, inspection_rows
 
 
@@ -87,8 +87,8 @@ async def test_reply_quote_uses_canonical_text_precedence(payload, expected):
     assert enriched.metadata.get("original_text") == expected
     assert reply.relations[0].fallback_text is None
     assert enriched.target_native_ref is None
-    rendered = degrade_relations_inline(result, "response")
-    assert f"[reply to: {expected or 'target'}]" in rendered
+    rendered = compose_relation_text(result, "response")
+    assert f"[replying to: {expected or 'target'}]" in rendered
     assert "stale alias" not in rendered
     assert msgspec.json.encode(target) == retained
 

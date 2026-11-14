@@ -9,7 +9,7 @@ Covered scenarios
 -----------------
 Test 1  Matrix → MeshCore reply fallback
         A Matrix reply event rendered with ``fallback_text`` strategy
-        produces inline ``[reply to: …]`` text via
+        produces inline ``[replying to: …]`` text via
         :class:`MeshCoreRenderer`.  No native relation fields (no
         ``reply_id``) appear in the MeshCore payload.
 
@@ -190,7 +190,7 @@ class TestMatrixToMeshCoreReplyFallback:
     ) -> None:
         """End-to-end: Matrix reply event flows through pipeline to
         MeshCore adapter.  MeshCore advertises reply fallback. This test verifies the renderer
-        fallback_text path directly: inline '[reply to: …]' text, no
+        fallback_text path directly: inline '[replying to: …]' text, no
         reply_id or relation-specific fields in the MeshCore payload."""
         _MX = "mx-w6-1"
         _MC = "mc-w6-1"
@@ -270,7 +270,7 @@ class TestMatrixToMeshCoreReplyFallback:
         # -- Assertions ------------------------------------------------
         # Text contains inline degraded reply reference.
         text = str(payload["text"])
-        assert "[reply to:" in text
+        assert "[replying to:" in text
         assert "Reply here" in text
 
         # MeshCore payload has standard fields only — no relation fields.
@@ -383,7 +383,7 @@ class TestMeshtasticToLxmfReactionFallback:
         # -- Assertions ------------------------------------------------
         # Content has inline degraded reaction text.
         content = str(payload["content"])
-        assert "[reaction" in content
+        assert "reacted" in content
         assert _EMOJI in content
 
         # Fields envelope is present (metadata_embedding=True).

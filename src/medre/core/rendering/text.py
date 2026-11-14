@@ -30,7 +30,7 @@ from medre.core.rendering.renderer import (
     RenderingResult,
 )
 from medre.core.rendering.text_helpers import (
-    extract_relation_text,
+    extract_event_text,
 )
 from medre.core.rendering.text_helpers import truncate_text as _shared_truncate_text
 from medre.core.rendering.text_helpers import truncate_text_bytes
@@ -53,11 +53,9 @@ class TextRenderer:
     ``plugin.custom`` events.
 
     **Relation degradation** — When a canonical event carries relations
-    (reply, reaction, edit, delete, thread) only the **first** relation
-    is processed.  Each relation type produces deterministic degraded
-    text that never emits empty or ambiguous output, even when relation
-    metadata is partially missing.  See :meth:`_extract_text` for the
-    exact fallback format per relation type.
+    (reply, reaction, edit, delete, thread), every unrepresented relation
+    contributes deterministic readable context before the authored body.
+    See :func:`medre.core.rendering.relations.compose_relation_text`.
     """
 
     name: str = "text"
@@ -120,23 +118,10 @@ class TextRenderer:
         * ``presence.changed`` — format as ``"{user} is now {status}"``.
         * ``plugin.custom`` — extract ``payload["text"]`` if available.
 
-        **Relation fallback rendering** — when the event carries relations,
-        only the **first** relation is processed:
-
-        * *reply* — ``"[replying to: {target}] {payload_text}"`` with
-          optional ``"by {sender}"`` enrichment when relation metadata
-          carries ``sender_displayname`` / ``displayname`` / ``sender``.
-          Target is resolved from ``fallback_text``, ``target_event_id``
-          (abbreviated), or ``target_native_ref``.
-        * *reaction* — ``"{actor} reacted with {key}"``.  Key is resolved
-          from ``rel.key``, ``payload["emoji"]``, or ``payload["body"]``.
-          When no key exists, produces ``"{actor} reacted"``.
-        * *edit* — ``"[edited] {payload_text}"``, or ``"[edited]"`` when
-          the edit carries no body.
-        * *delete* — ``"[deleted: {target}]"`` when target context is
-          available, or ``"[deleted]"`` when it is not.
-        * *thread* — ``"[thread: {target}] {payload_text}"``, degraded
-          similarly to reply.
+        **Relation fallback rendering** describes every unrepresented
+        relation through the shared inline policy. Authored message text
+        appears once; reaction events require an exact explicit key and
+        use only supplied target context for their preview.
 
         Text exceeding the character or UTF-8 byte limit is truncated on a
         character boundary and the ``truncated`` flag is set on the result.
@@ -201,9 +186,9 @@ class TextRenderer:
     def _extract_text(event: CanonicalEvent) -> str:
         """Extract the raw (pre-truncation) text from *event*.
 
-        Delegates to :func:`~medre.core.rendering.text_helpers.extract_relation_text`.
+        Delegates to :func:`~medre.core.rendering.text_helpers.extract_event_text`.
         """
-        return extract_relation_text(event)
+        return extract_event_text(event)
 
     @staticmethod
     def _truncate(

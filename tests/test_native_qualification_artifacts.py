@@ -62,7 +62,17 @@ def proof(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                     "repository": "owner/medre-adapter-meshcore",
                     "ref": revision,
                     "distribution": "medre-adapter-meshcore",
-                }
+                    "extras": "",
+                    "local_integration": True,
+                },
+                {
+                    "transport": "matrix",
+                    "repository": "owner/medre-adapter-matrix",
+                    "ref": "c" * 40,
+                    "distribution": "medre-adapter-matrix",
+                    "extras": "",
+                    "local_integration": False,
+                },
             ]
         )
     )
@@ -255,3 +265,120 @@ def test_cli_distinguishes_aliases_duplicates_and_missing_records(
             match="Duplicate" if layout == "duplicate" else "No qualification",
         ):
             qualification.main()
+
+
+def test_installed_sdk_mismatch_refuses_record(proof, monkeypatch):
+    root, provider, record = proof
+    real_version = importlib.metadata.version
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: "1.2.4" if name == "meshcore" else real_version(name),
+    )
+    assert "installed SDK differs from the provider requirement" in check_record(
+        root, provider, record
+    )
+
+
+def test_candidate_record_requires_explicit_matching_snapshot(
+    proof, monkeypatch, capsys
+):
+    root, provider, baseline = proof
+    (provider / "harness.py").write_text("# candidate harness\n")
+    candidate_sha = _commit(provider)
+    refs = json.dumps({"meshcore": candidate_sha, "matrix": "c" * 40})
+    record = build_record(
+        root,
+        provider,
+        transport="meshcore",
+        observation=baseline["observation"],
+        observer_kind="companion_protocol",
+        witness_hashes=["a" * 64],
+        harnesses=[("core", "harness.py"), ("provider", "harness.py")],
+        binding=("current", "exact"),
+        candidate_refs=refs,
+    )
+    assert record["provider"]["revision"] == candidate_sha
+    assert check_record(root, provider, record, candidate_refs=refs) == []
+    assert (
+        "candidate qualification requires the same explicit snapshot"
+        in check_record(root, provider, record)
+    )
+    assert check_record(root, provider, record, candidate_refs="{}")
+    assert check_record(
+        root,
+        provider,
+        record,
+        candidate_refs=json.dumps(
+            {"meshcore": baseline["provider"]["revision"], "matrix": "c" * 40}
+        ),
+    )
+    # A CI environment selects the fixture's candidate; it cannot silently
+    # change the standalone verifier's default committed-pin authority.
+    monkeypatch.setenv("MEDRE_CI_CANDIDATE_REFS", refs)
+    assert (
+        "candidate qualification requires the same explicit snapshot"
+        in check_record(root, provider, record)
+    )
+    path = root / "candidate.json"
+    path.write_text(json.dumps(record))
+    monkeypatch.setattr(
+        qualification, "__file__", str(root / "scripts/ci/native_qualification.py")
+    )
+    argv = [
+        "native_qualification.py",
+        str(path),
+        "--provider",
+        str(provider),
+        "--expect-records",
+        "1",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(SystemExit, match="same explicit snapshot"):
+        qualification.main()
+    monkeypatch.setattr("sys.argv", [*argv, "--candidate-refs", refs])
+    qualification.main()
+    assert "Verified 1" in capsys.readouterr().out
+
+
+def test_candidate_identity_binds_other_transports_and_explicit_mode(proof):
+    root, provider, baseline = proof
+    # The observed provider remains at its committed SHA; only another
+    # transport differs. Candidate proof must still be distinguishable.
+    refs = {"meshcore": baseline["provider"]["revision"], "matrix": "d" * 40}
+    record = build_record(
+        root,
+        provider,
+        transport="meshcore",
+        observation=baseline["observation"],
+        observer_kind="companion_protocol",
+        witness_hashes=["a" * 64],
+        harnesses=[("core", "harness.py"), ("provider", "harness.py")],
+        binding=("current", "exact"),
+        candidate_refs=json.dumps(refs),
+    )
+    assert record["schema_version"] == 2
+    assert check_record(root, provider, record, candidate_refs=json.dumps(refs)) == []
+    assert (
+        check_record(
+            root,
+            provider,
+            record,
+            candidate_refs=json.dumps(dict(reversed(list(refs.items())))),
+        )
+        == []
+    )
+    changed = json.dumps({**refs, "matrix": "e" * 40})
+    assert "candidate snapshot digest differs" in check_record(
+        root, provider, record, candidate_refs=changed
+    )
+    assert (
+        "candidate qualification requires the same explicit snapshot"
+        in check_record(root, provider, record)
+    )
+    assert (
+        "committed-pin qualification cannot verify a candidate snapshot"
+        in check_record(root, provider, baseline, candidate_refs=json.dumps(refs))
+    )
+    assert baseline["schema_version"] == 1
+    assert "candidate_snapshot_sha256" not in baseline

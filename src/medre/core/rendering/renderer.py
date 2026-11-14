@@ -151,9 +151,9 @@ class RenderingContext:
         route's configuration.  This is a *source-side* label, not a
         target-side one.  Renderers resolve origin attribution by
         precedence: ``source_origin_label`` (route/context) takes
-        priority over the source adapter's ``origin_label`` (from the
-        source-attribution registry), which in turn takes priority over
-        a native/platform fallback, then empty.  ``None`` means "no
+        priority over an explicit source-attribution snapshot origin label,
+        then the source adapter's ``origin_label`` (from the
+        source-attribution registry). Empty strings are intentional overrides.  ``None`` means "no
         route-level label set" — renderers fall back to the adapter
         origin label.  Populated by the delivery pipeline from the
         route's source descriptor.

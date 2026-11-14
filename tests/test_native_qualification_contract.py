@@ -95,3 +95,15 @@ def test_native_specs_reconcile_core_replay_and_provider_only_proof():
     assert "conformance" in native and "Channel `OK`" in native
     assert "opt-in qualification" in register
     assert "Meshtastic" in register and "physical MeshCore" in register
+
+
+def test_required_lxmf_propagation_uses_selected_checkout():
+    workflow = _workflow("test-and-coverage.yml")
+    steps = workflow["jobs"]["core-owned-lxmf-integration"]["steps"]
+    execute = next(
+        step
+        for step in steps
+        if step.get("name") == "Run the core-owned LXMF exact-target propagation suite"
+    )
+    assert execute["env"]["MEDRE_CI_CANDIDATE_REFS"] == "${{ inputs.adapter_refs }}"
+    assert execute["env"]["MEDRE_LXMF_PROVIDER_ROOT"] == ".adapter"

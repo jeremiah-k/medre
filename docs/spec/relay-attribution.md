@@ -46,17 +46,36 @@ Renderers MAY use `extract_message_body` to select text without adding relation
 fallbacks. A string `body` accompanied by `formatting` MUST take precedence over
 a stale legacy `text` alias. Unstyled messages retain legacy text-first behavior.
 
+## Prefix validation and origin precedence
+
+Adapters MUST reject unsupported configured placeholders before delivery and
+MUST reject formatter errors when rendering an unvalidated configuration.
+Missing source values MUST remain distinct from unsupported placeholders.
+Numeric truncation suffixes are available only on the declared label variables
+of constrained-display transports; other transports MUST reject those suffixes.
+
+Origin labels MUST resolve from the explicit route/context label, then the
+supplied attribution snapshot, then the source adapter's configured label.
+Explicit empty strings MUST suppress lower-precedence labels. Attribution
+snapshots and projected fields MUST NOT override source envelope or
+native-reference identifiers. Balanced unsupported fields (including format
+specifiers and attribute/index access) MUST be rejected during validation;
+unmatched literal braces retain their existing semantics. Provider renderers MUST
+use `format_checked_relay_prefix` for configured or resolved templates and
+reject formatting errors, including with unvalidated configuration. The legacy
+`format_relay_prefix` retains its original lexical behavior.
+Sender-label selection MUST NOT change solely because a message is a reaction.
+
 
 ## Shared rendering policy API
 
-Providers adopting the shared policy use `compose_relation_text` from
-`medre.core.rendering.relations` for supplied text and `extract_event_text`
-from `medre.core.rendering.text_helpers` for kind-based body selection.
-The latter is also exported by `medre.core.rendering`. Presence events retain
-their kind-specific user/status description when relation context is added. These opt-in APIs do
-not change the existing rendering helpers or `TextRenderer` during the
-coordinated pre-release migration. Consumers migrate before the old paths
-are removed; this staging does not approve a mixed-policy release.
+Providers use `compose_relation_text` from `medre.core.rendering.relations`
+for supplied text and `extract_event_text` from
+`medre.core.rendering.text_helpers` for kind-based body selection. The latter
+is also exported by `medre.core.rendering`. The pre-release migration's
+superseded relation helpers are removed once all providers adopt these APIs.
+Presence events retain their kind-specific user/status description when
+relation context is added.
 
 The composer MUST describe every unrepresented relation in canonical tuple
 order before authored message text, preserving that text once. Native
@@ -82,16 +101,3 @@ raw native references. Negative facts, wrong adapter/channel scopes and blank
 IDs MUST NOT produce native targets. Direct embedding callers MAY supply a
 matching native reference without a fact; callers requiring a core proof
 MUST set `require_fact=True`. This lookup does not authorize native mutations.
-
-`resolve_relay_attribution` MUST prefer an explicit route label, then a supplied
-attribution snapshot label, then source configuration. Explicit empty labels
-MUST remain empty. Snapshot and projected presentation fields MUST NOT override
-canonical envelope or native-reference identifiers. `validate_relay_prefix`
-MUST reject unsupported balanced fields (including format specifications and
-attribute/index access) and formatting errors using the formatter's declared
-truncatable fields. Unmatched literal braces retain their existing semantics;
-`None` selects provider defaults and an empty template disables the prefix.
-Provider renderers MUST use `format_checked_relay_prefix` for configured or
-resolved templates and reject its formatting errors, including when a caller
-constructs a renderer directly without validating configuration first. The
-legacy `format_relay_prefix` retains its original lexical behavior.

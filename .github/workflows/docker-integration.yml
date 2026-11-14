@@ -9,16 +9,24 @@ on:
     branches:
       - main
   workflow_dispatch:
+    # checkov:skip=CKV_GHA_7:adapter_refs is a complete SHA-only qualification snapshot, validated by adapter_matrix.py and passed through an environment variable.
+    inputs:
+      adapter_refs:
+        description: Optional JSON mapping of every adapter transport to a candidate commit SHA
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   docker-integration:
+    name: ${{ inputs.adapter_refs && 'docker-integration (candidate only)' || 'docker-integration' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     env:
+      MEDRE_CI_CANDIDATE_REFS: ${{ inputs.adapter_refs }}
       # Pinned, validated image references for deterministic CI behavior.
       # Source of truth: docker-compose.integration.yaml (kept in sync by
       # tests/test_integration_image_alignment.py). Update digests when
@@ -47,7 +55,9 @@ jobs:
 
       - name: Snapshot adapter compatibility revisions
         id: adapters
-        run: uv run --no-project --python 3.14 python scripts/ci/adapter_matrix.py --resolve --github-output "$GITHUB_OUTPUT"
+        env:
+          CANDIDATE_ADAPTER_REFS: ${{ inputs.adapter_refs }}
+        run: uv run --no-project --python 3.14 python scripts/ci/adapter_matrix.py --resolve --candidate-refs "$CANDIDATE_ADAPTER_REFS" --github-output "$GITHUB_OUTPUT"
 
       - name: Checkout matrix adapter
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

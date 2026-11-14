@@ -5,7 +5,7 @@ Locks the current target-selection contracts for transports that do not
 perform native relation handling:
 
 * MeshCore and LXMF renderers delegate relation degradation to the shared
-  ``degrade_relations_inline()`` helper under ``fallback_text`` strategy.
+  ``compose_relation_text()`` helper under ``fallback_text`` strategy.
   This helper iterates **all** relations — not just ``relations[0]``.
 * MeshCore direct mode: does not inspect relations for native fields
   (no ``reply_id``, no ``emoji``).  It simply extracts text.
@@ -154,7 +154,7 @@ async def test_meshcore_direct_no_emoji() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fallback-text mode — degrade_relations_inline iterates ALL relations
+# Fallback-text mode — compose_relation_text iterates ALL relations
 # ---------------------------------------------------------------------------
 
 
@@ -170,8 +170,8 @@ async def test_meshcore_fallback_all_relations_inlined() -> None:
 
     text = str(result.payload.get("text", ""))
     # Both relations should appear in the text
-    assert "[reply to:" in text
-    assert "[reaction" in text
+    assert "[replying to:" in text
+    assert "reacted" in text
     assert result.fallback_applied == "strategy_fallback_text"
 
 
@@ -187,7 +187,7 @@ async def test_meshcore_fallback_first_relation_inlined() -> None:
     )
 
     text = str(result.payload.get("text", ""))
-    assert "[reply to: msg B]" in text
+    assert "[replying to: msg B]" in text
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ async def test_lxmf_direct_no_inline_relation_text() -> None:
     result = await renderer.render(event, _lxmf_ctx())
 
     content = str(result.payload.get("content", ""))
-    assert "[reply to:" not in content
+    assert "[replying to:" not in content
     assert content == "hello"
 
 
@@ -267,8 +267,8 @@ async def test_lxmf_fallback_all_relations_inlined() -> None:
     result = await renderer.render(event, _lxmf_ctx(delivery_strategy="fallback_text"))
 
     content = str(result.payload.get("content", ""))
-    assert "[reply to:" in content
-    assert "[reaction" in content
+    assert "[replying to:" in content
+    assert "reacted" in content
     assert result.fallback_applied == "strategy_fallback_text"
 
 
