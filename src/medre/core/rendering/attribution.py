@@ -18,7 +18,7 @@ Public symbols
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,6 +29,10 @@ __all__ = [
     "RelayAttribution",
     "build_relay_attribution",
     "format_relay_prefix",
+    "format_checked_relay_prefix",
+    "validate_relay_prefix",
+    "resolve_relay_attribution",
+    "TRUNCATABLE_RELAY_LABELS",
 ]
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,10 @@ _PREFERRED_ALIASES: dict[str, str] = {
 _ALL_KNOWN_NAMES = (
     _CANONICAL_NAMES | frozenset(_PREFERRED_ALIASES.keys()) | {"sender_compact"}
 )
+
+
+# Constrained-display providers use exactly this common declaration.
+TRUNCATABLE_RELAY_LABELS: tuple[str, ...] = ("sender", "sender_short", "origin_label")
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +394,110 @@ def format_relay_prefix(
             unknown_variables=(),
             formatting_error=f"formatting_exception: {exc}",
         )
+
+
+def _unsupported_balanced_field(template: str) -> str | None:
+    """Find unsupported complete fields, preserving literal unmatched braces.
+
+    A brace pair immediately enclosing one complete valid field is a literal
+    wrapper (``{{sender}}``). Nested format specifications are not fields in
+    the named-placeholder grammar.
+    """
+    stack: list[int] = []
+    last_pair: tuple[int, int] | None = None
+    for end, char in enumerate(template):
+        if char == "{":
+            stack.append(end)
+        elif char == "}" and stack:
+            start = stack.pop()
+            if last_pair != (start + 1, end - 1):
+                field = template[start : end + 1]
+                if _PLACEHOLDER_RE.fullmatch(field) is None:
+                    return field
+            last_pair = (start, end)
+    return None
+
+
+def format_checked_relay_prefix(
+    template: str,
+    attr: RelayAttribution,
+    *,
+    truncatable: tuple[str, ...] = (),
+) -> PrefixFormatterResult:
+    """Apply the same complete-field grammar at configuration and render time.
+
+    Like the legacy formatter, return diagnostics rather than raising. A
+    renderer must reject any result with a formatting error before delivery.
+    """
+    field = _unsupported_balanced_field(template)
+    if field is not None:
+        return PrefixFormatterResult(
+            rendered_prefix=template,
+            template_used=template,
+            variables_used=(),
+            missing_variables=(),
+            unknown_variables=(),
+            formatting_error=f"unsupported placeholder {field!r}",
+        )
+    return format_relay_prefix(template, attr, truncatable=truncatable)
+
+
+def validate_relay_prefix(
+    template: str | None, *, truncatable: tuple[str, ...] = ()
+) -> None:
+    """Reject unsupported placeholders before delivery; None selects provider defaults.
+
+    Literal unmatched braces retain the formatter's documented semantics.
+    Missing values are not errors: validation does not depend on source data.
+    """
+    if template is None:
+        return
+    result = format_checked_relay_prefix(
+        template, RelayAttribution(), truncatable=truncatable
+    )
+    if result.formatting_error:
+        raise ValueError(f"Invalid relay_prefix: {result.formatting_error}")
+
+
+def resolve_relay_attribution(
+    event: CanonicalEvent,
+    *,
+    source_origin_label: str | None = None,
+    configured_origin_label: str | None = None,
+    source_attribution: RelayAttribution | None = None,
+    projected_fields: dict[str, str | None] | None = None,
+) -> RelayAttribution:
+    """Apply route > supplied snapshot > source config label precedence.
+
+    Snapshots and projected fields contribute presentation data, not authority
+    over event-native identifiers. Empty labels are intentional overrides.
+    """
+    label = source_origin_label
+    if label is None and source_attribution is not None:
+        label = source_attribution.source_origin_label
+    if label is None:
+        label = configured_origin_label
+    attr = (
+        source_attribution
+        if source_attribution is not None
+        else build_relay_attribution(event, projected_fields=projected_fields)
+    )
+    attr = replace(
+        attr,
+        source_origin_label=label,
+        source_adapter_id=event.source_adapter,
+        source_transport=event.source_transport_id,
+        source_room_or_channel=event.source_channel_id,
+        source_native_message_id=None,
+        source_native_channel_id=None,
+    )
+    if event.source_native_ref is not None:
+        attr = replace(
+            attr,
+            source_native_message_id=event.source_native_ref.native_message_id,
+            source_native_channel_id=event.source_native_ref.native_channel_id,
+        )
+    return attr
 
 
 # ---------------------------------------------------------------------------

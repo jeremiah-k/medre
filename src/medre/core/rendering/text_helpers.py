@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.events.text import select_message_body
+from medre.core.rendering.relations import compose_relation_text
 
 __all__ = [
     "extract_message_body",
+    "extract_event_text",
     "extract_relation_text",
     "truncate_text",
     "truncate_text_bytes",
@@ -259,3 +261,14 @@ def truncate_text_bytes(
         truncated = truncated[:-1]
 
     return truncated, True, original_bytes, len(truncated.encode("utf-8"))
+
+
+def extract_event_text(event: CanonicalEvent) -> str:
+    """Extract kind-specific text, then describe unrepresented relations."""
+    if event.event_kind == EventKind.PRESENCE_CHANGED:
+        user = str(event.payload.get("user", "unknown"))
+        status = str(event.payload.get("status", "unknown"))
+        text = f"{user} is now {status}"
+    else:
+        text = extract_message_body(event)
+    return compose_relation_text(event, text)
