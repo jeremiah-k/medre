@@ -218,6 +218,12 @@ limitations as `pytest.xfail` guards instead of hiding them:
 - `tests/integration/test_synapse_attachment_smoke.py:826` — the E2EE test
   client could not join the encrypted room, so the encrypted-attachment
   path is not exercised on that run.
+- `tests/integration/test_synapse_attachment_smoke.py:1012` — the receiving
+  client refused the unverified bot device; the ciphertext shape was observed,
+  but neither receiving-client event nor attachment decryption was proved.
+- `tests/integration/test_synapse_attachment_smoke.py:1035` — Megolm key exchange
+  did not complete within the grace period; ciphertext-shape delivery was
+  observed, but receiving-client decryption remained unproven.
 - `medre-adapter-matrix/tests/test_matrix_live.py:962` — no inbound message
   from a third-party sender arrived within 30 s (missing
   `MATRIX_INBOUND_SENDER` prerequisite or missed manual send window), so
