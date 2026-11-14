@@ -369,7 +369,7 @@ class TestMatrixRendererReplySender:
             payload={"body": "my reply"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=meshtastic_native_data({"longname": "TadChilly"})
+                    data=meshtastic_native_data({"longname": "BobSmith"})
                 )
             ),
         )
@@ -378,7 +378,7 @@ class TestMatrixRendererReplySender:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         body = _payload_content(result)["body"]
-        assert body == "[TadChilly] my reply"
+        assert body == "[BobSmith] my reply"
         assert "> <" not in body
 
     async def test_reply_has_relates_to_with_event_id(self) -> None:
@@ -410,7 +410,7 @@ class TestMatrixRendererReplySender:
 
     async def test_no_fallback_quote_any_sender_style(self) -> None:
         """No Matrix reply body contains '> <matrix>', '> <matrix-1>', or
-        '> <Tad Chilly>' style fallback."""
+        '> <Bob Smith>' style fallback."""
         renderer = MatrixRenderer()
         relation = EventRelation(
             relation_type="reply",
@@ -422,7 +422,7 @@ class TestMatrixRendererReplySender:
             ),
             key=None,
             fallback_text="original text",
-            metadata={"displayname": "Tad Chilly"},
+            metadata={"displayname": "Bob Smith"},
         )
         event = _make_event(
             payload={"body": "my reply"},
@@ -435,7 +435,7 @@ class TestMatrixRendererReplySender:
         body = _payload_content(result)["body"]
         assert "> <matrix>" not in body
         assert "> <matrix-1>" not in body
-        assert "> <Tad Chilly>" not in body
+        assert "> <Bob Smith>" not in body
 
 
 # ---------------------------------------------------------------------------
