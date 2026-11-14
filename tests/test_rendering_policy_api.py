@@ -185,6 +185,7 @@ def test_prefix_validation_supports_declared_placeholders(template: str | None) 
     [
         "{unsupported}",
         "{sender:>10}",
+        "{sender:{sender}}",
         "{unsupported-name}",
         "{sender!r}",
         "{sender.name}",

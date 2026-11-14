@@ -39,7 +39,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
-_BALANCED_FIELD_RE = re.compile(r"\{[^{}]*\}")
 
 # Truncation variable: {stemN} where the stem is a declared variable
 # name and N >= 1 counts Unicode code points.
@@ -396,6 +395,28 @@ def format_relay_prefix(
         )
 
 
+def _unsupported_balanced_field(template: str) -> str | None:
+    """Find unsupported complete fields, preserving literal unmatched braces.
+
+    A brace pair immediately enclosing one complete valid field is a literal
+    wrapper (``{{sender}}``). Nested format specifications are not fields in
+    the named-placeholder grammar.
+    """
+    stack: list[int] = []
+    last_pair: tuple[int, int] | None = None
+    for end, char in enumerate(template):
+        if char == "{":
+            stack.append(end)
+        elif char == "}" and stack:
+            start = stack.pop()
+            if last_pair != (start + 1, end - 1):
+                field = template[start : end + 1]
+                if _PLACEHOLDER_RE.fullmatch(field) is None:
+                    return field
+            last_pair = (start, end)
+    return None
+
+
 def validate_relay_prefix(
     template: str | None, *, truncatable: tuple[str, ...] = ()
 ) -> None:
@@ -408,11 +429,9 @@ def validate_relay_prefix(
         return
     # Inspect complete fields too: the legacy formatter deliberately ignores
     # syntax outside its simple named-placeholder grammar.
-    for field in _BALANCED_FIELD_RE.finditer(template):
-        if _PLACEHOLDER_RE.fullmatch(field.group()) is None:
-            raise ValueError(
-                f"Invalid relay_prefix: unsupported placeholder {field.group()!r}"
-            )
+    field = _unsupported_balanced_field(template)
+    if field is not None:
+        raise ValueError(f"Invalid relay_prefix: unsupported placeholder {field!r}")
     result = format_relay_prefix(template, RelayAttribution(), truncatable=truncatable)
     if result.formatting_error:
         raise ValueError(f"Invalid relay_prefix: {result.formatting_error}")
