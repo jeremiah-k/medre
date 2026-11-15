@@ -250,6 +250,7 @@ class LxmfPeerListener:
         return self
 
     def _read_packets(self) -> list[dict]:
+        self._owner.raise_if_failed()
         return read_jsonl(_SCRATCH_JSONL)
 
     def _raise_if_crashed_without_evidence(self, packets: list[dict]) -> None:

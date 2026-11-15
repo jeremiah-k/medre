@@ -8,6 +8,8 @@ stdio closed, bounded waits) rather than transport-specific implementation.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import sys
 import threading
 import time
@@ -17,6 +19,7 @@ import pytest
 
 from tests.helpers.live_peer_common import (
     PeerProcess,
+    async_packets_until,
     async_peer_context,
     poll_packets_until,
     read_jsonl,
@@ -216,6 +219,7 @@ async def test_cancelled_peer_start_is_released_before_return() -> None:
     started = asyncio.Event()
     release = threading.Event()
     closed = threading.Event()
+    exits = []
 
     class Listener:
         def __enter__(self):
@@ -224,6 +228,7 @@ async def test_cancelled_peer_start_is_released_before_return() -> None:
             return self
 
         def __exit__(self, *_):
+            exits.append(1)
             closed.set()
 
     async def run():
@@ -234,10 +239,14 @@ async def test_cancelled_peer_start_is_released_before_return() -> None:
     await asyncio.wait_for(started.wait(), 1)
     task.cancel()
     await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
     assert closed.is_set()
+    assert exits == [1]
 
 
 @pytest.mark.parametrize(
@@ -294,10 +303,230 @@ async def test_native_meshcore_peer_uses_discovered_device_and_owned_reconnect(
         for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "_connect"
     )
-    namespace = {"asyncio": asyncio, "ADDRESS": "owned-peer"}
+    namespace = {"asyncio": asyncio, "os": os, "ADDRESS": "owned-peer"}
     exec(
         compile(ast.Module(body=[function], type_ignores=[]), "<native-peer>", "exec"),
         namespace,
     )
     assert await namespace["_connect"]() is client
     assert calls == [("owned-peer", {"timeout": 8.0, "adapter": "hci-test"})]
+
+
+@pytest.mark.parametrize("body_fails", [False, True])
+async def test_repeated_cancellation_during_exit_joins_owner(body_fails):
+    loop = asyncio.get_running_loop()
+    exiting = asyncio.Event()
+    release = threading.Event()
+    exits = []
+
+    class Listener:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            loop.call_soon_threadsafe(exiting.set)
+            assert release.wait(3)
+            exits.append(exc[0])
+
+    async def run():
+        async with async_peer_context(Listener()):
+            if body_fails:
+                raise ValueError("body failed")
+
+    task = asyncio.create_task(run())
+    try:
+        await asyncio.wait_for(exiting.wait(), 2)
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert exits == [ValueError if body_fails else None]
+
+
+@pytest.mark.parametrize("suppress", [False, True])
+async def test_async_context_preserves_body_exception_semantics(suppress):
+    exits = []
+
+    class Listener:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            exits.append(exc)
+            return suppress
+
+    async def run():
+        async with async_peer_context(Listener()):
+            raise ValueError("body failed")
+
+    if suppress:
+        await run()
+    else:
+        with pytest.raises(ValueError, match="body failed"):
+            await run()
+    assert len(exits) == 1
+    assert exits[0][0] is ValueError
+
+
+async def test_async_snapshot_poll_cancellation_joins_inflight_read():
+    loop = asyncio.get_running_loop()
+    reading = asyncio.Event()
+    release = threading.Event()
+    reads = []
+
+    def snapshot(_predicate, timeout):
+        assert timeout == 0
+        loop.call_soon_threadsafe(reading.set)
+        assert release.wait(3)
+        reads.append(1)
+        return []
+
+    task = asyncio.create_task(async_packets_until(snapshot, bool, 100))
+    try:
+        await asyncio.wait_for(reading.wait(), 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert reads == [1]
+
+
+async def test_async_snapshot_poll_keeps_runtime_responsive():
+    loop = asyncio.get_running_loop()
+    ready = asyncio.Event()
+    packets = []
+
+    def snapshot(_predicate, timeout):
+        assert timeout == 0
+        loop.call_soon_threadsafe(ready.set)
+        return list(packets)
+
+    async def deliver():
+        await ready.wait()
+        packets.append({"id": 1})
+
+    producer = asyncio.create_task(deliver())
+    try:
+        assert await async_packets_until(snapshot, bool, 2, 0.001) == [{"id": 1}]
+    finally:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+
+
+def test_jsonl_ignores_only_uncommitted_trailing_record(tmp_path):
+    scratch = tmp_path / "peer.jsonl"
+    scratch.write_text('{"id": 1}\n{"id":')
+    assert read_jsonl(scratch) == [{"id": 1}]
+    with scratch.open("a") as file:
+        file.write(' 2}\n')
+    assert read_jsonl(scratch) == [{"id": 1}, {"id": 2}]
+    scratch.write_text('{"id":\n')
+    with pytest.raises(json.JSONDecodeError):
+        read_jsonl(scratch)
+
+
+def test_stale_ready_does_not_authorize_unready_child(tmp_path):
+    ready = tmp_path / "peer.ready"
+    ready.write_text("stale")
+    owner = PeerProcess(ready, 0.1)
+    with pytest.raises(AssertionError, match="never signalled ready"):
+        owner.start(_silent_child())
+    assert owner.stdio_closed
+    assert owner.proc is not None and owner.proc.poll() is not None
+
+
+def test_second_start_does_not_orphan_first_child(tmp_path):
+    ready = tmp_path / "peer.ready"
+    owner = PeerProcess(ready, _READY_TIMEOUT)
+    try:
+        owner.start(_write_ready_child(ready, tmp_path / "peer.jsonl", "{}"))
+        proc = owner.proc
+        with pytest.raises(RuntimeError, match="already running"):
+            owner.start(_silent_child())
+        assert owner.proc is proc and owner.poll() is None
+    finally:
+        owner.terminate()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["probe", " "],
+        ["sendn", "owned", "not JSON"],
+        ["sendn", "owned", "[]"],
+        ["sendn", "owned", "[1]"],
+        ["sendts", "owned", "text", "wrong", "2"],
+        ["listen", "owned", "nan", "scratch", "ready"],
+        ["listen", "owned", "0", "scratch", "ready"],
+        ["listen", "owned", "1", "scratch", "scratch"],
+    ],
+)
+def test_meshcore_peer_rejects_invalid_values_before_connecting(args, monkeypatch):
+    from tests.helpers import meshcore_live_peer
+
+    def no_process(*_args, **_kwargs):
+        pytest.fail("invalid peer arguments spawned a hardware client")
+
+    monkeypatch.setattr(meshcore_live_peer.subprocess, "run", no_process)
+    with pytest.raises(ValueError):
+        meshcore_live_peer.run_meshcore_peer(args, 95)
+
+
+@pytest.mark.parametrize("timeout,interval", [(-1, 0.1), (float("nan"), 0.1), (1, 0)])
+async def test_invalid_poll_window_rejected_before_read(timeout, interval):
+    def read(*_):
+        pytest.fail("invalid window must not start a read")
+
+    with pytest.raises(ValueError):
+        await async_packets_until(read, bool, timeout, interval)
+    with pytest.raises(ValueError):
+        poll_packets_until(read, bool, timeout, interval)
+
+
+async def test_failed_cancelled_entry_does_not_call_exit():
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+
+    class Listener:
+        def __enter__(self):
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(3)
+            raise ValueError("entry failed after its own cleanup")
+
+        def __exit__(self, *_):
+            pytest.fail("failed entry must own cleanup")
+
+    async def run():
+        async with async_peer_context(Listener()):
+            pytest.fail("failed entry yielded")
+
+    task = asyncio.create_task(run())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+def test_failed_observer_cannot_supply_absence_evidence(tmp_path):
+    owner = PeerProcess(tmp_path / "peer.ready", 1)
+    with pytest.raises(AssertionError, match="died before readiness"):
+        owner.start(_dying_child())
+    with pytest.raises(AssertionError, match="exited early"):
+        owner.raise_if_failed()
