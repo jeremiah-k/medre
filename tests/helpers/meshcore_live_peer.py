@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -19,23 +20,44 @@ _PEER_BLE = os.environ.get("MESHCORE_PEER_BLE_ADDRESS", "")
 _PEER_READY_TIMEOUT: float = 60.0
 
 _PEER_SCRIPT = r'''
-import asyncio, json, subprocess, sys, time
+import asyncio, json, os, subprocess, sys, time
 
 ADDRESS = sys.argv[2]
 MODE = sys.argv[1]
 
 
 async def _connect():
-    from meshcore import EventType
     from meshcore import MeshCore
+    from bleak import BleakScanner
+    controller = os.environ.get("MESHCORE_PEER_BLE_ADAPTER")
     last = None
     for attempt in range(3):
-        if attempt:  # remedy only after a failed attempt, not proactively
-            subprocess.run(["bluetoothctl", "disconnect", ADDRESS], capture_output=True)
+        if attempt:
+            # bluetoothctl's default controller is not necessarily the owned
+            # controller. Only use the legacy remedy on an unscoped run.
+            if not controller:
+                try:
+                    await asyncio.to_thread(
+                        subprocess.run, ["bluetoothctl", "disconnect", ADDRESS],
+                        capture_output=True, timeout=5,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
             await asyncio.sleep(1.5)
         try:
+            # Match the real adapter's pre-discovered-device path. Address-only
+            # factories can select a stale/wrong controller on multi-HCI hosts.
+            scan = {"timeout": 8.0}
+            if controller:
+                scan["adapter"] = controller
+            device = await BleakScanner.find_device_by_address(ADDRESS, **scan)
+            if device is None:
+                raise RuntimeError("owned MeshCore peer was not advertised")
             mc = await asyncio.wait_for(
-                MeshCore.create_ble(address=ADDRESS, default_timeout=10),
+                MeshCore.create_ble(
+                    address=ADDRESS, device=device, auto_reconnect=False,
+                    default_timeout=10,
+                ),
                 timeout=25,
             )
             if mc is not None:
@@ -244,6 +266,41 @@ asyncio.run(main())
 
 def run_meshcore_peer(args: list[str], timeout: float) -> dict:
     """Run the native peer script once and return its JSON payload."""
+    arity = {"probe": 2, "sendn": 3, "sendts": 5, "n6probe": 4, "listen": 5}
+    if (
+        not args
+        or not all(isinstance(arg, str) for arg in args)
+        or args[0] not in arity
+        or len(args) != arity[args[0]]
+        or not args[1].strip()
+    ):
+        raise ValueError(
+            "MeshCore peer requires mode, BLE address and mode-specific arguments"
+        )
+    try:
+        if args[0] == "sendn":
+            texts = json.loads(args[2])
+            if (
+                not isinstance(texts, list)
+                or not texts
+                or not all(isinstance(text, str) for text in texts)
+            ):
+                raise ValueError("sendn requires a nonempty JSON string array")
+        elif args[0] == "sendts":
+            int(args[3])
+            int(args[4])
+        elif args[0] == "listen":
+            seconds = float(args[2])
+            if not math.isfinite(seconds) or seconds <= 0:
+                raise ValueError("listen requires a finite positive window")
+            if not all(arg.strip() for arg in args[3:]) or (
+                Path(args[3]).resolve() == Path(args[4]).resolve()
+            ):
+                raise ValueError("listen requires distinct scratch and readiness paths")
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"Invalid MeshCore peer arguments for {args[0]}") from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("MeshCore peer timeout must be finite and positive")
     proc = subprocess.run(
         [sys.executable, "-c", _PEER_SCRIPT, *args],
         capture_output=True,
@@ -300,6 +357,7 @@ class MeshCorePeerListener:
         return self
 
     def _read_packets(self) -> list[dict]:
+        self._owner.raise_if_failed()
         return read_jsonl(self._JSON_PATH)
 
     def packets_until(

@@ -77,6 +77,7 @@ from tests.helpers.docker_probe import (
     docker_daemon_reachable as _docker_daemon_reachable,
 )
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_peer_timing import (
     delivery_timeout_seconds,
     send_timeout_seconds,
@@ -482,7 +483,7 @@ async def _observe_or_resend(
     assertion — the nonce is the contract, not the packet id.
     """
     for attempt in range(1, attempts + 1):
-        packets = await asyncio.to_thread(
+        packets = await async_packets_until(
             listener.packets_until,
             lambda pkts: _observer_text(pkts, nonce) is not None,
             timeout,
@@ -707,7 +708,7 @@ async def test_route_matrix_delivery_isolation(tmp_path: Path) -> None:
         # Direction mt→mc: the MT peer sends, the MC peer observes.  Both
         # directions use a floor — the meshes are best-effort and MEDRE's
         # exact guarantee is the receipt ledger, not RF certainty.
-        with _McListener(window) as mc_listener:
+        async with async_peer_context(_McListener(window)) as mc_listener:
             await _mt_send(mt_nonces)
             await asyncio.sleep(min(window - 30, 90))
             mc_texts = [
@@ -718,7 +719,7 @@ async def test_route_matrix_delivery_isolation(tmp_path: Path) -> None:
         # fresh MT connection also receives the peer's buffered texts, so
         # this window sees phase-one traffic that echoed onto the wrong
         # mesh as well.
-        with _MtListener(window) as mt_listener:
+        async with async_peer_context(_MtListener(window)) as mt_listener:
             await _mc_send(mc_nonces)
             await asyncio.sleep(min(window - 30, 90))
             mt_texts = [
@@ -797,7 +798,7 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
         # are not dependably observable over RF on this bench) and is
         # proven from receipt rendering evidence instead.
         mt_cases = [ascii_msg, unicode_msg, newline_msg]
-        with _McListener(window) as mc_listener:
+        async with async_peer_context(_McListener(window)) as mc_listener:
             await _mt_send(mt_cases)
             observed: dict[str, str] = {}
             for payload in mt_cases:
@@ -807,7 +808,7 @@ async def test_rendering_contract_on_wire(tmp_path: Path) -> None:
                     payload,
                 )
             await _mt_send([long_for_mc])
-        with _MtListener(window) as mt_listener:
+        async with async_peer_context(_MtListener(window)) as mt_listener:
             await _mc_send([mca_msg])
             observed_mt: dict[str, str] = {}
             for payload in (mca_msg,):
@@ -894,7 +895,7 @@ async def test_provenance_chain_end_to_end(tmp_path: Path) -> None:
         mc_nonce = _nonce("P-MC")
         window = _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS + 60
 
-        with _McListener(window) as mc_listener:
+        async with async_peer_context(_McListener(window)) as mc_listener:
             mt_sent = await _mt_send([mt_nonce])
             assert mt_sent and mt_sent[-1].get("sent_id"), "MT peer send failed"
             mt_packet_ids = [str(mt_sent[-1]["sent_id"])]
@@ -908,7 +909,7 @@ async def test_provenance_chain_end_to_end(tmp_path: Path) -> None:
                     mt_packet_ids.append(str(again[-1]["sent_id"]))
 
             mt_observed = await _observe_or_resend(mc_listener, _mt_resend, mt_nonce)
-        with _MtListener(window) as mt_listener:
+        async with async_peer_context(_MtListener(window)) as mt_listener:
             mc_sent = await _mc_send([mc_nonce])
             assert mc_sent and mc_sent[-1].get("text"), "MC peer send failed"
             mc_observed = await _observe_or_resend(
@@ -990,7 +991,7 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
         # snapshot must be taken before the listener process exits, even on
         # source failure or cancellation. Save each direction independently
         # so a later listener cannot discard the completed direction's proof.
-        with _McListener(window) as mc_listener:
+        async with async_peer_context(_McListener(window)) as mc_listener:
             try:
                 evidence["meshtastic_source"]["accepted"] = await _mt_send(mt_corpus)
                 await asyncio.sleep(_MC_OBSERVE_TIMEOUT)
@@ -1000,7 +1001,7 @@ async def test_sustained_traffic_convergence(tmp_path: Path) -> None:
                 evidence["meshcore_peer_packets"] = mc_packets
                 evidence["meshcore_peer_texts"] = mc_texts
                 retain_evidence()
-        with _MtListener(window + 60) as mt_listener:
+        async with async_peer_context(_MtListener(window + 60)) as mt_listener:
             try:
                 evidence["meshcore_source"]["accepted"] = await _mc_send(mc_corpus)
                 # MC flood ingest lag plus paced MT relays of the whole corpus.
@@ -1134,9 +1135,9 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
         # Two sequential observes (the short fan-out on each listener),
         # each up to three bounded attempts; the window must cover both.
         window = 2 * _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS + 120
-        with (
-            _MtListener(window) as mt_listener,
-            _McListener(window) as mc_listener,
+        async with (
+            async_peer_context(_MtListener(window)) as mt_listener,
+            async_peer_context(_McListener(window)) as mc_listener,
         ):
 
             async def _room_resend(text: str) -> None:
@@ -1317,11 +1318,11 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # receipt checks for each leg, and a scheduling margin.
             + (30.0 + 3.0) + (95.0 + 8.0) + 4 * _RECEIPT_TIMEOUT + 30.0,
         )
-        with _LxListener(lx_window) as lx_listener:
+        async with async_peer_context(_LxListener(lx_window)) as lx_listener:
             # --- MT → LXMF: observed at the peer, attribution contractual.
             mt_nonce = _nonce("L-MT")
             await _mt_send([mt_nonce])
-            lx_packets = await asyncio.to_thread(
+            lx_packets = await async_packets_until(
                 lx_listener.packets_until,
                 lambda pkts: _lx_observer_text(pkts, mt_nonce) is not None,
                 _LX_OBSERVE_TIMEOUT,
@@ -1348,7 +1349,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # --- MC → LXMF: same contract, board prefix inside the payload.
             mc_nonce = _nonce("L-MC")
             await _mc_send([mc_nonce])
-            lx_packets = await asyncio.to_thread(
+            lx_packets = await async_packets_until(
                 lx_listener.packets_until,
                 lambda pkts: _lx_observer_text(pkts, mc_nonce) is not None,
                 _LX_OBSERVE_TIMEOUT,
@@ -1401,9 +1402,9 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             + 2 * (_OBSERVE_ATTEMPTS - 1) * _LX_SEND_TIMEOUT
             + 60
         )
-        with (
-            _MtListener(window) as mt_listener,
-            _McListener(window) as mc_listener,
+        async with (
+            async_peer_context(_MtListener(window)) as mt_listener,
+            async_peer_context(_McListener(window)) as mc_listener,
         ):
             sent_lx = await asyncio.to_thread(
                 _lx_peer,

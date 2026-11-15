@@ -30,6 +30,11 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import (
+    async_packets_until,
+    async_peer_call,
+    async_peer_context,
+)
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
 from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
@@ -189,7 +194,9 @@ async def test_directed_route_mt_to_mc(tmp_path: Path) -> None:
     app = await _launch(tmp_path / "lab.db", "mt_to_mc")
     try:
         nonce = _nonce("MT2MC")
-        with _PeerListener(_RECEIPT_TIMEOUT + 25) as mc_listener:
+        async with async_peer_context(
+            _PeerListener(_RECEIPT_TIMEOUT + 25)
+        ) as mc_listener:
             sent = await asyncio.to_thread(
                 _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
             )
@@ -210,7 +217,8 @@ async def test_directed_route_mt_to_mc(tmp_path: Path) -> None:
                     break
                 await asyncio.sleep(0.5)
             assert receipts, "MC-side delivery receipt never appeared"
-            out = mc_listener.packets_until(
+            out = await async_packets_until(
+                mc_listener.packets_until,
                 lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                 45.0,
             )
@@ -244,13 +252,13 @@ async def test_directed_route_mc_to_mt_with_negative(tmp_path: Path) -> None:
         # 45s window: MC RF hop + MEDRE 2.5s pacing + LongTurbo MT hop.
         # Drain the listener INSIDE the with block: __exit__ kills the
         # process, and it only prints its JSON after the window ends.
-        with _MtListener(45) as mt_listener:
+        async with async_peer_context(_MtListener(45)) as mt_listener:
             result = await asyncio.to_thread(
                 _mc_peer, ["n6probe", _MC_PEER, probe, positive], 120
             )
             assert result.get("restore_ok"), "peer ch2 not restored"
             await asyncio.sleep(12.0)  # bounded arrival window
-            mt_out = mt_listener.packets()
+            mt_out = await async_peer_call(mt_listener.packets)
         negative = [p for p in mt_out if probe in (p.get("text") or "")]
         assert negative == [], "nonmatching-route probe crossed the bridge"
         restored_positive = [p for p in mt_out if positive in (p.get("text") or "")]
@@ -259,14 +267,15 @@ async def test_directed_route_mc_to_mt_with_negative(tmp_path: Path) -> None:
         # -- B1 positive: ch1 message crosses MC -> MT.
         nonce = _nonce("MC2MT")
         text = nonce + " mc-to-mt"
-        with _MtListener(45) as mt_listener:
+        async with async_peer_context(_MtListener(45)) as mt_listener:
             result = await asyncio.to_thread(
                 _mc_peer, ["sendn", _MC_PEER, json.dumps([text])], 90
             )
             assert all(
                 not item["error"] for item in result["sent"]
             ), "MC peer send rejected"
-            out = mt_listener.packets_until(
+            out = await async_packets_until(
+                mt_listener.packets_until,
                 lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                 45.0,
             )
@@ -286,7 +295,9 @@ async def test_bidirectional_echo_is_bounded(tmp_path: Path) -> None:
         nonce = _nonce("ECHO")
         # MT-B is a single serial owner per phase (pyserial flock):
         # send first, then watch a bounded bounce window.
-        with _PeerListener(_RECEIPT_TIMEOUT + 25) as mc_listener:
+        async with async_peer_context(
+            _PeerListener(_RECEIPT_TIMEOUT + 25)
+        ) as mc_listener:
             await asyncio.to_thread(
                 _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
             )
@@ -310,7 +321,8 @@ async def test_bidirectional_echo_is_bounded(tmp_path: Path) -> None:
             assert (
                 len(receipts) == 1
             ), f"expected a single delivery attempt, saw {receipts!r}"
-            mc_out = mc_listener.packets_until(
+            mc_out = await async_packets_until(
+                mc_listener.packets_until,
                 lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                 45.0,
             )
@@ -322,9 +334,9 @@ async def test_bidirectional_echo_is_bounded(tmp_path: Path) -> None:
         # Loop prevention: the crossed message must not re-cross
         # MC->MT back to the originating peer within the bounded window
         # (window covers the observed BLE session-settle delivery lag).
-        with _MtListener(30) as mt_listener:
+        async with async_peer_context(_MtListener(30)) as mt_listener:
             await asyncio.sleep(15)
-            mt_out = mt_listener.packets()
+            mt_out = await async_peer_call(mt_listener.packets)
         bounced = [p for p in mt_out if nonce in (p.get("text") or "")]
         assert bounced == [], "message re-crossed MT->MC->MT (amplification)"
     finally:

@@ -142,6 +142,7 @@ class MeshtasticPeerListener:
         raise AssertionError("MT listener never signalled ready")
 
     def _read_packets(self) -> list[dict]:
+        self._owner.raise_if_failed()
         return read_jsonl(self._JSON_PATH)
 
     def packets_until(

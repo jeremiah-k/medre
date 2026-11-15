@@ -34,6 +34,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
@@ -331,12 +332,14 @@ class TestBridgeToLxmf:
         app = await _launch(tmp_path / "lab.db", ("mt_to_lx",))
         try:
             nonce = _nonce("MT2LX")
-            with _LxListener(
-                _RECALL_TIMEOUT
-                + 60.0
-                + _RECEIPT_TIMEOUT
-                + _LX_DELIVERY_TIMEOUT
-                + _LISTENER_MARGIN
+            async with async_peer_context(
+                _LxListener(
+                    _RECALL_TIMEOUT
+                    + 60.0
+                    + _RECEIPT_TIMEOUT
+                    + _LX_DELIVERY_TIMEOUT
+                    + _LISTENER_MARGIN
+                )
             ) as peer:
                 assert await _await_peer_recall(
                     app, _peer_dest()
@@ -354,7 +357,8 @@ class TestBridgeToLxmf:
                 ev, receipts = await _receipts_for(app, nonce)
                 assert ev is not None, "nonce never durably admitted"
                 assert receipts, "no durable receipt"
-                rx = peer.packets_until(
+                rx = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: any(nonce in (p.get("content") or "") for p in ps),
                     _LX_DELIVERY_TIMEOUT,
                 )
@@ -372,12 +376,14 @@ class TestBridgeToLxmf:
         app = await _launch(tmp_path / "lab.db", ("mc_to_lx",))
         try:
             nonce = _nonce("MC2LX")
-            with _LxListener(
-                _RECALL_TIMEOUT
-                + 90.0
-                + _RECEIPT_TIMEOUT
-                + _LX_DELIVERY_TIMEOUT
-                + _LISTENER_MARGIN
+            async with async_peer_context(
+                _LxListener(
+                    _RECALL_TIMEOUT
+                    + 90.0
+                    + _RECEIPT_TIMEOUT
+                    + _LX_DELIVERY_TIMEOUT
+                    + _LISTENER_MARGIN
+                )
             ) as peer:
                 assert await _await_peer_recall(
                     app, _peer_dest()
@@ -392,7 +398,8 @@ class TestBridgeToLxmf:
                 assert ev is not None, "nonce never durably admitted"
                 assert ev.source_adapter == "mc_radio"
                 assert receipts, "no durable receipt"
-                rx = peer.packets_until(
+                rx = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: any(nonce in (p.get("content") or "") for p in ps),
                     _LX_DELIVERY_TIMEOUT,
                 )
@@ -416,8 +423,10 @@ class TestBridgeFromLxmf:
         app = await _launch(tmp_path / "lab.db", ("lx_to_mt",))
         try:
             nonce = _nonce("LX2MT")
-            with _MtListener(
-                send_timeout_seconds() + _RECEIPT_TIMEOUT + 60.0 + _LISTENER_MARGIN
+            async with async_peer_context(
+                _MtListener(
+                    send_timeout_seconds() + _RECEIPT_TIMEOUT + 60.0 + _LISTENER_MARGIN
+                )
             ) as mt_listener:
                 sent = await asyncio.to_thread(
                     _lx_peer,
@@ -431,7 +440,8 @@ class TestBridgeFromLxmf:
                 ev, receipts = await _receipts_for(app, nonce)
                 assert ev is not None, "nonce never durably admitted"
                 assert ev.source_adapter == "lx_radio"
-                out = mt_listener.packets_until(
+                out = await async_packets_until(
+                    mt_listener.packets_until,
                     lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                     60.0,
                 )
@@ -447,8 +457,10 @@ class TestBridgeFromLxmf:
         app = await _launch(tmp_path / "lab.db", ("lx_to_mc",))
         try:
             nonce = _nonce("LX2MC")
-            with _McListener(
-                send_timeout_seconds() + _RECEIPT_TIMEOUT + 75.0 + _LISTENER_MARGIN
+            async with async_peer_context(
+                _McListener(
+                    send_timeout_seconds() + _RECEIPT_TIMEOUT + 75.0 + _LISTENER_MARGIN
+                )
             ) as mc_listener:
                 sent = await asyncio.to_thread(
                     _lx_peer,
@@ -462,7 +474,8 @@ class TestBridgeFromLxmf:
                 ev, receipts = await _receipts_for(app, nonce)
                 assert ev is not None, "nonce never durably admitted"
                 assert ev.source_adapter == "lx_radio"
-                out = mc_listener.packets_until(
+                out = await async_packets_until(
+                    mc_listener.packets_until,
                     lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                     75.0,
                 )
@@ -503,9 +516,9 @@ class TestBridgeFanOut:
                 + 75.0
                 + _LISTENER_MARGIN
             )
-            with (
-                _LxListener(fanout_window) as lx_peer,
-                _McListener(fanout_window) as mc_listener,
+            async with (
+                async_peer_context(_LxListener(fanout_window)) as lx_peer,
+                async_peer_context(_McListener(fanout_window)) as mc_listener,
             ):
                 assert await _await_peer_recall(
                     app, _peer_dest()
@@ -549,11 +562,13 @@ class TestBridgeFanOut:
                         break
                     await asyncio.sleep(0.5)
                 assert ev is not None, "nonce never durably admitted"
-                lx_rx = lx_peer.packets_until(
+                lx_rx = await async_packets_until(
+                    lx_peer.packets_until,
                     lambda ps: any(nonce in (p.get("content") or "") for p in ps),
                     _LX_DELIVERY_TIMEOUT,
                 )
-                mc_rx = mc_listener.packets_until(
+                mc_rx = await async_packets_until(
+                    mc_listener.packets_until,
                     lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                     75.0,
                 )
