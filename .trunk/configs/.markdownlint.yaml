@@ -1,2 +1,4 @@
 # Prettier friendly markdownlint config (all formatting rules disabled)
 extends: markdownlint/style/prettier
+# Protocol prefix examples intentionally include literal trailing spaces.
+MD038: false

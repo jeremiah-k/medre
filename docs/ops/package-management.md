@@ -15,6 +15,12 @@ These commands use uv's isolated tool environment. No source checkout or PyPI
 publication is required. If `medre` is unavailable after installation, run
 `uv tool update-shell` and follow its instructions. Restart your shell if needed.
 
+The published core is also available through `uv tool install 'medre==0.1.0'`.
+Adapter aliases still default to Git `main`; use explicit index requirements
+in a source catalog to select released adapters. See
+[installation sources](../dev/installation-sources.md) for examples and the
+channel plan. The catalog shows requested sources, not resolved install proof.
+
 ## Add, change, or remove adapters
 
 ```bash

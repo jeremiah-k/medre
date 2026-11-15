@@ -13,8 +13,10 @@ Missing or invalid persisted facts MUST raise an invariant error. This field
 is explicitly **not** current retention, availability, a read grant, or
 permission to send. It cannot change when future content expires.
 
-MEDRE is pre-first release: previous SQLite shapes are refused. There is no
-in-place migration or compatibility reader. Event bodies, reply excerpts,
+This body-identity contract introduces no general migration or compatibility
+reader. The [storage policy](storage.md#10-pre-release-database-policy)
+defines the guarded additive predecessors and refusal of unsupported SQLite
+shapes. Event bodies, reply excerpts,
 rendering evidence, packet plans, attachments and provider-owned copies must
 all be included before core-owned content can be collected. This contract
 introduces no deletion, expiry clock, hold grants, read authorization,

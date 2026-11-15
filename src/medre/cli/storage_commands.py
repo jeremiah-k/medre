@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.content_retention import (
     RETENTION_DEFAULT_INTERVAL,
-    retention_epoch_observation_age_seconds,
     retention_epoch_grace_seconds,
+    retention_epoch_observation_age_seconds,
 )
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG

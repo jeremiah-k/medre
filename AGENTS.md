@@ -14,6 +14,10 @@ Docs are split into `docs/spec`, `docs/ops`, `docs/dev`, `docs/schemas`, and
 
 ## Build, Test, and Development Commands
 
+- `.trunk/trunk check --fix --all`: format and apply supported lint fixes.
+- `.trunk/trunk check --all --no-fix --ci`: run the same quality gate as CI.
+- `.trunk/trunk upgrade`: intentional tool refresh only; review pin changes,
+  then fix and check before committing.
 - `uv sync --locked --extra dev`: install the editable package with pytest and dev
   dependencies.
 - `uv run --no-sync pytest -q`: run the default suite; service, hardware, optional
@@ -37,8 +41,9 @@ Use 4-space indentation, type annotations for public surfaces, and nearby
 dataclass/msgspec-style models where they already exist. Modules, functions,
 fixtures, and variables use `snake_case`; classes use `PascalCase`; constants
 use `UPPER_SNAKE_CASE`. Keep docs in ATX Markdown, wrap prose near 88 columns
-where practical, and reserve RFC 2119 terms for `docs/spec`. Ruff lint rules are
-configured in `pyproject.toml`; match surrounding formatting style.
+where practical, and reserve RFC 2119 terms for `docs/spec`. Black targets Python 3.11; Python lint and formatting policy lives in
+`pyproject.toml`, and tool versions live in `.trunk/trunk.yaml`. Use the committed
+launcher so local runs and CI use the same tools. Preserve frozen schema bytes.
 
 ## Testing Guidelines
 
@@ -53,8 +58,9 @@ deterministic hooks or `tests/helpers/async_utils.py::wait_until`.
 Recent history uses short imperative summaries, often with scoped prefixes such
 as `feat(adapters): ...` or `refactor(diagnostics): ...`. Keep commits focused.
 Runtime semantic changes require the relevant `docs/spec` page, schema updates
-in `docs/schemas`, tests, and a fragment under
-`docs/changes/unreleased/NNN-brief-description.md` in the same change. PRs
+in `docs/schemas` where applicable, and tests in the same change. Respect the
+published schema freeze. PR descriptions carry behavior and release impact;
+optional operator or coordinated-release notes use descriptive filenames. PRs
 should describe behavior, list tests run, call out gated tests not run, and
 include CLI output when operator-facing behavior changes.
 

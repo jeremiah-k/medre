@@ -4,9 +4,10 @@ title, fields envelope, relay prefix, target-aware configs, and edge cases.
 """
 
 from __future__ import annotations
-import pytest
 
 from datetime import datetime, timezone
+
+import pytest
 
 from medre.adapters.lxmf.fields import FIELD_MEDRE_ENVELOPE, LXMF_NAMESPACE
 from medre.adapters.lxmf.renderer import LxmfRenderer

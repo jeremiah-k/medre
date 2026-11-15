@@ -24,9 +24,9 @@ anything.
 identity components are supplied explicitly so the channel decision is made
 before authority normalization applies:
 
-* a nonempty channel string selects that channel;
-* `None` selects the deliberate no-channel identity;
-* the empty string MUST be rejected with a `ValueError` at construction.
+- a nonempty channel string selects that channel;
+- `None` selects the deliberate no-channel identity;
+- the empty string MUST be rejected with a `ValueError` at construction.
   Storage and authority resolution normalize the empty string to the
   no-channel identity, so accepting it would silently widen the caller's
   stated intent.
@@ -53,22 +53,22 @@ persisted outbox row, or more than one currently-live generation, or a frozen
 context that cannot be interpreted. It does NOT describe relation-binding
 ambiguity, which is a different token in the canonical event namespace.
 
-| Observation                                                          | Category                |
-| -------------------------------------------------------------------- | ----------------------- |
-| Event absent from canonical storage                                   | `not_found`             |
-| No outbox row for the identity, or more than one live generation      | `ambiguous`             |
-| Expected fingerprint or generation superseded by current state        | `stale`                 |
-| Outbox `pending` without a reservation                                | `pending`               |
-| Outbox `in_progress`, or any non-terminal row with `active_attempt`   | `in_progress`           |
-| Outbox `queued`                                                       | `awaiting_feedback`     |
-| Outbox `retry_wait`                                                   | `retry_scheduled`       |
-| Outbox `sent`                                              | `completed`             |
-| Outbox `cancelled`                                         | `cancelled`             |
-| Outbox `abandoned`                                         | `inspect_native`        |
-| Failed or dead-lettered with a retryable persisted failure kind       | `preview_replay`        |
-| Failed or dead-lettered otherwise (including no persisted kind)       | `needs_operator_action` |
-| Event present but source content no longer reads as retained          | `content_unavailable`   |
-| Frozen staged plan contradicts the row's persisted plan binding       | `route_or_plan_changed` |
+| Observation                                                         | Category                |
+| ------------------------------------------------------------------- | ----------------------- |
+| Event absent from canonical storage                                 | `not_found`             |
+| No outbox row for the identity, or more than one live generation    | `ambiguous`             |
+| Expected fingerprint or generation superseded by current state      | `stale`                 |
+| Outbox `pending` without a reservation                              | `pending`               |
+| Outbox `in_progress`, or any non-terminal row with `active_attempt` | `in_progress`           |
+| Outbox `queued`                                                     | `awaiting_feedback`     |
+| Outbox `retry_wait`                                                 | `retry_scheduled`       |
+| Outbox `sent`                                                       | `completed`             |
+| Outbox `cancelled`                                                  | `cancelled`             |
+| Outbox `abandoned`                                                  | `inspect_native`        |
+| Failed or dead-lettered with a retryable persisted failure kind     | `preview_replay`        |
+| Failed or dead-lettered otherwise (including no persisted kind)     | `needs_operator_action` |
+| Event present but source content no longer reads as retained        | `content_unavailable`   |
+| Frozen staged plan contradicts the row's persisted plan binding     | `route_or_plan_changed` |
 
 Classification precedence is independent of the table's row order. An absent
 event is `not_found`; missing or multiply live generations are `ambiguous`.
@@ -236,19 +236,19 @@ reopened, and scoped replay stages genuine outbox generations and receipts
 through the fake presentation adapter. This qualification proves, and is
 limited to, the transactional and storage-level properties of the contract:
 
-* the write authorities serialize — cancellation and the audited decision
+- the write authorities serialize — cancellation and the audited decision
   observe a typed refusal when a superseding write wins; a recorded
   decision does not mutate the outbox and therefore does not prevent a
   later guarded cancellation, while no half-applied state or lost update
   survives;
-* recorded decisions, persisted outbox state, and the preview's
+- recorded decisions, persisted outbox state, and the preview's
   classification survive a storage-handle restart, and the normal
   claim/attempt fences still refuse superseded observations afterwards;
-* scoped replay refuses named targets whose persisted state drifted,
+- scoped replay refuses named targets whose persisted state drifted,
   records the bounded `exact_target_selection_refused` evidence, and
   stages no generation, dispatch, or receipt for refused or excluded
   siblings of the same event;
-* a stale observation never sends: superseded expectations classify as
+- a stale observation never sends: superseded expectations classify as
   `stale` evidence only, and execution re-validates persisted state
   through the shared selector before anything is staged.
 
@@ -293,22 +293,22 @@ leg remains a separate qualification requirement.
 The scenario checks the following native properties at the pinned SDK
 versions within this local topology:
 
-* **A propagated handoff is not recipient receipt.** The MEDRE side's
+- **A propagated handoff is not recipient receipt.** The MEDRE side's
   honest terminal state tops out at `sent` — the propagation node
   accepted the message — and the scenario asserts that state separately
   from the recipient verdict. The two observations come from distinct
   processes; a propagation handoff MUST NOT be reported as recipient
   receipt anywhere downstream.
-* **Exact destination, independently observed.** The recipient instance
+- **Exact destination, independently observed.** The recipient instance
   observes the message addressed to exactly its announced delivery
   destination hash, sourced from the MEDRE side's announced delivery
   destination hash, carried with the propagation delivery method, and
   delivered exactly once to B, with A's destination silent. Other
   unobserved destinations are outside this two-instance observation.
-* **Content-addressed identity survives the native path.** The native
+- **Content-addressed identity survives the native path.** The native
   message identifier the MEDRE side handed off equals the message hash
   the recipient instance observed.
-* **No handoff without an observed exact destination.** A propagated
+- **No handoff without an observed exact destination.** A propagated
   send to a destination hash the MEDRE side has never observed natively
   is refused by the native discovery gate. The scenario instruments the
   SDK `LXMessage` constructor and requires zero constructions, no tracked

@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import re
 from importlib.resources import files
 from importlib.resources.abc import Traversable
-import re
 from pathlib import Path
 from typing import Any
 

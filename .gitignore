@@ -240,3 +240,8 @@ coderabbit_*.md
 
 # Local agent workspace
 /.zcode/
+
+# Sibling core checkouts and local quality reports
+/.core/
+junit-*.xml
+coverage-*.xml

@@ -31,7 +31,7 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 | `pubkey`                | `str \| None`                          | `None`       | Optional public key (hex string)                                                                                                                                   |
 | `node_config`           | `dict[str, object]`                    | `{}`         | Opaque node settings; must not contain secret keys                                                                                                                 |
 | `max_text_bytes`        | `int`                                  | `160`        | UTF-8 byte budget for rendered radio text                                                                                                                          |
-| `relay_prefix` | `str`                                  | `""`         | Relay prefix template for outbound text (empty = no prefix; see §Relay Attribution Prefix)                                                                         |
+| `relay_prefix`          | `str`                                  | `""`         | Relay prefix template for outbound text (empty = no prefix; see §Relay Attribution Prefix)                                                                         |
 
 ---
 
@@ -148,14 +148,14 @@ The prefix is prepended before UTF-8 byte-budget truncation (the effective firmw
 
 **Metadata keys** (conditional, only when prefix is configured):
 
-| Key                              | Value                                                       |
-| -------------------------------- | ----------------------------------------------------------- |
-| `relay_prefix_template`          | The original template string                                |
-| `relay_prefix_rendered`          | The rendered prefix string                                  |
-| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)             |
-| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty       |
-| `relay_prefix_unknown_variables` | Empty on successful rendering; unsupported placeholders are rejected  |
-| `relay_prefix_formatting_error`  | None on successful rendering; formatting errors reject delivery |
+| Key                              | Value                                                                |
+| -------------------------------- | -------------------------------------------------------------------- |
+| `relay_prefix_template`          | The original template string                                         |
+| `relay_prefix_rendered`          | The rendered prefix string                                           |
+| `relay_prefix_variables_used`    | Variables resolved (value found, even if empty)                      |
+| `relay_prefix_missing_variables` | Variables in template whose value was `None` or empty                |
+| `relay_prefix_unknown_variables` | Empty on successful rendering; unsupported placeholders are rejected |
+| `relay_prefix_formatting_error`  | None on successful rendering; formatting errors reject delivery      |
 
 **Attribution caveat:** The prefix is human-readable attribution only. It does not constitute delivery evidence. The MEDRE metadata namespace remains the authoritative source for machine-readable provenance. Local send acceptance does not confirm MeshCore RF delivery.
 
@@ -329,8 +329,8 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 | `classifier_packets_malformed`          | `int`           | Malformed sub-counter                                              |
 | `inbound_published`                     | `int`           | Events published inbound                                           |
 | `prestart_buffered`                     | `int`           | Payloads buffered while start was in flight                        |
-| `prestart_flushed`                      | `int`           | Buffered payloads flushed through normal admission                |
-| `prestart_overflow_dropped`             | `int`           | Payloads refused because the pre-start buffer was at capacity     |
+| `prestart_flushed`                      | `int`           | Buffered payloads flushed through normal admission                 |
+| `prestart_overflow_dropped`             | `int`           | Payloads refused because the pre-start buffer was at capacity      |
 | `session.connected`                     | `bool`          | Session connected                                                  |
 | `session.reconnecting`                  | `bool`          | Reconnect in progress                                              |
 | `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts                                     |

@@ -1,61 +1,42 @@
-# Change Process
+# Change process
 
-This document describes how changes to MEDRE documentation are managed.
+Merged PR descriptions and generated GitHub release notes are the primary
+record. Routine changes do not require numbered fragments.
 
-## Spec Changes
+## Runtime changes
 
-Changes that affect runtime semantics (data models, adapter contracts, routing
-rules, storage guarantees) require all of the following:
+Update the relevant specification and regression tests in the same PR. Update
+schemas only when the contract changes, respecting the published 0.1.0 freeze
+and compatibility policy. A formatter upgrade is not authority to rewrite a
+frozen artifact. State behavior, compatibility, operator impact and validation
+in the PR description, with links to the relevant issues and documentation.
 
-1. Update the relevant `docs/spec/` page.
-2. Update the corresponding JSON Schema files in `docs/schemas/`.
-3. Add or update tests that validate the change.
-4. Add a numbered fragment under
-   `docs/changes/unreleased/NNN-brief-description.md`.
+Core and adapters have independent releases. Identify affected projects and
+coordinate their qualification and merge order. Record exact merged revisions
+or published artifacts rather than treating a branch or channel name as proof.
 
-All four artifacts (spec page, schema, test, change fragment) must land in the
-same change.
+## Documentation and tooling
 
-## Ops-Only Changes
+Update the affected ops/dev page directly. Describe tooling behavior and checks
+in the PR. Temporary audits, review ledgers and validation logs belong outside
+tracked documentation, for example in ignored `.zcode/`.
 
-Changes to operator documentation that do not alter runtime semantics (typos,
-clarified instructions, new troubleshooting steps) update only the relevant
-`docs/ops/` file. No schema or spec changes are required.
+## Optional release notes
 
-## Dev-Only Changes
+Use [unreleased operator notes](../changes/unreleased.md) when operator actions
+or several PRs need one coherent explanation. A separate note under
+`docs/changes/unreleased/` is optional and uses a descriptive filename. Do not
+allocate the next sequence number. Keep lasting procedures in the relevant
+specification or operator guide rather than only in release notes.
 
-Changes to developer documentation (testing patterns, adapter authoring guides)
-update only the relevant `docs/dev/` file.
+## Release preparation
 
-## Source-Audit Notes
+Generate release notes from merged PRs and review them for missing migration
+instructions, compatibility changes and qualification limits. Publish the exact
+tag and artifact identities. Fold useful unreleased notes into a versioned
+summary, then clear or archive those individual notes.
 
-Keep temporary audit reports, review ledgers, inventories, and validation logs
-outside the repository, for example under `~/tmp/codex/`. Do not commit them.
-Record lasting findings as targeted fixes, tests, and updates to the relevant
-spec/ops/dev page. A changelog fragment describes the resulting behavior change,
-not the review session or its validation history.
-
-## Pre-Release Breaking Changes
-
-MEDRE is pre-first-release. Breaking changes to the specification are
-permitted when they simplify the model. When making a breaking change:
-
-1. Update all affected spec pages.
-2. Update all affected schemas.
-3. Update all affected tests.
-4. Add a numbered fragment under `docs/changes/unreleased/` noting the break.
-5. Run the full test suite to confirm nothing is missed.
-
-## Changelog
-
-New in-flight changes are tracked as numbered Markdown fragments under
-`docs/changes/unreleased/`. Use `NNN-brief-description.md`, where `NNN` is
-the next available sequence. When a fragment's change lands, fold its
-concise user-visible summary into
-[`docs/changes/unreleased.md`](../changes/unreleased.md) (the aggregate
-prerelease history) and delete the fragment.
-
-Keep each entry to a single concise bullet or short paragraph focused on
-operator or developer impact. Omit file-by-file change lists, test names,
-audit-process narrative, and validation-command output — those belong in
-the linked spec page or PR description, not in release notes.
+The first published release's summary and 293 individual notes are retained in
+[the 0.1.0 archive](../changes/0.1.0.md). They are historical records, not active
+work. Schema compatibility decisions after publication require the documented
+versioning review; the project is no longer pre-first-release.

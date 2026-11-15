@@ -1,4 +1,4 @@
-# Versioning boundaries (pre-first-release)
+# Versioning boundaries
 
 MEDRE keeps three independent identities. Avoid translating one into another.
 
@@ -28,20 +28,23 @@ unsupported declarations are refused without an implicit default. Separate plugi
 adopt their own explicitly named compatibility contract when the plugin runtime
 is implemented; do not reuse the adapter API version by accident.
 
-Package tags need not be minted to establish the adapter API version. When
-publishing first installable releases, follow PEP 440 and use independent,
-monotonically increasing distribution versions. An already-published `0.1.0`
-must not be followed by `0.1.0a1` (which sorts earlier under PEP 440).
-Until then the exact-commit manifest supplies
-reproducibility; no broad package-version constraint is a compatibility proof.
+Package tags need not be minted to establish the adapter API version. Core
+and some providers have published `0.1.0`; publication remains independent
+per distribution. Follow PEP 440 and use monotonically increasing distribution
+versions. An already-published `0.1.0` must not be followed by `0.1.0a1`
+(which sorts earlier under PEP 440). The exact-commit manifest supplies
+source reproducibility; no broad package-version constraint is a compatibility
+proof.
 
-**Prerelease databases:** Until a first supported state baseline is declared,
-a different SQLite catalog is unsupported development state and must be
-explicitly replaced or exported by the operator. After a supported baseline,
-forward-only additive database migrations may be introduced deliberately,
-with tested failure/rollback behavior and clear support boundaries. There is
-no obligation to migrate abandoned, unpublished prerelease shapes. Schema
-version increments then track supported persisted-state changes, not Git
+**Persisted databases:** The tagged 0.1.0 SQL snapshot identifies the released
+baseline. The current writable initializer recognizes only explicitly declared,
+structurally exact additive predecessors. Other incompatible development
+catalogs are refused with an operator recovery or reset decision. See the
+[storage policy](../spec/storage.md#10-pre-release-database-policy). Future
+supported database changes require a deliberate migration or compatibility
+review, with tested failure/rollback behavior and clear support boundaries.
+There is no obligation to migrate abandoned, unpublished development shapes.
+Schema version increments track supported persisted-state changes, not Git
 commits, adapter API changes, or package releases.
 
 ## 0.1.0 schema compatibility baseline
@@ -56,7 +59,9 @@ schema must document whether it is additive, requires a new schema generation,
 or requires a migration. The snapshots guard releases; they must not be edited
 to make an unexpected CI failure disappear.
 
-The core package metadata's `0.1.0` version is a prerelease preparation state,
-not proof of a published artifact. Before a first tag no backwards-compatibility
-code is required for abandoned experimental shapes. Persisted databases from
-this development period are not a supported migration baseline.
+The current checkout can still report `0.1.0` while containing post-tag
+changes. Distribution metadata alone does not identify a published artifact
+or qualify a mixed source stack. Preserve the frozen released baseline and
+review differences against exact tagged artifacts. Abandoned experimental
+shapes from before the first release are not automatically supported migration
+baselines.

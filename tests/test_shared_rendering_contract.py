@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 
 import msgspec
 import pytest
+
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.events.canonical import RelationTargetFact
 from medre.core.rendering.attribution import RelayAttribution, resolve_relay_attribution
 from medre.core.rendering.relations import (
-    destination_native_message_id,
     describe_reaction,
+    destination_native_message_id,
 )
 from medre.core.rendering.renderer import RenderingContext
 from medre.core.rendering.text_helpers import truncate_text_bytes
@@ -93,8 +94,8 @@ def _provider(transport, template):
         )
     if transport == "xmpp":
         pytest.importorskip("medre.adapters.xmpp")
-        from medre.adapters.xmpp.renderer import XMPPRenderer
         from medre.adapters.xmpp.config import XMPPConfig
+        from medre.adapters.xmpp.renderer import XMPPRenderer
 
         channel = "friend@example.org"
         config = XMPPConfig("target", peers=(channel,), relay_prefix=template)
@@ -106,8 +107,8 @@ def _provider(transport, template):
         )
     if transport == "chatmail":
         pytest.importorskip("medre.adapters.chatmail")
-        from medre.adapters.chatmail.renderer import ChatmailRenderer
         from medre.adapters.chatmail.config import ChatmailConfig
+        from medre.adapters.chatmail.renderer import ChatmailRenderer
 
         config = ChatmailConfig("target", chats=(10,), relay_prefix=template)
         return (
@@ -117,8 +118,8 @@ def _provider(transport, template):
             lambda r: r.payload["text"],
         )
     pytest.importorskip("medre.adapters.simplexchat")
-    from medre.adapters.simplexchat.renderer import SimplexChatRenderer
     from medre.adapters.simplexchat.config import SimplexChatConfig
+    from medre.adapters.simplexchat.renderer import SimplexChatRenderer
 
     config = SimplexChatConfig("target", chats=("group:1",), relay_prefix=template)
     return (

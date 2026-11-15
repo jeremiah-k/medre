@@ -13,7 +13,7 @@ def _steps():
     workflow = yaml.load(
         (_ROOT / ".github/workflows/docker-integration.yml").read_text(),
         Loader=yaml.BaseLoader,
-    )
+    )  # nosec B506 # BaseLoader constructs strings, not arbitrary Python objects.
     return workflow["jobs"]["docker-integration"]["steps"]
 
 

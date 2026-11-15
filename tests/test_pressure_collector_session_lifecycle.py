@@ -36,7 +36,7 @@ from pathlib import Path
 import pytest
 
 from medre.core.contracts.adapter import ProducerPressureReport
-from medre.core.lifecycle.states import AdapterState, VALID_TRANSITIONS
+from medre.core.lifecycle.states import VALID_TRANSITIONS, AdapterState
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime import app as _app_module
 from tests.helpers.inbound_gate import GateAppDouble as _GateApp

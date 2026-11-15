@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import glob
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 # Read only pytest-generated local JUnit reports.
 from pathlib import Path
 
 _SUITE_TOTALS = ("tests", "skipped", "errors", "failures")
@@ -41,7 +41,9 @@ def check_report(
             "collection crashed before a report could be written"
         ]
     try:
-        root = ET.parse(path).getroot()
+        root = ET.parse(
+            path
+        ).getroot()  # nosec B314 # Read only pytest-generated local JUnit reports.
     except (ET.ParseError, OSError) as exc:
         return [f"junit report at {path} is not parseable: {exc}"]
     suites = list(root.iter("testsuite"))

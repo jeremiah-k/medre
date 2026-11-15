@@ -1,7 +1,5 @@
+# Prettier owns YAML presentation; retain semantic checks here.
 rules:
-  quoted-strings:
-    required: only-when-needed
-    extra-allowed: ["{|}"]
   key-duplicates: {}
   octal-values:
     forbid-implicit-octal: true

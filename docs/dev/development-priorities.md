@@ -153,7 +153,7 @@ retain their separate acceptance boundaries in the gap register.
 
 Each work package needs an independently reviewable branch and atomic commits by
 concern. Runtime changes include tests, specification, schema where applicable,
-and a change fragment. Provider features qualify against an exact core revision;
+and release impact in its PR description. Provider features qualify against an exact core revision;
 core selects exact landed provider revisions after their own CI passes.
 
 Use targeted domain tests and pinned SDK contracts locally. Let CI run full

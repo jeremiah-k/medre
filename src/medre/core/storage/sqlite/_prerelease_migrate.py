@@ -184,7 +184,7 @@ def rebuild_operator_delivery_decisions(db: sqlite3.Connection) -> None:
     columns = ", ".join(known_decision_table_forms().columns)
     db.execute(
         f"INSERT INTO {_DECISION_TABLE} ({columns}) "
-        f"SELECT {columns} FROM {_LEGACY_DECISION_TABLE}"
+        f"SELECT {columns} FROM {_LEGACY_DECISION_TABLE}"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
     )
     db.execute(f"DROP TABLE {_LEGACY_DECISION_TABLE}")
     db.execute(_OPERATOR_DECISIONS_INDEX_DDL)
@@ -276,7 +276,9 @@ def rebuild_inbound_pressure_observations(db: sqlite3.Connection) -> None:
     """
     if not inbound_pressure_rebuild_applies(db):
         return
-    before_row = db.execute(f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}").fetchone()
+    before_row = db.execute(
+        f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}"  # nosec B608 # Declared schema names.
+    ).fetchone()
     assert before_row is not None  # COUNT(*) always yields one row
     before = int(before_row[0])
     db.execute(f"ALTER TABLE {_PRESSURE_TABLE} RENAME TO {_LEGACY_PRESSURE_TABLE}")
@@ -284,10 +286,12 @@ def rebuild_inbound_pressure_observations(db: sqlite3.Connection) -> None:
     columns = ", ".join(known_pressure_table_forms().columns)
     db.execute(
         f"INSERT INTO {_PRESSURE_TABLE} ({columns}) "
-        f"SELECT {columns} FROM {_LEGACY_PRESSURE_TABLE}"
+        f"SELECT {columns} FROM {_LEGACY_PRESSURE_TABLE}"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
     )
     db.execute(f"DROP TABLE {_LEGACY_PRESSURE_TABLE}")
-    after_row = db.execute(f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}").fetchone()
+    after_row = db.execute(
+        f"SELECT COUNT(*) FROM {_PRESSURE_TABLE}"  # nosec B608 # Declared schema names.
+    ).fetchone()
     assert after_row is not None  # COUNT(*) always yields one row
     after = int(after_row[0])
     if after != before:
@@ -343,7 +347,7 @@ def rebuild_inbound_pressure_outage_gaps(db: sqlite3.Connection) -> None:
         return
     columns = known_outage_gap_table_forms().columns
     rows = db.execute(
-        f"SELECT {', '.join(columns)} FROM {_GAP_TABLE} ORDER BY gap_id"
+        f"SELECT {', '.join(columns)} FROM {_GAP_TABLE} ORDER BY gap_id"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
     ).fetchall()
     db.execute(f"ALTER TABLE {_GAP_TABLE} RENAME TO {_LEGACY_GAP_TABLE}")
     db.execute(_PRESSURE_OUTAGE_GAPS_DDL)
@@ -351,11 +355,13 @@ def rebuild_inbound_pressure_outage_gaps(db: sqlite3.Connection) -> None:
         gap_id = int(row[0])
         db.execute(
             f"INSERT INTO {_GAP_TABLE} (gap_token, {', '.join(columns)}) "
-            f"VALUES (?, {', '.join('?' for _ in columns)})",
+            f"VALUES (?, {', '.join('?' for _ in columns)})",  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
             (f"{gap_id:032x}", *row),
         )
     db.execute(f"DROP TABLE {_LEGACY_GAP_TABLE}")
-    after = db.execute(f"SELECT COUNT(*) FROM {_GAP_TABLE}").fetchone()
+    after = db.execute(
+        f"SELECT COUNT(*) FROM {_GAP_TABLE}"  # nosec B608 # Declared schema names.
+    ).fetchone()
     if after is None or int(after[0]) != len(rows):
         raise StorageInitializationError(
             f"Pre-release migration '{_ADD_GAP_RETRY_TOKEN_STEP}' "
@@ -581,7 +587,7 @@ def _copy_inline_diagnostics_to_side_table(
             "SELECT 1 FROM delivery_evidence_diagnostics d"
             f" WHERE d.family = '{family}' AND d.row_id = {table}.{row_id_column}"
             f"{attempt_filter} AND d.field = '{field}'"
-            ")"
+            ")"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
         )
 
 
@@ -609,7 +615,9 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
         raise StorageInitializationError(
             f"The current declared form of {table} could not be derived."
         )
-    before_row = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+    before_row = db.execute(
+        f"SELECT COUNT(*) FROM {table}"  # nosec B608 # Declared schema names.
+    ).fetchone()
     assert before_row is not None  # COUNT(*) always yields one row
     before = int(before_row[0])
     legacy_columns = [str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")]
@@ -655,7 +663,7 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
         # again unless the migration records the acceptance-time clear. Use
         # the same append-only, attempt-scoped writes as normal transitions.
         queued_rows = db.execute(
-            f"SELECT outbox_id, updated_at FROM {table} WHERE status = 'queued'"
+            f"SELECT outbox_id, updated_at FROM {table} WHERE status = 'queued'"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
         ).fetchall()
         for outbox_id, updated_at in queued_rows:
             for sql, params in outbox_diagnostic_ops(
@@ -664,15 +672,21 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
                 str(outbox_id),
             ):
                 db.execute(sql, params)
-    db.execute(f"INSERT INTO {temp_table} ({columns}) SELECT {columns} FROM {table}")
+    db.execute(
+        f"INSERT INTO {temp_table} ({columns}) SELECT {columns} FROM {table}"  # nosec B608 # Declared schema names.
+    )
     db.execute(f"DROP TABLE {table}")
     db.execute(current)
-    db.execute(f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {temp_table}")
+    db.execute(
+        f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {temp_table}"  # nosec B608 # Declared schema names.
+    )
     db.execute(f"DROP TABLE {temp_table}")
     for sql in index_sql:
         db.execute(sql)
     _recreate_delivery_status_view(db)
-    after_row = db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+    after_row = db.execute(
+        f"SELECT COUNT(*) FROM {table}"  # nosec B608 # Declared schema names.
+    ).fetchone()
     assert after_row is not None  # COUNT(*) always yields one row
     after = int(after_row[0])
     if after != before:

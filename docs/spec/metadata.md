@@ -132,7 +132,7 @@ under `content.medre.metadata`. It MUST exclude provider-native and custom
 metadata except an explicitly selected, bounded source-native fact projection.
 `bridge_context.source.native_facts` MAY carry one adapter-owned namespace and
 up to twelve named scalar fields from its explicit `public_facts` map. The term
-*facts* denotes adapter-reported observations/claims, **not** independently
+_facts_ denotes adapter-reported observations/claims, **not** independently
 verified truth: the receiving adapter MUST NOT infer authentication, identity,
 relation-binding authority, or routing permission from these values alone. Names
 MUST match the published schema; strings are limited to 256 characters, integers

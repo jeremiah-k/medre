@@ -549,7 +549,6 @@ async def test_preview_to_dict_is_json_safe_and_complete(temp_storage) -> None:
 
 def _preview_schema() -> dict[str, Any]:
     import json
-
     from pathlib import Path
 
     directory = Path(__file__).parents[1] / "docs" / "schemas"

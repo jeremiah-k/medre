@@ -66,7 +66,6 @@ reject formatting errors, including with unvalidated configuration. The legacy
 `format_relay_prefix` retains its original lexical behavior.
 Sender-label selection MUST NOT change solely because a message is a reaction.
 
-
 ## Shared rendering policy API
 
 Providers use `compose_relation_text` from `medre.core.rendering.relations`

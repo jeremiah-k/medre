@@ -1973,12 +1973,16 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 ## 10. Pre-Release Database Policy
 
-MEDRE has not yet established a supported database baseline. The schema version is frozen at `1` while the unshipped development catalog can still change. Strict identity validation rejects unsupported
-development state. This does **not** prohibit forward-only additive migrations
-after a stable, explicitly supported schema baseline is declared.
+The tagged 0.1.0 SQL snapshot identifies the released catalog baseline.
+The schema version remains `1`; that stamp alone does not establish catalog
+compatibility. Writable initialization accepts the exact current catalog and
+only the structurally exact additive predecessors declared below. Unsupported
+development layouts MUST be refused without modifying the database. Changes
+to a published persisted-state contract require the compatibility and versioning
+review described in the [versioning policy](../dev/versioning-policy.md).
 
 Only explicitly allowlisted, structurally exact additive changes MAY be applied
-within one `BEGIN IMMEDIATE` transaction. For this slice those additions are
+within one `BEGIN IMMEDIATE` transaction. The allowlisted changes are
 the nullable `event_content_access_grants.expired_at` field, the independent
 `event_content_collection_log` table, the write-time separated
 `delivery_evidence_diagnostics` table with its `idx_diagnostics_identity`
@@ -2335,12 +2339,13 @@ normalized target_channel, outbox_id, attempt_number)` identity and
     events already have persistent ingress work; protocol-specific loss metadata is
     persisted with the cursor.
 
-11. **Schema metadata identifies the current prerelease shape.**
-    `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
-    until MEDRE reaches a release-tracked milestone. Column-shape validation
-    (Section 10.2) catches prerelease drift without a version bump. No schema
-    transformation or
-    version-bump work is required now.
+11. **Schema metadata and catalog validation jointly identify supported state.**
+    `_medre_schema_meta` stores `schema_version = 1`. The released SQL snapshot
+    identifies the tagged catalog; the version stamp alone does not prove
+    compatibility. Column and structural validation (Sections 10.2–10.3) MUST
+    reject layouts outside the exact current catalog and declared additive
+    predecessors. Published storage changes require compatibility review; the
+    existing allowlist does not authorize arbitrary schema transformations.
 
 12. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core

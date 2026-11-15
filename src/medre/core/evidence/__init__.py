@@ -33,12 +33,6 @@ from medre.core.evidence.failure_taxonomy import (
     resolve_taxon,
     taxon_category,
 )
-from medre.core.evidence.native_ledger_binding import (
-    NativeLedgerBindingAssessment,
-    NativeLedgerBindingReason,
-    NativeLedgerBindingState,
-    assess_native_evidence_ledger_binding,
-)
 from medre.core.evidence.native_evidence import (
     NATIVE_EVIDENCE_RESULT_VALUES,
     NATIVE_EVIDENCE_SCOPE_VALUES,
@@ -51,6 +45,12 @@ from medre.core.evidence.native_evidence import (
     native_evidence_from_deferred_failure,
     native_evidence_from_post_handoff,
     native_evidence_not_observed,
+)
+from medre.core.evidence.native_ledger_binding import (
+    NativeLedgerBindingAssessment,
+    NativeLedgerBindingReason,
+    NativeLedgerBindingState,
+    assess_native_evidence_ledger_binding,
 )
 from medre.core.evidence.retry_outbox import (
     RetryOutboxItemSummary,

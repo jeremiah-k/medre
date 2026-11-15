@@ -12,31 +12,31 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field                               | Type                                   | Default              | Description                                                       |
-| ----------------------------------- | -------------------------------------- | -------------------- | ----------------------------------------------------------------- |
-| `adapter_id`                        | `str`                                  | _(required)_         | Unique adapter instance identifier                                |
-| `connection_type`                   | `Literal["fake","tcp","serial","ble"]` | `"fake"`             | Connection mode                                                   |
-| `host`                              | `str \| None`                          | `None`               | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
-| `port`                              | `int \| None`                          | `None`               | Port for TCP (default 4403)                                       |
-| `serial_port`                       | `str \| None`                          | `None`               | Serial device path (required when `connection_type="serial"`)     |
-| `ble_address`                       | `str \| None`                          | `None`               | BLE MAC address (required when `connection_type="ble"`)           |
-| `origin_label`                      | `str`                                  | `""`                 | Platform-neutral operator-defined source label for relay prefixes |
-| `default_channel`                   | `int`                                  | `0`                  | Default radio channel index for outbound                          |
-| `channel_mapping`                   | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
-| `message_delay_seconds`             | `float`                                | `2.2`                | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
-| `sync_timeout_ms`                   | `int`                                  | `30000`              | Initial wait budget and SDK phase timeout in milliseconds         |
-| `relay_prefix`                      | `str \| None`                         | `None`               | Automatic attribution; `""` disables or supply a template              |
-| `max_text_bytes`                    | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
-| `queue_send_max_attempts`           | `int`                                  | `3`                  | Max send attempts per queued item                                 |
-| `queue_max_size`                    | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |
-| `queue_warning_threshold_pct`       | `float`                                | `75.0`               | Advisory queue-pressure threshold                                 |
-| `queue_critical_threshold_pct`      | `float`                                | `90.0`               | Health-degrading queue-pressure threshold                         |
-| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`               | Initial session-level reconnect delay                             |
-| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`              | Maximum session-level reconnect delay                             |
-| `tcp_liveness_interval_seconds`     | `float`                                | `60.0`               | TCP round-trip probe interval; `0` disables                       |
-| `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`               | TCP round-trip probe timeout                                      |
-| `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |
+| Field                               | Type                                   | Default      | Description                                                       |
+| ----------------------------------- | -------------------------------------- | ------------ | ----------------------------------------------------------------- |
+| `adapter_id`                        | `str`                                  | _(required)_ | Unique adapter instance identifier                                |
+| `connection_type`                   | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                                   |
+| `host`                              | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
+| `port`                              | `int \| None`                          | `None`       | Port for TCP (default 4403)                                       |
+| `serial_port`                       | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`)     |
+| `ble_address`                       | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)           |
+| `origin_label`                      | `str`                                  | `""`         | Platform-neutral operator-defined source label for relay prefixes |
+| `default_channel`                   | `int`                                  | `0`          | Default radio channel index for outbound                          |
+| `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                         |
+| `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                         |
+| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Window after start to suppress stale packets                      |
+| `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds         |
+| `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template         |
+| `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                            |
+| `queue_send_max_attempts`           | `int`                                  | `3`          | Max send attempts per queued item                                 |
+| `queue_max_size`                    | `int`                                  | `1024`       | Hard adapter-local outbound queue capacity                        |
+| `queue_warning_threshold_pct`       | `float`                                | `75.0`       | Advisory queue-pressure threshold                                 |
+| `queue_critical_threshold_pct`      | `float`                                | `90.0`       | Health-degrading queue-pressure threshold                         |
+| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`       | Initial session-level reconnect delay                             |
+| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`      | Maximum session-level reconnect delay                             |
+| `tcp_liveness_interval_seconds`     | `float`                                | `60.0`       | TCP round-trip probe interval; `0` disables                       |
+| `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`       | TCP round-trip probe timeout                                      |
+| `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`  | `"listen_only"` suppresses all radio sends                        |
 
 ### Firmware pacing
 

@@ -1,7 +1,8 @@
 # Compatibility Boundaries
 
-MEDRE is pre-first-release. Internal development shapes are not compatibility
-contracts. This specification distinguishes compatibility that preserves a real
+MEDRE has a published 0.1.0 baseline. The
+[versioning policy](../dev/versioning-policy.md) governs published contracts;
+internal, unpublished development shapes are not compatibility contracts. This specification distinguishes compatibility that preserves a real
 external boundary from tolerance for abandoned MEDRE representations.
 
 ## 1. Policy
@@ -102,7 +103,7 @@ external/runtime shape rather than merely implementing normal capability
 fallback semantics. It excludes temporarily accepted but inert config fields.
 
 The staged compatibility cleanup has landed with the promoted Meshtastic
-adapter revision: the adapter no longer accepts the ``mmrelay_compatibility``
+adapter revision: the adapter no longer accepts the `mmrelay_compatibility`
 config field, and the core adapter-config schema no longer declares it. Remove
 the key from existing Meshtastic source configurations when upgrading; it
 enables no behavior and is no longer part of the accepted configuration

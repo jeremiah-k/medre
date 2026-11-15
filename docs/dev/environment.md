@@ -48,6 +48,35 @@ Finish synchronization before running commands in that environment; do not sync
 and execute against the same `.venv` concurrently. Separate worktrees or projects
 should use separate environments.
 
+## Format and lint
+
+Use the executable launcher committed in this repository. Trunk installs its own
+pinned tool runtimes; no manually installed Black or Ruff is required.
+
+```bash
+.trunk/trunk check --fix --all
+.trunk/trunk check --all --no-fix --ci
+```
+
+The second command is also the required CI quality gate. Use `--all`, not a
+literal `all` path. Run `.trunk/trunk upgrade` only for an intentional toolchain
+refresh. Review the resulting pin diff, apply fixes, and rerun the gate before
+committing. Black's
+Python target, Ruff rules, and import sorting policy live in `pyproject.toml`;
+`.trunk/trunk.yaml` owns tool versions. Renovate reads the inline upstream-source
+annotations on external pins; preserve them when updating the toolchain.
+Avoid invoking a different formatter
+version manually. Strict mypy runs separately in the locked development
+environment because it needs the installed project dependency graph.
+
+Frozen schema bytes are excluded from formatting and verified by the schema
+freeze suite. The committed launcher is an upstream artifact, also excluded
+from reformatting. Local `.zcode/`, `.core/`, tool caches, and quality reports
+are ignored; shared configuration and the executable launcher stay tracked.
+
+See [installation sources](installation-sources.md) for released packages,
+Git revisions, fork checkouts, and the source-channel plan.
+
 ## Install external adapters for development
 
 After the initial core sync, use one command for the SDK-free compatibility set:
@@ -106,7 +135,8 @@ MEDRE options before the adapter name; arguments after `--` belong to pytest.
 Before pytest runs, it verifies the installed core and provider are editable at
 the selected paths; a stale or different installation requires repeating `dev sync`.
 It does not install packages. Select SDKs with `dev sync --sdk` before running SDK
-contracts, for example `dev test matrix -- -m matrix_sdk -v`.
+contracts; for the SDK-only Matrix selection, use
+`dev test matrix -- -m "matrix_sdk and not local_integration and not soak and not live and not hardware and not docker" -v`.
 
 For bench evidence, use `dev test --evidence-dir /private/run ALIAS -- ...` to
 record that adapter's Git path, commit, binary dirty diff and working-tree status

@@ -11,7 +11,7 @@
     "source_documents": [
       "docs/dev/attribution-status.md",
       "docs/ops/live-validation/adapter-campaign.md",
-      "docs/changes/unreleased/325-native-simplex-group-campaign.md"
+      "docs/changes/releases/0.1.0/325-native-simplex-group-campaign.md"
     ],
     "not_qualified": [
       "multipart_restart_continuation",

@@ -24,10 +24,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from medre.core.contracts.adapter import PRODUCER_PRESSURE_OUTCOMES
-from medre.core.contracts.adapter import ProducerPressureReport
-from medre.core.storage.sqlite._pressure import SQLITE_MAX_PRESSURE_COUNT
-from medre.core.storage.sqlite._pressure import pressure_window_start
+from medre.core.contracts.adapter import (
+    PRODUCER_PRESSURE_OUTCOMES,
+    ProducerPressureReport,
+)
+from medre.core.storage.sqlite._pressure import (
+    SQLITE_MAX_PRESSURE_COUNT,
+    pressure_window_start,
+)
 from medre.core.storage.sqlite.schema import _PRESSURE_OUTAGE_GAPS_DDL
 from medre.core.storage.sqlite.schema_validation import execute_ddl
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -192,7 +196,7 @@ async def test_exact_legacy_gap_table_upgrade_preserves_rows(tmp_path: Path) -> 
         assert outage_gap_token_rebuild_applies(db)
         db.execute(
             f"INSERT INTO inbound_pressure_outage_gaps ({', '.join(columns)}) "
-            f"SELECT {', '.join(columns)} FROM inbound_pressure_outage_gaps__old"
+            f"SELECT {', '.join(columns)} FROM inbound_pressure_outage_gaps__old"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
         )
         db.execute("DROP TABLE inbound_pressure_outage_gaps__old")
         db.commit()

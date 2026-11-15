@@ -31,8 +31,8 @@ from medre.core.engine.pipeline.retry_plan import reconstruct_retry_delivery_pla
 from medre.core.engine.pipeline.target_delivery import (
     _DISPATCH_START_DEADLINE_ERROR,
     _AdapterDeliveryError,
-    _DispatchStartDeadlineRefused,
     _dispatch_start_fenced_invoke,
+    _DispatchStartDeadlineRefused,
 )
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy

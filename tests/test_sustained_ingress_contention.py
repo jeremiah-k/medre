@@ -37,14 +37,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from medre.core.contracts.adapter import PRODUCER_PRESSURE_OUTCOMES
-from medre.core.contracts.adapter import ProducerPressureReport
+from medre.core.contracts.adapter import (
+    PRODUCER_PRESSURE_OUTCOMES,
+    ProducerPressureReport,
+)
 from medre.core.ingress.types import DurableIngressDeferredError
 from medre.core.storage.sqlite._pressure import pressure_window_start
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
-from medre.core.supervision.capacity import CapacityController
-from medre.core.supervision.capacity import InboundAdmissionRejected
+from medre.core.supervision.capacity import CapacityController, InboundAdmissionRejected
 from medre.runtime import app as _app_module
 from tests.helpers.async_utils import wait_until
 from tests.helpers.inbound_gate import GateAppDouble as _GateApp

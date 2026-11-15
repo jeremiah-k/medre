@@ -307,7 +307,7 @@ async def test_native_meshcore_peer_uses_discovered_device_and_owned_reconnect(
     exec(
         compile(ast.Module(body=[function], type_ignores=[]), "<native-peer>", "exec"),
         namespace,
-    )
+    )  # nosec B102 # Execute the repository-owned peer function under test.
     assert await namespace["_connect"]() is client
     assert calls == [("owned-peer", {"timeout": 8.0, "adapter": "hci-test"})]
 
