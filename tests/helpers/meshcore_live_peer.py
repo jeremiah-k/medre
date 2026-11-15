@@ -34,8 +34,21 @@ async def _connect():
             subprocess.run(["bluetoothctl", "disconnect", ADDRESS], capture_output=True)
             await asyncio.sleep(1.5)
         try:
+            # Match the real adapter's pre-discovered-device path. Address-only
+            # factories can select a stale/wrong controller on multi-HCI hosts.
+            import os
+            from bleak import BleakScanner
+            scan = {"timeout": 8.0}
+            if os.environ.get("MESHCORE_PEER_BLE_ADAPTER"):
+                scan["adapter"] = os.environ["MESHCORE_PEER_BLE_ADAPTER"]
+            device = await BleakScanner.find_device_by_address(ADDRESS, **scan)
+            if device is None:
+                raise RuntimeError("owned MeshCore peer was not advertised")
             mc = await asyncio.wait_for(
-                MeshCore.create_ble(address=ADDRESS, default_timeout=10),
+                MeshCore.create_ble(
+                    address=ADDRESS, device=device, auto_reconnect=False,
+                    default_timeout=10,
+                ),
                 timeout=25,
             )
             if mc is not None:
@@ -244,6 +257,11 @@ asyncio.run(main())
 
 def run_meshcore_peer(args: list[str], timeout: float) -> dict:
     """Run the native peer script once and return its JSON payload."""
+    arity = {"probe": 2, "sendn": 3, "sendts": 5, "n6probe": 4, "listen": 5}
+    if not args or args[0] not in arity or len(args) != arity[args[0]]:
+        raise ValueError(
+            "MeshCore peer requires mode, BLE address and mode-specific arguments"
+        )
     proc = subprocess.run(
         [sys.executable, "-c", _PEER_SCRIPT, *args],
         capture_output=True,

@@ -285,3 +285,25 @@ Historical campaigns and their reported receipts remain recorded in
 `docs/dev/native-evidence-index.json` as a frozen baseline; they do not
 qualify the current pins, and this page's rows are the only current-pin
 evidence map.
+
+### Keep live-peer observation off the runtime event loop
+
+When a test owns an asyncio MEDRE runtime, use `async_peer_context` from
+`tests.helpers.live_peer_common` for synchronous peer listeners. Their startup,
+readiness handshake and teardown wait on child processes. Run positive packet
+waits through `await asyncio.to_thread(listener.packets_until, predicate, timeout)`.
+The synchronous polling helper rejects a positive wait from a running event loop;
+a zero-time snapshot remains valid. Blocking the loop can starve native submission
+until its lease expires and make a harness defect look like a radio failure.
+
+Use one bounded startup gate and one-message proof before a batch or role reversal.
+Record timeout stages and event-loop lag separately from native/RF evidence. Pass
+mode, BLE address and mode-specific arguments to `run_meshcore_peer`; malformed
+calls fail before opening a hardware client. Longer observation windows do not
+repair an event-loop stall or a malformed peer command.
+
+On multi-controller Bluetooth hosts, select the owned peer controller with
+`MESHCORE_PEER_BLE_ADAPTER` (for example, `hci1`). The peer discovers that device
+before connecting, as the production adapter does. Re-enumerate controllers after
+unplugging one: the remaining controller need not be named `hci0`. Use stable
+`/dev/serial/by-id` paths for serial radios across power cycles.

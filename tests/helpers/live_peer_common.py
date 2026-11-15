@@ -13,16 +13,50 @@ and nothing else.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
+import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractContextManager, asynccontextmanager
 from pathlib import Path
 from threading import Event
-from typing import TextIO
+from typing import TextIO, TypeVar
 
 _POLL_WAIT = Event()
+_PeerT = TypeVar("_PeerT")
+
+
+@asynccontextmanager
+async def async_peer_context(
+    listener: AbstractContextManager[_PeerT],
+) -> AsyncIterator[_PeerT]:
+    """Keep native peer startup/teardown off the runtime's event loop.
+
+    Cancellation during startup still waits for the bounded synchronous owner
+    to finish, then releases its child before returning control to the caller.
+    """
+    startup = asyncio.create_task(asyncio.to_thread(listener.__enter__))
+    try:
+        peer = await asyncio.shield(startup)
+    except asyncio.CancelledError:
+        try:
+            await startup
+        except Exception:
+            # A failed __enter__ owns its cleanup; preserve cancellation.
+            pass
+        else:
+            await asyncio.to_thread(listener.__exit__, None, None, None)
+        raise
+    try:
+        yield peer
+    except BaseException:
+        if not await asyncio.to_thread(listener.__exit__, *sys.exc_info()):
+            raise
+    else:
+        await asyncio.to_thread(listener.__exit__, None, None, None)
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -49,6 +83,16 @@ def poll_packets_until(
     expressed with the same shape as positive evidence. The wait is bounded by
     the remaining deadline rather than an unconditional fixed sleep.
     """
+    if timeout > 0:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(
+                "Blocking peer observation on the event loop; "
+                "use await asyncio.to_thread(listener.packets_until, ...)"
+            )
     deadline = time.monotonic() + timeout
     packets: list[dict] = []
     while True:

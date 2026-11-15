@@ -45,6 +45,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.async_utils import wait_until
+from tests.helpers.live_peer_common import async_peer_context
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
     bounded,
@@ -551,7 +552,7 @@ async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
 
         # The loopback: own event arrives via sync while MC-B listens to
         # prove nothing fans back out over the radio.
-        with _McListener(45) as mc_listener:
+        async with async_peer_context(_McListener(45)) as mc_listener:
             loopback_delta = await _wait_self_suppressed_at_least(
                 app, baseline, 1, 30.0
             )
