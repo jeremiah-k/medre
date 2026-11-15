@@ -42,6 +42,7 @@ from tests.helpers.live_harness import (
     bounded,
     launch_bounded,
 )
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
@@ -342,21 +343,24 @@ class _FarListeners:
                     pass
         self._mt = self._mc = self._lx = None
 
-    def captured_texts(self, tag: str, nonce: str) -> list[str]:
+    async def captured_texts(self, tag: str, nonce: str) -> list[str]:
         if tag == "mt" and self._mt is not None:
-            packets = self._mt.packets_until(
+            packets = await async_packets_until(
+                self._mt.packets_until,
                 lambda rows: any(nonce in (row.get("text") or "") for row in rows),
                 _CAPTURE_WINDOWS[tag],
             )
             return [row.get("text") or "" for row in packets]
         if tag == "mc" and self._mc is not None:
-            packets = self._mc.packets_until(
+            packets = await async_packets_until(
+                self._mc.packets_until,
                 lambda rows: any(nonce in (row.get("text") or "") for row in rows),
                 _CAPTURE_WINDOWS[tag],
             )
             return [row.get("text") or "" for row in packets]
         if tag == "lx" and self._lx is not None:
-            packets = self._lx.packets_until(
+            packets = await async_packets_until(
+                self._lx.packets_until,
                 lambda rows: any(nonce in (row.get("content") or "") for row in rows),
                 _CAPTURE_WINDOWS[tag],
             )
@@ -429,7 +433,7 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
             try:
                 # Far listeners armed BEFORE the send (capture window
                 # covers send + relay + RF propagation).
-                with _FarListeners(_FAR_OF[tag]) as far:
+                async with async_peer_context(_FarListeners(_FAR_OF[tag])) as far:
                     await _send_from_peer(tag, nonce)
 
                     # In-run transport evidence first (bounded): canonical
@@ -450,12 +454,14 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
                     # Far-side RF oracle: the nonce (or its key for the
                     # unicode LX body) lands on both far peers.
                     far_tags = _FAR_OF[tag]
-                    captured = await asyncio.gather(
-                        *(
-                            asyncio.to_thread(far.captured_texts, far_tag, nonce)
+                    # Structured concurrency: a failing capture cancels and
+                    # joins its sibling before either listener is released.
+                    async with asyncio.TaskGroup() as group:
+                        captures = [
+                            group.create_task(far.captured_texts(far_tag, nonce))
                             for far_tag in far_tags
-                        )
-                    )
+                        ]
+                    captured = [capture.result() for capture in captures]
                     for far_tag, texts in zip(far_tags, captured, strict=True):
                         if not any(nonce in t for t in texts):
                             failures.append(
@@ -465,6 +471,14 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
                             )
             except (AssertionError, subprocess.TimeoutExpired) as exc:
                 failures.append(f"{tag} leg: {exc}")
+            except ExceptionGroup as exc:
+                expected, unexpected = exc.split(
+                    (AssertionError, subprocess.TimeoutExpired)
+                )
+                if unexpected is not None:
+                    raise unexpected
+                if expected is not None:
+                    failures.append(f"{tag} leg: {expected.exceptions!r}")
 
         for tag, nonce in nonces.items():
             print(f"LEG-NONCE {tag} {nonce}", flush=True)

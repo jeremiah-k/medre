@@ -43,6 +43,7 @@ import pytest
 
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_live_peer import LxmfPeerListener as _PeerListener
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _peer
@@ -339,7 +340,7 @@ class TestLxmfPairIngress:
 
             # Quiet window with an armed peer: no RF traffic may arrive.
             if not _QUICK:
-                with _PeerListener(12.0):
+                async with async_peer_context(_PeerListener(12.0)):
                     await asyncio.sleep(12.0)
                 assert await _event_count(app) == before, "stale admission"
 
@@ -407,11 +408,13 @@ class TestLxmfPairEgress:
             # absent announce.
             nonce = _nonce("N3")
             packet_id = uuid.uuid4().hex
-            with _PeerListener(
-                _RECALL_TIMEOUT
-                + _RECEIPT_TIMEOUT
-                + _DELIVERY_TIMEOUT
-                + _LISTENER_MARGIN
+            async with async_peer_context(
+                _PeerListener(
+                    _RECALL_TIMEOUT
+                    + _RECEIPT_TIMEOUT
+                    + _DELIVERY_TIMEOUT
+                    + _LISTENER_MARGIN
+                )
             ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
@@ -436,7 +439,8 @@ class TestLxmfPairEgress:
                         break
                     await asyncio.sleep(0.5)
                 assert receipts, "no durable delivery receipt appeared"
-                rx = peer.packets_until(
+                rx = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: any(nonce in (p.get("content") or "") for p in ps),
                     _DELIVERY_TIMEOUT,
                 )
@@ -470,11 +474,13 @@ class TestLxmfPairEgress:
             normal_msg = _nonce("N4-ok")
             cases = [unicode_msg, newline_msg, big_msg, normal_msg]
             window = _DELIVERY_TIMEOUT + len(cases) * (_PACING_SECONDS + 8.0)
-            with _PeerListener(
-                _RECALL_TIMEOUT
-                + len(cases) * (_PACING_SECONDS + 1.0)
-                + window
-                + _LISTENER_MARGIN
+            async with async_peer_context(
+                _PeerListener(
+                    _RECALL_TIMEOUT
+                    + len(cases) * (_PACING_SECONDS + 1.0)
+                    + window
+                    + _LISTENER_MARGIN
+                )
             ) as peer:
                 assert await _await_peer_recall(
                     app, _PEER_DEST()
@@ -489,7 +495,8 @@ class TestLxmfPairEgress:
                         )
                     )
                     await asyncio.sleep(_PACING_SECONDS + 1.0)
-                received = peer.packets_until(
+                received = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: all(
                         key in "".join(p.get("content") or "" for p in ps)
                         for key in ("N4-uni", "N4-nl", "N4-big", "N4-ok")
@@ -666,7 +673,9 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
         fake = app.adapters["lab_src"]
         # Establish the peer identity before the interruption; this test
         # must also work alone with an empty path cache.
-        with _PeerListener(_RECALL_TIMEOUT + _LISTENER_MARGIN):
+        async with async_peer_context(
+            _PeerListener(_RECALL_TIMEOUT + _LISTENER_MARGIN)
+        ):
             assert await _await_peer_recall(app, _PEER_DEST())
         # -- N6/N7 RF-off negative: cut VBUS to the PEER radio via the
         # mapped hub port (physical power loss — labelled accurately).
@@ -743,7 +752,9 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
         # pre-off nonce.  Then a fresh nonce proves the adapter stays
         # usable after the outage.
         restored = _nonce("N6-positive")
-        with _PeerListener(_RECALL_TIMEOUT + 300.0 + 120.0 + _LISTENER_MARGIN) as peer:
+        async with async_peer_context(
+            _PeerListener(_RECALL_TIMEOUT + 300.0 + 120.0 + _LISTENER_MARGIN)
+        ) as peer:
             assert await _await_peer_recall(
                 app, _PEER_DEST()
             ), "MEDRE runtime cannot recall the peer identity after restore"
@@ -755,7 +766,8 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
                     packet_id=950_002,
                 )
             )
-            rx = peer.packets_until(
+            rx = await async_packets_until(
+                peer.packets_until,
                 lambda ps: any(
                     probe in (p.get("content") or "")
                     or restored in (p.get("content") or "")
@@ -772,7 +784,8 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
             if not got_restored:
                 # Require a fresh delivery independently of the queued
                 # pre-outage message to prove the adapter remains usable.
-                rx2 = peer.packets_until(
+                rx2 = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: any(restored in (p.get("content") or "") for p in ps),
                     120.0,
                 )

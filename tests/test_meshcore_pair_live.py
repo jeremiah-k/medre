@@ -40,6 +40,11 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import (
+    async_packets_until,
+    async_peer_call,
+    async_peer_context,
+)
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _peer
 from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
@@ -269,8 +274,8 @@ class TestMeshCorePairIngress:
             )
             before = await _event_count(app)
             if not _QUICK:
-                with _PeerListener(10.0) as quiet_peer:
-                    received = await asyncio.to_thread(quiet_peer.packets)
+                async with async_peer_context(_PeerListener(10.0)) as quiet_peer:
+                    received = await async_peer_call(quiet_peer.packets)
                 assert received == [], "unexpected RF traffic in quiet window"
                 assert await _event_count(app) == before, "stale admission during quiet"
 
@@ -367,12 +372,13 @@ class TestMeshCorePairEgress:
             packet = make_meshtastic_text_packet(
                 text=nonce, sender="!peer0001", channel=0
             )
-            with _PeerListener(_RECEIPT_TIMEOUT + 20) as peer:
+            async with async_peer_context(_PeerListener(_RECEIPT_TIMEOUT + 20)) as peer:
                 await fake.simulate_inbound(packet)
                 event = fake.inbound_events[-1]
                 receipts = await _await_receipts(app.storage, event.event_id)
                 assert receipts, "no durable delivery receipt appeared"
-                peer_out = peer.packets_until(
+                peer_out = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: any(nonce in (p.get("text") or "") for p in ps),
                     45.0,
                 )
@@ -407,7 +413,7 @@ class TestMeshCorePairEgress:
             events: dict[str, str] = {}
             pid = 800_000
             window = len(cases) * (_TX_PACING_SECONDS + 1.0) + 30.0
-            with _PeerListener(window) as peer:
+            async with async_peer_context(_PeerListener(window)) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)
                     packet = make_meshtastic_text_packet(
@@ -417,7 +423,8 @@ class TestMeshCorePairEgress:
                     event = fake.inbound_events[-1]
                     events[text] = event.event_id
                     await asyncio.sleep(_TX_PACING_SECONDS + 1.0)
-                received = peer.packets_until(
+                received = await async_packets_until(
+                    peer.packets_until,
                     lambda ps: all(
                         key in "".join(p.get("text") or "" for p in ps)
                         for key in ("N4-uni", "N4-nl", "N4-long", "N4-ok")

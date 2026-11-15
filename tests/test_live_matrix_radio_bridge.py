@@ -45,12 +45,12 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.async_utils import wait_until
-from tests.helpers.live_peer_common import async_peer_context
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
     bounded,
     launch_bounded,
 )
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
@@ -559,7 +559,7 @@ async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
             # Negative evidence with an early-exit predicate: if a fan-out
             # packet appears the listener returns immediately; otherwise it
             # drains only the bounded observation window.
-            mc_out = await asyncio.to_thread(
+            mc_out = await async_packets_until(
                 mc_listener.packets_until,
                 lambda packets: any(
                     probe in (packet.get("text") or "") for packet in packets

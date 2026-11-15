@@ -76,8 +76,8 @@ from tests.helpers.docker_probe import HAS_DOCKER as _HAS_DOCKER
 from tests.helpers.docker_probe import (
     docker_daemon_reachable as _docker_daemon_reachable,
 )
-from tests.helpers.live_peer_common import async_peer_context
 from tests.helpers.live_harness import bounded
+from tests.helpers.live_peer_common import async_packets_until, async_peer_context
 from tests.helpers.lxmf_peer_timing import (
     delivery_timeout_seconds,
     send_timeout_seconds,
@@ -483,7 +483,7 @@ async def _observe_or_resend(
     assertion — the nonce is the contract, not the packet id.
     """
     for attempt in range(1, attempts + 1):
-        packets = await asyncio.to_thread(
+        packets = await async_packets_until(
             listener.packets_until,
             lambda pkts: _observer_text(pkts, nonce) is not None,
             timeout,
@@ -1135,9 +1135,9 @@ async def test_matrix_room_relay_three_transport(tmp_path: Path) -> None:
         # Two sequential observes (the short fan-out on each listener),
         # each up to three bounded attempts; the window must cover both.
         window = 2 * _MC_OBSERVE_TIMEOUT * _OBSERVE_ATTEMPTS + 120
-        with (
-            _MtListener(window) as mt_listener,
-            _McListener(window) as mc_listener,
+        async with (
+            async_peer_context(_MtListener(window)) as mt_listener,
+            async_peer_context(_McListener(window)) as mc_listener,
         ):
 
             async def _room_resend(text: str) -> None:
@@ -1322,7 +1322,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # --- MT → LXMF: observed at the peer, attribution contractual.
             mt_nonce = _nonce("L-MT")
             await _mt_send([mt_nonce])
-            lx_packets = await asyncio.to_thread(
+            lx_packets = await async_packets_until(
                 lx_listener.packets_until,
                 lambda pkts: _lx_observer_text(pkts, mt_nonce) is not None,
                 _LX_OBSERVE_TIMEOUT,
@@ -1349,7 +1349,7 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             # --- MC → LXMF: same contract, board prefix inside the payload.
             mc_nonce = _nonce("L-MC")
             await _mc_send([mc_nonce])
-            lx_packets = await asyncio.to_thread(
+            lx_packets = await async_packets_until(
                 lx_listener.packets_until,
                 lambda pkts: _lx_observer_text(pkts, mc_nonce) is not None,
                 _LX_OBSERVE_TIMEOUT,
@@ -1402,9 +1402,9 @@ async def test_lxmf_fourth_transport_relay(tmp_path: Path) -> None:
             + 2 * (_OBSERVE_ATTEMPTS - 1) * _LX_SEND_TIMEOUT
             + 60
         )
-        with (
-            _MtListener(window) as mt_listener,
-            _McListener(window) as mc_listener,
+        async with (
+            async_peer_context(_MtListener(window)) as mt_listener,
+            async_peer_context(_McListener(window)) as mc_listener,
         ):
             sent_lx = await asyncio.to_thread(
                 _lx_peer,
