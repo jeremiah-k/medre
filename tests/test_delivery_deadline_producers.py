@@ -750,12 +750,12 @@ async def test_naive_frozen_plan_deadline_refuses_adoption(tmp_path) -> None:
 
 import dataclasses  # noqa: E402
 
+from medre.core.engine.pipeline import PipelineRunner  # noqa: E402
+from medre.core.routing import Router  # noqa: E402
 from medre.core.storage.content_ceiling import (  # noqa: E402
     CONTENT_CEILING_MAX_AGE_SECONDS as _CORE_CEILING_BOUND,
 )
 from medre.core.storage.content_ceiling import ContentCeilingPolicy  # noqa: E402
-from medre.core.engine.pipeline import PipelineRunner  # noqa: E402
-from medre.core.routing import Router  # noqa: E402
 from medre.runtime.builder import RuntimeBuilder  # noqa: E402
 from tests.helpers.pipeline import (  # noqa: E402
     make_event,

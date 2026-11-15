@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.evidence.native_evidence import NativeEvidenceObservation
 from medre.core.evidence.native_ledger_binding import (
     assess_native_evidence_ledger_binding,
 )
-from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 
 from medre.core.storage.sqlite._prerelease_migrate import (
-    known_stripped_diagnostic_view_form,
     _DIAGNOSTIC_COLUMN_ANCHORS,
+    known_stripped_diagnostic_view_form,
 )
 from medre.core.storage.sqlite.connection import sync_open
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA

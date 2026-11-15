@@ -54,9 +54,7 @@ from medre.core.observability.exact_target import (
     preview_exact_target,
 )
 from medre.core.observability.metrics import Diagnostician
-from medre.core.planning.delivery_plan import (
-    stable_delivery_plan_id as _stable_plan_id,
-)
+from medre.core.planning.delivery_plan import stable_delivery_plan_id as _stable_plan_id
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import (
     DeliveryOutboxItem,

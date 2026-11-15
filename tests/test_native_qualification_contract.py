@@ -10,7 +10,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 def _workflow(name: str):
     return yaml.load(
         (_ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader
-    )
+    )  # nosec B506 # BaseLoader constructs strings, not arbitrary Python objects.
 
 
 def test_meshcore_replay_is_in_the_required_local_job():

@@ -70,7 +70,7 @@ jobs:
   quality:
     name: Python quality and whitespace
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,8 +80,13 @@ jobs:
         with:
           version-file: .tool-versions
           python-version: "3.13"
-      - run: uvx --from ruff==0.17.3 ruff check src tests scripts
-      - run: uvx --from black==26.10.1 black --check --target-version py311 src tests scripts
+      - name: Cache Trunk tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trunk
+          key: trunk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.trunk/trunk.yaml', '.trunk/trunk') }}
+      - name: Check project quality
+        run: .trunk/trunk check --all --no-fix --ci
       - run: git show --format= --check HEAD
       - name: Check core source with strict mypy
         run: |

@@ -118,6 +118,7 @@ def test_renovate_scans_every_guarded_fallback_site() -> None:
     managers = {
         item["depNameTemplate"]: item["managerFilePatterns"]
         for item in config["customManagers"]
+        if item.get("datasourceTemplate") == "docker"
     }
     guarded_sites = {
         "matrixdotorg/synapse": [

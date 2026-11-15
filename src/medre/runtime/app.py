@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 from medre.adapter_registry import get_adapter_spec
 from medre.core.contracts.adapter import (
-    AdapterInfo,
     PRODUCER_PRESSURE_OUTCOMES,
+    AdapterInfo,
     ProducerPressureReport,
 )
 from medre.core.delivery_authority import effective_generation
@@ -53,11 +53,11 @@ from medre.core.supervision.supervision import (
     runtime_supervision_snapshot,
 )
 from medre.runtime.boot_summary import BootSummary, build_boot_summary
+from medre.runtime.collection import ContentCollectionWorkerState
 from medre.runtime.errors import (
     RuntimeShutdownError,
     RuntimeStartupError,
 )
-from medre.runtime.collection import ContentCollectionWorkerState
 from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.health_reporting import observed_health, reported_health_snapshot
 from medre.runtime.retry import RetryWorkerState
@@ -68,7 +68,6 @@ if TYPE_CHECKING:
     from medre.core.contracts.adapter import AdapterContract
     from medre.core.engine.pipeline import PipelineRunner
     from medre.core.engine.replay.engine import ReplayEngine
-    from medre.runtime.collection import ContentCollectionWorker
     from medre.core.events.bus import EventBus
     from medre.core.observability.metrics import Diagnostician
     from medre.core.planning.fallback_resolution import FallbackResolver
@@ -80,6 +79,7 @@ if TYPE_CHECKING:
     from medre.core.storage.sqlite.storage import SQLiteStorage
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.builder import AdapterBuildFailure
+    from medre.runtime.collection import ContentCollectionWorker
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
     from medre.runtime.typing import TypingRelay
@@ -1846,9 +1846,7 @@ class MedreApp:
             and self.config.content_retention.mode == "relay-only"
         ):
             from medre.core.storage.content_retention import ContentRetentionPolicy
-            from medre.runtime.collection import (
-                ContentCollectionWorker as _CCW,
-            )
+            from medre.runtime.collection import ContentCollectionWorker as _CCW
 
             retention = self.config.content_retention
             self._collection_worker = _CCW(

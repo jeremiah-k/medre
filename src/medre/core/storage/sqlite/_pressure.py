@@ -73,7 +73,7 @@ ON CONFLICT(window_start, source, outcome) DO UPDATE SET
     END,
     first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
     last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
-"""
+"""  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
 
 
 def pressure_window_start(unix_seconds: int) -> int:

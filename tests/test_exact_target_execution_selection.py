@@ -16,10 +16,8 @@ from typing import Any
 
 import pytest
 
-from medre.core.delivery_authority import DeliveryIdentity
 import medre.core.engine.replay.delivery as replay_delivery
-from medre.core.observability.metrics import Diagnostician
-
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.replay.delivery import (
     _EXACT_TARGET_REFUSAL_CATEGORIES,
     _ExactTargetRefusal,
@@ -31,10 +29,12 @@ from medre.core.observability.exact_target import (
     ExactTargetSelection,
     preview_exact_target,
 )
-from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
+from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
-    stable_delivery_plan_id as _stable_plan_id,
+    DeliveryPlan,
+    DeliveryStrategy,
 )
+from medre.core.planning.delivery_plan import stable_delivery_plan_id as _stable_plan_id
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import (
     OutboxDispatchSnapshotWrite,

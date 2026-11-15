@@ -48,6 +48,31 @@ Finish synchronization before running commands in that environment; do not sync
 and execute against the same `.venv` concurrently. Separate worktrees or projects
 should use separate environments.
 
+## Format and lint
+
+Use the executable launcher committed in this repository. Trunk installs its own
+pinned tool runtimes; no manually installed Black or Ruff is required.
+
+```bash
+.trunk/trunk check --fix --all
+.trunk/trunk check --all --no-fix --ci
+```
+
+The second command is also the required CI quality gate. Use `--all`, not a
+literal `all` path. Run `.trunk/trunk upgrade` to update CLI and tool pins, review
+the resulting diff, apply fixes, and rerun the gate before committing. Black's
+Python target, Ruff rules, and import sorting policy live in `pyproject.toml`;
+`.trunk/trunk.yaml` owns tool versions. Renovate reads the inline upstream-source
+annotations on external pins; preserve them when updating the toolchain.
+Avoid invoking a different formatter
+version manually. Strict mypy runs separately in the locked development
+environment because it needs the installed project dependency graph.
+
+Frozen schema bytes are excluded from formatting and verified by the schema
+freeze suite. The committed launcher is an upstream artifact, also excluded
+from reformatting. Local `.zcode/`, `.core/`, tool caches, and quality reports
+are ignored; shared configuration and the executable launcher stay tracked.
+
 ## Install external adapters for development
 
 After the initial core sync, use one command for the SDK-free compatibility set:

@@ -7,10 +7,10 @@ or observation licenses another send.
 
 ## Current proof boundaries
 
-| Scenario | Observer | Claim | CI policy |
-| --- | --- | --- | --- |
+| Scenario             | Observer                                                                                           | Claim                                                                                                                                      | CI policy                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | MeshCore core replay | Provider-owned deterministic TCP companion endpoint, independently reading real SDK command frames | Selected-channel protocol acceptance, exact ledger binding, sibling exclusion; single/multipart uncertainty remains blocked across restart | Required MeshCore local-integration job; 15 executed cases and two positive records |
-| LXMF core replay | Separate raw-SDK recipient process, also its loopback propagation node | One core-authorized replay observed by that local recipient after clean teardown | Opt-in native-qualification workflow; one executed case and one positive record |
+| LXMF core replay     | Separate raw-SDK recipient process, also its loopback propagation node                             | One core-authorized replay observed by that local recipient after clean teardown                                                           | Opt-in native-qualification workflow; one executed case and one positive record     |
 
 MeshCore's `local_integration` marker and typed tier do not promote its modeled
 endpoint to a physical companion: runtime evidence remains conformance. Channel

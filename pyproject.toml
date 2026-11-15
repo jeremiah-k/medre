@@ -101,6 +101,13 @@ ignore = [
   "ASYNC250",
 ]
 
+[tool.black]
+target-version = ["py311"]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+
 [tool.mypy]
 mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
 python_version = "3.11"

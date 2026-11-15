@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from medre.core.evidence.native_evidence import NativeEvidenceObservation
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.evidence.native_evidence import NativeEvidenceObservation
 from medre.core.storage.backend import StorageBackend
 
 NativeLedgerBindingState = Literal["current", "historical", "unbound"]

@@ -76,8 +76,8 @@ from typing import Any
 
 import pytest
 
-from tests.helpers.lxmf_scenario import run_owned_scenario
 from scripts.ci.native_qualification import provider_provenance
+from tests.helpers.lxmf_scenario import run_owned_scenario
 
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF

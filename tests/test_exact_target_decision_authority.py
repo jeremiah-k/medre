@@ -23,8 +23,8 @@ from medre.core.observability.exact_target import (
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite._operator_decision import (
     EXACT_TARGET_DECISION_ACTIONS,
-    RESUME_SCHEDULED_ACTION,
     RESOLVE_UNCERTAIN_ACTION,
+    RESUME_SCHEDULED_ACTION,
     CancelUnstartedDecision,
     ExactTargetDecision,
     OperatorDecisionRefused,

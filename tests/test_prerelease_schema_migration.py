@@ -15,11 +15,11 @@ from pathlib import Path
 
 import pytest
 
+import medre.core.storage.sqlite._prerelease_migrate as _prerelease_migrate
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
     StorageInitializationError,
 )
-import medre.core.storage.sqlite._prerelease_migrate as _prerelease_migrate
 from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
     known_decision_table_forms,
@@ -164,7 +164,11 @@ def _table_counts(db_path: Path) -> dict[str, int]:
             )
         ]
         return {
-            name: int(raw.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0])
+            name: int(
+                raw.execute(
+                    f"SELECT COUNT(*) FROM {name}"  # nosec B608 # Fixture tables.
+                ).fetchone()[0]
+            )
             for name in names
         }
     finally:

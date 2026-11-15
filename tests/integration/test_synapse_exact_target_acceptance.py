@@ -55,16 +55,14 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import AsyncIterator
-from pathlib import Path
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 import msgspec
 import pytest
-
-from scripts.ci.native_qualification import qualification_rows
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
@@ -77,7 +75,9 @@ from medre.core.engine.pipeline.retry_plan import OutboxDispatchContext
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest, ReplayResult
 from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.events.bus import EventBus
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.evidence.native_evidence import (
     NativeEvidenceObservation,
     NativeEvidenceResult,
@@ -85,8 +85,6 @@ from medre.core.evidence.native_evidence import (
 from medre.core.evidence.native_ledger_binding import (
     assess_native_evidence_ledger_binding,
 )
-from medre.core.events.bus import EventBus
-from medre.core.events.metadata import RoutingMetadata
 from medre.core.observability.exact_target import (
     ExactTargetSelection,
     preview_exact_target,
@@ -107,6 +105,7 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from scripts.ci.native_qualification import qualification_rows
 from tests.helpers.synapse_observation import wait_for_body_events
 
 from .conftest import (

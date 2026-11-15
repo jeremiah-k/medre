@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 
+import medre.core.storage.sqlite._content_identity as _content_identity
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
@@ -55,7 +56,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-import medre.core.storage.sqlite._content_identity as _content_identity
 from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,

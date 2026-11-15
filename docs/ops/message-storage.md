@@ -51,12 +51,12 @@ exact boundaries.
 
 ### Operator commands and live-storage safety
 
-| Command                                   | Mutates storage                                     | Safe against a live database |
-| ----------------------------------------- | --------------------------------------------------- | ---------------------------- |
-| `medre storage retention status`          | No (read-only)                                      | Yes                          |
-| `medre storage retention activate --yes`  | Opens a new activation epoch (one small transaction) | Yes                          |
-| `medre storage collect` (no `--apply`)    | No (read-only preview)                              | Yes                          |
-| `medre storage collect --apply --yes`     | Collects eligible text                              | No — stopped bridge storage only |
+| Command                                  | Mutates storage                                      | Safe against a live database     |
+| ---------------------------------------- | ---------------------------------------------------- | -------------------------------- |
+| `medre storage retention status`         | No (read-only)                                       | Yes                              |
+| `medre storage retention activate --yes` | Opens a new activation epoch (one small transaction) | Yes                              |
+| `medre storage collect` (no `--apply`)   | No (read-only preview)                               | Yes                              |
+| `medre storage collect --apply --yes`    | Collects eligible text                               | No — stopped bridge storage only |
 
 `medre storage retention status` reports the latest activation epoch, the
 worker heartbeat with an honest freshness observation, the number of
@@ -88,10 +88,10 @@ retained, and only eligible settled ordinary text admitted after activation
 is collected. The remaining profile choices are still being designed — they
 are proposed choices, not configuration settings you can enable today:
 
-| Choice         | What it would keep after delivery                                                        | Trade-off                                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Recent context | A bounded excerpt window for replies, without a full message archive.                    | Some recent text remains available for useful fallback quotes.                                              |
-| History        | Message content for an explicit period, plus bounded reply context.                      | More history and replay capability, with more retained content.                                             |
+| Choice         | What it would keep after delivery                                     | Trade-off                                                       |
+| -------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Recent context | A bounded excerpt window for replies, without a full message archive. | Some recent text remains available for useful fallback quotes.  |
+| History        | Message content for an explicit period, plus bounded reply context.   | More history and replay capability, with more retained content. |
 
 The planned controls also distinguish **delivery expiry**—stop trying to send an
 old message—from **content retention**—stop keeping its text. A message already

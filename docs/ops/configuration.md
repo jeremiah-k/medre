@@ -292,22 +292,22 @@ adapters:
       encryption_mode: plaintext
 ```
 
-| Field                          | Type           | Default       | Description                                                                                                                                                 |
-| ------------------------------ | -------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`                      | bool           | `true`        | Whether this adapter instance is active.                                                                                                                    |
-| `adapter_kind`                 | string         | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                                                                                      |
-| `adapter_id`                   | string         | instance name | Unique identifier. Defaults to the mapping key.                                                                                                             |
-| `homeserver`                   | string         | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                                                                                             |
-| `user_id`                      | string         | _(required)_  | Fully-qualified Matrix user ID.                                                                                                                             |
-| `access_token`                 | string         | `""`          | Access token. Treat as a secret.                                                                                                                            |
-| `room_allowlist`               | list of string | `None`        | Room IDs to accept. `None` means all rooms.                                                                                                                 |
-| `metadata_embedding_mode`      | string         | `"safe"`      | How metadata is embedded in messages.                                                                                                                       |
-| `sync_timeout_ms`              | int            | `30000`       | Long-polling sync timeout in milliseconds.                                                                                                                  |
-| `initial_sync_timeout_seconds` | number         | `45.0`        | Wait after room joins for the first acknowledged sync. `0` disables waiting; the complete start remains bounded by `runtime.adapter_start_timeout_seconds`. |
-| `startup_backlog_suppress_seconds` | number     | `60.0`        | Tolerance before the adapter start baseline: inbound events with an older origin server timestamp are startup history and never forward on any ingress path. `0` disables the suppression. |
-| `encryption_mode`              | string         | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                                                                                           |
-| `require_encrypted_rooms`      | bool           | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`.                                                                   |
-| `relay_prefix`                 | `string or null` | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.                                                                             |
+| Field                              | Type             | Default       | Description                                                                                                                                                                                |
+| ---------------------------------- | ---------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`                          | bool             | `true`        | Whether this adapter instance is active.                                                                                                                                                   |
+| `adapter_kind`                     | string           | `"real"`      | `"real"` builds the live adapter; `"fake"` builds a simulated adapter.                                                                                                                     |
+| `adapter_id`                       | string           | instance name | Unique identifier. Defaults to the mapping key.                                                                                                                                            |
+| `homeserver`                       | string           | _(required)_  | Matrix homeserver URL. Must start with `http://` or `https://`.                                                                                                                            |
+| `user_id`                          | string           | _(required)_  | Fully-qualified Matrix user ID.                                                                                                                                                            |
+| `access_token`                     | string           | `""`          | Access token. Treat as a secret.                                                                                                                                                           |
+| `room_allowlist`                   | list of string   | `None`        | Room IDs to accept. `None` means all rooms.                                                                                                                                                |
+| `metadata_embedding_mode`          | string           | `"safe"`      | How metadata is embedded in messages.                                                                                                                                                      |
+| `sync_timeout_ms`                  | int              | `30000`       | Long-polling sync timeout in milliseconds.                                                                                                                                                 |
+| `initial_sync_timeout_seconds`     | number           | `45.0`        | Wait after room joins for the first acknowledged sync. `0` disables waiting; the complete start remains bounded by `runtime.adapter_start_timeout_seconds`.                                |
+| `startup_backlog_suppress_seconds` | number           | `60.0`        | Tolerance before the adapter start baseline: inbound events with an older origin server timestamp are startup history and never forward on any ingress path. `0` disables the suppression. |
+| `encryption_mode`                  | string           | `"plaintext"` | `plaintext`, `e2ee_required`, or `e2ee_optional`.                                                                                                                                          |
+| `require_encrypted_rooms`          | bool             | `false`       | When `true`, only operate in encrypted rooms. Invalid with `encryption_mode="plaintext"`.                                                                                                  |
+| `relay_prefix`                     | `string or null` | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.                                                                                                            |
 
 `device_id` and `store_path` are not operator-facing — the runtime derives them automatically.
 
@@ -425,22 +425,22 @@ adapters:
       # storage_path: "{state}/lxmf/router"  # required for reticulum mode
 ```
 
-| Field                       | Type   | Default       | Description                                                                                         |
-| --------------------------- | ------ | ------------- | --------------------------------------------------------------------------------------------------- |
-| `enabled`                   | bool   | `true`        | Active status.                                                                                      |
-| `adapter_kind`              | string | `"real"`      | `"real"` or `"fake"`.                                                                               |
-| `adapter_id`                | string | instance name | Unique identifier.                                                                                  |
-| `connection_type`           | string | `"fake"`      | `fake` or `reticulum`.                                                                              |
-| `display_name`              | string | `""`          | Display name for LXMF announces.                                                                    |
-| `stamp_cost`                | int    | `8`           | Stamp cost. `0` disables stamps; valid positive values are `1..254`.                                |
-| `default_delivery_method`   | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.                                                |
-| `outbound_propagation_node` | string | `None`        | 32-hex-character LXMF propagation-node destination hash; required for real-mode propagated default. |
-| `origin_label`              | string | `""`          | Platform-neutral source label for relay prefixes.                                                   |
-| `default_channel`           | int    | `0`           | Default outbound channel.                                                                           |
-| `message_delay_seconds`     | float  | `0.5`         | Pacing.                                                                                             |
-| `metadata_embedding`        | bool   | `true`        | Whether to embed MEDRE metadata in LXMF fields.                                                     |
-| `identity_path`             | string | `None`        | Path to Reticulum identity file. Supports path placeholders.                                        |
-| `storage_path`              | string | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders.  |
+| Field                       | Type     | Default       | Description                                                                                         |
+| --------------------------- | -------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| `enabled`                   | bool     | `true`        | Active status.                                                                                      |
+| `adapter_kind`              | string   | `"real"`      | `"real"` or `"fake"`.                                                                               |
+| `adapter_id`                | string   | instance name | Unique identifier.                                                                                  |
+| `connection_type`           | string   | `"fake"`      | `fake` or `reticulum`.                                                                              |
+| `display_name`              | string   | `""`          | Display name for LXMF announces.                                                                    |
+| `stamp_cost`                | int      | `8`           | Stamp cost. `0` disables stamps; valid positive values are `1..254`.                                |
+| `default_delivery_method`   | string   | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.                                                |
+| `outbound_propagation_node` | string   | `None`        | 32-hex-character LXMF propagation-node destination hash; required for real-mode propagated default. |
+| `origin_label`              | string   | `""`          | Platform-neutral source label for relay prefixes.                                                   |
+| `default_channel`           | int      | `0`           | Default outbound channel.                                                                           |
+| `message_delay_seconds`     | float    | `0.5`         | Pacing.                                                                                             |
+| `metadata_embedding`        | bool     | `true`        | Whether to embed MEDRE metadata in LXMF fields.                                                     |
+| `identity_path`             | string   | `None`        | Path to Reticulum identity file. Supports path placeholders.                                        |
+| `storage_path`              | string   | `None`        | Required when connection_type="reticulum". Path for LXMRouter storage. Supports path placeholders.  |
 | `relay_prefix`              | `string` | `""`          | `""` disables; otherwise a prefix template. Null is not accepted.                                   |
 
 ### `adapters.xmpp.<instance_name>`
@@ -825,10 +825,10 @@ retry:
     interval_seconds: 60.0
 ```
 
-| Field              | Type  | Default | Description                                                                                 |
-| ------------------ | ----- | ------- | ------------------------------------------------------------------------------------------- |
-| `enabled`          | bool  | `false` | Whether the poll cycle runs the deadline sweep at all.                                      |
-| `limit`            | int   | `50`    | Maximum rows retired per sweep step (1–500). Out-of-range values are rejected at load time. |
+| Field              | Type  | Default | Description                                                                                    |
+| ------------------ | ----- | ------- | ---------------------------------------------------------------------------------------------- |
+| `enabled`          | bool  | `false` | Whether the poll cycle runs the deadline sweep at all.                                         |
+| `limit`            | int   | `50`    | Maximum rows retired per sweep step (1–500). Out-of-range values are rejected at load time.    |
 | `interval_seconds` | float | `60.0`  | Positive cadence up to 86,400 seconds. Each step examines at most `max(25, limit)` candidates. |
 
 The sweep is disabled by default: an omitted section leaves the poll cycle

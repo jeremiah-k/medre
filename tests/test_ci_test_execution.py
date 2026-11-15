@@ -227,6 +227,7 @@ def test_one_present_artifact_cannot_mask_another_missing_verdict(tmp_path):
 
 def test_required_lxmf_job_checks_each_scenario_verdict():
     import shlex
+
     import yaml
 
     workflow = (

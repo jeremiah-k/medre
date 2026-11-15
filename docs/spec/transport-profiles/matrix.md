@@ -12,27 +12,27 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 ## Configuration Fields
 
-| Field                                      | Type                                                   | Default        | Description                                                                                               |
-| ------------------------------------------ | ------------------------------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------- |
-| `adapter_id`                               | `str`                                                  | _(required)_   | Unique adapter instance identifier                                                                        |
-| `homeserver`                               | `str`                                                  | _(required)_   | Matrix homeserver URL (`https://…` or `http://…`)                                                         |
-| `user_id`                                  | `str`                                                  | _(required)_   | Fully-qualified Matrix user ID (must start with `@`)                                                      |
-| `device_id`                                | `str \| None`                                          | `None`         | Internal — discovered via `whoami()` when needed                                                          |
-| `access_token`                             | `str`                                                  | `""`           | Access token for authentication; sidecar fallback supported                                               |
-| `room_allowlist`                           | `set[str] \| None`                                     | `None`         | Optional set of room IDs to accept; `None` = all rooms                                                    |
-| `metadata_embedding_mode`                  | `str`                                                  | `"safe"`       | How metadata is embedded in messages                                                                      |
-| `store_path`                               | `str \| None`                                          | `None`         | Internal — derived under `{state}/adapters/{id}/matrix/store`                                             |
-| `sync_timeout_ms`                          | `int`                                                  | `30000`        | Long-polling sync timeout in milliseconds                                                                 |
-| `initial_sync_timeout_seconds`             | `float`                                                | `45.0`         | Startup wait for acknowledged sync after room joins; `0` disables waiting                                 |
-| `sync_stale_timeout_seconds`               | `float`                                                | `300.0`        | Max durable-sync silence before active loop recycle; `0` disables watchdog                                |
-| `startup_backlog_suppress_seconds`         | `float`                                                | `60.0`         | Tolerance before the start baseline; older events never forward on any ingress path; `0` disables         |
-| `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`           | Max missing-room-key to-device attempts per rolling minute                                                |
-| `megolm_key_request_max_inflight`          | `int`                                                  | `4`            | Max concurrent detached missing-room-key recovery tasks                                                   |
-| `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"`  | E2EE policy                                                                                               |
-| `verification_policy`                      | `Literal["permissive","strict"]`                       | `"permissive"` | Local recipient-device trust gate for encrypted sends; strict requires affirmative nio-store verification |
-| `require_encrypted_rooms`                  | `bool`                                                 | `False`        | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`                             |
-| `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`           | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite   |
-| `origin_label`                             | `str`                                                  | `""`           | Platform-neutral operator-defined source label for relay prefixes                                         |
+| Field                                      | Type                                                   | Default        | Description                                                                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `adapter_id`                               | `str`                                                  | _(required)_   | Unique adapter instance identifier                                                                                                                           |
+| `homeserver`                               | `str`                                                  | _(required)_   | Matrix homeserver URL (`https://…` or `http://…`)                                                                                                            |
+| `user_id`                                  | `str`                                                  | _(required)_   | Fully-qualified Matrix user ID (must start with `@`)                                                                                                         |
+| `device_id`                                | `str \| None`                                          | `None`         | Internal — discovered via `whoami()` when needed                                                                                                             |
+| `access_token`                             | `str`                                                  | `""`           | Access token for authentication; sidecar fallback supported                                                                                                  |
+| `room_allowlist`                           | `set[str] \| None`                                     | `None`         | Optional set of room IDs to accept; `None` = all rooms                                                                                                       |
+| `metadata_embedding_mode`                  | `str`                                                  | `"safe"`       | How metadata is embedded in messages                                                                                                                         |
+| `store_path`                               | `str \| None`                                          | `None`         | Internal — derived under `{state}/adapters/{id}/matrix/store`                                                                                                |
+| `sync_timeout_ms`                          | `int`                                                  | `30000`        | Long-polling sync timeout in milliseconds                                                                                                                    |
+| `initial_sync_timeout_seconds`             | `float`                                                | `45.0`         | Startup wait for acknowledged sync after room joins; `0` disables waiting                                                                                    |
+| `sync_stale_timeout_seconds`               | `float`                                                | `300.0`        | Max durable-sync silence before active loop recycle; `0` disables watchdog                                                                                   |
+| `startup_backlog_suppress_seconds`         | `float`                                                | `60.0`         | Tolerance before the start baseline; older events never forward on any ingress path; `0` disables                                                            |
+| `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`           | Max missing-room-key to-device attempts per rolling minute                                                                                                   |
+| `megolm_key_request_max_inflight`          | `int`                                                  | `4`            | Max concurrent detached missing-room-key recovery tasks                                                                                                      |
+| `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"`  | E2EE policy                                                                                                                                                  |
+| `verification_policy`                      | `Literal["permissive","strict"]`                       | `"permissive"` | Local recipient-device trust gate for encrypted sends; strict requires affirmative nio-store verification                                                    |
+| `require_encrypted_rooms`                  | `bool`                                                 | `False`        | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`                                                                                |
+| `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`           | Opaque room IDs (`!localpart:server` or domainless `!opaque_id`) to auto-join on startup and via invite                                                      |
+| `origin_label`                             | `str`                                                  | `""`           | Platform-neutral operator-defined source label for relay prefixes                                                                                            |
 | `relay_prefix`                             | `str \| None`                                          | `None`         | Target-local prefix template for Matrix outbound body text (`None` = automatic `[{sender}/{origin_label}]: ` or `[{sender}]: ` attribution, `""` = disabled) |
 
 ---
@@ -45,19 +45,19 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 
-| Capability        | Value      |
-| ----------------- | ---------- |
-| text              | `True`     |
-| threads           | `"native"` |
-| replies           | `"native"` |
+| Capability        | Value        |
+| ----------------- | ------------ |
+| text              | `True`       |
+| threads           | `"native"`   |
+| replies           | `"native"`   |
 | reactions         | `"fallback"` |
-| edits             | `"native"` |
-| deletes           | `"native"` |
-| attachments       | `True`     |
-| store_and_forward | `False`    |
-| direct_messages   | `True`     |
-| channels          | `True`     |
-| topic_rooms       | `True`     |
+| edits             | `"native"`   |
+| deletes           | `"native"`   |
+| attachments       | `True`       |
+| store_and_forward | `False`      |
+| direct_messages   | `True`       |
+| channels          | `True`       |
+| topic_rooms       | `True`       |
 
 `attachments: True` means Matrix participates in the generic durable
 attachment relay: inbound media bytes can be retained at admission and
@@ -547,13 +547,13 @@ mutation-eligibility rules in [Capabilities](#capabilities).
 
 Matrix is a presentation adapter with rich native relation support. The Matrix renderer handles all rendering within its native format.
 
-| Relation type | Capability level | Strategy | Rendering path                                                                                   |
-| ------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------ |
-| Replies       | `"native"`       | `direct` | `m.in_reply_to` with `event_id` in `m.relates_to`                                                |
+| Relation type | Capability level | Strategy        | Rendering path                                                                                                                        |
+| ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Replies       | `"native"`       | `direct`        | `m.in_reply_to` with `event_id` in `m.relates_to`                                                                                     |
 | Reactions     | `"fallback"`     | `fallback_text` | Described `m.emote` room message (attribution, exact key, bounded target preview) rendered identically under either delivery strategy |
-| Edits         | `"native"`       | `direct` | `m.replace` / `m.new_content` — only for `bound_owned` targets; otherwise suppressed (see above) |
-| Deletes       | `"native"`       | `direct` | `redact_event` — only for `bound_owned` targets; otherwise suppressed (see above)                |
-| Threads       | `"native"`       | `direct` | `m.thread` rooted at the bound thread root, with spec reply-fallback parent semantics            |
+| Edits         | `"native"`       | `direct`        | `m.replace` / `m.new_content` — only for `bound_owned` targets; otherwise suppressed (see above)                                      |
+| Deletes       | `"native"`       | `direct`        | `redact_event` — only for `bound_owned` targets; otherwise suppressed (see above)                                                     |
+| Threads       | `"native"`       | `direct`        | `m.thread` rooted at the bound thread root, with spec reply-fallback parent semantics                                                 |
 
 Every outbound render wraps its wire content in a closed
 `_matrix_operation` envelope (`send_event` / `redact_event`); the adapter

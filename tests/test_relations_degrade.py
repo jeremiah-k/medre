@@ -2,10 +2,10 @@
 
 from datetime import datetime, timezone
 
+import pytest
 from msgspec.structs import force_setattr
 
 from medre.core.events import CanonicalEvent, EventRelation, NativeRef
-import pytest
 from medre.core.rendering.relations import compose_relation_text
 
 # ---------------------------------------------------------------------------

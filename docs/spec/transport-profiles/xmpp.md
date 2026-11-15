@@ -14,7 +14,6 @@ cleanup failure; invalid stop budgets MUST leave health observation unchanged.
 A callback already in progress remains owned until it settles, even when it
 suppresses cancellation.
 
-
 **Platform identifier:** `xmpp`
 
 **Maturity note:** XMPP integration is at a **pre-release** stage. Delivery status reflects local stream handoff only; server acceptance, recipient delivery and read state are separate.

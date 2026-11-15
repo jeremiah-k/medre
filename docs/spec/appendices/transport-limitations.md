@@ -364,30 +364,30 @@ No transport guarantees end-to-end delivery confirmation. An outbound
 handed off to the local transport layer. It does not mean the message was
 received by any remote party.
 
-| Transport    | `success=True` means                                  |
-| ------------ | ----------------------------------------------------- |
+| Transport    | `success=True` means                                                         |
+| ------------ | ---------------------------------------------------------------------------- |
 | Meshtastic   | Local radio accepted the packet (no acknowledgement is requested; see §2.2). |
-| MeshCore     | Local radio accepted the packet.                      |
-| LXMF         | Message was handed to the LXMRouter in the worker process. |
-| Matrix       | Homeserver persisted the event and returned event_id. |
-| XMPP         | Stanza was written to the verified TLS stream.        |
-| Chatmail     | Item was admitted to the provider's local queue.      |
-| SimpleX Chat | Native local queue accepted the submission.           |
+| MeshCore     | Local radio accepted the packet.                                             |
+| LXMF         | Message was handed to the LXMRouter in the worker process.                   |
+| Matrix       | Homeserver persisted the event and returned event_id.                        |
+| XMPP         | Stanza was written to the verified TLS stream.                               |
+| Chatmail     | Item was admitted to the provider's local queue.                             |
+| SimpleX Chat | Native local queue accepted the submission.                                  |
 
 This is an honest model. MEDRE reports what it knows (local handoff succeeded)
 and does not pretend to know what it cannot verify (remote receipt).
 
 ## 4. Startup Backlog Suppression
 
-| Transport    | Status      | Notes                                                                                                |
-| ------------ | ----------- | ---------------------------------------------------------------------------------------------------- |
-| Meshtastic   | Implemented | `startup_backlog_suppress_seconds` (default 5.0s in the provider config), `rxTime`-based, best-effort |
+| Transport    | Status      | Notes                                                                                                                                                                                                                                                                                                                     |
+| ------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Meshtastic   | Implemented | `startup_backlog_suppress_seconds` (default 5.0s in the provider config), `rxTime`-based, best-effort                                                                                                                                                                                                                     |
 | MeshCore     | Buffered    | No history or store-and-forward, but the pinned SDK drains a small device buffer at connect; a bounded 64-frame pre-start buffer carries that drain into the started session (counted, order-preserving, discarded on failed or cancelled start). No age filter — radio sender clocks do not establish a reliable cutoff. |
-| Matrix       | Implemented | `startup_backlog_suppress_seconds` (default 60s), origin-server-timestamp-based, applied before decode on live, durable catch-up, and recovery paths; covers federation lag and clock skew. |
-| LXMF         | Deferred    | No reliable receive-time timestamps suitable for suppression.                                        |
-| XMPP         | Excluded    | MUC joins request zero history; no offline-message or archive recovery exists to suppress.            |
-| Chatmail     | Excluded    | First use baselines existing history; later starts resume from the last durable checkpoint.           |
-| SimpleX Chat | Excluded    | First scan baselines history; restart recovery re-walks retained native history pages against a local processed-ID ledger. |
+| Matrix       | Implemented | `startup_backlog_suppress_seconds` (default 60s), origin-server-timestamp-based, applied before decode on live, durable catch-up, and recovery paths; covers federation lag and clock skew.                                                                                                                               |
+| LXMF         | Deferred    | No reliable receive-time timestamps suitable for suppression.                                                                                                                                                                                                                                                             |
+| XMPP         | Excluded    | MUC joins request zero history; no offline-message or archive recovery exists to suppress.                                                                                                                                                                                                                                |
+| Chatmail     | Excluded    | First use baselines existing history; later starts resume from the last durable checkpoint.                                                                                                                                                                                                                               |
+| SimpleX Chat | Excluded    | First scan baselines history; restart recovery re-walks retained native history pages against a local processed-ID ledger.                                                                                                                                                                                                |
 
 ## 5. Protocol-Neutral Abstractions
 

@@ -347,9 +347,10 @@ def test_valid_journey_passes_structural_validation(instructions_provider):
     ],
 )
 def test_setup_instructions_reject_control_characters(instructions_provider, bad):
+    from dataclasses import replace
+
     from medre.cli.native_commands import _validate_setup_instructions
     from medre.config.errors import ConfigValidationError
-    from dataclasses import replace
 
     original = instructions_provider.native_setup_instructions
     assert original is not None

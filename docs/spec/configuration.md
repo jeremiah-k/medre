@@ -183,10 +183,10 @@ activation authority are defined in [content retention](content-retention.md).
 
 ### 2.9 ContentCeilingConfig
 
-| Field             | Type             | Default | Contract                                                     |
-| ----------------- | ---------------- | ------- | ------------------------------------------------------------ |
-| `enabled`         | boolean          | `false` | Explicit operator opt-in.                                    |
-| `max_age_seconds` | integer or null  | `null`  | 1–31536000 seconds; required when `enabled: true`.           |
+| Field             | Type            | Default | Contract                                           |
+| ----------------- | --------------- | ------- | -------------------------------------------------- |
+| `enabled`         | boolean         | `false` | Explicit operator opt-in.                          |
+| `max_age_seconds` | integer or null | `null`  | 1–31536000 seconds; required when `enabled: true`. |
 
 An omitted section MUST produce no content deadline at admission and leave
 every ceiling gate dormant. An enabled declaration states one bounded

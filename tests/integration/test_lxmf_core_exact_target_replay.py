@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
+from scripts.ci.native_qualification import build_record, qualification_rows, sha256
 from tests.helpers.lxmf_scenario import run_owned_scenario
 from tests.integration.test_lxmf_exact_target_propagation import _RECEIVER_SOURCE
-from scripts.ci.native_qualification import build_record, qualification_rows, sha256
 
 try:
     from medre.adapters.lxmf.compat import HAS_LXMF

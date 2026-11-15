@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer

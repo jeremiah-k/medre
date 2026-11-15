@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.events import (

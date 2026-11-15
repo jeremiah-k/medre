@@ -14,6 +14,9 @@ Docs are split into `docs/spec`, `docs/ops`, `docs/dev`, `docs/schemas`, and
 
 ## Build, Test, and Development Commands
 
+- `.trunk/trunk check --fix --all`: format and apply supported lint fixes.
+- `.trunk/trunk check --all --no-fix --ci`: run the same quality gate as CI.
+- `.trunk/trunk upgrade`: update pinned tools, then fix and check before committing.
 - `uv sync --locked --extra dev`: install the editable package with pytest and dev
   dependencies.
 - `uv run --no-sync pytest -q`: run the default suite; service, hardware, optional
@@ -37,8 +40,9 @@ Use 4-space indentation, type annotations for public surfaces, and nearby
 dataclass/msgspec-style models where they already exist. Modules, functions,
 fixtures, and variables use `snake_case`; classes use `PascalCase`; constants
 use `UPPER_SNAKE_CASE`. Keep docs in ATX Markdown, wrap prose near 88 columns
-where practical, and reserve RFC 2119 terms for `docs/spec`. Ruff lint rules are
-configured in `pyproject.toml`; match surrounding formatting style.
+where practical, and reserve RFC 2119 terms for `docs/spec`. Black targets Python 3.11; Python lint and formatting policy lives in
+`pyproject.toml`, and tool versions live in `.trunk/trunk.yaml`. Use the committed
+launcher so local runs and CI use the same tools. Preserve frozen schema bytes.
 
 ## Testing Guidelines
 

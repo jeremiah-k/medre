@@ -102,7 +102,7 @@ external/runtime shape rather than merely implementing normal capability
 fallback semantics. It excludes temporarily accepted but inert config fields.
 
 The staged compatibility cleanup has landed with the promoted Meshtastic
-adapter revision: the adapter no longer accepts the ``mmrelay_compatibility``
+adapter revision: the adapter no longer accepts the `mmrelay_compatibility`
 config field, and the core adapter-config schema no longer declares it. Remove
 the key from existing Meshtastic source configurations when upgrading; it
 enables no behavior and is no longer part of the accepted configuration

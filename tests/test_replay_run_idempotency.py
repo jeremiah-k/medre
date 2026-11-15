@@ -32,9 +32,9 @@ from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
 from tests.helpers.delivery_callbacks import make_deferred_failure
+from tests.helpers.delivery_evidence import evidence_for_receipt
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import admit_event
-from tests.helpers.delivery_evidence import evidence_for_receipt
 
 
 def _outbox(

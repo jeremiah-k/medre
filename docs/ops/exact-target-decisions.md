@@ -41,15 +41,15 @@ must copy. When the observed state is not decidable, the response carries
 `refusal_implications` naming the frozen refusal(s) the authority would
 raise, and no apply shape: an observation never becomes a mutation permit.
 
-| Observed category                              | Meaning for a decision                                        |
-| ---------------------------------------------- | ------------------------------------------------------------- |
-| `pending`, `retry_scheduled`                   | Decidable when unreserved and unclaimed.                      |
-| `in_progress`, `awaiting_feedback`             | Never decided from an observation.                            |
-| `inspect_native`                               | Possible native acceptance; resolve that uncertainty first.   |
-| `preview_replay`, `needs_operator_action`      | Terminal failure; reopening needs a send-capable authority.   |
-| `completed`, `cancelled`                       | Settled outcome; not decidable.                               |
-| `not_found`, `ambiguous`                       | No single observable target; the authority refuses.           |
-| `content_unavailable`, `route_or_plan_changed` | Re-observe the target before deciding.                        |
+| Observed category                              | Meaning for a decision                                      |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| `pending`, `retry_scheduled`                   | Decidable when unreserved and unclaimed.                    |
+| `in_progress`, `awaiting_feedback`             | Never decided from an observation.                          |
+| `inspect_native`                               | Possible native acceptance; resolve that uncertainty first. |
+| `preview_replay`, `needs_operator_action`      | Terminal failure; reopening needs a send-capable authority. |
+| `completed`, `cancelled`                       | Settled outcome; not decidable.                             |
+| `not_found`, `ambiguous`                       | No single observable target; the authority refuses.         |
+| `content_unavailable`, `route_or_plan_changed` | Re-observe the target before deciding.                      |
 
 ## Apply the observed decision
 

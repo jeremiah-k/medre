@@ -1591,12 +1591,12 @@ template alias is `{origin_label}`.
 
 ### 17.5.3 Label and Identity Distinctions
 
-| Concept               | Template variable | Source                                                       | Scope                                                           |
-| --------------------- | ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------- |
+| Concept               | Template variable | Source                                                                        | Scope                                                           |
+| --------------------- | ----------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `origin_label`        | `{origin_label}`  | Resolved source label (per-entry > route > snapshot > adapter config > empty) | Platform-neutral operator label                                 |
-| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata                  | Per-transport native identity                                   |
-| `source_sender_label` | `{sender}`        | Primary human-readable sender label                          | Per-transport display name / long name                          |
-| `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
+| `source_sender_id`    | `{sender_id}`     | Native sender ID from source event metadata                                   | Per-transport native identity                                   |
+| `source_sender_label` | `{sender}`        | Primary human-readable sender label                                           | Per-transport display name / long name                          |
+| `route_id`            | `{route_id}`      | Matched route                                                                 | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
 `origin_label` is the single MEDRE-generic label. For `context_map`
@@ -1672,8 +1672,8 @@ raising.
 The following placeholders are outside the current attribution surface and
 are not supported and are rejected by configuration validation:
 
-| Removed placeholder | Current behavior                |
-| ------------------- | ------------------------------- |
+| Removed placeholder | Current behavior        |
+| ------------------- | ----------------------- |
 | `{meshnet_name}`    | Unsupported — rejected. |
 | `{longname}`        | Unsupported — rejected. |
 | `{shortname}`       | Unsupported — rejected. |

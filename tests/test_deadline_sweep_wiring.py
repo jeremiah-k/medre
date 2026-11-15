@@ -466,6 +466,7 @@ def test_sweep_interval_ceiling_rejects_overflow() -> None:
 def test_config_schema_accepts_enabled_sweep_and_rejects_invalid_bounds() -> None:
     """Schema-driven authors and the runtime loader accept the same declaration."""
     import json
+
     from jsonschema import Draft202012Validator
 
     schema_path = Path(__file__).parents[1] / "docs/schemas/runtime-config.schema.json"

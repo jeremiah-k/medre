@@ -1,7 +1,7 @@
 # First live reference bridge: Matrix ↔ XMPP
 
 This opt-in journey uses the existing disposable Docker Synapse, Matrix
-Authentication Service, and Prosody lab with two *independent* peer accounts.
+Authentication Service, and Prosody lab with two _independent_ peer accounts.
 It drives real inbound messages through the MEDRE runtime in both directions,
 then checks both recipients' native observations against the persisted SQLite
 ledger. No fake-send, SDK-only, or unexecuted stage is called a success.
@@ -36,7 +36,7 @@ Run `down` after failure too. Each test stage is independently bounded and
 fails closed. `reference-oauth` qualifies the MEDRE Matrix OAuth device;
 `reference-provision` creates only the Matrix room and XMPP MUC with their
 independent peers. Neither requires MMRelay OAuth or provisions Chatmail,
-LXMF, SimpleX, or radio accounts. The reference stage is opt-in and is *not*
+LXMF, SimpleX, or radio accounts. The reference stage is opt-in and is _not_
 a duplicate entry in the grouped native suite.
 
 ## Evidence and failure handling

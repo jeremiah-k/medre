@@ -200,6 +200,7 @@ async def test_sample_event_kind_refuses_route_that_filters_all_text(configured)
 
 async def test_misaddressed_renderer_result_is_refused(configured, monkeypatch):
     from dataclasses import replace
+
     from medre.core.rendering.renderer import RenderingPipeline
 
     _, config = configured
@@ -263,6 +264,7 @@ async def test_preview_ignores_unrelated_broken_renderer_factories(
     configured, monkeypatch
 ):
     from types import SimpleNamespace
+
     from medre.runtime import builder
 
     _, config = configured
@@ -286,6 +288,7 @@ async def test_preview_refuses_non_send_matrix_operation_even_with_text(
     configured, monkeypatch
 ):
     from dataclasses import replace
+
     from medre.core.rendering.text import TextRenderer
 
     _, config = configured

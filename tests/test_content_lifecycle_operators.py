@@ -29,11 +29,10 @@ from typing import Any
 import msgspec
 import pytest
 
-from medre.core.events.metadata import RoutingMetadata
-
 from medre.config.model import AdapterConfigSet
 from medre.config.paths import MedrePaths
 from medre.core.events import EventRelation
+from medre.core.events.metadata import RoutingMetadata
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import RuntimeState
 from medre.runtime.snapshot import build_runtime_snapshot

@@ -8,7 +8,8 @@
     "github-actions",
     "dockerfile",
     "docker-compose",
-    "custom.regex"
+    "custom.regex",
+    "asdf"
   ],
   "ignorePaths": [],
   "rangeStrategy": "pin",
@@ -118,6 +119,39 @@
       "depNameTemplate": "medre-adapter-xmpp",
       "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-xmpp",
       "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-simplexchat main in the adapter compatibility snapshot",
+      "managerFilePatterns": ["/^\\.github/adapter-compatibility\\.json$/"],
+      "matchStrings": [
+        "\"transport\": \"simplexchat\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-simplexchat",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-simplexchat",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track medre-adapter-chatmail main in the adapter compatibility snapshot",
+      "managerFilePatterns": ["/^\\.github/adapter-compatibility\\.json$/"],
+      "matchStrings": [
+        "\"transport\": \"chatmail\",[\\s\\S]*?\"ref\": \"(?<currentDigest>[0-9a-f]{40})\""
+      ],
+      "datasourceTemplate": "git-refs",
+      "depNameTemplate": "medre-adapter-chatmail",
+      "packageNameTemplate": "https://github.com/jeremiah-k/medre-adapter-chatmail",
+      "currentValueTemplate": "main"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Trunk CLI, plugins and linters from their declared upstream package sources",
+      "managerFilePatterns": ["/^\\.trunk/trunk\\.yaml$/"],
+      "matchStrings": [
+        "(?:@|version:\\s+|ref:\\s+v?)(?<currentValue>[0-9][^\\s]*)\\s+# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.*)$"
     }
   ],
   "packageRules": [
@@ -171,10 +205,18 @@
         "medre-adapter-meshtastic",
         "medre-adapter-meshcore",
         "medre-adapter-lxmf",
-        "medre-adapter-xmpp"
+        "medre-adapter-xmpp",
+        "medre-adapter-simplexchat",
+        "medre-adapter-chatmail"
       ],
       "matchUpdateTypes": ["pin", "digest", "pinDigest"],
       "automerge": true
+    },
+    {
+      "description": "Review coordinated tool upgrades after the shared quality gate",
+      "matchFileNames": [".trunk/trunk.yaml"],
+      "groupName": "Trunk toolchain",
+      "automerge": false
     }
   ]
 }

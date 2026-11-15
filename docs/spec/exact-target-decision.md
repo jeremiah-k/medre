@@ -30,10 +30,10 @@ identity, the outbox ID, and the observed `expected_generation`,
 across this page, the Python model, the storage CHECK constraint, the JSON
 Schema, and the tests:
 
-* `resume_scheduled` — the operator decides the observed unstarted
+- `resume_scheduled` — the operator decides the observed unstarted
   scheduled/retry work resumes through the normal claim/attempt fences. The
   audit row is the audited go-ahead.
-* `resolve_uncertain` — the operator decides their open review of this exact
+- `resolve_uncertain` — the operator decides their open review of this exact
   target is resolved without intervention. The audit row closes the operator
   question; the normal fences remain the only resumption path.
 
@@ -56,12 +56,12 @@ discipline as cancellation, then applies three cases:
    `in_progress`, `queued`, `abandoned`, any unrecognized status, or a
    reservation or claim ownership present, refuses the decision with:
    `In-progress, queued or uncertain native work is not decidable by this
-   authority`. No audit row and no state change are produced. Non-acceptance
+authority`. No audit row and no state change are produced. Non-acceptance
    is never inferred from a timeout, a missing native reference, a restart,
    or content expiry.
 3. **Terminal failure is not reopenable.** `failed` or `dead_lettered` rows
    refuse with: `Reopening terminal failed or dead-lettered work requires a
-   separate send-capable authority`. The repeat-send-capable decision is a
+separate send-capable authority`. The repeat-send-capable decision is a
    separately named authority that is excluded from v1; this refusal states
    only that a different authority would be required and promises none.
 
@@ -77,16 +77,16 @@ than a stale expectation.
 Refusals raise the typed `OperatorDecisionRefused` with these frozen
 messages, no audit row, and no state change:
 
-| Condition                                              | Refusal message                                                             |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Decision ID reused with different parameters            | `Decision ID already binds another request`                                  |
-| Row absent or identity no longer matches                | `Exact destination no longer exists`                                         |
-| Observed tuple superseded                               | `Stale observed state; nothing decided`                                      |
-| Competing generation exists                             | `A competing delivery generation exists`                                     |
-| Row moved between verification and the guarded insert   | `Concurrent attempt changed; nothing decided`                                |
-| Case 2 states (owned, queued, uncertain)                | `In-progress, queued or uncertain native work is not decidable by this authority` |
-| Case 3 states (failed, dead-lettered)                   | `Reopening terminal failed or dead-lettered work requires a separate send-capable authority` |
-| Settled outcomes (sent, cancelled)                      | `Completed or cancelled delivery work is not decidable by this authority`    |
+| Condition                                             | Refusal message                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Decision ID reused with different parameters          | `Decision ID already binds another request`                                                  |
+| Row absent or identity no longer matches              | `Exact destination no longer exists`                                                         |
+| Observed tuple superseded                             | `Stale observed state; nothing decided`                                                      |
+| Competing generation exists                           | `A competing delivery generation exists`                                                     |
+| Row moved between verification and the guarded insert | `Concurrent attempt changed; nothing decided`                                                |
+| Case 2 states (owned, queued, uncertain)              | `In-progress, queued or uncertain native work is not decidable by this authority`            |
+| Case 3 states (failed, dead-lettered)                 | `Reopening terminal failed or dead-lettered work requires a separate send-capable authority` |
+| Settled outcomes (sent, cancelled)                    | `Completed or cancelled delivery work is not decidable by this authority`                    |
 
 ## Idempotency
 
