@@ -3,7 +3,7 @@
 # pinact 5 uses long flags; the pinned plugin still supplies v4 flags.
 version: 0.1
 cli:
-  version: 1.29.0 # renovate: datasource=github-releases depName=trunk-io/trunk
+  version: 1.29.0 # renovate: datasource=custom.trunk-cli depName=trunk-cli
 plugins:
   sources:
     - id: trunk
