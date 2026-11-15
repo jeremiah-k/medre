@@ -427,7 +427,7 @@ def test_jsonl_ignores_only_uncommitted_trailing_record(tmp_path):
     scratch.write_text('{"id": 1}\n{"id":')
     assert read_jsonl(scratch) == [{"id": 1}]
     with scratch.open("a") as file:
-        file.write(' 2}\n')
+        file.write(" 2}\n")
     assert read_jsonl(scratch) == [{"id": 1}, {"id": 2}]
     scratch.write_text('{"id":\n')
     with pytest.raises(json.JSONDecodeError):

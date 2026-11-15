@@ -280,8 +280,10 @@ def run_meshcore_peer(args: list[str], timeout: float) -> dict:
     try:
         if args[0] == "sendn":
             texts = json.loads(args[2])
-            if not isinstance(texts, list) or not texts or not all(
-                isinstance(text, str) for text in texts
+            if (
+                not isinstance(texts, list)
+                or not texts
+                or not all(isinstance(text, str) for text in texts)
             ):
                 raise ValueError("sendn requires a nonempty JSON string array")
         elif args[0] == "sendts":
