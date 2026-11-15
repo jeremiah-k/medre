@@ -356,7 +356,11 @@ command runs.
 
 ### Schema version
 
-The schema version (`_EXPECTED_SCHEMA_VERSION`) stays at 1 during the entire prerelease period. It will not be bumped until storage compatibility becomes release-tracked. Tests assert `schema_version == 1` to guard against accidental bumps.
+The schema version (`_EXPECTED_SCHEMA_VERSION`) is 1. The tagged 0.1.0 SQL
+snapshot identifies the released baseline; the version stamp alone is not a
+compatibility proof. Tests cover exact catalog validation, the declared additive
+predecessors, and refusal of unsupported layouts. Published storage changes need
+the compatibility review described in the [versioning policy](versioning-policy.md).
 
 Because the version is frozen, column-shape validation is the primary guard against stale prerelease databases. Tests verify that:
 

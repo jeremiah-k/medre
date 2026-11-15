@@ -12,6 +12,7 @@ the relevant spec/ops/dev page.
 | [development-priorities.md](development-priorities.md)           | Coordinated recovery, conversation fidelity and qualification work           |
 | [contract-gap-status.md](contract-gap-status.md)                 | Living register of open contract gaps, their status and next work            |
 | [environment.md](environment.md)                                 | Checkout setup, uv/pip workflows, extras, dependency updates, builds         |
+| [installation-sources.md](installation-sources.md)               | Published, Git and editable sources; qualification and channel planning      |
 | [testing.md](testing.md)                                         | Test suite structure, patterns, tiers, live-test harness                     |
 | [static-typing.md](static-typing.md)                             | Strict-mypy gate scope, SDK import exemptions, and typing status             |
 | [adapter-authoring.md](adapter-authoring.md)                     | How to write a new transport adapter                                         |
@@ -47,8 +48,10 @@ the relevant spec/ops/dev page.
 5. Do not create contract-style or runbook-style files. The old
    `docs/contracts/` and `docs/runbooks/` systems have been replaced.
 
-## Pre-Release Note
+## Release and development status
 
-MEDRE is pre-first-release. Begin with the development environment guide above
-and use the testing guide for evidence tiers and scoped verification. If usage
-documentation conflicts with runtime contracts, `docs/spec/` is the authority.
+Core has published 0.1.0 and development continues. Begin with the development
+environment guide above and use the testing guide for evidence tiers and
+scoped verification. The [versioning policy](versioning-policy.md) governs
+changes to published contracts. If usage documentation conflicts with runtime
+contracts, `docs/spec/` is the authority.

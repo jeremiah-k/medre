@@ -1,7 +1,8 @@
 # Compatibility Boundaries
 
-MEDRE is pre-first-release. Internal development shapes are not compatibility
-contracts. This specification distinguishes compatibility that preserves a real
+MEDRE has a published 0.1.0 baseline. The
+[versioning policy](../dev/versioning-policy.md) governs published contracts;
+internal, unpublished development shapes are not compatibility contracts. This specification distinguishes compatibility that preserves a real
 external boundary from tolerance for abandoned MEDRE representations.
 
 ## 1. Policy

@@ -126,8 +126,11 @@ Documents under `spec/` use RFC 2119 keywords:
 These keywords MUST NOT appear in `ops/` or `dev/` documentation. Those
 directories use plain descriptive language.
 
-## Pre-Release Status
+## Release and development status
 
-MEDRE is pre-first-release. No public API is frozen. Breaking changes to the
-specification are permitted when they simplify the model. When a breaking
-change is made, update the relevant schema files and tests in the same commit.
+MEDRE has published 0.1.0. The [versioning policy](../dev/versioning-policy.md)
+identifies the released schema baseline and review requirements. Development
+continues, but a change to a published contract requires an explicit
+compatibility and versioning review. Update relevant schemas, specifications
+and tests together when intentionally changing a contract; published frozen
+artifacts MUST NOT be rewritten to conceal drift.
