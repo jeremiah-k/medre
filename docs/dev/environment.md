@@ -73,6 +73,9 @@ freeze suite. The committed launcher is an upstream artifact, also excluded
 from reformatting. Local `.zcode/`, `.core/`, tool caches, and quality reports
 are ignored; shared configuration and the executable launcher stay tracked.
 
+See [installation sources](installation-sources.md) for released packages,
+Git revisions, fork checkouts, and the source-channel plan.
+
 ## Install external adapters for development
 
 After the initial core sync, use one command for the SDK-free compatibility set:
