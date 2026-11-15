@@ -55,7 +55,7 @@ lint:
             - 0
             - 1
             - 2
-            - 3
+          # Exit 3 is a tool failure, not a SARIF finding.
           batch: true
           read_output_from: stdout
           is_security: true
