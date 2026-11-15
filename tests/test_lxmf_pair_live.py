@@ -766,7 +766,13 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
                     packet_id=950_002,
                 )
             )
-            rx = await async_packets_until(
+            # Restored-delivery waits run the listener's native window in
+            # one worker-thread call: packets_until polls internally until
+            # the predicate holds or the window ends, so transport-native
+            # waits (and test doubles keyed to the window) observe the real
+            # deadline. A cancelled await abandons the read, which
+            # self-terminates at its window; there is no ownership to join.
+            rx = await asyncio.to_thread(
                 peer.packets_until,
                 lambda ps: any(
                     probe in (p.get("content") or "")
@@ -785,7 +791,7 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
             if not got_restored:
                 # Require a fresh delivery independently of the queued
                 # pre-outage message to prove the adapter remains usable.
-                rx2 = await async_packets_until(
+                rx2 = await asyncio.to_thread(
                     peer.packets_until,
                     lambda ps: any(restored in (p.get("content") or "") for p in ps),
                     120.0,
