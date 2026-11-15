@@ -778,8 +778,9 @@ async def test_rf_off_control_and_restored_delivery(tmp_path: Path) -> None:
             got_restored = [p for p in rx if restored in (p.get("content") or "")]
             got_ghost = [p for p in rx if probe in (p.get("content") or "")]
             assert got_ghost or got_restored, (
-                "neither the pending ghost nor the fresh nonce arrived "
-                f"after restore; raw={rx!r}"
+                "fresh nonce not delivered after restore; "
+                "neither the pending ghost nor the fresh nonce arrived; "
+                f"raw={rx!r}"
             )
             if not got_restored:
                 # Require a fresh delivery independently of the queued
