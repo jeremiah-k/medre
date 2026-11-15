@@ -476,7 +476,10 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
                     (AssertionError, subprocess.TimeoutExpired)
                 )
                 if unexpected is not None:
-                    raise unexpected
+                    # unexpected was captured inside the group's tasks; its
+                    # own traceback is the relevant one, so suppress the
+                    # group-handling context instead of chaining it.
+                    raise unexpected from None
                 if expected is not None:
                     failures.append(f"{tag} leg: {expected.exceptions!r}")
 
