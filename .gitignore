@@ -237,3 +237,6 @@ coderabbit_*.md
 # Generated adapter SDK install inputs; authority is uv.lock/provider metadata
 /sdk-constraints.txt
 /sdk-requirements.txt
+
+# Local agent workspace
+/.zcode/
