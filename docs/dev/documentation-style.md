@@ -88,7 +88,7 @@ fix and its tests rather than a session transcript or validation ledger.
 3. If extending an existing file, add a new section with a clear heading.
 4. If creating a new file, follow the naming conventions of its siblings.
 5. Do not create new top-level directories under `docs/` without explicit
-   approval in a change fragment.
+   approval recorded in the PR description.
 
 ## Markdown Conventions
 

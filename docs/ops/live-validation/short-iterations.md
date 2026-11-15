@@ -244,7 +244,7 @@ or a harness prerequisite. Reduce it to one route and one varying condition;
 compare the direct SDK path when the adapter boundary is uncertain.
 
 For a reproducible MEDRE defect, add a meaningful regression, make an atomic
-fix with its specification and change fragment, rerun the affected stage, and
+fix with its specification and PR description, rerun the affected stage, and
 open a focused PR. Keep harness corrections and operational documentation in
 their own concerns. Review fixes adversarially before publication. For CI,
 locate the new run once and use `gh run watch --exit-status` to completion.

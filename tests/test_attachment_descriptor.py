@@ -1,7 +1,7 @@
 """Focused behavioral tests: transport-neutral attachment admission.
 
 Covers the durable attachment core described in
-``docs/changes/unreleased/217-durable-attachment-relay.md``:
+``docs/changes/releases/0.1.0/217-durable-attachment-relay.md``:
 
 * descriptor invariants (exclusive states, strict parsing, wire retention
   state rejection, content-ref format);

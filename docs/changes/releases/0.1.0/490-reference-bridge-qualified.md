@@ -21,6 +21,6 @@ The `reference-verdict.json`, the independent peer observations, and the
 SQLite ledger are private lab artifacts kept outside version control, so the
 positive verdict cannot be reconstructed from the repository alone. Reproduce
 it with the opt-in procedure in
-[`reference-bridge.md`](../../ops/live-validation/reference-bridge.md), and
+[`reference-bridge.md`](../../../ops/live-validation/reference-bridge.md), and
 check the generated content-free verdict against the private evidence before
 extending the claim to another revision or environment.

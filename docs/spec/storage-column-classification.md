@@ -101,7 +101,7 @@ heartbeat transitions advance and never move backward.
   what keeps the declared data honest.
 - New persistent columns MUST land with a reviewed class in the same change.
   A reviewer SHOULD require the class assignment to be explicit in the
-  change fragment.
+  PR description.
 
 ## 4. Relationship to collection conservatism
 

@@ -37,7 +37,7 @@ the relevant spec/ops/dev page.
 ## How to Add Documentation
 
 1. **Spec semantics** (data models, contracts, guarantees) go into existing
-   `docs/spec/` pages. Do not create new spec pages without a change fragment.
+   `docs/spec/` pages. Explain the need for a new spec page in the PR description.
 2. **Operator procedures** (commands, workflows, troubleshooting) go into
    `docs/ops/` pages.
 3. **Developer references** (patterns, testing, adapter authoring) go into

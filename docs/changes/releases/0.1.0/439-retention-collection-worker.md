@@ -49,8 +49,8 @@ and a timestamp only, never event IDs or content values. The
 `collection_*` runtime-event vocabulary records started/stopped/
 abandoned/start_refused/deferred/restricted/epoch_awaited/failed/swept
 through the sanitized event buffer. The spec pages
-([content collection guard](../../spec/content-collection-guard.md),
-[content retention](../../spec/content-retention.md)) restate the
+([content collection guard](../../../spec/content-collection-guard.md),
+[content retention](../../../spec/content-retention.md)) restate the
 automatic-invocation norm: permitted only through the operator-declared
 relay-only policy inside its durable activation epoch, disabled by
 default, and otherwise prohibited as before.
