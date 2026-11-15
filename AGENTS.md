@@ -16,7 +16,8 @@ Docs are split into `docs/spec`, `docs/ops`, `docs/dev`, `docs/schemas`, and
 
 - `.trunk/trunk check --fix --all`: format and apply supported lint fixes.
 - `.trunk/trunk check --all --no-fix --ci`: run the same quality gate as CI.
-- `.trunk/trunk upgrade`: update pinned tools, then fix and check before committing.
+- `.trunk/trunk upgrade`: intentional tool refresh only; review pin changes,
+  then fix and check before committing.
 - `uv sync --locked --extra dev`: install the editable package with pytest and dev
   dependencies.
 - `uv run --no-sync pytest -q`: run the default suite; service, hardware, optional

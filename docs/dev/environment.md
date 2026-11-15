@@ -59,8 +59,9 @@ pinned tool runtimes; no manually installed Black or Ruff is required.
 ```
 
 The second command is also the required CI quality gate. Use `--all`, not a
-literal `all` path. Run `.trunk/trunk upgrade` to update CLI and tool pins, review
-the resulting diff, apply fixes, and rerun the gate before committing. Black's
+literal `all` path. Run `.trunk/trunk upgrade` only for an intentional toolchain
+refresh. Review the resulting pin diff, apply fixes, and rerun the gate before
+committing. Black's
 Python target, Ruff rules, and import sorting policy live in `pyproject.toml`;
 `.trunk/trunk.yaml` owns tool versions. Renovate reads the inline upstream-source
 annotations on external pins; preserve them when updating the toolchain.
@@ -134,7 +135,8 @@ MEDRE options before the adapter name; arguments after `--` belong to pytest.
 Before pytest runs, it verifies the installed core and provider are editable at
 the selected paths; a stale or different installation requires repeating `dev sync`.
 It does not install packages. Select SDKs with `dev sync --sdk` before running SDK
-contracts, for example `dev test matrix -- -m matrix_sdk -v`.
+contracts; for the SDK-only Matrix selection, use
+`dev test matrix -- -m "matrix_sdk and not local_integration and not soak and not live and not hardware and not docker" -v`.
 
 For bench evidence, use `dev test --evidence-dir /private/run ALIAS -- ...` to
 record that adapter's Git path, commit, binary dirty diff and working-tree status
