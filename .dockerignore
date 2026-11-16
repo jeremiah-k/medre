@@ -1,0 +1,20 @@
+# Allow only package/build inputs; never transfer profiles, credentials or state.
+**
+!pyproject.toml
+!setup.py
+!MANIFEST.in
+!README.md
+!LICENSE
+!src/
+!src/**
+!docs/
+!docs/schemas/
+!docs/schemas/**
+!.github/
+!.github/adapter-compatibility.json
+!docker/
+!docker/install_adapters.py
+!docker/verify.py
+!docker/source_policy.py
+**/__pycache__
+**/*.pyc

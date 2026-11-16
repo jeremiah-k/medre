@@ -1,0 +1,26 @@
+services:
+  medre:
+    image: ${MEDRE_IMAGE:-medre:local}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 40s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:mode=1777,size=128m
+    volumes:
+      - medre-data:/data
+      - type: bind
+        source: ${MEDRE_CONFIG:-./config.yaml}
+        target: /data/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    # Set secrets with a local override or env_file; env stays empty by default.
+    environment:
+      MEDRE_HOME: /data
+volumes:
+  medre-data:

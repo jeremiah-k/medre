@@ -9,12 +9,19 @@ import sys
 import tomllib
 from pathlib import Path
 
-_RELEASE_TAG_RE = re.compile(r"\d+\.\d+\.\d+(?:[.-][0-9A-Za-z]+)*\Z")
+# Canonical PEP 440 public versions in the project's three-component namespace.
+# In particular, rc/a/b suffixes have no separator; local versions are not
+# public PyPI releases and cannot be Docker tags.
+_RELEASE_TAG_RE = re.compile(
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    r"(?:(?:a|b|rc)(?:0|[1-9][0-9]*))?"
+    r"(?:\.post(?:0|[1-9][0-9]*))?(?:\.dev(?:0|[1-9][0-9]*))?\Z"
+)
 
 
 def normalize_release_tag(tag: str) -> str:
     """Return the version encoded by a validated release tag."""
-    normalized = tag.strip()
+    normalized = tag
     if normalized.startswith("v"):
         normalized = normalized[1:]
     if not normalized or _RELEASE_TAG_RE.fullmatch(normalized) is None:

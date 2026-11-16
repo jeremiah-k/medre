@@ -31,7 +31,11 @@ is implemented; do not reuse the adapter API version by accident.
 Package tags need not be minted to establish the adapter API version. Core
 and some providers have published `0.1.0`; publication remains independent
 per distribution. Follow PEP 440 and use monotonically increasing distribution
-versions. An already-published `0.1.0` must not be followed by `0.1.0a1`
+versions. Core's release workflows accept canonical public three-component
+versions (for example `0.1.1`, `0.1.1rc1` or `0.1.1.post1`), optionally prefixed
+by `v` on the tag, matching `project.version` exactly. Mark prerelease versions
+as prereleases in GitHub; development image tags use a separate `dev`
+namespace. An already-published `0.1.0` must not be followed by `0.1.0a1`
 (which sorts earlier under PEP 440). The exact-commit manifest supplies
 source reproducibility; no broad package-version constraint is a compatibility
 proof.
