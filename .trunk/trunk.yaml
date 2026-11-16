@@ -26,7 +26,7 @@ lint:
     - black@26.10.1 # renovate: datasource=pypi depName=black
     - checkov@3.4.5 # renovate: datasource=pypi depName=checkov
     - isort@9.0.2 # renovate: datasource=pypi depName=isort
-    - renovate@44.239.1 # renovate: datasource=npm depName=renovate
+    - renovate@44.240.0 # renovate: datasource=npm depName=renovate
     - ruff@0.17.5 # renovate: datasource=pypi depName=ruff
     - shellcheck@0.11.0 # renovate: datasource=github-releases depName=koalaman/shellcheck
     - shfmt@3.14.1 # renovate: datasource=github-releases depName=mvdan/sh
