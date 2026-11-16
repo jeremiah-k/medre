@@ -24,8 +24,8 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `default_channel`                   | `int`                                  | `0`          | Default radio channel index for outbound                          |
 | `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                         |
 | `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Window after start to suppress stale packets                      |
-| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Post-start window dropping relay-classified packets; `0` disables |
+| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Stale `rxTime` tolerance before first receive readiness           |
+| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Initial-connect relay packet drain; `0` disables                  |
 | `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds         |
 | `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template         |
 | `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                            |
@@ -337,9 +337,37 @@ implementation authority.
 
 **Correlation:** Each queued item carries an internal `outbox_id` and `attempt_number` from the pipeline. These are stored in queue item metadata (never in the wire payload sent to the radio). When the delayed callback arrives, these keys enable exact outbox-level correlation with stale-callback protection.
 
-**Startup packet drain:** After each successful adapter start, relay-classified packets are dropped until `time.monotonic()` passes start plus `startup_packet_drain_seconds` (float, default 15.0; `0` disables). Each drop logs at DEBUG; one INFO line reports the dropped count when the window closes; drain counters surface in adapter diagnostics beside the `startup_backlog_packets_*` counters. The drain covers relay-classified traffic only: nodeinfo, routing observations, and enrichment packets are not drained. Connects over BLE, serial, and TCP drain the node's FROMRADIO queue, which can hold backlogged mesh traffic delivered immediately after connect. `rxTime` alone cannot separate that backlog from live traffic: some packets carry no `rxTime`, and node clocks are not synchronized to the host (mmrelay calibrates per-connection clock skew for this reason). The drain keys on monotonic arrival time, making the window independent of packet content and node clock state. The window arms at each successful adapter start and does not re-arm across transparent reconnects.
+**Startup packet drain:** The session arms a content-independent monotonic
+window immediately before enabling receive callbacks for the first connected
+client of each adapter start. A degraded startup does not spend this window
+while the connection is pending; failed initial callback setup arms a fresh
+window on retry. During `startup_packet_drain_seconds` (float, default 15.0;
+`0` disables), relay-classified packets reaching the started adapter are dropped
+before `rxTime` evaluation, decode, staging or publication. A real message
+arriving during this interval is also lost; there is no replay or retry of
+these drained packets. This is a heuristic, not proof that the node's FROMRADIO
+queue is empty. BLE, serial and TCP connections can deliver queued mesh packets
+without `rxTime` or with an unsynchronized clock. Non-relay classification,
+node information and native routing correlation are not gated by the drain.
+Packets delivered before the adapter has started are still rejected by its
+lifecycle guard and are not counted as drain drops.
 
-**Startup backlog suppression:** The `rxTime` gate remains as defense-in-depth: packets with `rxTime` before `adapter_start_epoch - startup_backlog_suppress_seconds` (default 5.0) are silently dropped, notably covering transparent reconnects where the drain window does not re-arm.
+Each drain drop logs at DEBUG. The first subsequent relay-classified packet
+at or after expiry closes the window and emits one INFO summary with the
+recorded dropped count; an idle or stopped connection need not emit this line.
+The `packet relayed` classification log occurs only after the startup gates;
+it is not confirmation of admission or remote delivery. Classifier action
+counts still include suppressed packets. The startup counters reset on adapter
+restart and remain cumulative across initial connection recovery attempts.
+
+**Startup backlog suppression:** The separate `rxTime` gate drops packets whose
+valid timestamp predates `adapter_start_epoch - startup_backlog_suppress_seconds`
+(default 5.0; `0` disables). For this adapter, `adapter_start_epoch` records the
+initial receive-ready connection rather than the return of degraded `start()`;
+it is unset while the first native attempt is pending. After first successful
+setup, later transparent reconnects re-arm neither gate. Consequently, backlog
+received on subsequent reconnects may still relay, particularly without a
+usable `rxTime` or with a timestamp newer than the original cutoff. Subsequent reconnects do not provide a new suppression window.
 
 ---
 
@@ -374,11 +402,13 @@ Recovery does not establish RF receipt or exactly-once delivery.
 
 **Callback ownership:** Meshtastic pubsub callbacks identify the interface that emitted
 the event. A packet or disconnect callback from an interface replaced by reconnect is
-stale and is ignored. Client validation and synchronous callback dispatch are serialized
-with client replacement. Each active client state has a connection generation; packet
-publish and disconnect-reconnect work MUST revalidate the captured generation when the
-event-loop task begins. Stale callbacks cannot update packet timestamps, publish ingress,
-or start another reconnect.
+stale and is ignored. Interface validation and generation capture are serialized with
+client replacement; callback dispatch runs outside that lock. The adapter MUST carry
+the validated session and generation through ingress staging and revalidate both before
+publication. Disconnect-reconnect work MUST likewise revalidate its captured generation
+when the event-loop task begins. An already retired interface cannot update packet
+timestamps or authorize new ingress or reconnect work. This fence does not revoke
+admission already underway before retirement.
 
 **Thread bridging:** `_on_packet` is called from the Meshtastic SDK reader thread. The
 adapter uses `asyncio.run_coroutine_threadsafe` to bridge onto the event loop; futures
@@ -421,7 +451,12 @@ tasks.
 | `classifier_packets_dm_ignored`         | `int`    | DM ignore sub-counter                   |
 | `classifier_packets_empty_text_ignored` | `int`    | Empty text sub-counter                  |
 | `inbound_published`                     | `int`    | Events published inbound                |
+| `startup_backlog_packets_seen`          | `int`    | Relay packets evaluated by the `rxTime` gate |
 | `startup_backlog_packets_suppressed`    | `int`    | Stale backlog suppressions              |
+| `startup_backlog_suppress_seconds`      | `float`  | Configured stale timestamp tolerance    |
+| `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline |
+| `startup_packet_drain_seconds`          | `float`  | Configured initial monotonic window     |
+| `startup_drain_packets_dropped`         | `int`    | Relay packets dropped by the initial drain |
 | `outbound_mode`                         | `str`    | Current outbound mode                   |
 | `outbound_gate_suppressed`              | `int`    | Listen-only suppressions                |
 | `session.connected`                     | `bool`   | Session connected                       |

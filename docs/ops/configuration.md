@@ -332,6 +332,7 @@ adapters:
         "1": admin
       message_delay_seconds: 2.2
       startup_backlog_suppress_seconds: 5.0
+      # startup_packet_drain_seconds: 15.0  # Enable after the provider pin is promoted.
       sync_timeout_ms: 30000
       outbound_mode: enabled
 ```
@@ -350,8 +351,8 @@ adapters:
 | `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                                                            |
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                                                                 |
 | `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                                                             |
-| `startup_backlog_suppress_seconds` | float              | `5.0`         | Seconds after start to suppress stale backlog packets.                                                                        |
-| `startup_packet_drain_seconds`     | float              | `15.0`        | Post-start monotonic window dropping relay-classified packets to drain the node's FROMRADIO backlog on connect; `0` disables. |
+| `startup_backlog_suppress_seconds` | float              | `5.0`         | Stale `rxTime` tolerance before initial receive readiness; `0` disables.                                                      |
+| `startup_packet_drain_seconds`     | float              | `15.0`        | Initial-connect drain of relay packets, including fresh arrivals; `0` disables. No re-arm on later reconnects.                |
 | `sync_timeout_ms`                  | int                | `30000`       | Positive initial wait budget and SDK phase timeout in milliseconds.                                                           |
 | `relay_prefix`                     | `string or null`   | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.                                               |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                                                               |
