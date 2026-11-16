@@ -1,0 +1,11 @@
+# Linux host BlueZ: copy to compose.override.yaml. Pair devices on the host.
+# Host D-Bus policy must allow the container UID to access BlueZ.
+services:
+  medre:
+    volumes:
+      - type: bind
+        source: /run/dbus/system_bus_socket
+        target: /run/dbus/system_bus_socket
+        read_only: true
+        bind:
+          create_host_path: false

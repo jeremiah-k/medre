@@ -1,0 +1,8 @@
+# Linux serial device access: copy to compose.override.yaml and set the two
+# environment variables. Use an adapter device path of /dev/medre-radio.
+services:
+  medre:
+    devices:
+      - ${MEDRE_SERIAL_DEVICE:?Set an owned serial device path}:/dev/medre-radio
+    group_add:
+      - ${MEDRE_SERIAL_GID:?Set the host serial device group ID}

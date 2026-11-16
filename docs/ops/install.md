@@ -75,6 +75,11 @@ follow uv's `uv tool update-shell` guidance.
 medre version` is fine for one-off commands, but a temporary uvx environment
 cannot see providers installed elsewhere. Prefer a project for live services.
 
+## Docker
+
+Use the [Docker deployment guide](docker.md) for the all-adapter image,
+persistent state, source-selected builds and hardware access.
+
 ## Source checkout (development)
 
 ```bash

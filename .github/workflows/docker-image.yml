@@ -1,0 +1,157 @@
+name: Docker Image
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    # checkov:skip=CKV_GHA_7:Owner-selected refs build without credentials; only checked image artifacts reach the release environment.
+    inputs:
+      core_ref:
+        description: Core branch, tag or SHA (blank uses the selected workflow branch)
+        type: string
+        default: ""
+      dev_tag:
+        description: Development image tag (dev or dev-NAME)
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: Build and exercise installed image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      tags: ${{ steps.metadata.outputs.tags }}
+      revision: ${{ steps.metadata.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.core_ref || github.ref }}
+          persist-credentials: false
+      - name: Resolve image provenance and publication tags
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          DEV_TAG: ${{ inputs.dev_tag || 'dev' }}
+        run: python3 scripts/docker/image_tags.py
+      - name: Validate release version
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 scripts/ci/validate_release_version.py --tag "$RELEASE_TAG"
+      - name: Build all providers at committed compatibility revisions
+        run: python3 scripts/docker/build.py --tag medre:ci --platform linux/amd64
+      - name: Verify installed providers and offline native initialization
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp --entrypoint python medre:ci /opt/verify-image.py > installed.json
+          python3 - <<'PYTHON'
+          import json
+          assert set(json.load(open("installed.json"))["providers"]) == {
+              "matrix", "meshtastic", "meshcore", "lxmf", "xmpp", "chatmail", "simplexchat"
+          }
+          PYTHON
+      - name: Exercise fake routing with persistent state and a read-only root
+        run: |
+          mkdir -p "$RUNNER_TEMP/medre-image"
+          docker run --rm medre:ci config sample > "$RUNNER_TEMP/medre-image/config.yaml"
+          MEDRE_CONFIG="$RUNNER_TEMP/medre-image/config.yaml" MEDRE_IMAGE=medre:ci docker compose config --quiet
+          docker volume create medre-image-ci
+          docker run --rm --read-only --tmpfs /tmp -v medre-image-ci:/data -v "$RUNNER_TEMP/medre-image/config.yaml:/data/config.yaml:ro" medre:ci config check
+          docker run --rm --read-only --tmpfs /tmp -v medre-image-ci:/data -v "$RUNNER_TEMP/medre-image/config.yaml:/data/config.yaml:ro" medre:ci smoke --storage-path /data/smoke.sqlite3 --json
+      - name: Verify runtime startup and graceful SIGTERM
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          import time
+          name = "medre-image-runtime"
+          config = os.environ["RUNNER_TEMP"] + "/medre-image/config.yaml"
+          subprocess.run([
+              "docker", "run", "--detach", "--name", name, "--read-only", "--tmpfs", "/tmp",
+              "-v", "medre-image-ci:/data", "-v", config + ":/data/config.yaml:ro", "medre:ci", "run"
+          ], check=True)
+          try:
+              deadline = time.monotonic() + 30
+              while True:
+                  logs = subprocess.check_output(["docker", "logs", name], stderr=subprocess.STDOUT, text=True)
+                  if "Runtime ready (7 adapter(s) running)" in logs:
+                      break
+                  if time.monotonic() >= deadline:
+                      raise SystemExit("Runtime startup deadline exceeded: " + logs)
+                  time.sleep(0.1)
+              subprocess.run(["docker", "stop", "--time", "40", name], check=True)
+              state = json.loads(subprocess.check_output(["docker", "inspect", name], text=True))[0]["State"]
+              if state["ExitCode"] != 0:
+                  raise SystemExit("Runtime did not shut down cleanly: " + repr(state))
+          finally:
+              subprocess.run(["docker", "rm", "--force", name], check=False)
+          PYTHON
+      - name: Save the qualified image
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        run: docker save medre:ci -o image.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        with:
+          name: qualified-container
+          path: image.tar
+          if-no-files-found: error
+          retention-days: 3
+      - name: Remove qualification state
+        if: always()
+        run: docker volume rm medre-image-ci || true
+
+  publish:
+    name: Publish qualified release or dev image
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: qualified-container
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish the tested bytes to GHCR
+        env:
+          IMAGE_TAGS: ${{ needs.qualify.outputs.tags }}
+          EXPECTED_REVISION: ${{ needs.qualify.outputs.revision }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import subprocess
+          tags = json.loads(os.environ["IMAGE_TAGS"])
+          if not isinstance(tags, list) or not tags or any(
+              not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag)
+              for tag in tags
+          ):
+              raise SystemExit("Invalid publication tags")
+          subprocess.run(["docker", "load", "-i", "image.tar"], check=True)
+          observed = subprocess.check_output([
+              "docker", "inspect", "--format", '{{ index .Config.Labels "org.opencontainers.image.revision" }}', "medre:ci"
+          ], text=True).strip()
+          if observed != os.environ["EXPECTED_REVISION"]:
+              raise SystemExit("Qualified image provenance mismatch")
+          image = "ghcr.io/" + os.environ["GITHUB_REPOSITORY"].lower()
+          for tag in tags:
+              target = image + ":" + tag
+              subprocess.run(["docker", "tag", "medre:ci", target], check=True)
+              subprocess.run(["docker", "push", target], check=True)
+          PYTHON

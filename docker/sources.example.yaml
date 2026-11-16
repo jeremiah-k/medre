@@ -1,0 +1,6 @@
+# Optional overrides use the same grammar as `medre adapters sources`.
+# Core is always built from this checkout; omit the core key.
+adapters:
+  matrix: "medre-adapter-matrix[e2e]==0.1.0"
+  # Use an exact commit for reproducible custom Git builds:
+  # meshtastic: "medre-adapter-meshtastic @ git+https://github.com/YOU/medre-adapter-meshtastic.git@FULL_SHA"

@@ -55,6 +55,8 @@ the generated route plan before saving. The builder never connects to a device
 or starts a service. See **[Getting Started](docs/ops/getting-started.md)** for
 the complete walkthrough and live setup.
 
+For container deployments, see [Docker](docs/ops/docker.md).
+
 ## Adapters
 
 All seven adapters participate in configuration, routing, persistence, diagnostics,

@@ -245,3 +245,8 @@ coderabbit_*.md
 /.core/
 junit-*.xml
 coverage-*.xml
+
+# Local container deployment inputs (never image build context).
+/config.yaml
+/compose.override.yaml
+/docker/sources.local.yaml
