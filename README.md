@@ -6,17 +6,31 @@ persistence, and delivery evidence; each transport is an independently installed
 Python adapter. MEDRE began with mesh and LoRa bridges and supports messaging
 services through the same adapter, routing, and evidence contracts.
 
-> **Working pre-release — testers welcome; not production-ready.** Configuration,
-> event, and database schemas are not frozen. Expect breaking changes, test with
-> disposable state, and back up persistent state before updates. Do not delete
-> an active database to work around a schema mismatch: it may contain pending
-> messages and evidence.
+> **Working pre-release — testers welcome; not production-ready.** MEDRE is
+> alpha software: expect breaking changes, test with disposable state, and
+> back up persistent state before updates. Do not delete an active database to
+> work around a schema mismatch: it may contain pending messages and evidence.
+>
+> Frozen and evolving are per-artifact facts, not a blanket promise. The
+> published 0.1.0 schemas are frozen — [docs/schemas/README.md](docs/schemas/README.md)
+> and the [freeze manifest](docs/schemas/v0.1.0.freeze.json) record exactly
+> which released files are frozen — and the tagged 0.1.0 SQLite catalog is the
+> released storage baseline. The current configuration schema still evolves
+> additively between releases
+> ([current adapter config schema](docs/schemas/current/adapter-config.schema.json)),
+> and there is no general database migration: startup accepts the released
+> catalog and explicitly allowlisted additive predecessors, refuses other stale
+> prerelease layouts without modifying them, and recovery from a rejected
+> database is a manual backup and reset
+> ([storage policy](docs/spec/storage.md)).
 
 ## Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-The published 0.1.0 core still defaults adapter installation to Git; the index
-defaults and `sources` commands described on main require a newer core build.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/). The
+steps below use the published 0.1.0 core, whose adapter installation defaults
+to Git, so install uv and Git. Main already defaults new adapter requests to
+package indexes; a pure index installation without Git becomes available with
+the first published core release containing source switching.
 
 **1. Install the CLI and example providers.**
 
