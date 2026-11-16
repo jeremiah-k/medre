@@ -6,6 +6,9 @@ Update the relevant specification, schema and operator documentation alongside
 the implementation.
 
 - [Unreleased operator notes](unreleased.md): concise summaries only when useful.
+- [0.1.1 release notes](0.1.1.md): the patch release's summary.
+- [0.1.1 individual notes](releases/0.1.1/): archived records for the patch
+  release.
 - [0.1.0 development history](0.1.0.md): the first release's retained summary.
 - [0.1.0 individual notes](releases/0.1.0/): historical numbered records, not work
   items or a sequence to continue.
