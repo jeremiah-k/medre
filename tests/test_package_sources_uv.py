@@ -111,7 +111,9 @@ def test_real_uv_roundtrips_git_editable_git_and_index(tmp_path, target):
         editable=True,
     )
     run(list(plan.command), env=env)
-    assert request(selected)["editable"] == str(packages / selected)
+    assert (
+        Path(request(selected)["editable"]).resolve() == (packages / selected).resolve()
+    )
     observed = json.loads(
         run(
             [
@@ -122,7 +124,7 @@ def test_real_uv_roundtrips_git_editable_git_and_index(tmp_path, target):
             env=env,
         )
     )
-    assert Path(observed).resolve().parent == packages / selected
+    assert Path(observed).resolve().parent == (packages / selected).resolve()
     assert request(unselected) == unchanged
     # Replaying the complete request retains editable mode without bespoke flags.
     run(installation().install_request(installation().requirements()), env=env)
@@ -153,10 +155,7 @@ def test_real_uv_roundtrips_git_editable_git_and_index(tmp_path, target):
     plan = plan_source_switch(
         installation(), catalog, (target,), source="index", version="1.0"
     )
-    run(
-        list(plan.command),
-        env={**env, "UV_FIND_LINKS": str(wheelhouse), "UV_NO_INDEX": "1"},
-    )
+    run([*plan.command, "--no-index", "--find-links", str(wheelhouse)], env=env)
     assert request(selected) == {"name": selected, "specifier": "==1.0"}
     assert request(unselected) == unchanged
     # uv persists custom wheelhouse settings; do not discard them on later replay.
