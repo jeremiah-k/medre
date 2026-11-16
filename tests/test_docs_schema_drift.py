@@ -118,7 +118,7 @@ def test_adapter_config_schema_matches_source() -> None:
     """
     from medre.adapter_registry import get_adapter_spec
 
-    schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
+    schema = _load_json(_SCHEMAS_DIR / "current" / "adapter-config.schema.json")
     arms = {arm["title"]: arm for arm in schema["anyOf"]}
     providers = _load_json(_ROOT / ".github" / "adapter-compatibility.json")
     checks = []

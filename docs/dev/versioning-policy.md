@@ -65,3 +65,10 @@ or qualify a mixed source stack. Preserve the frozen released baseline and
 review differences against exact tagged artifacts. Abandoned experimental
 shapes from before the first release are not automatically supported migration
 baselines.
+
+The current source configuration schema lives under `docs/schemas/current/`;
+the released top-level snapshots remain immutable. The initial current adapter
+schema adds the optional Meshtastic startup drain setting without changing
+canonical event, native metadata or persisted-state generations. Source drift
+is checked against that current schema, and release packaging retains both
+the baseline and current artifacts.

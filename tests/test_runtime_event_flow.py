@@ -423,7 +423,9 @@ class TestAdapterSpecificMetadataPreserved:
 
     def test_meshtastic_event_metadata(self) -> None:
         """Meshtastic event carries radio metadata (node_id, channel)."""
-        config = MeshtasticConfig(adapter_id="test_mesh")
+        config = MeshtasticConfig(
+            startup_packet_drain_seconds=0, adapter_id="test_mesh"
+        )
         adapter = FakeMeshtasticAdapter(config)
         assert adapter.adapter_id == "test_mesh"
         assert adapter.platform == "meshtastic"

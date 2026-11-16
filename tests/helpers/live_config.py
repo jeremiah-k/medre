@@ -190,6 +190,7 @@ def build_live_bridge_runtime_config(tmp_path: Path) -> "RuntimeConfig":
     # Build Meshtastic config based on connection type.
     meshtastic_kwargs: dict = {
         "adapter_id": "radio",
+        "startup_packet_drain_seconds": 0,
     }
     if ct == "tcp":
         if not host:

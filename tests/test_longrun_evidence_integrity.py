@@ -160,7 +160,9 @@ def _make_router() -> Router:
 
 async def _build(storage: SQLiteStorage) -> _S:
     mx = FakeMatrixAdapter(MX_ID, channel=MX_CHANNEL)
-    mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=MESH_ID))
+    mesh = FakeMeshtasticAdapter(
+        MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id=MESH_ID)
+    )
     mc = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=MC_ID))
     rp = RenderingPipeline()
     rp.register(TextRenderer(), priority=100)

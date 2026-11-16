@@ -1,0 +1,962 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/current/adapter-config.schema.json",
+  "title": "AdapterConfig",
+  "description": "Untagged union of installed adapter config shapes. The enclosing runtime adapters.<transport>.<instance> path selects the transport-specific dataclass; this standalone schema has no transport discriminator, so overlapping valid shapes must not fail validation.",
+  "anyOf": [
+    {
+      "title": "MatrixConfig",
+      "description": "Immutable configuration for the Matrix adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "homeserver": {
+          "type": "string",
+          "description": "Matrix homeserver URL (must start with 'http://' or 'https://')."
+        },
+        "user_id": {
+          "type": "string",
+          "description": "Fully-qualified Matrix user ID (must start with '@')."
+        },
+        "device_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Device ID. Internal \u2014 discovered via whoami() on login."
+        },
+        "access_token": {
+          "type": "string",
+          "default": "",
+          "description": "Access token for authentication."
+        },
+        "room_allowlist": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null,
+          "description": "Optional set of room IDs to accept messages from. Null means all rooms."
+        },
+        "metadata_embedding_mode": {
+          "type": "string",
+          "default": "safe",
+          "description": "How metadata is embedded in messages.",
+          "enum": [
+            "off",
+            "minimal",
+            "safe",
+            "full"
+          ]
+        },
+        "store_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "E2EE store path. Internal \u2014 derived by runtime."
+        },
+        "sync_timeout_ms": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 0,
+          "description": "Timeout in milliseconds for long-polling sync requests."
+        },
+        "initial_sync_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 45.0,
+          "description": "Startup wait after room joins for the first acknowledged Matrix sync. Zero disables the wait. Expiry retains degraded health and native recovery. The runtime adapter-start deadline bounds the complete startup attempt."
+        },
+        "sync_stale_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 300.0,
+          "description": "Maximum seconds without durable sync progress before MEDRE recycles the current Matrix sync loop; 0 disables active stale-sync recovery. Typed validation requires a positive value to exceed sync_timeout_ms/1000 + 15 seconds; with the sync timeout disabled this floor is 15 seconds."
+        },
+        "startup_backlog_suppress_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 60.0,
+          "description": "Tolerance before the adapter start baseline: inbound events whose origin server timestamp predates the baseline by more than this window are startup history and never forward, whichever path delivered them. The window covers homeserver federation lag and minor clock drift. Zero disables the suppression."
+        },
+        "megolm_key_request_rate_limit_per_minute": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Maximum outbound missing-room-key to-device request attempts per rolling minute."
+        },
+        "megolm_key_request_max_inflight": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Maximum concurrent detached missing-room-key recovery tasks."
+        },
+        "encryption_mode": {
+          "type": "string",
+          "default": "plaintext",
+          "enum": [
+            "plaintext",
+            "e2ee_required",
+            "e2ee_optional"
+          ],
+          "description": "Encryption policy."
+        },
+        "verification_policy": {
+          "type": "string",
+          "default": "permissive",
+          "enum": [
+            "permissive",
+            "strict"
+          ],
+          "description": "Optional local recipient-device trust gate for encrypted Matrix sends. Permissive performs no additional MEDRE peer-trust scan; strict requires affirmative trust in MEDRE's own nio store. Plaintext sends and typing are unaffected."
+        },
+        "require_encrypted_rooms": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to only operate in encrypted rooms."
+        },
+        "auto_join_rooms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Opaque Matrix room IDs starting with '!'; legacy IDs include ':server', while room version 12 IDs omit it. Auto-joined on startup."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Target-local Matrix prefix. Omitted/null selects full [sender/origin]: attribution (or [sender]: without an origin); an empty string disables it. A string is a custom generic template."
+        }
+      },
+      "required": [
+        "adapter_id",
+        "homeserver",
+        "user_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "MeshtasticConfig",
+      "description": "Immutable configuration for the Meshtastic adapter.",
+      "type": "object",
+      "properties": {
+        "max_pending_ingress_callbacks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum relayable inbound callbacks staged for publication before core admission. A refused callback is counted and reported as producer overflow, never silently dropped or admitted; the default is provisional pending the measured-budget qualification round. Acknowledgment and routing-correlation callbacks are never throttled."
+        },
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": [
+            "fake",
+            "tcp",
+            "serial",
+            "ble"
+          ],
+          "default": "fake",
+          "description": "Connection mode."
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Hostname or IP for TCP connections."
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Port number for TCP connections."
+        },
+        "serial_port": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Serial device path for serial connections."
+        },
+        "ble_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "BLE MAC address for BLE connections."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "channel_mapping": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Mapping of channel index to human-readable channel name (display labels only)."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 2.2,
+          "minimum": 0,
+          "description": "Minimum delay between outbound radio messages (pacing). The 2.2-second default leaves margin above current Meshtastic firmware's two-second limit for phone-originated text; shorter configured intervals can cause RATE_LIMIT_EXCEEDED even when the SDK returns a packet ID. Use a lower interval only with separately qualified firmware."
+        },
+        "startup_backlog_suppress_seconds": {
+          "type": "number",
+          "default": 5.0,
+          "minimum": 0,
+          "description": "Seconds after start to suppress stale backlog packets."
+        },
+        "sync_timeout_ms": {
+          "type": "integer",
+          "default": 30000,
+          "description": "Timeout in milliseconds for sync operations."
+        },
+        "relay_prefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Target-local relay prefix. Omitted/null selects the automatic Matrix sender5[M]: template or the generic sender_short template for other sources. An empty string disables it. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1); the final text uses the max_text_bytes UTF-8 budget."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "default": 227,
+          "minimum": 0,
+          "description": "Maximum UTF-8 byte budget for final radio text after rendering."
+        },
+        "max_text_parts": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Maximum guarded multipart packets for ordinary messages. One retains the existing single-packet behavior; larger values require the core-owned native handoff contract."
+        },
+        "queue_send_max_attempts": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum send attempts per queued item (first attempt + retries)."
+        },
+        "queue_max_size": {
+          "type": "integer",
+          "default": 1024,
+          "minimum": 1,
+          "description": "Hard adapter-local outbound queue capacity."
+        },
+        "queue_warning_threshold_pct": {
+          "type": "number",
+          "default": 75.0,
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 100,
+          "description": "Queue utilization percentage that enters advisory warning pressure."
+        },
+        "queue_critical_threshold_pct": {
+          "type": "number",
+          "default": 90.0,
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 100,
+          "description": "Queue utilization percentage that enters critical pressure and degrades adapter health. Typed validation also requires this to exceed the warning threshold."
+        },
+        "reconnect_backoff_initial_seconds": {
+          "type": "number",
+          "default": 10.0,
+          "exclusiveMinimum": 0,
+          "description": "Initial MEDRE session-level reconnect delay after a started adapter loses transport."
+        },
+        "reconnect_backoff_max_seconds": {
+          "type": "number",
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "description": "Maximum MEDRE session-level reconnect delay. Typed validation requires this to be at least the initial delay."
+        },
+        "tcp_liveness_interval_seconds": {
+          "type": "number",
+          "default": 60.0,
+          "minimum": 0,
+          "description": "Interval between active TCP round-trip liveness probes; 0 disables active probing."
+        },
+        "tcp_liveness_timeout_seconds": {
+          "type": "number",
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "description": "Maximum seconds to wait for the TCP liveness request metadata response before session-level recovery."
+        },
+        "outbound_mode": {
+          "type": "string",
+          "enum": [
+            "enabled",
+            "listen_only"
+          ],
+          "default": "enabled",
+          "description": "Controls whether outbound radio sends are enabled."
+        },
+        "encrypted_action": {
+          "type": "string",
+          "enum": [
+            "drop",
+            "deferred"
+          ],
+          "default": "drop",
+          "description": "Classification policy for encrypted packets whose payload cannot be inspected. 'drop' discards them; 'deferred' queues them for deferred processing."
+        },
+        "chat_portnums": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Frozenset of Meshtastic port-num names treated as chat traffic for classification. Empty means no portnums are explicitly classified as chat at the config level."
+        },
+        "disabled_portnums": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Frozenset of Meshtastic port-num names whose packets are dropped before classification. Empty means no portnums are disabled."
+        },
+        "detection_sensor_relay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether DETECTION_SENSOR app packets are relayed across the bridge."
+        },
+        "startup_packet_drain_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.7976931348623157e+308,
+          "default": 15.0,
+          "description": "Initial receive-ready relay packet drain in seconds, including fresh arrivals. Zero disables the drain. Later transparent reconnects do not re-arm it."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "MeshCoreConfig",
+      "description": "Immutable configuration for the MeshCore adapter.",
+      "type": "object",
+      "properties": {
+        "max_pending_ingress_callbacks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum relayable inbound callbacks staged for publication before core admission. A refused callback is counted and reported as producer overflow, never silently dropped or admitted; the default is provisional pending the measured-budget qualification round. Acknowledgment and routing-correlation callbacks are never throttled."
+        },
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": [
+            "fake",
+            "tcp",
+            "serial",
+            "ble"
+          ],
+          "default": "fake",
+          "description": "Connection mode."
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Hostname or IP for TCP connections."
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Port number for TCP connections."
+        },
+        "serial_port": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Serial device path for serial connections."
+        },
+        "serial_baudrate": {
+          "type": "integer",
+          "default": 115200,
+          "description": "Baud rate for serial connections."
+        },
+        "ble_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "BLE MAC address for BLE connections."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum delay between outbound messages (pacing)."
+        },
+        "identity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional MeshCore node identity string."
+        },
+        "pubkey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-fA-F]+$",
+          "default": null,
+          "description": "Optional MeshCore public key as a hex string."
+        },
+        "node_config": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {},
+          "description": "Opaque dict for future node-specific settings. Must not contain secret keys: validate-time enforcement in MeshCoreConfig rejects keys whose lowercased name matches {'private_key', 'secret', 'password'} (case-insensitive). Schema-level additionalProperties remains open by design \u2014 the runtime validator is the source of truth for the secret-key blocklist."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "default": 160,
+          "minimum": 0,
+          "description": "Maximum UTF-8 byte budget for final radio text after rendering. The 160-byte default matches the MeshCore firmware's complete group-text limit, which includes the firmware-prepended node name and ': ' separator; the advertised planning budget is prefix-aware (127 bytes worst case) until the live device name is known."
+        },
+        "max_text_parts": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Maximum guarded multipart packets for ordinary messages. One retains the existing single-packet behavior; larger values require the core-owned native handoff contract."
+        },
+        "ble_pin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional BLE pairing PIN. Sensitive; forwarded only to the SDK create_ble call; never exposed in diagnostics or logs."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template applied before final UTF-8 byte-budget truncation. Empty string disables prefixing. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1)."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "LxmfConfig",
+      "description": "Immutable configuration for the LXMF adapter.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "connection_type": {
+          "type": "string",
+          "enum": [
+            "fake",
+            "reticulum"
+          ],
+          "default": "fake",
+          "description": "Connection mode. 'fake' for testing, 'reticulum' for real LXMF."
+        },
+        "display_name": {
+          "type": "string",
+          "default": "",
+          "description": "Optional display name for LXMF announces."
+        },
+        "stamp_cost": {
+          "type": "integer",
+          "default": 8,
+          "minimum": 0,
+          "maximum": 254,
+          "description": "LXMF inbound stamp cost. 0 disables stamps; valid positive range is 1..254."
+        },
+        "default_delivery_method": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "opportunistic",
+            "propagated",
+            "paper"
+          ],
+          "default": "direct",
+          "description": "Default LXMF delivery method."
+        },
+        "outbound_propagation_node": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9A-Fa-f]{32}$",
+          "default": null,
+          "description": "Optional 16-byte outbound LXMF propagation-node destination hash as 32 hexadecimal characters."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "default_channel": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default radio channel index for outbound messages."
+        },
+        "message_delay_seconds": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Minimum delay between outbound messages (pacing)."
+        },
+        "metadata_embedding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to embed MEDRE metadata envelopes in LXMF fields."
+        },
+        "identity_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Path to a Reticulum identity file."
+        },
+        "storage_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Path for LXMF LXMRouter persistent storage. Required for 'reticulum' mode."
+        },
+        "reticulum_config_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Path to an isolated Reticulum configuration directory for this adapter instance. When set, the adapter starts its own Reticulum with that configdir instead of the host default, enabling private per-instance radio setups."
+        },
+        "announce_interval_seconds": {
+          "type": "number",
+          "default": 600.0,
+          "minimum": 0,
+          "description": "Interval in seconds between periodic LXMF announces for mesh path discovery. 0 disables."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relay prefix template prepended to outbound LXMF message body text. Empty string disables prefixing. Declared sender, sender_short, and origin_label placeholders support {nameN} Unicode-code-point truncation (N >= 1)."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "connection_type": {
+                "const": "reticulum"
+              },
+              "default_delivery_method": {
+                "const": "propagated"
+              }
+            },
+            "required": [
+              "connection_type",
+              "default_delivery_method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "outbound_propagation_node": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{32}$"
+              }
+            },
+            "required": [
+              "outbound_propagation_node"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "XMPPConfig",
+      "description": "Immutable configuration for the XMPP adapter: explicitly configured bare-JID rooms and peers, text limits, and optional relay attribution. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "jid": {
+          "type": "string",
+          "default": "",
+          "description": "Bot account JID in bare lowercase user@domain form; an optional resource suffix selects the bot's resource. ASCII uppercase is rejected because RFC 7622 preparation case-folds server-supplied addresses, so a mixed-case conversation could never match inbound traffic."
+        },
+        "password": {
+          "type": "string",
+          "writeOnly": true,
+          "default": "",
+          "description": "Account password for the bot JID; sensitive \u2014 never exposed in diagnostics, logs, or errors."
+        },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Bare JIDs of multi-user chat rooms to join and relay; must be distinct and disjoint from peers."
+        },
+        "peers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 3
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Bare JIDs of direct conversations allowed to relay; must be distinct and disjoint from rooms."
+        },
+        "nickname": {
+          "type": "string",
+          "minLength": 1,
+          "default": "medre",
+          "description": "Room nickname used when joining; must be non-empty XML text."
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "default": null,
+          "description": "Optional server host override; must be supplied together with port \u2014 omit both for DNS SRV discovery."
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 65535,
+          "default": null,
+          "description": "Server port (1..65535) for the host override; must be supplied together with host."
+        },
+        "connect_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30.0,
+          "description": "Bounded startup time for the native connection and room joins; must be a positive finite number."
+        },
+        "reconnect_delay_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 5.0,
+          "description": "Positive delay between reconnection attempts."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget for outbound message bodies."
+        },
+        "inbound_queue_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Bounded ingress queue depth; must be a positive integer."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
+        },
+        "metadata_embedding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Embed bounded shared source claims independently of the visible prefix."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "ChatmailConfig",
+      "description": "Immutable configuration for the Chatmail adapter: one private native account with an explicit allowlist of ordinary chats. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "accounts_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Private native accounts directory owned exclusively by this adapter instance; held under an exclusive profile lease at runtime."
+        },
+        "account_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295,
+          "default": 1,
+          "description": "Native account ID inside the accounts directory (1..4294967295)."
+        },
+        "chats": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 4294967295
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Distinct native chat IDs allowed as sources and destinations; only ordinary chats (10..4294967295) are routable \u2014 special chats never route."
+        },
+        "state_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Private persistent state directory for the durable outbound journal and admission checkpoints."
+        },
+        "rpc_server_path": {
+          "type": "string",
+          "default": "",
+          "description": "Optional explicit path to the deltachat-rpc-server executable; empty resolves the server binary from the installed pinned package."
+        },
+        "rpc_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30.0,
+          "description": "Positive timeout for native RPC calls."
+        },
+        "poll_interval_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 5.0,
+          "description": "Positive interval between native inbox polls; a full outbound queue also reports this interval as the retry-after."
+        },
+        "reconnect_delay_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 5.0,
+          "description": "Positive delay between RPC reconnect attempts."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget enforced on rendered text before native submission."
+        },
+        "max_pending": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Positive bound on the durable outbound journal queue; a full queue fails delivery with a retryable error."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
+        },
+        "native_sender_attribution": {
+          "type": "boolean",
+          "default": true,
+          "description": "Present original sender and origin using a per-message native sender override."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "SimplexChatConfig",
+      "description": "Immutable configuration for the SimpleX Chat adapter: one native profile with explicit group and contact allowlists. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "type": "object",
+      "properties": {
+        "adapter_id": {
+          "type": "string",
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
+        },
+        "database_prefix": {
+          "type": "string",
+          "default": "",
+          "description": "Path prefix for the native SimpleX database files (the profile database lives at '<prefix>_chat.db'); empty derives under the adapter transport state directory. Held under an exclusive profile lease at runtime."
+        },
+        "database_key": {
+          "type": "string",
+          "writeOnly": true,
+          "default": "",
+          "description": "Optional passphrase for the native database; sensitive \u2014 forwarded only to the native worker, never exposed in diagnostics or logs."
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "default": 1,
+          "description": "Native user profile ID (1..9223372036854775807) owning the bridged conversations."
+        },
+        "chats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(group|contact):[1-9][0-9]{0,18}$"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Distinct allowlisted conversation channels as native 'group:ID' or 'contact:ID' strings; both sources and destinations must be in this allowlist, and IDs from another profile are not interchangeable."
+        },
+        "state_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Private adapter state directory for handoff and inbox ledgers and admission cursors; empty derives under the adapter transport state directory."
+        },
+        "native_cache_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Native client cache directory; empty derives under the core cache directory."
+        },
+        "libs_dir": {
+          "type": "string",
+          "default": "",
+          "description": "Optional directory of native SimpleX client libraries, exported to the worker as SIMPLEX_LIBS_DIR."
+        },
+        "command_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 30.0,
+          "description": "Positive timeout for individual native worker commands."
+        },
+        "startup_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 90.0,
+          "description": "Positive startup budget for the native worker and profile connection."
+        },
+        "poll_interval_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0,
+          "description": "Positive interval between native event polls."
+        },
+        "max_text_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16384,
+          "description": "Positive UTF-8 byte budget enforced on rendered text before native submission; oversized text fails the delivery instead of truncating."
+        },
+        "origin_label": {
+          "type": "string",
+          "default": "",
+          "description": "Operator-facing human-readable source label for relay prefixes."
+        },
+        "relay_prefix": {
+          "type": "string",
+          "default": "[{origin_label}] {sender}: ",
+          "description": "Relay prefix template prepended to outbound text. Placeholders resolve from per-message relay attribution: sender, sender_short, sender_id, sender_handle, platform, channel, route_id, origin_label (this transport declares no {nameN} truncation variables). An empty string disables prefixing. Unknown placeholders or formatting errors fail the delivery instead of emitting a malformed prefix."
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

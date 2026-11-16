@@ -59,6 +59,7 @@ class TestFakeStalePacketsSuppressed:
 
     async def test_stale_packet_suppressed(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -81,6 +82,7 @@ class TestFakeStalePacketsSuppressed:
 
     async def test_very_old_packet_suppressed(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=5.0,
         )
@@ -109,6 +111,7 @@ class TestFakeFreshPacketsRelayed:
 
     async def test_recent_packet_relayed(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -132,6 +135,7 @@ class TestFakeFreshPacketsRelayed:
     async def test_future_packet_relayed(self) -> None:
         """Packet with rxTime after start is always relayed."""
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -160,6 +164,7 @@ class TestFakeDisabledSuppression:
 
     async def test_zero_window_no_suppression(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=0,
         )
@@ -190,6 +195,7 @@ class TestFakeMalformedTimestamps:
 
     async def test_missing_rx_time_passes_through(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -207,6 +213,7 @@ class TestFakeMalformedTimestamps:
 
     async def test_none_rx_time_passes_through(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -225,6 +232,7 @@ class TestFakeMalformedTimestamps:
 
     async def test_string_rx_time_passes_through(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -243,6 +251,7 @@ class TestFakeMalformedTimestamps:
 
     async def test_bool_rx_time_passes_through(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -270,6 +279,7 @@ class TestFakeBoundaryEquality:
 
     async def test_exactly_at_cutoff_not_suppressed(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -288,6 +298,7 @@ class TestFakeBoundaryEquality:
 
     async def test_just_before_cutoff_suppressed(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -317,6 +328,7 @@ class TestFakeCounterSemantics:
     async def test_seen_only_increments_for_relay_packets(self) -> None:
         """startup_backlog_packets_seen only counts relay-classified packets."""
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -339,6 +351,7 @@ class TestFakeCounterSemantics:
 
     async def test_counters_multiple_packets(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -387,6 +400,7 @@ class TestFakeStartupBacklogDiagnostics:
 
     async def test_diagnostics_keys_present(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -404,6 +418,7 @@ class TestFakeStartupBacklogDiagnostics:
 
     async def test_diagnostics_initial_values(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )
@@ -422,6 +437,7 @@ class TestFakeStartupBacklogDiagnostics:
 
     async def test_adapter_start_epoch_is_reasonable(self) -> None:
         config = MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="fake-mesh-1",
             startup_backlog_suppress_seconds=10.0,
         )

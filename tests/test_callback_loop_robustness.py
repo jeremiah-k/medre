@@ -214,7 +214,11 @@ class TestMeshtasticCallbackIsolation:
         """A malformed packet raises from simulate_inbound; the next valid
         packet is processed normally."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-robust", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-robust",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         ctx = _make_ctx("mesh-robust", collector)
@@ -245,7 +249,11 @@ class TestMeshtasticCallbackIsolation:
         """The sync _on_packet callback catches exceptions internally; a
         subsequent valid packet publishes successfully."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-sync", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-sync",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         ctx = _make_ctx("mesh-sync", collector)
@@ -274,7 +282,11 @@ class TestMeshtasticCallbackIsolation:
         """A packet that classifies as non-text returns early (no crash);
         next valid text packet succeeds."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-cat", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-cat",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         ctx = _make_ctx("mesh-cat", collector)
@@ -533,7 +545,11 @@ class TestDuplicateEventId:
         """Two packets with the same id are both processed (no dedup in
         callback); adapter continues working."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-dup", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-dup",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         await adapter.start(_make_ctx("mesh-dup", collector))
@@ -620,7 +636,11 @@ class TestEmptyPayload:
         """A Meshtastic packet with empty decoded text is not published
         (empty text is classified as ignore)."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-empty", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-empty",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         await adapter.start(_make_ctx("mesh-empty", collector))
@@ -728,7 +748,11 @@ class TestMissingRequiredFields:
         """Meshtastic packet without 'decoded' key classifies as unknown;
         adapter continues."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-missing", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-missing",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         await adapter.start(_make_ctx("mesh-missing", collector))
@@ -809,7 +833,11 @@ class TestAsyncPublishFailureIsolation:
         """_on_packet creates a background task that calls _on_packet_async.
         If publish_inbound raises, the task logs it. Next call works."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-pub-fail", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-pub-fail",
+                connection_type="fake",
+            )
         )
 
         call_count = 0
@@ -930,7 +958,11 @@ class TestRapidFireBadGood:
     async def test_interleaved_bad_good_meshtastic(self) -> None:
         """Bad → good → bad → good all resolve correctly."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-rapid", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-rapid",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         await adapter.start(_make_ctx("mesh-rapid", collector))
@@ -1092,7 +1124,11 @@ class TestNativeIdIsolation:
         """A failed decode does not leave stale native refs for the next
         successful callback."""
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-native", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-native",
+                connection_type="fake",
+            )
         )
         collector = _InboundCollector()
         await adapter.start(_make_ctx("mesh-native", collector))

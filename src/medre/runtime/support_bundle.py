@@ -289,13 +289,14 @@ def _build_schemas_member() -> SchemasMember:
     script remains source-only and its presence is reported independently.
     """
     directory, source = _schema_location()
+    adapter_schema = "adapter-config.schema.json"
+    if directory.joinpath("current").joinpath(adapter_schema).is_file():
+        adapter_schema = "current/" + adapter_schema
     return SchemasMember(
         runtime_config_schema=_read_schema_meta(
             "runtime-config.schema.json", directory
         ),
-        adapter_config_schema=_read_schema_meta(
-            "adapter-config.schema.json", directory
-        ),
+        adapter_config_schema=_read_schema_meta(adapter_schema, directory),
         routing_config_schema=_read_schema_meta(
             "routing-config.schema.json", directory
         ),

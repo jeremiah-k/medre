@@ -106,7 +106,9 @@ def _build_runtime(db_path: Path, *, with_route: bool):
         adapter_id="lab_src",
         enabled=True,
         adapter_kind="fake",
-        config=MeshtasticConfig(adapter_id="lab_src", connection_type="fake"),
+        config=MeshtasticConfig(
+            startup_packet_drain_seconds=0, adapter_id="lab_src", connection_type="fake"
+        ),
     )
     radio = MeshCoreRuntimeConfig(
         adapter_id="mc_radio",

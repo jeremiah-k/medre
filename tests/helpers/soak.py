@@ -320,6 +320,7 @@ def _make_meshtastic_config() -> Any:
     ct = _MESHTASTIC_CONNECTION_TYPE
     if ct == "serial":
         return MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="meshtastic-soak",
             connection_type="serial",
             serial_port=os.environ["MESHTASTIC_SERIAL_PORT"],
@@ -327,6 +328,7 @@ def _make_meshtastic_config() -> Any:
         )
     elif ct == "ble":
         return MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="meshtastic-soak",
             connection_type="ble",
             ble_address=os.environ["MESHTASTIC_BLE_ADDRESS"],
@@ -334,6 +336,7 @@ def _make_meshtastic_config() -> Any:
         )
     else:  # tcp (default)
         return MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="meshtastic-soak",
             connection_type="tcp",
             host=os.environ.get("MESHTASTIC_HOST"),

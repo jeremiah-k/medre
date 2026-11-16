@@ -113,6 +113,7 @@ class _MeshInteropHarness:
     ) -> None:
         self.mt = FakeMeshtasticAdapter(
             MeshtasticConfig(
+                startup_packet_drain_seconds=0,
                 adapter_id=MT_ADAPTER,
                 default_channel=0,
                 relay_prefix=prefix_template,

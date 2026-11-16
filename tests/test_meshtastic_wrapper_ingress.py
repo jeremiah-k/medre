@@ -35,7 +35,11 @@ class TestMeshtasticWrapperCallbackPath:
         """MeshtasticAdapter.simulate_inbound decodes packet, publishes
         through pipeline, delivers to fake target."""
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-cb-src", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-cb-src",
+                connection_type="fake",
+            )
         )
         fake_target = FakeMatrixAdapter("fake-mx-dst", channel="!dst:fake")
 
@@ -90,7 +94,11 @@ class TestMeshtasticWrapperCallbackPath:
         """Packet sender, channel, packet_id map correctly to canonical
         event fields."""
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-meta-src", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-meta-src",
+                connection_type="fake",
+            )
         )
 
         route = Route(
@@ -148,7 +156,11 @@ class TestMeshtasticWrapperCallbackPath:
         """Full bridge: Meshtastic simulate_inbound → pipeline → fake
         Matrix adapter delivery."""
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-bridge-src", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-bridge-src",
+                connection_type="fake",
+            )
         )
         fake_mx = FakeMatrixAdapter("mx-bridge-dst", channel="!bridge-dst:fake")
 

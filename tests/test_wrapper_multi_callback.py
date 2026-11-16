@@ -54,7 +54,9 @@ class TestMatrixWrapperMultiCallback:
             )
         )
         fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mx-multi-target")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0, adapter_id="mx-multi-target"
+            )
         )
 
         route = Route(
@@ -198,7 +200,11 @@ class TestMeshtasticWrapperMultiCallback:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-multi-src", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-multi-src",
+                connection_type="fake",
+            )
         )
         fake_target = FakeMatrixAdapter("mesh-multi-dst", channel="!dst:fake")
 
@@ -286,7 +292,11 @@ class TestMeshtasticWrapperMultiCallback:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         mesh_adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="mesh-meta-multi", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="mesh-meta-multi",
+                connection_type="fake",
+            )
         )
 
         route = Route(

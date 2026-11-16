@@ -542,3 +542,10 @@ deterministically degraded to inline fallback text.
 | `meshtastic` / `mtjk` | Meshtastic Python SDK (TCP, serial, BLE interfaces) | Yes (`medre-adapter-meshtastic`)  |
 | `pubsub` (pypubsub)   | Meshtastic SDK callback subscription                | Yes (via `meshtastic` dependency) |
 | `meshtastic.protobuf` | Protobuf `MeshPacket` / `Data` for structured send  | Yes (via `meshtastic` dependency) |
+
+## Configuration schema selection
+
+The [current adapter configuration schema](../../schemas/current/adapter-config.schema.json)
+includes `startup_packet_drain_seconds`. The frozen top-level 0.1.0 schema
+remains the released baseline and does not accept that field. This optional
+configuration addition changes no canonical envelope or native metadata shape.

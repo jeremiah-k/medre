@@ -37,7 +37,9 @@ class TestLongRunBidirectionalCallbackBridge:
     ) -> None:
         """Inject 5 messages from each side. Assert exact counts, no loops."""
         fake_matrix = FakeMatrixAdapter("lr-matrix", channel="!lr-room:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="lr-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="lr-mesh")
+        )
 
         route_mx_to_mesh = Route(
             id="lr-mx-to-mesh",
@@ -144,7 +146,9 @@ class TestLongRunBidirectionalCallbackBridge:
     async def test_snapshot_reflects_totals(self, temp_storage: SQLiteStorage) -> None:
         """Final accounting snapshot reflects exact totals after bridge run."""
         fake_matrix = FakeMatrixAdapter("snap-mx", channel="!snap:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="snap-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="snap-mesh")
+        )
 
         route_a = Route(
             id="snap-mx-mesh",

@@ -135,6 +135,7 @@ def _make_matrix_config(env: SynapseEnvironment) -> MatrixConfig:
 def _make_mesh_config(env: MeshtasticdEnvironment) -> MeshtasticConfig:
     """Build a TCP MeshtasticConfig pointing at the Docker meshtasticd."""
     return MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id="cross-mesh-target",
         connection_type="tcp",
         host=env.host,
@@ -173,7 +174,9 @@ def _make_pipeline_config(
     rp.register(
         MeshtasticRenderer(
             configs={
-                "cross-mesh-target": MeshtasticConfig(adapter_id="cross-mesh-target")
+                "cross-mesh-target": MeshtasticConfig(
+                    startup_packet_drain_seconds=0, adapter_id="cross-mesh-target"
+                )
             }
         ),
         priority=50,
