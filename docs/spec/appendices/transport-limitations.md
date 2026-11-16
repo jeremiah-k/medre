@@ -327,11 +327,10 @@ and SDK pins.
   The official SDK and native library are AGPL-3.0-licensed; this
   adapter's code is MIT (`medre-adapter-simplexchat` README at the
   inspected pin).
-- Text is rendered with relay attribution only. Native quotes,
-  attachments, edits, deletions, reactions, typing, and puppeting are not
-  advertised: reply/thread fallbacks are plain text, and the native-quote
-  candidate path remains capability `fallback` pending independent
-  recipient-side qualification
+- Text is rendered with relay attribution, and replies carry native quotes
+  against retained parents with inline fallback text otherwise. Attachments,
+  edits, deletions, reactions, typing, and puppeting are not advertised:
+  thread fallbacks are plain text
   (`medre-adapter-simplexchat/docs/qualification/native-quoted-replies.md`).
 - Received control items, sent echoes, blocked members, file captions,
   live partial messages, and private support chats are excluded from
@@ -408,8 +407,8 @@ mechanisms:
   reference (true for Matrix, Meshtastic, and XMPP; Chatmail binds a native
   quote only when core uniquely verifies the earlier message in the same
   profile and chat; LXMF carries relations in the MEDRE `0xFD` envelope
-  fields rather than a native reply reference; SimpleX Chat renders
-  reply/thread fallbacks without advertising native quotes; false for
+  fields rather than a native reply reference; SimpleX Chat carries native
+  quotes for replies and renders thread fallbacks as plain text; false for
   MeshCore). Relations
   are capability-gated via `CapabilityDecisionResolver`; adapters that lack
   native support for a relation type produce `capability_suppressed` delivery
