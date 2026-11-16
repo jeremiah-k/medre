@@ -15,8 +15,10 @@
   "rangeStrategy": "pin",
   "timezone": "America/Chicago",
   "updateNotScheduled": true,
-  "dependencyDashboard": true,
-  "dependencyDashboardTitle": "Dependency Updates (medre)",
+  "dependencyDashboard": {
+    "enabled": true,
+    "title": "Dependency Updates (medre)"
+  },
   "automerge": false,
   "automergeType": "pr",
   "platformAutomerge": false,
