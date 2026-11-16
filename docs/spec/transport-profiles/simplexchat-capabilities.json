@@ -3,7 +3,7 @@
   "capabilities": {
     "text": true,
     "title": false,
-    "replies": "fallback",
+    "replies": "native",
     "reactions": "unsupported",
     "edits": "unsupported",
     "deletes": "unsupported",

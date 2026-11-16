@@ -20,7 +20,7 @@ The values below bind directly to the [machine-readable capability declaration](
 | ------------------- | --------------- |
 | text                | `True`          |
 | title               | `False`         |
-| replies             | `"fallback"`    |
+| replies             | `"native"`      |
 | reactions           | `"unsupported"` |
 | edits               | `"unsupported"` |
 | deletes             | `"unsupported"` |
@@ -41,10 +41,11 @@ The values below bind directly to the [machine-readable capability declaration](
 
 The [machine-readable declaration](simplexchat-capabilities.json) is checked
 against the real adapter and SDK-free fake. Ordinary text, groups, direct
-conversations, reply/thread text fallbacks, encrypted identities, and native
-store-and-forward are declared. Native quotes, attachments, edits, deletions,
-reactions, typing, presence, and puppeting are unsupported. Private group support
-chats and live partial messages do not enter fresh-message admission.
+conversations, native quote replies with thread text fallbacks, encrypted
+identities, and native store-and-forward are declared. Attachments, edits,
+deletions, reactions, typing, presence, and puppeting are unsupported. Private
+group support chats and live partial messages do not enter fresh-message
+admission.
 
 The compatibility renderer applies source attribution and the configured relay
 prefix to plain text. Its configured limit defaults to 16,384 UTF-8 bytes and is
