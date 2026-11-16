@@ -287,7 +287,14 @@ class TestFakeBoundaryEquality:
         ctx = _make_context()
         await adapter.start(ctx)
 
-        cutoff = adapter._adapter_start_epoch - 10.0
+        # The rxTime gate judges against the active receive-ready baseline
+        # (per-connection watermark once armed), so derive the exact cutoff
+        # from whichever baseline the adapter actually uses.
+        baseline = max(
+            adapter._adapter_start_epoch,
+            max(adapter._receive_ready_epochs.values()),
+        )
+        cutoff = baseline - 10.0
         packet = _make_stale_packet(rx_time=cutoff, text="boundary")
         await adapter.simulate_inbound(packet)
 
