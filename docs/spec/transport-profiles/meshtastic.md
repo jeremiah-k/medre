@@ -354,8 +354,10 @@ lifecycle guard and are not counted as drain drops.
 
 Each drain drop logs at DEBUG. The first subsequent relay-classified packet
 at or after expiry closes the window and emits one INFO summary with the
-recorded dropped count; an idle or stopped connection need not emit this line.
-The `packet relayed` classification log occurs only after the startup gates;
+recorded dropped count. A transparent reconnect retires any remaining initial
+drain without re-arming it; an idle, stopped or replaced connection need not
+emit a completion summary.
+The `packet relayed` classification log occurs only after the ingress gates;
 it is not confirmation of admission or remote delivery. Classifier action
 counts still include suppressed packets. The startup counters reset on adapter
 restart and remain cumulative across initial connection recovery attempts.
@@ -371,22 +373,29 @@ direct test injection, or pruned history). Every receive-ready installation —
 the first connection and every transparent reconnect alike — records a fresh
 watermark before the installed client can subscribe or dispatch a packet, so
 queue backlog drained by a reconnected radio is judged against that reconnect
-instead of the original startup. Future timestamps are never suppressed: an
+instead of the original startup. The cutoff persists for the generation;
+expiry of the reconnect bootstrap does not weaken this filter. A timestamp
+exactly at the cutoff is eligible. Future timestamps are never suppressed: an
 ahead-of-host radio clock reads as skew, not stale backlog, so queue backlog
 on a sufficiently ahead-skewed radio is indistinguishable from live traffic
 by `rxTime`. A radio clock trailing the host by more than the tolerance can
 suppress genuinely fresh packets; the tolerance doubles as the skew
 allowance, and the same failure class exists at the initial connection.
 
-**Reconnect receive bootstrap window:** Every receive-ready installation
-after the first also arms a fixed five-second monotonic window scoped to its
-connection generation. While the window is open, relay-classified packets on
+**Reconnect receive bootstrap window:** Every activation after successful
+initial setup arms a fixed five-second monotonic window scoped to its
+connection generation. Failed initial subscription retries still arm the
+initial drain, not the reconnect window. A failed activation may leave a
+watermark for a retired generation; it is not evidence of a live connection. While the window is open, relay-classified packets on
 that generation without a usable `rxTime` are dropped: they cannot prove they
 are not pre-reconnect queue backlog. Packets with a usable `rxTime` are never
 dropped by this window — the `rxTime` gate owns their decision — so a
-reconnect never spends a blind content-independent drain on live packets.
-Lazy expiry emits one INFO completion line with the window's drop count;
-afterwards missing and malformed timestamps relay as before, because their
+reconnect never spends a blind content-independent drain on live packets,
+even if reconnect completes before the initial drain's deadline. All packets
+remain subject to ordinary admission and connection-generation ownership.
+The first packet of the owning generation that reaches this gate at or after
+expiry emits one INFO completion line with the window's drop count; idle or
+replaced generations need not emit this summary. Afterwards missing and malformed timestamps relay as before, because their
 age cannot be judged. Repeated reconnects record fresh watermarks and arm
 fresh windows per generation, bounding unprovable-case loss per episode.
 The window shares the startup drain's operator opt-out:
@@ -481,7 +490,7 @@ tasks.
 | `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline      |
 | `startup_packet_drain_seconds`          | `float`         | Configured initial monotonic window          |
 | `startup_drain_packets_dropped`         | `int`           | Relay packets dropped by the initial drain   |
-| `receive_ready_generation`              | `int \| None`   | Latest receive-ready connection generation   |
+| `receive_ready_generation`              | `int \| None`   | Latest recorded activation watermark generation   |
 | `reconnect_backlog_packets_dropped`     | `int`           | Age-unprovable drops in reconnect windows    |
 | `reconnect_receive_bootstrap_seconds`   | `float`         | Fixed reconnect bootstrap window length      |
 | `outbound_mode`                         | `str`           | Current outbound mode                        |

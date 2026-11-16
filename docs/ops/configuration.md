@@ -332,7 +332,7 @@ adapters:
         "1": admin
       message_delay_seconds: 2.2
       startup_backlog_suppress_seconds: 5.0
-      startup_packet_drain_seconds: 15.0 # Initial receive-ready drain; 0 disables.
+      startup_packet_drain_seconds: 15.0 # Initial drain; 0 also disables reconnect bootstrap.
       sync_timeout_ms: 30000
       outbound_mode: enabled
 ```
@@ -351,8 +351,8 @@ adapters:
 | `default_channel`                  | int                | `0`           | Default radio channel index for outbound messages.                                                             |
 | `channel_mapping`                  | dict of int→string | `{}`          | Maps channel indices to human-readable names.                                                                  |
 | `message_delay_seconds`            | float              | `2.2`         | Minimum delay between outbound messages (pacing).                                                              |
-| `startup_backlog_suppress_seconds` | float              | `5.0`         | Stale `rxTime` tolerance before initial receive readiness; `0` disables.                                       |
-| `startup_packet_drain_seconds`     | float              | `15.0`        | Initial-connect drain of relay packets, including fresh arrivals; `0` disables. No re-arm on later reconnects. |
+| `startup_backlog_suppress_seconds` | float              | `5.0`         | Stale `rxTime` tolerance before each connection watermark; `0` disables.                                       |
+| `startup_packet_drain_seconds`     | float              | `15.0`        | Initial relay drain, retired on reconnect; `0` also disables the 5s age-unprovable reconnect bootstrap. |
 | `sync_timeout_ms`                  | int                | `30000`       | Positive initial wait budget and SDK phase timeout in milliseconds.                                            |
 | `relay_prefix`                     | `string or null`   | `None`        | Null selects automatic attribution; `""` disables; otherwise a prefix template.                                |
 | `max_text_bytes`                   | int                | `227`         | Maximum UTF-8 byte budget for final radio text.                                                                |
