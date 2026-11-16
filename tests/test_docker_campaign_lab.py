@@ -481,7 +481,7 @@ def test_generated_lab_ca_allows_strict_server_verification(tmp_path, monkeypatc
         (config / name).touch()
     monkeypatch.setattr(container, "ROOT", tmp_path)
     container.certificates()
-    subprocess.run(
+    verification = subprocess.run(
         [
             "openssl",
             "verify",
@@ -492,8 +492,8 @@ def test_generated_lab_ca_allows_strict_server_verification(tmp_path, monkeypatc
             str(config / "ca.crt"),
             str(config / "server.crt"),
         ],
-        check=True,
         capture_output=True,
         text=True,
         timeout=15,
     )
+    assert verification.returncode == 0, verification.stderr

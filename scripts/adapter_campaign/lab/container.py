@@ -38,6 +38,10 @@ def certificates() -> None:
             "/CN=MEDRE disposable lab CA",
             "-addext",
             "keyUsage=critical,keyCertSign,cRLSign",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "subjectKeyIdentifier=hash",
         ],
         [
             "req",
@@ -70,7 +74,12 @@ def certificates() -> None:
         ],
     ]
     (config / "server.ext").write_text(
-        "subjectAltName=DNS:matrix.lab.test,DNS:auth.lab.test,DNS:xmpp.lab.test,DNS:rooms.xmpp.lab.test\nextendedKeyUsage=serverAuth\n"
+        "subjectAltName=DNS:matrix.lab.test,DNS:auth.lab.test,DNS:xmpp.lab.test,DNS:rooms.xmpp.lab.test\n"
+        "extendedKeyUsage=serverAuth\n"
+        "basicConstraints=CA:FALSE\n"
+        "keyUsage=critical,digitalSignature,keyEncipherment\n"
+        "subjectKeyIdentifier=hash\n"
+        "authorityKeyIdentifier=keyid,issuer\n"
     )
     for argv in commands:
         subprocess.run(["openssl", *argv], cwd=config, check=True, timeout=30)
