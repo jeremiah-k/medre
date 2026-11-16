@@ -1,11 +1,12 @@
 # Manage MEDRE and adapter packages
 
-This guide describes the source-switching CLI on the development branch. The
-published 0.1.0 core has Git adapter defaults and does not recognize `sources`
-or inline adapter version constraints. Install uv and Git. Once source
-switching lands on main, use that Git revision (or a subsequent release that
-includes it) for the examples below. For the current published CLI, follow
-[Getting Started](getting-started.md) and use native uv commands for source changes.
+This guide describes the source-switching CLI included on main. The published
+0.1.0 core has Git adapter defaults and does not recognize `sources` or inline
+adapter version constraints, and no published release includes these commands
+yet. Install uv and Git. Use a main Git revision for the examples below, or a
+later published release that includes source switching. For the current
+published CLI, follow [Getting Started](getting-started.md) and use native uv
+commands for source changes.
 
 Install one persistent command, then select the adapters you need:
 

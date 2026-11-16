@@ -18,8 +18,9 @@ uv tool install medre
 medre adapters install matrix meshtastic
 ```
 
-The published 0.1.0 CLI installs adapters from Git by default. Index defaults
-and the `sources` commands require a core build that includes source switching.
+The published 0.1.0 CLI installs adapters from Git by default, which is why the
+steps above include Git. Main already defaults new adapter requests to package
+indexes and adds the `sources` commands; no published release includes them yet.
 
 If `medre` is not found, run `uv tool update-shell` and open a new terminal.
 On Windows, run the extra installation command MEDRE prints after it exits.
