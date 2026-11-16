@@ -85,9 +85,12 @@ provider's own session budget.
 A successful outbound handoff confirms the native local queue. An uncertain
 reservation requires inspection rather than blind resubmission.
 
-Text attribution and reply/thread fallbacks are supported. Native quotes,
-attachments, edits, deletions, reactions, typing, and puppeting are unsupported.
-Local health does not establish peer reachability. Independent group receipts
-have separate qualification from direct-contact and worker-death recovery.
+Text attribution, native quote replies, and thread text fallbacks are
+supported: a reply uses a native quote when the retained parent is verified in
+the active profile, and falls back to readable inline text when no usable
+parent exists. Attachments, edits, deletions, reactions, typing, and puppeting
+are unsupported. Local health does not establish peer reachability. Independent
+group receipts have separate qualification from direct-contact and
+worker-death recovery.
 See the [profile](../../spec/transport-profiles/simplexchat.md) and provider-owned
 [configuration schema](https://github.com/jeremiah-k/medre-adapter-simplexchat/blob/main/docs/schemas/config.schema.json).

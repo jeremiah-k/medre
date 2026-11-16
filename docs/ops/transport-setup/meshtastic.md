@@ -13,7 +13,7 @@ Setting up and running the MEDRE Meshtastic adapter against a real radio node. P
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | Meshtastic node      | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
 | Python               | 3.11 or later                                                                                |
-| Package install      | Install meshtastic in the MEDRE environment; see [installation](../install.md)               |
+| Package install      | Install the provider in the MEDRE environment; see [installation](../install.md)             |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4403                                    |
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                              |
 | Radio channel        | A channel index (default 0) not used for critical or emergency communications                |
@@ -34,10 +34,9 @@ Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Defa
 nc -zv meshtastic.local 4403
 ```
 
-4. Optionally verify with the Meshtastic CLI:
+4. Optionally verify with the Meshtastic CLI (installed with the provider):
 
 ```bash
-# Install meshtastic in the MEDRE environment; see [installation](../install.md)   # pinned mtjk fork; also provides the meshtastic CLI
 meshtastic --host meshtastic.local --info
 ```
 
@@ -65,9 +64,11 @@ bluetoothctl scan on
 
 ### Firmware Compatibility
 
-`mtjk` is exact-pinned by the `meshtastic` optional dependency group in
-`pyproject.toml`. If you encounter protocol errors, update the project pin and
-node firmware together, then rerun the installed-SDK and local validation tiers.
+The provider distribution pins its Meshtastic SDK directly in its package
+metadata (`mtjk==2.7.11.post14`), which also supplies the `meshtastic` CLI
+used above. If you encounter protocol errors, upgrade the installed provider
+and node firmware together, then rerun the installed-SDK and local validation
+tiers.
 
 ## Connection Modes
 
@@ -150,20 +151,7 @@ config = MeshtasticConfig(
 
 Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
 
-## Environment Variables
-
-| Variable                     | Required for | Default | Example             | Description                                  |
-| ---------------------------- | ------------ | ------- | ------------------- | -------------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`      |
-| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                          |
-| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                     |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                           |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                              |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                    |
-| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID                           |
-| `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | Transmit guard. `1` enables RF transmission. |
-
-### Multi-Instance Env Overrides
+## Environment Overrides
 
 Override an existing YAML adapter:
 
@@ -180,7 +168,9 @@ export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 ```
 
 `MEDRE_MESHTASTIC_*` runtime config variables are unsupported. Use
-`MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>`; see
+[configuration](../configuration.md#environment-variable-overrides) for the
+complete override contract.
 
 ## Manual Adapter Wiring
 
@@ -250,6 +240,31 @@ INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
 **Queue durability:** The adapter-local queue is in-memory and non-durable across process restart. During an ordinary adapter stop, an item interrupted mid-send is reported through the queue-terminal path; when there is no in-flight cancellation, pending queue items remain on the adapter object for a subsequent `start()` of that same object. Durable delivery receipts/outbox state remain owned by core storage.
 
 Shutdown is idempotent.
+
+## Startup drain and reconnect receive watermark
+
+A Meshtastic radio hands its FROMRADIO queue to the next successful
+connection, and BLE, serial and TCP connections can deliver queued mesh
+packets without a usable `rxTime` or with an unsynchronized clock. After the
+first receive-ready connection of each adapter start, the session drops
+relay-classified packets for `startup_packet_drain_seconds` (default 15.0;
+`0` disables) before `rxTime` evaluation, decode, staging or publication. A
+real message arriving during the interval is also lost; drained packets are
+not replayed or retried. Non-relay classification, node information and
+native routing correlation are not gated by the drain.
+
+After a transparent reconnect, the radio can hand its pre-reconnect queue to
+the fresh connection. Every connection generation records a receive-ready
+watermark, and the `rxTime` cutoff judges each packet against its own
+generation's watermark with `startup_backlog_suppress_seconds` (default 5.0)
+as the cutoff tolerance. A fixed five-second, generation-scoped window drops
+relay-classified packets without a usable `rxTime` right after a reconnect:
+they cannot prove they are not queue backlog. Provably fresh traffic relays
+immediately, a rapid reconnect retires any remaining initial drain, and
+`startup_packet_drain_seconds: 0` disables both the initial drain and the
+reconnect window. See [configuration](../configuration.md) for the field
+reference and the [transport profile](../../spec/transport-profiles/meshtastic.md)
+for the normative contract.
 
 ## Health States
 
