@@ -1,25 +1,33 @@
 # Running MEDRE with Docker
 
 The image contains core, installed adapters and their SDK dependencies. The
-persistent `/data` volume holds configuration, databases, profiles, keys, media
-and logs. Installing Python packages into this volume is unsupported: changing
-packages means pulling or building an image and recreating the container.
+persistent `/data` volume holds databases, profiles, keys, media and logs.
+The host config file is bind-mounted read-only at `/data/config.yaml`; it is
+separate from the named volume. Installing Python packages into this volume
+is unsupported: changing packages means pulling or building an image and recreating the container.
 Updating bridge configuration needs only a container recreation.
 
 ## Build and start
 
-Docker Engine with Buildx, Docker Compose v2 or newer, Make and Python 3.11+
+Docker Engine with Buildx, Docker Compose v2 or newer, Git, Make and Python 3.11+
 are required for local builds. No host Python environment or SDK installation
 is needed. Run these commands from the core checkout:
 
 ```bash
 make build
 # Create a safe fake-route sample without overwriting an existing config:
-( set -C; docker run --rm medre:local config sample > config.yaml )
+( umask 077; set -C; docker run --rm medre:local config sample > config.yaml )
 make check
 make run
 make logs
 ```
+
+The sample file is created with owner-only permissions. The default container
+UID is 1000, so a host user with UID 1000 can use it directly. If the host owner
+has a different UID, grant the container read access with a file ACL, such as
+`setfacl -m u:1000:r config.yaml`, before `make check`. With user namespace
+remapping, grant access to the mapped host UID instead. Keep the file private;
+MEDRE runs as a non-root user.
 
 Replace the sample with your reviewed live configuration before connecting
 real transports. Keep secrets in the ignored config or a local Compose override;
@@ -36,7 +44,10 @@ SimpleX and Chatmail profiles, LXMF identities and Reticulum configuration there
 Avoid storing transport state in `/tmp` or anonymous container layers.
 
 `make stop` stops the bridge; `make clean` removes the deployment and network
-while retaining its named volume. Back up that volume before updates. The image
+while retaining its named volume. Before updates, securely back up both the
+volume and the host config file selected by `MEDRE_CONFIG` (default
+`./config.yaml`), along with any local overrides containing credentials. A
+volume-only backup does not include the bind-mounted config. The image
 runs `medre run` directly and receives SIGTERM through Compose's init process;
 Compose allows 40 seconds for the configured runtime shutdown. Increase this
 allowance when your runtime or SDK shutdown budget is longer.
@@ -75,29 +86,44 @@ are resolved at build time.
 see `docker/sources.example.yaml`. Omit its core entry, since this image always
 builds core from its context. Disabled aliases are excluded from `all`. Local
 overrides name selected built-in aliases, include uncommitted edits and install
-ordinary wheels, without runtime source mounts or editable imports. BuildKit
-receives the explicit local checkout contexts: keep private profiles, keys and
-credentials outside them or excluded by the checkout's `.dockerignore`.
-Never point an adapter context at a parent directory containing other projects.
+ordinary wheels, without runtime source mounts or editable imports. Local file
+requirements bypass uv's directory wheel cache, including when only Python
+source changes. BuildKit receives the explicit local checkout contexts: use
+trusted, clean input directories and keep private profiles, keys and credentials
+outside them. Do not assume that the core context's allowlist applies to named
+contexts. Never point an adapter context at a parent containing other projects.
 
 The source catalog is supplied as a BuildKit secret and not copied into the
-image. Git requirements use public repository URLs; host Git credentials are
-not forwarded. For private provider development, use an explicit local checkout
-context. Native SDK assets, including
+image. The root build context allowlist excludes `config.yaml`,
+`compose.override.yaml` and `docker/sources.local.yaml`. Selected source URLs
+must use public HTTP(S), Git over HTTP(S), or local file URLs, without userinfo,
+query strings or unsupported fragments. Archive SHA-256 and package subdirectory
+fragments are supported. The builder refuses unsafe direct-source metadata,
+including transitive direct sources, before copying the runtime environment;
+verification repeats that check in the installed image. Keep credentials out of
+URL paths, wheel contents, source trees and build inputs as well. Host Git
+credentials are not forwarded. For private provider development, use an explicit
+trusted local checkout context. Native SDK assets, including
 SimpleX's SQLite library, are resolved and initialized during the build. Image
 verification exercises native initialization without contacting chat services.
 No operator identities or database profiles are retained in the image.
 
 Use `make verify` to inspect installed providers and perform the offline
-SimpleX native-library check. This is installation evidence, not proof of
-service authentication, encryption interoperability or RF delivery.
+SimpleX native-library check, comparing actual packages and direct-source
+records with the build report. Official image qualification also checks every
+committed provider revision and a terminal runtime/adapter shutdown snapshot.
+This is installation and fake-runtime evidence, not proof of service
+authentication, encryption interoperability or RF delivery.
 
 ## Release images and updates
 
 The Docker Image workflow qualifies the complete image on pull requests and
 main. On a published release it saves those tested bytes, then publishes them
 as `ghcr.io/jeremiah-k/medre:VERSION` through the existing `release` environment.
-A non-prerelease also updates `latest`. Initial official images target
+Canonical public three-component PEP 440 version tags (optionally prefixed by
+`v`) match core's project version exactly; alpha, beta, release candidate and
+`.devN` versions must be marked prerelease. A non-prerelease also updates
+`latest`. Initial official images target
 **linux/amd64**; other architectures require qualification before publication.
 A GitHub release predating this workflow has no image automatically created.
 The GHCR package must be made public once for anonymous pulls.
@@ -107,10 +133,17 @@ workflow branch, optionally set `core_ref` to a different core branch, tag or
 full SHA, and choose `dev_tag` (default `dev`; e.g. `dev-my-feature`). The build
 resolves that ref once and qualifies the resulting image, then publishes both
 `dev_tag` and `dev_tag-FULL_CORE_SHA` through the same release environment.
-Manual builds cannot choose `latest` or a release tag. PR and main pushes only
-qualify; they never publish. Use an image digest for exact lab qualification; rerunning a build can
-replace the same SHA-bearing tag with refreshed system or transitive packages. Adapter refs still come from that core revision's committed
-compatibility manifest; no moving provider branches are implicitly selected.
+Manual builds cannot choose `latest`, a release tag or a tag ending in a
+full-SHA suffix (reserved for generated provenance tags). Only the workflow
+revision derives the allowed publication tags from the event and the resolved
+checkout SHA; a selected core checkout cannot grant itself release-tag authority.
+PR and main pushes qualify the event SHA; they never publish. The release
+environment still authorizes the selected code: qualification is not a security
+sandbox for arbitrary untrusted source. Use an image digest for exact lab
+qualification; rerunning a build can replace the same SHA-bearing tag with
+refreshed system or transitive packages. Adapter refs still come from that core
+revision's committed compatibility manifest; no moving provider branches are
+implicitly selected.
 
 After an image has been published:
 
@@ -121,7 +154,8 @@ IMAGE=ghcr.io/jeremiah-k/medre:VERSION make run
 ```
 
 For custom images, build first and recreate only after the build and config
-check succeed. `make build-nocache` deliberately refreshes dependency resolution.
+check succeed. `make build-nocache` bypasses both Docker layer reuse and uv
+cache reuse.
 Container upgrades use images; `medre sources switch`, `medre adapters install`
 and self-upgrade commands manage uv tool environments and are not the image's
 package manager. Never copy a host venv into the data volume.

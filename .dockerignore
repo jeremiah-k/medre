@@ -15,5 +15,6 @@
 !docker/
 !docker/install_adapters.py
 !docker/verify.py
+!docker/source_policy.py
 **/__pycache__
 **/*.pyc

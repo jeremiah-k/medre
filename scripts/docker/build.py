@@ -60,7 +60,7 @@ def command(args: argparse.Namespace) -> list[str]:
             + hashlib.sha256(args.sources.read_bytes()).hexdigest(),
         ]
     if args.no_cache:
-        result.append("--no-cache")
+        result += ["--no-cache", "--build-arg", "MEDRE_UV_NO_CACHE=1"]
     if args.platform:
         result += ["--platform", args.platform]
     revision = subprocess.run(

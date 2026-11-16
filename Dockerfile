@@ -21,7 +21,8 @@ FROM runtime-base AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends git build-essential \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv==0.13.8
-ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
+ARG MEDRE_UV_NO_CACHE=0
+ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_NO_CACHE=${MEDRE_UV_NO_CACHE}
 RUN uv venv /opt/venv
 COPY . /core
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -61,6 +62,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/simplex-libs /opt/simplex-libs
 COPY --from=builder /opt/medre-build.json /opt/medre-build.json
 COPY docker/verify.py /opt/verify-image.py
+COPY docker/source_policy.py /opt/source_policy.py
 WORKDIR /data
 USER 1000:1000
 # Generic CLI image: process exit is supervised by Compose. Offline config

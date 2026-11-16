@@ -8,11 +8,14 @@ import os
 import subprocess
 from pathlib import Path
 
+from source_policy import validate_source_url
+
 from medre.tool_management import (
     SourceCatalog,
     ToolManagementError,
     load_source_catalog,
     selected_source,
+    split_requirement_marker,
 )
 
 
@@ -53,7 +56,7 @@ def requirements(
     )
     if len(aliases) != len(set(aliases)):
         raise ToolManagementError("Select each image adapter once.")
-    if not local <= set(aliases):
+    if not local <= set(aliases) or not local <= entries.keys():
         raise ToolManagementError("Local overrides must name selected adapter aliases.")
     result = []
     for alias in aliases:
@@ -66,40 +69,57 @@ def requirements(
         else:
             _, requirement = selected_source(alias, sources.adapters)
             result.append(requirement)
+    for requirement in result:
+        body, _ = split_requirement_marker(requirement)
+        if "@" in body:
+            try:
+                validate_source_url(body.split("@", 1)[1].strip())
+            except ValueError as error:
+                raise ToolManagementError(str(error)) from None
     return result
+
+
+def install_command(path: Path, selected: list[str]) -> list[str]:
+    """Build directory requirements without uv's packaging-file cache heuristic."""
+    command = ["uv", "pip", "install", "--python", "/opt/venv/bin/python"]
+    bodies = [split_requirement_marker(requirement)[0] for requirement in selected]
+    if any(
+        "@" in body and body.split("@", 1)[1].strip().lower().startswith("file:")
+        for body in bodies
+    ):
+        command.append("--no-cache")
+    return command + ["/core", "-r", str(path)]
+
+
+def checked_catalog(catalog: Path, digest: str) -> Path | None:
+    """Do not silently fall back to defaults when a requested secret is absent."""
+    if not catalog.exists() and digest == "none":
+        return None
+    if (
+        not catalog.is_file()
+        or hashlib.sha256(catalog.read_bytes()).hexdigest() != digest
+    ):
+        raise ToolManagementError(
+            "Source catalog or its cache key is missing or stale; build with scripts/docker/build.py."
+        )
+    return catalog
 
 
 def main() -> None:
     manifest = json.loads(Path("/core/.github/adapter-compatibility.json").read_text())
-    catalog = Path("/run/secrets/sources")
-    if catalog.exists() and hashlib.sha256(
-        catalog.read_bytes()
-    ).hexdigest() != os.environ.get("MEDRE_SOURCES_DIGEST"):
-        raise ToolManagementError(
-            "Source catalog cache key is missing or stale; build with scripts/docker/build.py."
-        )
+    catalog = checked_catalog(
+        Path("/run/secrets/sources"), os.environ.get("MEDRE_SOURCES_DIGEST", "none")
+    )
     selected = requirements(
         manifest,
         os.environ["MEDRE_ADAPTERS"],
         os.environ["MEDRE_SOURCE"],
         set(os.environ.get("MEDRE_LOCAL_ADAPTERS", "").split()),
-        catalog if catalog.exists() else None,
+        catalog,
     )
     path = Path("/tmp/adapter-requirements.txt")
     path.write_text("\n".join(selected) + "\n")
-    subprocess.run(
-        [
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            "/opt/venv/bin/python",
-            "/core",
-            "-r",
-            str(path),
-        ],
-        check=True,
-    )
+    subprocess.run(install_command(path, selected), check=True)
     subprocess.run(
         ["uv", "pip", "check", "--python", "/opt/venv/bin/python"], check=True
     )

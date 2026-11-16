@@ -11,7 +11,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from medre.tool_management import redact_source
+from source_policy import validate_source_url
 
 
 def providers() -> list[str]:
@@ -35,8 +35,27 @@ async def simplex() -> None:
 
 def source_record(raw: str) -> dict:
     record = json.loads(raw)
-    record["url"] = redact_source(record["url"])
+    validate_source_url(record["url"])
+    if (record.get("dir_info") or {}).get("editable"):
+        raise ValueError("Runtime images must not contain editable installations")
     return record
+
+
+def installation_record(names: list[str]) -> dict:
+    """Inspect actual installed metadata, including transitive direct sources."""
+    distributions = list(metadata.distributions())
+    return {
+        "core": metadata.version("medre"),
+        "providers": names,
+        "packages": sorted(
+            [dist.metadata["Name"], dist.version] for dist in distributions
+        ),
+        "direct_sources": {
+            dist.metadata["Name"]: source_record(raw)
+            for dist in distributions
+            if (raw := dist.read_text("direct_url.json")) is not None
+        },
+    }
 
 
 def main() -> None:
@@ -45,6 +64,7 @@ def main() -> None:
     args = parser.parse_args()
     names = providers()
     if args.prepare:
+        record = installation_record(names)
         target = Path("/opt/simplex-libs")
         target.mkdir()
         if "simplexchat" in names:
@@ -57,24 +77,11 @@ def main() -> None:
                         "Expected one resolved SimpleX SQLite native artifact"
                     )
                 shutil.copytree(matches[0].parent, target, dirs_exist_ok=True)
-        record = {
-            "core": metadata.version("medre"),
-            "providers": names,
-            "packages": sorted(
-                (dist.metadata["Name"], dist.version)
-                for dist in metadata.distributions()
-            ),
-            "direct_sources": {
-                dist.metadata["Name"]: source_record(raw)
-                for dist in metadata.distributions()
-                if (raw := dist.read_text("direct_url.json"))
-            },
-        }
         Path("/opt/medre-build.json").write_text(json.dumps(record, indent=2) + "\n")
     else:
         record = json.loads(Path("/opt/medre-build.json").read_text())
-        if names != record["providers"] or metadata.version("medre") != record["core"]:
-            raise RuntimeError("Installed providers differ from the built image record")
+        if installation_record(names) != record:
+            raise RuntimeError("Installed packages differ from the built image record")
         if "simplexchat" in names:
             asyncio.run(simplex())
         print(json.dumps(record, indent=2))
