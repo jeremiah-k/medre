@@ -63,5 +63,13 @@ class BuildPyWithCompatibility(build_py):
             (schema_target / name).write_bytes(frozen_schema_bytes(path, expected))
         self.copy_file(str(freeze_manifest), str(schema_target / freeze_manifest.name))
 
+        # Active source configuration evolves separately from released snapshots.
+        current_target = schema_target / "current"
+        self.mkpath(str(current_target))
+        self.copy_file(
+            str(schema_root / "current" / "adapter-config.schema.json"),
+            str(current_target / "adapter-config.schema.json"),
+        )
+
 
 setup(cmdclass={"build_py": BuildPyWithCompatibility})

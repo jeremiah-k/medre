@@ -112,7 +112,9 @@ class _S:
 async def _build(storage: SQLiteStorage) -> _S:
     """Create 4 fake adapters, 2 routes, and a started PipelineRunner."""
     mx = FakeMatrixAdapter(MX_ID, channel=MX_CHANNEL)
-    mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=MESH_ID))
+    mesh = FakeMeshtasticAdapter(
+        MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id=MESH_ID)
+    )
     mc = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=MC_ID))
     lxmf = FakeLxmfAdapter(LxmfConfig(adapter_id=LXMF_ID))
 
@@ -375,7 +377,9 @@ async def _run_batch(
 ) -> tuple[int, RuntimeAccounting]:
     """Run *n* matrix messages through a fresh pipeline; return (accepted, accounting)."""
     mx = FakeMatrixAdapter(MX_ID, channel=MX_CHANNEL)
-    mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=MESH_ID))
+    mesh = FakeMeshtasticAdapter(
+        MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id=MESH_ID)
+    )
     mc = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=MC_ID))
     lxmf = FakeLxmfAdapter(LxmfConfig(adapter_id=LXMF_ID))
 

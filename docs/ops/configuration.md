@@ -332,7 +332,7 @@ adapters:
         "1": admin
       message_delay_seconds: 2.2
       startup_backlog_suppress_seconds: 5.0
-      # startup_packet_drain_seconds: 15.0  # Enable after the provider pin is promoted.
+      startup_packet_drain_seconds: 15.0 # Initial receive-ready drain; 0 disables.
       sync_timeout_ms: 30000
       outbound_mode: enabled
 ```

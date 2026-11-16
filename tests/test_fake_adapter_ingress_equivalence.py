@@ -43,7 +43,9 @@ class TestFakeMatrixAdapterIngressEquivalence:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Both paths produce identical delivery receipts and accounting."""
-        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fake-target"))
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="fake-target")
+        )
 
         route = Route(
             id="equiv-route",
@@ -184,7 +186,9 @@ class TestFakeMatrixAdapterIngressEquivalence:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Both paths increment RuntimeAccounting identically."""
-        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="acc-target"))
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="acc-target")
+        )
 
         route = Route(
             id="acc-equiv-route",
@@ -299,7 +303,9 @@ class TestFakeMeshtasticAdapterIngressEquivalence:
         await runner.start()
 
         # Path A: simulate_inbound
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fmesh-eq-src"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="fmesh-eq-src")
+        )
         ctx = make_adapter_context("fmesh-eq-src", runner)
         await fake_mesh.start(ctx)
 

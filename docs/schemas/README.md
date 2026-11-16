@@ -163,3 +163,20 @@ A main-to-candidate Git checkout may retain unchanged CRLF files. Packaging
 MUST emit the exact frozen bytes. LF reconstruction is permitted only when
 its digest matches the freeze manifest; every other byte change MUST fail
 the build. Fresh checkouts retain the explicit `-text` attribute policy.
+
+## Current adapter configuration
+
+[`current/adapter-config.schema.json`](current/adapter-config.schema.json)
+describes the manifest-selected provider configs in the current source tree.
+The top-level adapter configuration schema and `v0.1.0.freeze.json` retain the
+released 0.1.0 baseline unchanged. Source-drift checks apply to the current
+schema; baseline hash checks continue to protect every released artifact.
+
+The current schema adds only the optional Meshtastic
+`startup_packet_drain_seconds` field (default 15 seconds, zero disables). This
+is an additive configuration change, not a canonical event or SQLite version
+change. The new field is rejected by the older closed baseline schema. Select
+the current schema when validating configs for the newer provider; use the
+released snapshot when validating a released 0.1.0 installation. Both schemas
+are packaged, and support bundles report the current configuration schema when
+available. Future configuration changes require the same compatibility review.

@@ -121,6 +121,7 @@ def _make_config(
 ) -> MeshtasticConfig:
     """Build a TCP MeshtasticConfig pointing at the Docker meshtasticd."""
     return MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id=adapter_id,
         connection_type="tcp",
         host=env.host,
@@ -325,7 +326,9 @@ class TestMeshtasticdSdkBridge:
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
         # Fake adapter as outbound target.
-        fake_config = MeshtasticConfig(adapter_id="sdk-bridge-fake-out")
+        fake_config = MeshtasticConfig(
+            startup_packet_drain_seconds=0, adapter_id="sdk-bridge-fake-out"
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -344,6 +347,7 @@ class TestMeshtasticdSdkBridge:
             MeshtasticRenderer(
                 configs={
                     "sdk-bridge-fake-out": MeshtasticConfig(
+                        startup_packet_drain_seconds=0,
                         adapter_id="sdk-bridge-fake-out",
                         relay_prefix="",
                     )

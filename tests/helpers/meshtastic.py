@@ -12,8 +12,8 @@ from medre.core.rendering.renderer import RenderingResult
 
 
 def make_meshtastic_config(**overrides) -> MeshtasticConfig:
-    """Build a MeshtasticConfig with sensible defaults."""
-    defaults = dict(adapter_id="mesh-1")
+    """Build an immediate-ingress fixture; startup tests select their own window."""
+    defaults = dict(adapter_id="mesh-1", startup_packet_drain_seconds=0)
     defaults.update(overrides)
     return MeshtasticConfig(**defaults)
 

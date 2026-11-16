@@ -683,6 +683,7 @@ def _make_meshtastic_config(
     max_text_bytes: int = 227,
 ) -> MeshtasticConfig:
     return MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id=adapter_id,
         connection_type="fake",
         max_text_bytes=max_text_bytes,

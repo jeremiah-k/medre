@@ -129,6 +129,7 @@ async def _case(
 ):
     """Assemble one real daemon session and three staged sibling generations."""
     config = MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id=_NATIVE,
         connection_type="tcp",
         host=env.host,

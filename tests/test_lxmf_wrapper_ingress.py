@@ -76,7 +76,9 @@ class TestLxmfWrapperCallbackIngress:
             LxmfConfig(adapter_id="lxmf-cb", connection_type="fake")
         )
         fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="fake-cb-target")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0, adapter_id="fake-cb-target"
+            )
         )
 
         route = Route(
@@ -411,7 +413,9 @@ class TestLxmfWrapperCallbackIngress:
             LxmfConfig(adapter_id="lxmf-sync-cb", connection_type="fake")
         )
         fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="fake-sync-target")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0, adapter_id="fake-sync-target"
+            )
         )
 
         route = Route(

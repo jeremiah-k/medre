@@ -54,6 +54,7 @@ if not HAS_MESHTASTIC:
 def _make_meshtastic_config(env: MeshtasticdEnvironment) -> MeshtasticConfig:
     """Build a MeshtasticConfig pointing at the Docker meshtasticd."""
     return MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id="meshtasticd-integration",
         connection_type="tcp",
         host=env.host,

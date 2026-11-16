@@ -89,6 +89,7 @@ adapters:
       enabled: true
       adapter_kind: fake
       connection_type: fake
+      startup_packet_drain_seconds: 0
       origin_label: operator-workflows
 routes:
   mx_to_mesh:
@@ -124,6 +125,7 @@ adapters:
       enabled: true
       adapter_kind: fake
       connection_type: fake
+      startup_packet_drain_seconds: 0
       origin_label: smoke-radio
 routes:
   mx_to_mesh:

@@ -141,6 +141,7 @@ def _build_runtime(db_path: Path, lx_storage: Path):
         enabled=True,
         adapter_kind="real",
         config=MeshtasticConfig(
+            startup_packet_drain_seconds=0,
             adapter_id="mt_radio",
             connection_type="serial",
             serial_port=_MT_MEDRE,

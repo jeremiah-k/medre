@@ -116,7 +116,9 @@ class TestLoopPreventionHardening:
         """Inject event with route-trace showing it already traversed a route.
         Assert route-trace guard fires."""
         fake_matrix = FakeMatrixAdapter("trace-mx", channel="!trace:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="trace-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="trace-mesh")
+        )
 
         route = Route(
             id="trace-route",
@@ -193,7 +195,9 @@ class TestLoopPreventionHardening:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """route_trace with count=1 (first occurrence) does NOT trigger guard."""
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="pass-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="pass-mesh")
+        )
 
         route = Route(
             id="pass-route",
@@ -267,7 +271,9 @@ class TestLoopPreventionHardening:
         adapter A's previously stored outbound ref -> cycle detected via
         dedup."""
         fake_matrix = FakeMatrixAdapter("cycle-mx", channel="!cycle:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="cycle-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="cycle-mesh")
+        )
 
         route_a = Route(
             id="cycle-mx-mesh",
@@ -370,7 +376,9 @@ class TestLoopPreventionHardening:
         """Fire all three guards independently, verify each increments
         loop_prevented correctly."""
         fake_a = FakeMatrixAdapter("guard-a", channel="!ga:fake")
-        fake_b = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="guard-b"))
+        fake_b = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="guard-b")
+        )
 
         route = Route(
             id="guard-route",

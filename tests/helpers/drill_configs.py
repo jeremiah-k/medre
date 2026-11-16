@@ -46,6 +46,7 @@ adapters:
       enabled: true
       adapter_kind: fake
       connection_type: fake
+      startup_packet_drain_seconds: 0
       origin_label: smoke-radio
   meshcore:
     meshcore:

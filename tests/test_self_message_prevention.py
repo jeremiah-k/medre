@@ -40,7 +40,9 @@ class TestSelfMessagePrevention:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Inject event with native ref already in storage -> no second event."""
-        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="dedup-target"))
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="dedup-target")
+        )
 
         route = Route(
             id="dedup-route",
@@ -149,7 +151,9 @@ class TestSelfMessagePrevention:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Events without source_native_ref are never deduplicated."""
-        fake_target = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="nodup-target"))
+        fake_target = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="nodup-target")
+        )
 
         route = Route(
             id="nodup-route",
@@ -208,7 +212,7 @@ class TestSelfMessagePrevention:
     ) -> None:
         """NativeRef with None channel_id is still deduplicated."""
         fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="nullch-target")
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="nullch-target")
         )
 
         route = Route(
@@ -303,7 +307,9 @@ class TestSelfMessagePrevention:
     ) -> None:
         """native_message_id="" (falsy) bypasses dedup."""
         fake_target = FakeMeshtasticAdapter(
-            MeshtasticConfig(adapter_id="emptymid-target")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0, adapter_id="emptymid-target"
+            )
         )
 
         route = Route(
@@ -376,7 +382,9 @@ class TestLoopPreventionExistingRef:
     ) -> None:
         """Outbound delivery creates native ref. Same ref inbound -> suppressed."""
         fake_matrix = FakeMatrixAdapter("echo-mx", channel="!echo:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="echo-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="echo-mesh")
+        )
 
         route_a = Route(
             id="echo-mx-mesh",

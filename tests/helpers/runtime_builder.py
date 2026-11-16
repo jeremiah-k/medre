@@ -54,6 +54,7 @@ def make_fake_matrix_config() -> MatrixConfig:
 
 def make_fake_meshtastic_config() -> MeshtasticConfig:
     return MeshtasticConfig(
+        startup_packet_drain_seconds=0,
         adapter_id="mesh_radio",
         connection_type="fake",
     ).validate()

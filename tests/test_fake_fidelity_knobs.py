@@ -50,7 +50,9 @@ def _seeded_meshcore() -> FakeMeshCoreAdapter:
 def _seeded_meshtastic() -> FakeMeshtasticAdapter:
     return FakeMeshtasticAdapter(
         MeshtasticConfig(
-            adapter_id="meshtastic-fidelity", connection_type="fake"
+            startup_packet_drain_seconds=0,
+            adapter_id="meshtastic-fidelity",
+            connection_type="fake",
         ).validate()
     )
 

@@ -39,7 +39,9 @@ class TestFanoutWithoutSourceDuplication:
     ) -> None:
         """Fanout: Matrix → [Meshtastic, MeshCore] delivers to both."""
         fake_matrix = FakeMatrixAdapter("fanout-matrix", channel="!fanout:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fanout-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="fanout-mesh")
+        )
         fake_meshcore = FakeMeshCoreAdapter(
             MeshCoreConfig(adapter_id="fanout-meshcore")
         )
@@ -109,7 +111,11 @@ class TestFanoutWithoutSourceDuplication:
     async def test_fanout_self_loop_guard(self, temp_storage: SQLiteStorage) -> None:
         """Fanout route with source in targets: self-loop guard fires."""
         fake_matrix = FakeMatrixAdapter("fanout-sl-matrix", channel="!sl:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fanout-sl-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0, adapter_id="fanout-sl-mesh"
+            )
+        )
 
         # Route includes source adapter in targets
         route = Route(
@@ -198,7 +204,9 @@ class TestFanoutWithoutSourceDuplication:
     ) -> None:
         """Fanout to three targets creates exactly three receipts."""
         fake_matrix = FakeMatrixAdapter("fan3-mx", channel="!f3:fake")
-        fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="fan3-mesh"))
+        fake_mesh = FakeMeshtasticAdapter(
+            MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id="fan3-mesh")
+        )
         fake_meshcore = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id="fan3-mc"))
         fake_matrix_2 = FakeMatrixAdapter("fan3-mx2", channel="!f3-out:fake")
 

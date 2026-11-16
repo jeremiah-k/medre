@@ -122,7 +122,9 @@ async def _build_mixed_bridge(
     lxmf_id = f"{prefix}-lxmf"
 
     fake_matrix = FakeMatrixAdapter(mx_id, channel=f"!{prefix}:fake")
-    fake_mesh = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id=mesh_id))
+    fake_mesh = FakeMeshtasticAdapter(
+        MeshtasticConfig(startup_packet_drain_seconds=0, adapter_id=mesh_id)
+    )
     fake_meshcore = FakeMeshCoreAdapter(MeshCoreConfig(adapter_id=mc_id))
     fake_lxmf = FakeLxmfAdapter(LxmfConfig(adapter_id=lxmf_id))
 

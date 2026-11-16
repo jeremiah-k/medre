@@ -1037,7 +1037,11 @@ class TestMeshtasticInboundLifecycleGuard:
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="late-pkt", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="late-pkt",
+                connection_type="fake",
+            )
         )
 
         published: list[Any] = []
@@ -1106,7 +1110,11 @@ class TestMeshtasticInboundLifecycleGuard:
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="drain-fut", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="drain-fut",
+                connection_type="fake",
+            )
         )
 
         published: list[Any] = []
@@ -1154,7 +1162,11 @@ class TestMeshtasticInboundLifecycleGuard:
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
         adapter = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="async-guard", connection_type="fake")
+            MeshtasticConfig(
+                startup_packet_drain_seconds=0,
+                adapter_id="async-guard",
+                connection_type="fake",
+            )
         )
 
         published: list[Any] = []
