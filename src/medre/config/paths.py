@@ -33,7 +33,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from medre.adapter_registry import valid_transport_name
 from medre.config.identifiers import adapter_id_problem
 
 __all__ = ["MedrePaths", "MedrePathsError", "resolve"]
@@ -154,6 +153,8 @@ class MedrePaths:
             If *adapter_id* violates the configured-identifier contract
             or *transport* is not a supported transport component.
         """
+        from medre.adapter_registry import valid_transport_name
+
         if not valid_transport_name(transport) or adapter_id_problem(transport):
             raise MedrePathsError(
                 f"unsupported transport path component: {transport!r}; "

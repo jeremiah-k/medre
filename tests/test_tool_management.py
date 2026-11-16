@@ -87,10 +87,7 @@ def test_install_preserves_core_ref_extras_markers_and_unrelated_packages(tool):
     assert command[-1] == "medre @ git+https://example.com/core.git@stable"
     assert "community-radio[crypto]==1.2" in command
     assert "other-dependency>=2,<3 ; python_version >= '3.11'" in command
-    assert (
-        "medre-adapter-matrix[e2e] @ git+https://github.com/jeremiah-k/medre-adapter-matrix.git@main"
-        in command
-    )
+    assert "medre-adapter-matrix[e2e]" in command
     assert command[:4] == ["/bin/uv", "tool", "install", "--python"]
     assert not any("pip" == arg for arg in command)
 
@@ -157,7 +154,7 @@ def test_receipt_sources_round_trip_requested_intent(receipt, expected):
 @pytest.mark.parametrize(
     "requirement",
     [
-        {"name": "radio", "editable": "/tmp/radio"},
+        {"name": "radio", "editable": "../radio"},
         {"name": "radio", "index": "https://private/simple"},
         {"name": "radio", "git": "https://example.com/radio?lfs=true"},
         {"name": "radio", "git": "https://example.com/radio?rev=first&rev=second"},

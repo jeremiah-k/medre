@@ -20,9 +20,10 @@ from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.paths import resolve
 
-DEFAULT_CORE_SOURCE = "medre @ git+https://github.com/jeremiah-k/medre.git@main"
+GIT_CORE_SOURCE = "medre @ git+https://github.com/jeremiah-k/medre.git@main"
+DEFAULT_CORE_SOURCE = "medre"
 
-DEFAULT_SOURCES = {
+GIT_SOURCES = {
     name: f"medre-adapter-{name} @ git+https://github.com/jeremiah-k/medre-adapter-{name}.git@main"
     for name in (
         "matrix",
@@ -34,6 +35,7 @@ DEFAULT_SOURCES = {
         "simplexchat",
     )
 }
+DEFAULT_SOURCES = {name: f"medre-adapter-{name}" for name in GIT_SOURCES}
 _NAME = r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
 _REQUIREMENT = re.compile(
     rf"^({_NAME})(?:\[({_NAME}(?:,{_NAME})*)\])?(?=\s|[<>=!~;@]|$)"
@@ -76,7 +78,53 @@ def package_name(requirement: str) -> str:
         raise ToolManagementError(
             "Use a named requirement, such as 'my-adapter @ git+https://host/repo.git@main'."
         )
+    if requirement[match.end() :].lstrip().startswith("@"):
+        body, _ = split_requirement_marker(requirement)
+        source = body[match.end() :].lstrip()[1:].strip()
+        if not source or any(char.isspace() for char in source):
+            raise ToolManagementError(
+                "Direct source URLs must be non-empty and contain no whitespace; percent-encode URL paths."
+            )
     return re.sub(r"[-_.]+", "-", match[1]).lower()
+
+
+def split_requirement_marker(requirement: str) -> tuple[str, str | None]:
+    """Separate a marker, leaving semicolons inside direct URLs untouched."""
+    match = _REQUIREMENT.match(requirement)
+    assert match is not None
+    tail = requirement[match.end() :].lstrip()
+    if tail.startswith("@"):
+        parts = re.split(r"\s+;\s*", requirement, maxsplit=1)
+    else:
+        parts = requirement.split(";", 1)
+    return parts[0].rstrip(), parts[1].strip() if len(parts) == 2 else None
+
+
+def redact_source(value: str) -> str:
+    """Display source locations without URL userinfo or query secrets."""
+
+    def replace(match: re.Match[str]) -> str:
+        try:
+            url = urlsplit(match[0])
+        except ValueError:
+            return "(invalid source URL)"
+        if "@" not in url.netloc and not url.query:
+            return match[0]
+        host = url.netloc.rsplit("@", 1)[-1]
+        return urlunsplit(
+            (url.scheme, host, url.path, "redacted" if url.query else "", url.fragment)
+        )
+
+    # A malformed URL can contain spaces inside userinfo. Matching only to
+    # the first space would leave the rest of its password in the display.
+    start = re.search(r"(?:git\+)?(?:https?|ssh|file)://", value, re.IGNORECASE)
+    if start is not None:
+        source = re.split(r"\s+;\s*", value[start.start() :], maxsplit=1)[0]
+        if any(char.isspace() for char in source):
+            return value[: start.start()] + "(invalid source URL)"
+    return re.sub(
+        r"(?:git\+)?(?:https?|ssh|file)://\S+", replace, value, flags=re.IGNORECASE
+    )
 
 
 def sources_path() -> Path:
@@ -153,7 +201,7 @@ def initialize_sources(path: Path | None = None) -> tuple[Path, bool]:
     target.parent.mkdir(parents=True, exist_ok=True)
     content = (
         "# Adapter source aliases. Edit, then run medre adapters install ALIAS.\n"
-        "# core: medre @ git+https://github.com/jeremiah-k/medre.git@main\n"
+        "# core: medre\n"
         "# Source changes require medre upgrade --sync-sources.\n"
         + yaml.safe_dump({"adapters": DEFAULT_SOURCES}, sort_keys=False)
     )
@@ -168,6 +216,29 @@ def initialize_sources(path: Path | None = None) -> tuple[Path, bool]:
 
 def selected_source(selection: str, sources: dict[str, str]) -> tuple[str, str]:
     """Resolve an alias and optional extras without tying it to a transport ID."""
+    pinned = re.fullmatch(
+        rf"({_NAME})(?:\[({_NAME}(?:,{_NAME})*)\])?((?:===|==|~=|!=|<=|>=|<|>)[^\s;@]+)",
+        selection,
+    )
+    if pinned:
+        alias = pinned[1] + ("[" + pinned[2] + "]" if pinned[2] else "")
+        name, raw = (
+            selected_source(alias, sources)
+            if pinned[1] in sources
+            else (package_name(pinned[1]), alias)
+        )
+        if name == "medre":
+            raise ToolManagementError("An adapter source cannot replace MEDRE core.")
+        existing = _REQUIREMENT.match(raw)
+        assert existing is not None
+        _, marker = split_requirement_marker(raw)
+        return (
+            name,
+            existing[1]
+            + ("[" + existing[2] + "]" if existing[2] else "")
+            + pinned[3]
+            + (" ; " + marker if marker else ""),
+        )
     match = _SELECTION.fullmatch(selection)
     if match is None or match[1] not in sources:
         raise ToolManagementError(
@@ -226,14 +297,22 @@ def _receipt_requirement(value: object) -> str:
         "subdirectory",
         "path",
         "directory",
+        "editable",
     }
     if (
         value.keys() - allowed
-        or sum(key in value for key in ("specifier", "git", "url", "path", "directory"))
+        or sum(
+            key in value
+            for key in ("specifier", "git", "url", "path", "directory", "editable")
+        )
         > 1
     ):
         raise ToolManagementError(
             "Unsupported uv requirement settings; manage this installation with uv directly."
+        )
+    if "subdirectory" in value and not ("git" in value or "url" in value):
+        raise ToolManagementError(
+            "Only Git and URL receipts support source subdirectories."
         )
     # Guarded by the ``isinstance(value.get("name"), str)`` check above.
     name: str = value["name"]
@@ -275,12 +354,15 @@ def _receipt_requirement(value: object) -> str:
         name += " @ " + url
         if "subdirectory" in value:
             name += _subdirectory_fragment(value["subdirectory"])
-    elif "path" in value or "directory" in value:
+    elif "path" in value or "directory" in value or "editable" in value:
         # Receipt entries are JSON-decoded; one of the two keys is present
         # by the receipt schema, and a missing pair still fails closed in
         # ``Path`` exactly as before.
         path = Path(
-            cast("str | PathLike[str]", value.get("path", value.get("directory")))
+            cast(
+                "str | PathLike[str]",
+                value.get("path", value.get("directory", value.get("editable"))),
+            )
         )
         if not path.is_absolute():
             raise ToolManagementError(
@@ -311,13 +393,20 @@ class ToolInstallation:
                 "uv is not on PATH. Install uv, then retry this command. "
                 + _environment_guidance()
             )
-        result = subprocess.run(
-            [uv, "tool", "dir"], capture_output=True, text=True, check=False
-        )
-        if result.returncode:
+        try:
+            result = subprocess.run(
+                [uv, "tool", "dir"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+            if result.returncode or not Path(result.stdout.strip()).is_absolute():
+                raise ValueError
+        except (OSError, ValueError, subprocess.TimeoutExpired):
             raise ToolManagementError(
                 "Cannot locate uv's tool directory. Check 'uv tool dir'."
-            )
+            ) from None
         prefix = Path(sys.prefix)
         expected = Path(result.stdout.strip()) / "medre"
         if prefix.resolve() != expected.resolve():
@@ -404,9 +493,11 @@ class ToolInstallation:
                 desired[name] = requirement
         return self.install_request([requirements[0], *desired.values()])
 
-    def install_request(self, requirements: list[str]) -> list[str]:
+    def install_request(
+        self, requirements: list[str], *, editable: dict[str, bool] | None = None
+    ) -> list[str]:
         """Recreate a verified request without introducing temporary source pins."""
-        self.requirements()  # Refuse receipt settings that cannot be replayed.
+        previous_requirements = self.requirements()  # Refuse unreplayable settings.
         names = [package_name(requirement) for requirement in requirements]
         if not names or names[0] != "medre" or len(set(names)) != len(names):
             raise ToolManagementError("Ambiguous MEDRE installation request.")
@@ -417,9 +508,48 @@ class ToolInstallation:
         )
         if not isinstance(python, str):
             raise ToolManagementError("Invalid Python request in uv receipt.")
+        # uv records editables as {name = "...", editable = "/absolute/path"}.
+        # Preserve their mode when the source location stays unchanged;
+        # an explicit source replacement must not inherit editable mode.
+        previous = {package_name(raw): raw for raw in previous_requirements}
+        editable_names = {
+            package_name(raw["name"])
+            for raw in self.receipt["requirements"]
+            if isinstance(raw, dict) and "editable" in raw
+        }
+        desired = dict(zip(names, requirements, strict=True))
+
+        def source_location(raw: str) -> str:
+            match = _REQUIREMENT.match(raw)
+            assert match is not None
+            source, _ = split_requirement_marker(raw)
+            return source[match.end() :].strip().removeprefix("@").strip()
+
+        editable_names = {
+            name
+            for name in editable_names
+            if name in desired
+            and source_location(previous[name]) == source_location(desired[name])
+        }
+        for name, enabled in (editable or {}).items():
+            if enabled:
+                editable_names.add(name)
+            else:
+                editable_names.discard(name)
         command = [self.uv, "tool", "install", "--python", python]
         for requirement in requirements[1:]:
-            command.extend(["--with", requirement])
+            command.extend(
+                [
+                    (
+                        "--with-editable"
+                        if package_name(requirement) in editable_names
+                        else "--with"
+                    ),
+                    requirement,
+                ]
+            )
+        if "medre" in editable_names:
+            command.append("--editable")
         command.append(requirements[0])
         return command
 

@@ -14,9 +14,12 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git,
 then run:
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install medre
 medre adapters install matrix meshtastic
 ```
+
+The published 0.1.0 CLI installs adapters from Git by default. Index defaults
+and the `sources` commands require a core build that includes source switching.
 
 If `medre` is not found, run `uv tool update-shell` and open a new terminal.
 On Windows, run the extra installation command MEDRE prints after it exits.

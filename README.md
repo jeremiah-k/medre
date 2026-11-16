@@ -15,11 +15,13 @@ services through the same adapter, routing, and evidence contracts.
 ## Install MEDRE
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
+The published 0.1.0 core still defaults adapter installation to Git; the index
+defaults and `sources` commands described on main require a newer core build.
 
 **1. Install the CLI and example providers.**
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install medre
 medre adapters install matrix meshtastic
 medre adapters
 ```

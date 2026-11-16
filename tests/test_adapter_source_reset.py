@@ -10,7 +10,7 @@ import pytest
 
 from medre import self_upgrade as upgrade
 from medre.cli.main import main
-from medre.tool_management import DEFAULT_SOURCES, ToolInstallation, ToolManagementError
+from medre.tool_management import GIT_SOURCES, ToolInstallation, ToolManagementError
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ def test_reset_all_only_selects_installed_first_party_providers(installation):
         "medre-adapter-matrix",
         "medre-adapter-meshtastic",
     }
-    assert DEFAULT_SOURCES["meshtastic"] in plan.command
+    assert GIT_SOURCES["meshtastic"] in plan.command
     assert "community-radio[crypto]==1.2" in plan.command
     assert not any("medre-adapter-meshcore" in part for part in plan.command)
     assert "Community adapter sources remain unchanged." in plan.notes

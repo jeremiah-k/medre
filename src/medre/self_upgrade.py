@@ -10,13 +10,14 @@ from urllib.parse import parse_qs, urlsplit
 from medre.tool_management import (
     _REQUIREMENT,
     _SELECTION,
-    DEFAULT_CORE_SOURCE,
-    DEFAULT_SOURCES,
+    GIT_CORE_SOURCE,
+    GIT_SOURCES,
     SourceCatalog,
     ToolInstallation,
     ToolManagementError,
     package_name,
     selected_source,
+    split_requirement_marker,
 )
 
 
@@ -41,7 +42,7 @@ def installed_adapters() -> dict[str, set[str]]:
                 # Core-owned built-ins are not independently upgradeable adapters.
                 continue
             providers.setdefault(name, set()).add(entry.name)
-    except (ValueError, TypeError, KeyError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         if isinstance(exc, ToolManagementError):
             raise
         raise ToolManagementError(
@@ -105,17 +106,33 @@ def _verify_scoped_sources(installation: ToolInstallation, packages: list[str]) 
                 mutable = (
                     re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref) is None
                 )
-            mutable |= "directory" in raw or "path" in raw
+            mutable |= "directory" in raw or "path" in raw or "editable" in raw
             if "url" in raw:
                 mutable |= urlsplit(raw["url"]).scheme == "file"
-        elif "git+" in raw:
-            ref = urlsplit(raw.split("git+", 1)[1]).path.rsplit("@", 1)[-1]
-            mutable = re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref) is None
-        elif "@" in raw:
-            mutable = urlsplit(raw.split("@", 1)[1].strip()).scheme == "file"
+        else:
+            requirement, _ = split_requirement_marker(raw)
+            match = _REQUIREMENT.match(requirement)
+            assert match is not None
+            tail = requirement[match.end() :].lstrip()
+            if tail.startswith("@"):
+                try:
+                    url = urlsplit(tail[1:].strip())
+                except ValueError:
+                    raise ToolManagementError(
+                        "Invalid saved source URL; use uv directly."
+                    ) from None
+                if url.scheme.startswith("git+"):
+                    _, separator, ref = url.path.rpartition("@")
+                    mutable = (
+                        not separator
+                        or re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref)
+                        is None
+                    )
+                else:
+                    mutable = url.scheme == "file"
         if mutable:
             raise ToolManagementError(
-                f"A scoped upgrade cannot preserve the mutable source of {name}. "
+                f"A scoped package change cannot preserve the mutable source of {name}. "
                 "uv can refresh unselected Git branches and local file or directory sources. "
                 "Choose an immutable source for that requirement, or run 'medre upgrade' for the whole environment. No packages changed."
             )
@@ -212,8 +229,8 @@ def plan_adapter_reset(
     """
     requirements = installation.requirements()
     providers = installed_adapters()
-    defaults = {package_name(raw): raw for raw in DEFAULT_SOURCES.values()}
-    catalog = SourceCatalog(None, DEFAULT_SOURCES)
+    defaults = {package_name(raw): raw for raw in GIT_SOURCES.values()}
+    catalog = SourceCatalog(None, GIT_SOURCES)
     if any(_SELECTION.fullmatch(value) is None or "[" in value for value in selections):
         raise ToolManagementError(
             "Reset accepts installed adapter aliases or distribution names without extras."
@@ -247,7 +264,7 @@ def plan_adapter_reset(
             + source[default.end() :]
         )
     if include_core:
-        desired["medre"] = _retain_extras(DEFAULT_CORE_SOURCE, desired["medre"])
+        desired["medre"] = _retain_extras(GIT_CORE_SOURCE, desired["medre"])
     packages = (["medre"] if include_core else []) + names
     command = installation.install_request(list(desired.values()))
     for name in packages:

@@ -13,8 +13,81 @@ from medre.tool_management import (
     initialize_sources,
     load_source_catalog,
     load_sources,
+    redact_source,
     sources_path,
 )
+
+
+def register_source_commands(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    """Register source inspection and explicit uv-owned source switching."""
+    sources_p = subparsers.add_parser(
+        "sources",
+        help="Inspect installed package sources or switch an owned tool installation",
+    )
+    source_actions = sources_p.add_subparsers(dest="source_action", required=True)
+    show_sources = source_actions.add_parser(
+        "show", help="Show configured, requested and installed sources"
+    )
+    show_sources.add_argument(
+        "--sources", metavar="PATH", help="Source catalog override"
+    )
+    show_sources.add_argument(
+        "--json", action="store_true", help="Print machine-readable source inventory"
+    )
+    switch_sources = source_actions.add_parser(
+        "switch", help="Switch installed core or adapter sources through uv"
+    )
+    switch_sources.add_argument(
+        "packages",
+        nargs="*",
+        help="core, adapter aliases or installed distribution names, optionally with extras",
+    )
+    switch_sources.add_argument(
+        "--all",
+        dest="all_packages",
+        action="store_true",
+        help="Select core and installed first-party adapters; retain community packages",
+    )
+    source_choice = switch_sources.add_mutually_exclusive_group(required=True)
+    source_choice.add_argument(
+        "--from",
+        dest="source_kind",
+        choices=("index", "pypi", "git", "local"),
+        help="Index (PyPI by default), Git or local checkout; pypi is an alias for index",
+    )
+    source_choice.add_argument(
+        "--requirement",
+        help="Explicit named Python requirement, including ranges or direct URLs",
+    )
+    switch_sources.add_argument("--version", help="Exact index version for one package")
+    switch_sources.add_argument(
+        "--git-url", help="Fork or community Git repository URL"
+    )
+    switch_sources.add_argument(
+        "--ref",
+        help="Git branch, tag or full commit; default main for built-in repositories, remote HEAD for custom URLs",
+    )
+    switch_sources.add_argument("--path", help="Local project directory")
+    switch_sources.add_argument(
+        "--allow-refresh",
+        action="store_true",
+        help="Explicitly allow uv to refresh unselected moving Git/local sources",
+    )
+    switch_sources.add_argument(
+        "--editable",
+        action="store_true",
+        help="Use the local checkout directly instead of installing a snapshot",
+    )
+    switch_sources.add_argument(
+        "--sources", metavar="PATH", help="Source catalog used to resolve aliases"
+    )
+    switch_sources.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the complete request without changing packages or catalogs",
+    )
 
 
 def _manage_installation(args: argparse.Namespace) -> None:
@@ -33,6 +106,39 @@ def _manage_installation(args: argparse.Namespace) -> None:
             print("Run 'medre upgrade' to update core and installed adapters.")
             print("Use --sync-sources to apply deliberate catalog changes.")
             return
+        switching = args.command == "sources"
+        if switching:
+            from medre.package_sources import source_inventory
+
+            catalog = load_source_catalog(Path(args.sources) if args.sources else None)
+            if args.source_action == "show":
+                import json
+
+                report = source_inventory(catalog)
+                if args.json:
+                    print(json.dumps(report, indent=2))
+                else:
+                    print(
+                        "Configured catalog choices and actual installed sources are separate."
+                    )
+                    for row in report["packages"]:
+                        print(
+                            f"{row['package']}: {row['installed_version'] or 'not installed'}"
+                        )
+                        print(
+                            f"  configured: {'; '.join(row['configured']) or '(none)'}"
+                        )
+                        print(
+                            f"  requested: {row['requested'] or '(no managed receipt)'}"
+                        )
+                        print(f"  installed source: {json.dumps(row['source'])}")
+                        if row.get("provenance_error"):
+                            print(f"  {row['provenance_error']}")
+                    if report["receipt_error"]:
+                        print(report["receipt_error"])
+                    if report["provider_error"]:
+                        print(report["provider_error"])
+                return
         upgrading = args.command in ("upgrade", "update") or (
             args.command == "adapters" and args.action in ("upgrade", "update")
         )
@@ -44,9 +150,18 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 catalog = load_source_catalog(
                     Path(args.sources) if args.sources else None
                 )
-                document: dict[str, object] = {"adapters": catalog.adapters}
+                adapters = {
+                    alias: redact_source(raw) for alias, raw in catalog.adapters.items()
+                }
+                document: dict[str, object] = {"adapters": adapters}
+                redacted = adapters != catalog.adapters
                 if catalog.core is not None:
-                    document["core"] = catalog.core
+                    document["core"] = redact_source(catalog.core)
+                    redacted |= document["core"] != catalog.core
+                if redacted:
+                    print(
+                        "# Source URLs are redacted; edit the original catalog instead."
+                    )
                 print(
                     f"# Package sources; override in {args.sources or sources_path()}"
                 )
@@ -54,7 +169,28 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 return
             sources = load_sources(Path(args.sources) if args.sources else None)
         installation = ToolInstallation.inspect()
-        if resetting:
+        if switching:
+            from medre.package_sources import plan_source_switch
+
+            plan = plan_source_switch(
+                installation,
+                catalog,
+                tuple(args.packages),
+                all_packages=args.all_packages,
+                allow_refresh=args.allow_refresh,
+                source=args.source_kind,
+                version=args.version,
+                git_url=args.git_url,
+                ref=args.ref,
+                path=args.path,
+                editable=args.editable,
+                requirement=args.requirement,
+            )
+            print(f"Tool environment: {installation.prefix}")
+            for note in plan.notes:
+                print(note)
+            command = list(plan.command)
+        elif resetting:
             from medre.self_upgrade import plan_adapter_reset
 
             plan = plan_adapter_reset(
@@ -97,18 +233,28 @@ def _manage_installation(args: argparse.Namespace) -> None:
             command = installation.change_adapters(
                 args.packages, sources, remove=args.action == "remove"
             )
-        from .bridge_commands import _command_example
+        from .command_display import _command_example
 
-        if not (upgrading or resetting):
+        if not (upgrading or resetting or switching):
             print(f"Tool environment: {installation.prefix}")
-        print(_command_example(*command), flush=True)
+        preview = [redact_source(value) for value in command]
+        redacted = preview != command
+        if redacted:
+            print(
+                "Source URLs are redacted; this preview is not a copyable command.",
+                flush=True,
+            )
+        print(_command_example(*preview), flush=True)
         if args.dry_run:
             return
         if sys.platform == "win32":
-            print(
-                "No packages changed. Run the command above after medre.exe exits; Windows can lock its running executable.",
-                file=sys.stderr,
+            message = (
+                "No packages changed. Manage this request with uv directly after "
+                "medre.exe exits; the preview contains redacted source URLs."
+                if redacted
+                else "No packages changed. Run the command above after medre.exe exits; Windows can lock its running executable."
             )
+            print(message, file=sys.stderr)
             raise SystemExit(2)
         print(
             "Stop running bridges before changing packages; restart them after this command completes.",
@@ -131,7 +277,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
             f"{'Upgrade' if upgrading else 'Installation'} complete. Run 'medre adapters' to inspect providers, then 'medre config check --config PATH' before restarting your bridge."
         )
     except ToolManagementError as exc:
-        print(f"Installation error: {exc}", file=sys.stderr)
+        print(f"Installation error: {redact_source(str(exc))}", file=sys.stderr)
         raise SystemExit(2) from None
     except OSError:
         print(

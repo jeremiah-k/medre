@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import sys
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
@@ -27,6 +26,7 @@ from medre.core.observability.sanitization import (
 from medre.runtime.bridge_setup import BridgeAuthoring, BridgeRequest
 from medre.runtime.errors import RuntimeConfigError
 
+from .command_display import _command_example as _command_example
 from .exit_codes import EXIT_CONFIG, EXIT_FAILED
 from .json import to_json
 from .route_commands import _render_route_plan
@@ -89,20 +89,6 @@ def _choose(
             "or an exact value from the list.",
             file=sys.stderr,
         )
-
-
-def _command_example(*args: str) -> str:
-    """Render a copyable platform-native command even for paths with spaces."""
-    if os.name == "nt":
-        # PowerShell single quotes preserve &, $, backticks and embedded quotes.
-        def literal(arg: str) -> str:
-            if re.fullmatch(r"[A-Za-z0-9_./:\\-]+", arg):
-                return arg
-            return "'" + arg.replace("'", "''") + "'"
-
-        command = " ".join(literal(arg) for arg in args)
-        return "& " + command if args and literal(args[0]).startswith("'") else command
-    return shlex.join(args)
 
 
 def _confirm_save(output: Path) -> bool:

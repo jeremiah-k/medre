@@ -10,13 +10,15 @@ Package-changing helpers MUST verify that `sys.prefix` identifies the persistent
 ordinary virtual environment, pip installation, or temporary uvx environment.
 They MUST invoke uv through an argument vector without a shell, stream its
 output, and report unsuccessful execution without reporting success. On Windows,
-helpers MUST instead print the uv command and exit 2 without changing packages;
+helpers MUST instead print a preview and exit 2 without changing packages;
 the operator runs the command after the MEDRE executable exits to release its
-Windows file lock. A dry-run preview MUST exit successfully on every platform.
+Windows file lock. If URL credentials or query strings are redacted, the preview
+MUST NOT be represented as copyable; use direct uv management instead. A dry-run preview MUST exit successfully on every platform.
 `--dry-run` MUST perform no package or configuration writes.
 
 Adapter changes MUST preserve the core requirement unless the operator explicitly
-selects `adapters reset --include-core` (see below). They MUST preserve every
+selects core through `sources switch` or `adapters reset --include-core`
+(see below). They MUST preserve every
 unrelated explicit requirement from uv's receipt, including supported extras, markers, source refs,
 and version constraints. Unsupported receipt settings MUST cause refusal before
 installation rather than silent loss. A URL source with an existing fragment and
@@ -47,7 +49,9 @@ a process restart before adapter discovery reflects them.
 The catalog conforms to [the source schema](../schemas/package-sources.schema.json).
 It is separate from bridge YAML. `sources.yaml` resolves beside MEDRE's config
 file, honoring MEDRE_HOME and XDG paths, with an explicit `--sources` override.
-Absent default files use built-in convenience sources. Missing explicit files,
+Absent default files use built-in package-index requirements for first-party
+adapters. Existing catalogs MUST NOT be migrated or overwritten implicitly.
+An unresolved index request MUST fail through uv, not fall back to Git. Missing explicit files,
 unknown top-level fields, and duplicate YAML keys MUST be rejected.
 
 Operator aliases override built-in aliases; null removes an alias. Aliases name
@@ -81,3 +85,48 @@ command without retrying or rewriting uv's request. Both forms MUST retain uv's
 failure exit status (negative subprocess statuses map to 1), dry-run behavior,
 and Windows executable handoff. Neither form guarantees that unselected mutable
 sources remain at their previously resolved commits.
+
+## Explicit source switching and inspection
+
+`sources switch` MUST select only explicitly installed distributions from the
+owned tool request. It MUST accept core independently of adapter discovery,
+resolve adapter aliases through the catalog, and preserve selected extras,
+conditional selection and all unrelated explicit requests. `--all` MUST select
+core and explicitly requested first-party adapters, leaving community requests
+unchanged. Missing packages, duplicate selections and incompatible selector
+options MUST fail before installation. Per-project source options MUST select
+exactly one distribution.
+
+Index sources MUST delegate version selection and availability to uv. `pypi`
+is an alias for index and MUST NOT override uv's configured index policy.
+Git sources MUST support an explicit repository and revision; only built-in
+first-party distributions may infer an upstream repository. Local sources MUST
+support explicit snapshot or editable installation. Supported editable receipt
+entries MUST retain their mode during unchanged request replay; an explicit
+source replacement MUST NOT silently retain unwanted editable mode.
+
+Successful switches MUST let uv record the installed request. MEDRE MUST NOT
+rewrite source catalogs, uv receipts, project lockfiles, compatibility pins or
+runtime configuration as a side effect. Reinstalling an alias or requesting
+`--sync-sources` MAY deliberately reapply catalog choices. Source switching
+MUST retain the ownership, scoped-source, failure, dry-run and Windows rules
+above. Only an explicit `sources switch --allow-refresh` MAY permit uv to
+refresh unselected moving sources; its preview MUST disclose that permission.
+This opt-in MUST NOT bypass receipt-shape or ownership checks. A source change
+MUST NOT be described as persisted-state rollback.
+
+`sources show` MUST distinguish configured requirements, requested tool sources
+and installed versions/direct-source metadata without importing providers or
+contacting an index. It MUST remain usable outside an owned tool environment
+and explain unavailable receipt evidence. An index installation without direct
+source metadata MUST NOT imply independently verified index provenance.
+A displayed Git commit or local path MUST NOT imply native qualification or
+working-tree cleanliness. URL credentials and query secrets MUST be redacted
+from the source inventory, catalog display, MEDRE-generated plan notes and
+command previews. Redaction MUST NOT alter the arguments supplied to uv. uv
+output is owned by uv; operators SHOULD use credential helpers rather than
+embedding secrets in requirements. Installed provider metadata MUST be included
+even when no catalog alias or supported tool receipt exists; an unreadable
+provider metadata inventory MUST be reported without discarding known catalog
+and receipt rows. An explicit installed distribution name takes precedence
+over a conflicting catalog alias during source switching.

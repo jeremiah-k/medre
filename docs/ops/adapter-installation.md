@@ -1,6 +1,6 @@
 # Installing external adapters: PyPI, Git, and local sources
 
-For a first installation directly from Git, follow [Getting Started](getting-started.md).
+For a first installation, follow [Getting Started](getting-started.md).
 For a persistent CLI with `medre adapters install` and `medre update`, see
 [package management](package-management.md). This reference covers source choices,
 reproducibility, and provider ownership.
@@ -92,10 +92,9 @@ Or from a local checkout:
 python -m pip install -e /path/to/medre -e /path/to/matrix-provider
 ```
 
-If the distribution is published on PyPI later,
-`python -m pip install medre-adapter-matrix` will work like any other package.
-Until then, use its Git direct URL or an explicitly chosen local checkout. Other indexes and wheel
-files work as well. For pip deployments, use a reviewed, pinned requirements
+Published distributions, such as `medre-adapter-matrix`, install from an index
+like any other Python package. Git direct URLs, local checkouts, other indexes
+and wheel files remain supported. For pip deployments, use a reviewed, pinned requirements
 file with a constraints/lock workflow appropriate for your deployment.
 
 The named provider must be installed **in the same Python environment as

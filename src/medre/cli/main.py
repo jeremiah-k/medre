@@ -298,6 +298,10 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         "--sources", default=None, help="Catalog path (default: MEDRE config directory)"
     )
 
+    from .install_commands import register_source_commands
+
+    register_source_commands(sub)
+
     # upgrade (update is the same command)
     update_p = sub.add_parser(
         "upgrade",
@@ -1107,7 +1111,7 @@ def main(argv: list[str] | None = None) -> None:
                 adapter_action = value
                 break
     managing_packages = bool(arguments) and (
-        arguments[0] in {"init", "upgrade", "update"}
+        arguments[0] in {"init", "upgrade", "update", "sources"}
         or (arguments[0] == "adapters" and adapter_action in package_actions)
     )
     # Updating/removing a broken provider and read-only readiness MUST NOT
@@ -1174,7 +1178,7 @@ def main(argv: list[str] | None = None) -> None:
         from .dev_commands import _development
 
         _development(args)
-    elif args.command in ("init", "update", "upgrade") or (
+    elif args.command in ("init", "update", "upgrade", "sources") or (
         args.command == "adapters" and args.action in package_actions
     ):
         from .install_commands import _manage_installation

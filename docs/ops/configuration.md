@@ -1363,6 +1363,14 @@ medre init [--sources PATH]
 medre adapters sources [--sources PATH]
     Print configurable adapter package sources.
 
+medre sources show [--sources PATH] [--json]
+    Distinguish configured requirements, saved tool requests and installed sources.
+
+medre sources switch [core|ALIAS...] [--all] (--from index|git|local | --requirement REQUIREMENT) [--dry-run]
+    Switch explicitly installed package sources through uv; preserve extras.
+    Use --version, --git-url/--ref or --path/--editable with --from for one package.
+    --requirement supplies an explicit named requirement instead of --from.
+
 medre adapters install ALIAS... [--sources PATH] [--dry-run]
     Install adapter packages in the owning uv tool environment.
 

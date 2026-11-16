@@ -1,5 +1,12 @@
 # Manage MEDRE and adapter packages
 
+This guide describes the source-switching CLI on the development branch. The
+published 0.1.0 core has Git adapter defaults and does not recognize `sources`
+or inline adapter version constraints. Install uv and Git. Once source
+switching lands on main, use that Git revision (or a subsequent release that
+includes it) for the examples below. For the current published CLI, follow
+[Getting Started](getting-started.md) and use native uv commands for source changes.
+
 Install one persistent command, then select the adapters you need:
 
 ```bash
@@ -11,20 +18,33 @@ medre adapters
 medre config bridge --output bridge.yaml
 ```
 
-These commands use uv's isolated tool environment. No source checkout or PyPI
-publication is required. If `medre` is unavailable after installation, run
-`uv tool update-shell` and follow its instructions. Restart your shell if needed.
+These commands use uv's isolated tool environment. New adapter requests default
+to package-index requirements (PyPI unless uv is configured otherwise). uv selects
+published versions; no fallback to Git occurs if a package cannot resolve.
+Existing catalogs and installed source requests remain intact. If `medre` is
+unavailable after installation, run `uv tool update-shell` and follow its guidance.
 
-The published core is also available through `uv tool install 'medre==0.1.0'`.
-Adapter aliases still default to Git `main`; use explicit index requirements
-in a source catalog to select released adapters. See
-[installation sources](../dev/installation-sources.md) for examples and the
-channel plan. The catalog shows requested sources, not resolved install proof.
+Use an exact index requirement or reviewed Git commit to pin core; select a
+release containing source switching to retain the commands below.
+Inspect source choices separately from installed provenance:
+
+```bash
+medre sources show
+medre sources show --json
+```
+
+The inventory reads package metadata without importing providers or contacting
+an index. It separates configured catalog requirements, uv's saved request, the
+installed version, and direct-source metadata such as a resolved Git commit or
+editable directory. Outside a persistent tool environment it reports the
+available metadata and explains the missing tool receipt. An index installation
+without direct-source metadata does not independently establish which index
+served it. The inventory is not a qualification record or lockfile.
 
 ## Add, change, or remove adapters
 
 ```bash
-medre adapters install 'matrix[e2e]' --dry-run
+medre adapters install 'matrix[e2e]==0.1.0' --dry-run
 medre adapters install 'matrix[e2e]'
 medre adapters remove meshtastic
 ```
@@ -37,11 +57,14 @@ Other explicitly requested packages, extras, markers, and the MEDRE source
 remain in the tool request. `remove` drops the selected explicit requirement;
 uv retains packages another installed distribution still depends on.
 
-`--dry-run` displays the full uv command without changing files or packages.
+`--dry-run` displays the uv request without changing files or packages. MEDRE
+redacts URL userinfo and query strings from its own output; a redacted preview
+is not a copyable command. Use credential helpers or native uv management
+if necessary. uv streams its own output; do not embed secrets in requirements.
 Package-changing commands stream uv's progress and return its failure status.
-On Windows, they print the uv command and exit 2 without changing packages;
-run that command in PowerShell after `medre.exe` exits so its executable is not
-locked. `--dry-run` remains a successful preview on every platform.
+On Windows, they print the uv preview and exit 2 without changing packages;
+run an unredacted command in PowerShell after `medre.exe` exits so its executable
+is not locked. If the preview is redacted, manage the request with uv directly. `--dry-run` remains a successful preview on every platform.
 Stop running bridges before changing packages and restart them afterward.
 An empty `medre adapters` inventory explains the active environment and points
 to source inspection and installation before generating a sample.
@@ -54,10 +77,81 @@ transient `uvx` invocation receives guidance instead of modifying another
 installation. Use `uv add`, `uv remove`, and `uv sync --locked` for deployment
 projects; see [Getting Started](getting-started.md).
 
+## Switch installed package sources
+
+Use **index**, **Git**, or **local checkout** to describe where a package comes
+from. `pypi` is accepted as an alias for `index`; it respects uv's configured
+indexes rather than overriding private-index policy. Source kind and release
+version are separate choices. Git branches, tags, immutable commits and forks
+use the same Git source kind.
+
+```bash
+# Preview and switch the installed first-party stack to index releases.
+medre sources switch --all --from index --dry-run
+medre sources switch --all --from index
+
+# Select one release, or follow upstream development.
+medre sources switch core --from index --version 0.1.0 --dry-run
+medre sources switch matrix --from git --ref main --dry-run
+
+# Fork branch; omit --ref to follow a custom repository's default HEAD.
+medre sources switch core --from git --git-url https://github.com/EXAMPLE/medre.git --ref feature/source-work --dry-run
+
+# Edit a checkout directly, or omit --editable for an installed snapshot.
+medre sources switch core --from local --path /work/medre --editable --dry-run
+medre sources switch matrix --from local --path /work/matrix --editable --dry-run
+
+# Standard named requirements retain ranges and direct archive URLs.
+medre sources switch core --requirement 'medre>=0.1,<0.2' --dry-run
+```
+
+Remove `--dry-run` to execute a reviewed command. A preview validates the
+selection and prints the request (redacting URL credentials and query strings); it does not resolve versions or
+promise that a package is available. Select core as `core` or `medre`; select
+adapters by catalog alias or explicit installed distribution name (an exact
+installed name takes precedence over a conflicting alias). Optional
+extras such as `matrix[e2e]` are retained and can be added. Switching never
+installs an absent distribution; use `adapters install` first. Inline index
+constraints such as `adapters install 'matrix[e2e]==0.1.0'` override the alias's
+source and select a released version.
+
+`--all` selects core and explicitly installed first-party adapters, retaining
+community and unrelated requests. Repository, ref, version, path and explicit
+requirement options select exactly one package. For a community Git provider,
+supply its repository explicitly; MEDRE does not invent an upstream URL.
+
+uv stores successful choices in its tool receipt. Ordinary `medre upgrade`
+retains them. Catalog files are not edited: a later `adapters install ALIAS` or
+explicit `--sync-sources` deliberately applies that catalog's choice instead.
+Use `sources show` to see both authorities. Existing catalog overrides are not
+automatically migrated to index defaults.
+
+Switching preserves installed extras, conditional selection and unrelated
+requests. Scoped changes refuse unselected moving Git or local sources that
+uv could refresh. Switch those packages together or select immutable unselected
+sources first. For a deliberate mixed development environment, pass
+`--allow-refresh` to explicitly permit unselected moving sources to refresh;
+the preview states that permission. This preserves requested sources, not the
+previously resolved working-tree bytes or commits. Unsupported custom
+receipt settings are refused rather than discarded. Editable mode survives
+supported request replay, and an explicit switch away from editable mode removes
+it. Source switching does not roll back databases; check state compatibility
+before downgrading. Windows prints a preview for execution after MEDRE exits;
+manage redacted requests using uv directly.
+A core release predating these commands also removes their CLI surface when
+selected. Use uv directly if that older CLI cannot perform the next switch;
+uv's tool receipt retains the installed request independently of CLI version.
+
+For project deployments, use `uv add`, `[tool.uv.sources]`, `uv lock`, and
+`uv sync --locked`; these helpers manage persistent uv tools only. For core
+source development, `medre dev sync` keeps the selected checkout editable.
+
 ## Choose your own sources
 
 `medre adapters sources` prints the effective source catalog as YAML, with a
-comment showing the default override path. The default is `sources.yaml` next
+comment showing the default override path. URLs containing userinfo or query
+strings are redacted; edit the original catalog rather than copying a redacted
+display. The default is `sources.yaml` next
 to MEDRE's runtime config: `$XDG_CONFIG_HOME/medre/sources.yaml` (falling back
 to `~/.config/medre/sources.yaml`), or `$MEDRE_HOME/sources.yaml`.
 
@@ -67,8 +161,7 @@ catalog and never installs packages or generates a runtime bridge configuration.
 Ordinary upgrades use uv's recorded core source. An optional core requirement in
 this catalog is applied only by an explicit --sync-sources upgrade. Ordinary
 commands do not create source files automatically.
-Overrides merge with the seven defaults, which point to `jeremiah-k`'s adapter
-repositories on `main`. Set an alias to `null` to remove it from the catalog.
+Overrides merge with the seven first-party package-index defaults. Set an alias to `null` to remove it from the catalog.
 
 ```yaml
 # Optional: deliberately choose this core source with upgrade --sync-sources.
