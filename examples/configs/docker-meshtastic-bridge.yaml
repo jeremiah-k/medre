@@ -68,6 +68,7 @@ adapters:
       host: "${MESHTASTIC_HOST}"
       port: 4403
       origin_label: TestMesh
+      # startup_packet_drain_seconds: 15.0  # initial receive-ready drain (also drops live arrivals); adapter default 15.0, 0 disables; no re-arm on later reconnects
 
   # ---------------------------------------------------------------------------
   # Fake Matrix adapter — no SDK, no homeserver, no network

@@ -72,6 +72,7 @@ adapters:
       host: localhost
       port: 4403
       origin_label: docker-bridge-ci
+      # startup_packet_drain_seconds: 15.0  # initial receive-ready drain (also drops live arrivals); adapter default 15.0, 0 disables; no re-arm on later reconnects
 
     # ---------------------------------------------------------------------------
     # Fake Meshtastic adapter — no SDK, no network, no hardware

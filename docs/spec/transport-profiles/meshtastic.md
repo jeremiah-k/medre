@@ -24,7 +24,8 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `default_channel`                   | `int`                                  | `0`          | Default radio channel index for outbound                          |
 | `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                         |
 | `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Window after start to suppress stale packets                      |
+| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Stale `rxTime` tolerance before first receive readiness           |
+| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Initial-connect relay packet drain; `0` disables                  |
 | `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds         |
 | `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template         |
 | `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                            |
@@ -336,7 +337,37 @@ implementation authority.
 
 **Correlation:** Each queued item carries an internal `outbox_id` and `attempt_number` from the pipeline. These are stored in queue item metadata (never in the wire payload sent to the radio). When the delayed callback arrives, these keys enable exact outbox-level correlation with stale-callback protection.
 
-**Startup backlog suppression:** Packets with `rxTime` before `adapter_start_epoch - startup_backlog_suppress_seconds` are silently dropped.
+**Startup packet drain:** The session arms a content-independent monotonic
+window immediately before enabling receive callbacks for the first connected
+client of each adapter start. A degraded startup does not spend this window
+while the connection is pending; failed initial callback setup arms a fresh
+window on retry. During `startup_packet_drain_seconds` (float, default 15.0;
+`0` disables), relay-classified packets reaching the started adapter are dropped
+before `rxTime` evaluation, decode, staging or publication. A real message
+arriving during this interval is also lost; there is no replay or retry of
+these drained packets. This is a heuristic, not proof that the node's FROMRADIO
+queue is empty. BLE, serial and TCP connections can deliver queued mesh packets
+without `rxTime` or with an unsynchronized clock. Non-relay classification,
+node information and native routing correlation are not gated by the drain.
+Packets delivered before the adapter has started are still rejected by its
+lifecycle guard and are not counted as drain drops.
+
+Each drain drop logs at DEBUG. The first subsequent relay-classified packet
+at or after expiry closes the window and emits one INFO summary with the
+recorded dropped count; an idle or stopped connection need not emit this line.
+The `packet relayed` classification log occurs only after the startup gates;
+it is not confirmation of admission or remote delivery. Classifier action
+counts still include suppressed packets. The startup counters reset on adapter
+restart and remain cumulative across initial connection recovery attempts.
+
+**Startup backlog suppression:** The separate `rxTime` gate drops packets whose
+valid timestamp predates `adapter_start_epoch - startup_backlog_suppress_seconds`
+(default 5.0; `0` disables). For this adapter, `adapter_start_epoch` records the
+initial receive-ready connection rather than the return of degraded `start()`;
+it is unset while the first native attempt is pending. After first successful
+setup, later transparent reconnects re-arm neither gate. Consequently, backlog
+received on subsequent reconnects may still relay, particularly without a
+usable `rxTime` or with a timestamp newer than the original cutoff. Subsequent reconnects do not provide a new suppression window.
 
 ---
 
@@ -371,11 +402,13 @@ Recovery does not establish RF receipt or exactly-once delivery.
 
 **Callback ownership:** Meshtastic pubsub callbacks identify the interface that emitted
 the event. A packet or disconnect callback from an interface replaced by reconnect is
-stale and is ignored. Client validation and synchronous callback dispatch are serialized
-with client replacement. Each active client state has a connection generation; packet
-publish and disconnect-reconnect work MUST revalidate the captured generation when the
-event-loop task begins. Stale callbacks cannot update packet timestamps, publish ingress,
-or start another reconnect.
+stale and is ignored. Interface validation and generation capture are serialized with
+client replacement; callback dispatch runs outside that lock. The adapter MUST carry
+the validated session and generation through ingress staging and revalidate both before
+publication. Disconnect-reconnect work MUST likewise revalidate its captured generation
+when the event-loop task begins. An already retired interface cannot update packet
+timestamps or authorize new ingress or reconnect work. This fence does not revoke
+admission already underway before retirement.
 
 **Thread bridging:** `_on_packet` is called from the Meshtastic SDK reader thread. The
 adapter uses `asyncio.run_coroutine_threadsafe` to bridge onto the event loop; futures
@@ -389,53 +422,58 @@ tasks.
 
 `adapter.diagnostics()` returns (no secrets, no raw protobuf):
 
-| Key                                     | Type     | Description                             |
-| --------------------------------------- | -------- | --------------------------------------- |
-| `adapter_id`                            | `str`    | Adapter identifier                      |
-| `started`                               | `bool`   | Adapter started flag                    |
-| `connection_type`                       | `str`    | Config connection mode                  |
-| `queue_pending`                         | `int`    | Items in outbound queue                 |
-| `queue_total_sent`                      | `int`    | Successfully sent items                 |
-| `queue_total_failed`                    | `int`    | Terminal failures                       |
-| `queue_total_enqueued`                  | `int`    | Total enqueue successes                 |
-| `queue_total_dequeued`                  | `int`    | Total dequeue operations                |
-| `queue_total_rejected`                  | `int`    | Enqueue rejections (full queue)         |
-| `queue_total_requeued`                  | `int`    | Transient-failure front-requeues        |
-| `queue_total_exhausted`                 | `int`    | Items dropped after max attempts        |
-| `queue_total_permanent_failed`          | `int`    | Items dropped for permanent errors      |
-| `queue_utilization_pct`                 | `float`  | Queue fullness percentage               |
-| `queue_pressure_state`                  | `str`    | `normal`/`warning`/`critical`/`full`    |
-| `queue_warning_threshold_pct`           | `float`  | Advisory pressure threshold             |
-| `queue_critical_threshold_pct`          | `float`  | Health-degrading pressure threshold     |
-| `queue_peak_depth`                      | `int`    | Maximum observed pending depth          |
-| `drain_task_running`                    | `bool`   | Background drain task alive             |
-| `classifier_packets_seen`               | `int`    | Total classified                        |
-| `classifier_packets_relayed`            | `int`    | Relay action count                      |
-| `classifier_packets_ignored`            | `int`    | Ignore action count                     |
-| `classifier_packets_dropped`            | `int`    | Drop action count                       |
-| `classifier_packets_deferred`           | `int`    | Deferred action count                   |
-| `classifier_packets_encrypted_dropped`  | `int`    | Encrypted drop sub-counter              |
-| `classifier_packets_dm_ignored`         | `int`    | DM ignore sub-counter                   |
-| `classifier_packets_empty_text_ignored` | `int`    | Empty text sub-counter                  |
-| `inbound_published`                     | `int`    | Events published inbound                |
-| `startup_backlog_packets_suppressed`    | `int`    | Stale backlog suppressions              |
-| `outbound_mode`                         | `str`    | Current outbound mode                   |
-| `outbound_gate_suppressed`              | `int`    | Listen-only suppressions                |
-| `session.connected`                     | `bool`   | Session connected                       |
-| `session.reconnecting`                  | `bool`   | Reconnect in progress                   |
-| `session.reconnect_attempts`            | `int`    | Consecutive reconnect attempts          |
-| `session.reconnect_total_attempts`      | `int`    | Lifetime reconnect attempts this start  |
-| `session.liveness_enabled`              | `bool`   | Active TCP round-trip supervision       |
-| `session.liveness_probe_successes`      | `int`    | Successful TCP probes                   |
-| `session.liveness_probe_failures`       | `int`    | Failed TCP probes                       |
-| `session.liveness_consecutive_failures` | `int`    | Current consecutive probe failures      |
-| `session.last_liveness_probe_time`      | `float?` | Last probe monotonic timestamp          |
-| `session.last_liveness_success_time`    | `float?` | Last successful probe timestamp         |
-| `session.last_liveness_error`           | `str?`   | Last probe failure text                 |
-| `session.transient_delivery_failures`   | `int`    | Transient send errors                   |
-| `session.permanent_delivery_failures`   | `int`    | Permanent send errors                   |
-| `session.stale_receive_callbacks`       | `int`    | Packets ignored from old interfaces     |
-| `session.stale_disconnect_callbacks`    | `int`    | Disconnects ignored from old interfaces |
+| Key                                     | Type            | Description                                  |
+| --------------------------------------- | --------------- | -------------------------------------------- |
+| `adapter_id`                            | `str`           | Adapter identifier                           |
+| `started`                               | `bool`          | Adapter started flag                         |
+| `connection_type`                       | `str`           | Config connection mode                       |
+| `queue_pending`                         | `int`           | Items in outbound queue                      |
+| `queue_total_sent`                      | `int`           | Successfully sent items                      |
+| `queue_total_failed`                    | `int`           | Terminal failures                            |
+| `queue_total_enqueued`                  | `int`           | Total enqueue successes                      |
+| `queue_total_dequeued`                  | `int`           | Total dequeue operations                     |
+| `queue_total_rejected`                  | `int`           | Enqueue rejections (full queue)              |
+| `queue_total_requeued`                  | `int`           | Transient-failure front-requeues             |
+| `queue_total_exhausted`                 | `int`           | Items dropped after max attempts             |
+| `queue_total_permanent_failed`          | `int`           | Items dropped for permanent errors           |
+| `queue_utilization_pct`                 | `float`         | Queue fullness percentage                    |
+| `queue_pressure_state`                  | `str`           | `normal`/`warning`/`critical`/`full`         |
+| `queue_warning_threshold_pct`           | `float`         | Advisory pressure threshold                  |
+| `queue_critical_threshold_pct`          | `float`         | Health-degrading pressure threshold          |
+| `queue_peak_depth`                      | `int`           | Maximum observed pending depth               |
+| `drain_task_running`                    | `bool`          | Background drain task alive                  |
+| `classifier_packets_seen`               | `int`           | Total classified                             |
+| `classifier_packets_relayed`            | `int`           | Relay action count                           |
+| `classifier_packets_ignored`            | `int`           | Ignore action count                          |
+| `classifier_packets_dropped`            | `int`           | Drop action count                            |
+| `classifier_packets_deferred`           | `int`           | Deferred action count                        |
+| `classifier_packets_encrypted_dropped`  | `int`           | Encrypted drop sub-counter                   |
+| `classifier_packets_dm_ignored`         | `int`           | DM ignore sub-counter                        |
+| `classifier_packets_empty_text_ignored` | `int`           | Empty text sub-counter                       |
+| `inbound_published`                     | `int`           | Events published inbound                     |
+| `startup_backlog_packets_seen`          | `int`           | Relay packets evaluated by the `rxTime` gate |
+| `startup_backlog_packets_suppressed`    | `int`           | Stale backlog suppressions                   |
+| `startup_backlog_suppress_seconds`      | `float`         | Configured stale timestamp tolerance         |
+| `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline      |
+| `startup_packet_drain_seconds`          | `float`         | Configured initial monotonic window          |
+| `startup_drain_packets_dropped`         | `int`           | Relay packets dropped by the initial drain   |
+| `outbound_mode`                         | `str`           | Current outbound mode                        |
+| `outbound_gate_suppressed`              | `int`           | Listen-only suppressions                     |
+| `session.connected`                     | `bool`          | Session connected                            |
+| `session.reconnecting`                  | `bool`          | Reconnect in progress                        |
+| `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts               |
+| `session.reconnect_total_attempts`      | `int`           | Lifetime reconnect attempts this start       |
+| `session.liveness_enabled`              | `bool`          | Active TCP round-trip supervision            |
+| `session.liveness_probe_successes`      | `int`           | Successful TCP probes                        |
+| `session.liveness_probe_failures`       | `int`           | Failed TCP probes                            |
+| `session.liveness_consecutive_failures` | `int`           | Current consecutive probe failures           |
+| `session.last_liveness_probe_time`      | `float?`        | Last probe monotonic timestamp               |
+| `session.last_liveness_success_time`    | `float?`        | Last successful probe timestamp              |
+| `session.last_liveness_error`           | `str?`          | Last probe failure text                      |
+| `session.transient_delivery_failures`   | `int`           | Transient send errors                        |
+| `session.permanent_delivery_failures`   | `int`           | Permanent send errors                        |
+| `session.stale_receive_callbacks`       | `int`           | Packets ignored from old interfaces          |
+| `session.stale_disconnect_callbacks`    | `int`           | Disconnects ignored from old interfaces      |
 
 ---
 
@@ -489,7 +527,7 @@ deterministically degraded to inline fallback text.
 
 ## Validation Status
 
-- Config validation enforces: non-empty `adapter_id`, valid `connection_type`, connection-type-specific required fields, non-negative `max_text_bytes` (int, not bool), positive queue capacity/retry limits, ordered queue pressure thresholds, positive/capped reconnect delays, valid TCP liveness interval/timeout, and valid `outbound_mode`.
+- Config validation enforces: non-empty `adapter_id`, valid `connection_type`, connection-type-specific required fields, non-negative `max_text_bytes` (int, not bool), positive queue capacity/retry limits, ordered queue pressure thresholds, positive/capped reconnect delays, valid TCP liveness interval/timeout, non-negative finite numeric `startup_packet_drain_seconds` (bool rejected), and valid `outbound_mode`.
 - Classifier tests cover all 10 policy branches.
 - Codec tests cover text, reply, and reaction decode.
 - Renderer tests cover prefix, reply, native/cross-platform reaction, UTF-8 truncation.

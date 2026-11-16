@@ -63,6 +63,8 @@ adapters:
       origin_label: medre-radio
       relay_prefix: "{sender_short}: " # Matrix→Meshtastic prefix
 
+      # startup_packet_drain_seconds: 15.0  # initial receive-ready drain (also drops live arrivals); adapter default 15.0, 0 disables; no re-arm on later reconnects
+
       # # --- TCP alternative (uncomment to use instead of serial) ---
       # connection_type: tcp
       # host: meshtastic.local
