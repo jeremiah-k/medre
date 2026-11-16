@@ -72,6 +72,7 @@ adapters:
       host: localhost
       port: 4403
       origin_label: docker-bridge-ci
+      # startup_packet_drain_seconds: 15.0  # post-start monotonic window dropping relay-classified packets to drain the node FROMRADIO backlog; adapter default 15.0, 0 disables
 
     # ---------------------------------------------------------------------------
     # Fake Meshtastic adapter — no SDK, no network, no hardware

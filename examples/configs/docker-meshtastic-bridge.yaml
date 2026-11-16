@@ -68,6 +68,7 @@ adapters:
       host: "${MESHTASTIC_HOST}"
       port: 4403
       origin_label: TestMesh
+      # startup_packet_drain_seconds: 15.0  # post-start monotonic window dropping relay-classified packets to drain the node FROMRADIO backlog; adapter default 15.0, 0 disables
 
   # ---------------------------------------------------------------------------
   # Fake Matrix adapter — no SDK, no homeserver, no network

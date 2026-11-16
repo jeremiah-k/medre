@@ -25,5 +25,7 @@ adapters:
       # Human-readable label used in log messages and cross-platform prefixes
       origin_label: medre-node
 
+      # startup_packet_drain_seconds: 15.0  # post-start monotonic window dropping relay-classified packets to drain the node FROMRADIO backlog; adapter default 15.0, 0 disables
+
       # Suppress outbound radio sends while still receiving inbound traffic:
       # outbound_mode: listen_only
