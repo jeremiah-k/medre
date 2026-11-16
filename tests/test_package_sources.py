@@ -363,3 +363,285 @@ def test_bad_source_locations_fail_with_management_errors(
 ):
     with pytest.raises(tm.ToolManagementError):
         ps.plan_source_switch(installation, catalog, ("core",), **options)
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_inventory_redacts_uppercase_catalog_and_receipt_urls(
+    installation, tmp_path, monkeypatch, capsys, json_output
+):
+    raw = "medre @ HTTPS://user:secret@example.org/core.whl?token=hidden"
+    installation.receipt["requirements"][0] = raw
+    catalog_path = tmp_path / "sources.yaml"
+    catalog_path.write_text(f"core: {raw}\nadapters: {{}}\n")
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    args = ["sources", "show", "--sources", str(catalog_path)]
+    main(args + (["--json"] if json_output else []))
+    output = capsys.readouterr().out
+    assert "secret" not in output and "hidden" not in output
+    assert "example.org/core.whl?redacted" in output
+
+
+@pytest.mark.parametrize("mode", ["dry-run", "linux", "win32"])
+def test_switch_preview_redacts_both_sources_but_execution_keeps_arguments(
+    installation, tmp_path, monkeypatch, capsys, mode
+):
+    previous = "medre @ HTTPS://user:oldsecret@example.org/old.whl?token=oldtoken"
+    target = "medre @ https://user:newsecret@example.org/new.whl?token=newtoken"
+    installation.receipt["requirements"][0] = previous
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(tm.sys, "platform", "linux" if mode == "dry-run" else mode)
+    commands = []
+    monkeypatch.setattr(
+        tm.subprocess,
+        "run",
+        lambda command, **kwargs: commands.append(command)
+        or SimpleNamespace(returncode=0),
+    )
+    args = ["sources", "switch", "core", "--requirement", target]
+    if mode == "win32":
+        with pytest.raises(SystemExit) as exc:
+            main(args)
+        assert exc.value.code == 2
+    else:
+        main(args + (["--dry-run"] if mode == "dry-run" else []))
+    output = capsys.readouterr()
+    combined = output.out + output.err
+    for secret in ("oldsecret", "oldtoken", "newsecret", "newtoken"):
+        assert secret not in combined
+    assert "not a copyable command" in combined
+    assert "old.whl?redacted" in combined and "new.whl?redacted" in combined
+    if mode == "linux":
+        assert len(commands) == 1 and target in commands[0]
+    else:
+        assert not commands
+
+
+def test_inventory_includes_uncataloged_provider_without_receipt(catalog, monkeypatch):
+    def unmanaged():
+        raise tm.ToolManagementError("not a managed tool")
+
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", unmanaged)
+    monkeypatch.setattr(
+        ps, "installed_adapters", lambda: {"community-radio": {"radio"}}
+    )
+    monkeypatch.setattr(
+        ps.importlib.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(version="2.0", read_text=lambda _: None),
+    )
+    row = next(
+        row
+        for row in ps.source_inventory(catalog)["packages"]
+        if row["package"] == "community-radio"
+    )
+    assert row["configured"] == [] and row["requested"] is None
+    assert row["installed_version"] == "2.0"
+
+
+@pytest.mark.parametrize("separator", [" ; ", " ;", "  ;  "])
+def test_editable_replay_ignores_marker_separator_spacing(
+    installation, tmp_path, separator
+):
+    installation.receipt["requirements"][1] = {
+        "name": "medre-adapter-matrix",
+        "editable": str(tmp_path),
+        "marker": "python_version >= '3.11'",
+    }
+    raw = "medre-adapter-matrix[e2e] @ " + tmp_path.as_uri() + separator
+    raw += "python_version >= '3.11'"
+    command = installation.change_adapters(["matrix"], {"matrix": raw})
+    assert command[command.index(raw) - 1] == "--with-editable"
+
+
+def test_inline_version_preserves_catalog_marker_and_url_semicolon():
+    name, raw = tm.selected_source(
+        "matrix==1.0",
+        {"matrix": "radio @ https://example.org/a;b.whl ;os_name == 'nt'"},
+    )
+    assert name == "radio"
+    assert raw == "radio==1.0 ; os_name == 'nt'"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "unrelated @ GIT+HTTPS://example.org/provider@main",
+        "unrelated @ git+https://example.org/" + "a" * 40,
+    ],
+)
+def test_scoped_switch_refuses_case_variant_and_unpinned_hash_path(
+    installation, catalog, raw
+):
+    installation.receipt["requirements"][2] = raw
+    with pytest.raises(
+        tm.ToolManagementError, match="cannot preserve the mutable source"
+    ):
+        ps.plan_source_switch(installation, catalog, ("core",), source="index")
+
+
+def test_distribution_selection_takes_precedence_over_alias(installation):
+    catalog = tm.SourceCatalog(None, {"medre-adapter-matrix": "unrelated"})
+    plan = ps.plan_source_switch(
+        installation, catalog, ("medre-adapter-matrix",), source="index"
+    )
+    assert plan.packages == ("medre-adapter-matrix",)
+    assert "unrelated>=2 ; python_version >= '3.11'" in plan.command
+
+
+def test_git_url_cannot_hide_ref_in_repository_option(installation, catalog):
+    with pytest.raises(tm.ToolManagementError, match="select its revision"):
+        ps.plan_source_switch(
+            installation,
+            catalog,
+            ("core",),
+            source="git",
+            git_url="https://example.org/repo.git@main",
+        )
+
+
+def test_inventory_survives_broken_provider_metadata(
+    installation, catalog, monkeypatch
+):
+    def broken():
+        raise tm.ToolManagementError("Cannot read installed adapter metadata")
+
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(ps, "installed_adapters", broken)
+    report = ps.source_inventory(catalog)
+    assert report["provider_error"] == "Cannot read installed adapter metadata"
+    assert any(row["package"] == "unrelated" for row in report["packages"])
+
+
+@pytest.mark.parametrize(
+    "error", [OSError("exec failed"), tm.subprocess.TimeoutExpired("uv", 15)]
+)
+def test_inventory_survives_unusable_uv(catalog, monkeypatch, error):
+    monkeypatch.setattr(tm.shutil, "which", lambda _: "/bin/uv")
+
+    def broken(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(tm.subprocess, "run", broken)
+    report = ps.source_inventory(catalog)
+    assert "Cannot locate uv's tool directory" in report["receipt_error"]
+    assert report["packages"]
+
+
+def test_catalog_display_redacts_without_editing_source(tmp_path, capsys):
+    path = tmp_path / "sources.yaml"
+    raw = (
+        "adapters:\n"
+        "  radio: radio @ HTTPS://user:secret@example.org/radio.whl?token=hidden\n"
+    )
+    path.write_text(raw)
+    main(["adapters", "sources", "--sources", str(path)])
+    output = capsys.readouterr().out
+    assert "secret" not in output and "hidden" not in output
+    assert "edit the original catalog" in output
+    assert path.read_text() == raw
+
+
+def test_package_management_imports_do_not_discover_providers():
+    script = """
+import importlib.metadata
+import sys
+from types import SimpleNamespace
+
+def load():
+    raise AssertionError('loaded a provider')
+
+importlib.metadata.entry_points = lambda **kw: [SimpleNamespace(
+    name='radio', value='radio:factory', load=load,
+    dist=SimpleNamespace(metadata={'Name': 'community-radio'}),
+)]
+from medre import package_sources as ps
+from medre import tool_management as tm
+from medre.cli import install_commands, command_display
+
+def unavailable():
+    raise tm.ToolManagementError('unmanaged')
+
+tm.ToolInstallation.inspect = unavailable
+assert 'medre.adapter_registry' not in sys.modules
+assert any(row['package'] == 'community-radio' for row in
+           ps.source_inventory(tm.SourceCatalog(None, {}))['packages'])
+assert 'medre.adapter_registry' not in sys.modules
+"""
+    result = tm.subprocess.run(
+        [tm.sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_switch_plan_redacts_source_notes_without_changing_request(
+    installation, catalog
+):
+    previous = "medre @ HTTPS://user:oldsecret@example.org/old.whl?token=oldtoken"
+    target = "medre @ https://user:newsecret@example.org/new.whl?token=newtoken"
+    installation.receipt["requirements"][0] = previous
+    plan = ps.plan_source_switch(installation, catalog, ("core",), requirement=target)
+    assert target in plan.command
+    notes = "\n".join(plan.notes)
+    for secret in ("oldsecret", "oldtoken", "newsecret", "newtoken"):
+        assert secret not in notes
+
+
+def test_blank_direct_source_metadata_is_not_an_index_installation(
+    installation, catalog, monkeypatch
+):
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(
+        ps.importlib.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(version="2.0", read_text=lambda _: ""),
+    )
+    report = ps.source_inventory(catalog)
+    core = next(row for row in report["packages"] if row["package"] == "medre")
+    assert core["source"] is None
+    assert core["provenance_error"] == "Installed source metadata is unreadable."
+
+
+@pytest.mark.parametrize("mode", ["dry-run", "linux", "win32"])
+@pytest.mark.parametrize("location", ["receipt", "target"])
+def test_whitespace_credentials_are_rejected_before_output_or_execution(
+    installation, tmp_path, monkeypatch, capsys, mode, location
+):
+    malformed = "medre @ https://user:two words@example.org/core.whl"
+    if location == "receipt":
+        installation.receipt["requirements"][0] = malformed
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(tm.sys, "platform", "linux" if mode == "dry-run" else mode)
+    monkeypatch.setattr(
+        tm.subprocess, "run", lambda *a, **kw: pytest.fail("invalid URL reached uv")
+    )
+    args = [
+        "sources",
+        "switch",
+        "core",
+        "--requirement",
+        malformed if location == "target" else "medre==0.1.0",
+    ]
+    with pytest.raises(SystemExit) as exc:
+        main(args + (["--dry-run"] if mode == "dry-run" else []))
+    assert exc.value.code == 2
+    output = capsys.readouterr()
+    assert "whitespace" in output.err
+    assert "two words" not in output.out + output.err
+    assert "user:" not in output.out + output.err
+
+
+def test_redaction_hides_whole_malformed_url_even_without_requirement_validation():
+    value = "medre @ HTTPS://user:two words@example.org/core.whl?token=secret"
+    assert tm.redact_source(value) == "medre @ (invalid source URL)"
+
+
+def test_valid_url_markers_and_escaped_path_spaces_remain_supported():
+    value = "medre @ file:///tmp/source%20tree ; python_version >= '3.11'"
+    assert tm.package_name(value) == "medre"
+    assert tm.redact_source(value) == value

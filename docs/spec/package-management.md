@@ -10,9 +10,10 @@ Package-changing helpers MUST verify that `sys.prefix` identifies the persistent
 ordinary virtual environment, pip installation, or temporary uvx environment.
 They MUST invoke uv through an argument vector without a shell, stream its
 output, and report unsuccessful execution without reporting success. On Windows,
-helpers MUST instead print the uv command and exit 2 without changing packages;
+helpers MUST instead print a preview and exit 2 without changing packages;
 the operator runs the command after the MEDRE executable exits to release its
-Windows file lock. A dry-run preview MUST exit successfully on every platform.
+Windows file lock. If URL credentials or query strings are redacted, the preview
+MUST NOT be represented as copyable; use direct uv management instead. A dry-run preview MUST exit successfully on every platform.
 `--dry-run` MUST perform no package or configuration writes.
 
 Adapter changes MUST preserve the core requirement unless the operator explicitly
@@ -121,4 +122,11 @@ and explain unavailable receipt evidence. An index installation without direct
 source metadata MUST NOT imply independently verified index provenance.
 A displayed Git commit or local path MUST NOT imply native qualification or
 working-tree cleanliness. URL credentials and query secrets MUST be redacted
-from the source inventory.
+from the source inventory, catalog display, MEDRE-generated plan notes and
+command previews. Redaction MUST NOT alter the arguments supplied to uv. uv
+output is owned by uv; operators SHOULD use credential helpers rather than
+embedding secrets in requirements. Installed provider metadata MUST be included
+even when no catalog alias or supported tool receipt exists; an unreadable
+provider metadata inventory MUST be reported without discarding known catalog
+and receipt rows. An explicit installed distribution name takes precedence
+over a conflicting catalog alias during source switching.

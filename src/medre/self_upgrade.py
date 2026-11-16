@@ -17,6 +17,7 @@ from medre.tool_management import (
     ToolManagementError,
     package_name,
     selected_source,
+    split_requirement_marker,
 )
 
 
@@ -41,7 +42,7 @@ def installed_adapters() -> dict[str, set[str]]:
                 # Core-owned built-ins are not independently upgradeable adapters.
                 continue
             providers.setdefault(name, set()).add(entry.name)
-    except (ValueError, TypeError, KeyError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
         if isinstance(exc, ToolManagementError):
             raise
         raise ToolManagementError(
@@ -108,11 +109,27 @@ def _verify_scoped_sources(installation: ToolInstallation, packages: list[str]) 
             mutable |= "directory" in raw or "path" in raw or "editable" in raw
             if "url" in raw:
                 mutable |= urlsplit(raw["url"]).scheme == "file"
-        elif "git+" in raw:
-            ref = urlsplit(raw.split("git+", 1)[1]).path.rsplit("@", 1)[-1]
-            mutable = re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref) is None
-        elif "@" in raw:
-            mutable = urlsplit(raw.split("@", 1)[1].strip()).scheme == "file"
+        else:
+            requirement, _ = split_requirement_marker(raw)
+            match = _REQUIREMENT.match(requirement)
+            assert match is not None
+            tail = requirement[match.end() :].lstrip()
+            if tail.startswith("@"):
+                try:
+                    url = urlsplit(tail[1:].strip())
+                except ValueError:
+                    raise ToolManagementError(
+                        "Invalid saved source URL; use uv directly."
+                    ) from None
+                if url.scheme.startswith("git+"):
+                    _, separator, ref = url.path.rpartition("@")
+                    mutable = (
+                        not separator
+                        or re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", ref)
+                        is None
+                    )
+                else:
+                    mutable = url.scheme == "file"
         if mutable:
             raise ToolManagementError(
                 f"A scoped package change cannot preserve the mutable source of {name}. "

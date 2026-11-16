@@ -13,6 +13,7 @@ from medre.tool_management import (
     initialize_sources,
     load_source_catalog,
     load_sources,
+    redact_source,
     sources_path,
 )
 
@@ -131,8 +132,12 @@ def _manage_installation(args: argparse.Namespace) -> None:
                             f"  requested: {row['requested'] or '(no managed receipt)'}"
                         )
                         print(f"  installed source: {json.dumps(row['source'])}")
+                        if row.get("provenance_error"):
+                            print(f"  {row['provenance_error']}")
                     if report["receipt_error"]:
                         print(report["receipt_error"])
+                    if report["provider_error"]:
+                        print(report["provider_error"])
                 return
         upgrading = args.command in ("upgrade", "update") or (
             args.command == "adapters" and args.action in ("upgrade", "update")
@@ -145,9 +150,18 @@ def _manage_installation(args: argparse.Namespace) -> None:
                 catalog = load_source_catalog(
                     Path(args.sources) if args.sources else None
                 )
-                document: dict[str, object] = {"adapters": catalog.adapters}
+                adapters = {
+                    alias: redact_source(raw) for alias, raw in catalog.adapters.items()
+                }
+                document: dict[str, object] = {"adapters": adapters}
+                redacted = adapters != catalog.adapters
                 if catalog.core is not None:
-                    document["core"] = catalog.core
+                    document["core"] = redact_source(catalog.core)
+                    redacted |= document["core"] != catalog.core
+                if redacted:
+                    print(
+                        "# Source URLs are redacted; edit the original catalog instead."
+                    )
                 print(
                     f"# Package sources; override in {args.sources or sources_path()}"
                 )
@@ -219,18 +233,28 @@ def _manage_installation(args: argparse.Namespace) -> None:
             command = installation.change_adapters(
                 args.packages, sources, remove=args.action == "remove"
             )
-        from .bridge_commands import _command_example
+        from .command_display import _command_example
 
         if not (upgrading or resetting or switching):
             print(f"Tool environment: {installation.prefix}")
-        print(_command_example(*command), flush=True)
+        preview = [redact_source(value) for value in command]
+        redacted = preview != command
+        if redacted:
+            print(
+                "Source URLs are redacted; this preview is not a copyable command.",
+                flush=True,
+            )
+        print(_command_example(*preview), flush=True)
         if args.dry_run:
             return
         if sys.platform == "win32":
-            print(
-                "No packages changed. Run the command above after medre.exe exits; Windows can lock its running executable.",
-                file=sys.stderr,
+            message = (
+                "No packages changed. Manage this request with uv directly after "
+                "medre.exe exits; the preview contains redacted source URLs."
+                if redacted
+                else "No packages changed. Run the command above after medre.exe exits; Windows can lock its running executable."
             )
+            print(message, file=sys.stderr)
             raise SystemExit(2)
         print(
             "Stop running bridges before changing packages; restart them after this command completes.",
@@ -253,7 +277,7 @@ def _manage_installation(args: argparse.Namespace) -> None:
             f"{'Upgrade' if upgrading else 'Installation'} complete. Run 'medre adapters' to inspect providers, then 'medre config check --config PATH' before restarting your bridge."
         )
     except ToolManagementError as exc:
-        print(f"Installation error: {exc}", file=sys.stderr)
+        print(f"Installation error: {redact_source(str(exc))}", file=sys.stderr)
         raise SystemExit(2) from None
     except OSError:
         print(

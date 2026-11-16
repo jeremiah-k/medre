@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from medre.self_upgrade import UpgradePlan, _retain_extras, _verify_scoped_sources
+from medre.self_upgrade import (
+    UpgradePlan,
+    _retain_extras,
+    _verify_scoped_sources,
+    installed_adapters,
+)
 from medre.tool_management import (
     _REQUIREMENT,
     _SELECTION,
@@ -21,25 +26,31 @@ from medre.tool_management import (
     ToolInstallation,
     ToolManagementError,
     package_name,
+    redact_source,
     selected_source,
+    split_requirement_marker,
 )
 
 
-def _target(selection: str, catalog: SourceCatalog) -> tuple[str, str]:
-    core = _SELECTION.fullmatch(selection)
-    if core and core[1] in {"core", "medre"}:
-        extras = "medre" + ("[" + core[2] + "]" if core[2] else "")
+def _target(
+    selection: str, catalog: SourceCatalog, installed: dict[str, str]
+) -> tuple[str, str]:
+    match = _SELECTION.fullmatch(selection)
+    if match is None:
+        raise ToolManagementError(
+            "Select core, an adapter alias or a distribution name with optional extras."
+        )
+    if match[1] in {"core", "medre"}:
+        extras = "medre" + ("[" + match[2] + "]" if match[2] else "")
         return "medre", _retain_extras(catalog.core or DEFAULT_CORE_SOURCE, extras)
-    if (
-        _SELECTION.fullmatch(selection)
-        and selection.split("[", 1)[0] in catalog.adapters
-    ):
+    name = package_name(match[1])
+    # Match the upgrade selector: an explicit installed distribution name is
+    # authoritative even when a catalog alias happens to use that name.
+    if name in installed:
+        return name, selection
+    if match[1] in catalog.adapters:
         return selected_source(selection, catalog.adapters)
-    if _SELECTION.fullmatch(selection):
-        return package_name(selection.split("[", 1)[0]), selection
-    raise ToolManagementError(
-        "Select core, an adapter alias or a distribution name with optional extras."
-    )
+    return name, selection
 
 
 def _requirement(
@@ -102,6 +113,7 @@ def _requirement(
             url.scheme not in {"https", "ssh", "file"}
             or (url.scheme != "file" and not url.hostname)
             or not url.path
+            or "@" in url.path
             or url.query
             or url.fragment
             or url.password
@@ -184,7 +196,7 @@ def plan_source_switch(
             )
         selected = {}
         for selection in selections:
-            name, raw = _target(selection, catalog)
+            name, raw = _target(selection, catalog, desired)
             if name in selected:
                 raise ToolManagementError("Select each distribution only once.")
             if name not in desired:
@@ -222,17 +234,10 @@ def plan_source_switch(
         # its own marker. URL semicolons are not requirement marker separators.
         previous = desired[name]
 
-        def marker_of(raw: str) -> list[str]:
-            return (
-                re.split(r"\s+;\s*", raw, maxsplit=1)[1:]
-                if "@" in raw
-                else raw.split(";", 1)[1:]
-            )
-
-        marker = marker_of(previous)
-        if marker and not marker_of(target):
-            target += " ; " + marker[0].strip()
-        changes.append(f"{name}: {previous} -> {target}")
+        _, marker = split_requirement_marker(previous)
+        if marker and split_requirement_marker(target)[1] is None:
+            target += " ; " + marker
+        changes.append(f"{name}: {redact_source(previous)} -> {redact_source(target)}")
         desired[name] = target
         editables[name] = editable
     command = installation.install_request(list(desired.values()), editable=editables)
@@ -257,22 +262,6 @@ def plan_source_switch(
     )
 
 
-def _redact(value: str) -> str:
-    """Display source locations without URL credentials or query secrets."""
-
-    def replace(match: re.Match[str]) -> str:
-        try:
-            url = urlsplit(match[0])
-        except ValueError:
-            return "(invalid source URL)"
-        host = url.netloc.rsplit("@", 1)[-1]
-        return urlunsplit(
-            (url.scheme, host, url.path, "redacted" if url.query else "", url.fragment)
-        )
-
-    return re.sub(r"(?:git\+)?(?:https?|ssh|file)://\S+", replace, value)
-
-
 def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
     """Read configured, requested and installed sources without importing providers."""
     requested: dict[str, str] = {}
@@ -281,19 +270,25 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
         installation = ToolInstallation.inspect()
         requested = {package_name(raw): raw for raw in installation.requirements()}
     except ToolManagementError as exc:
-        receipt_error = str(exc)
+        receipt_error = redact_source(str(exc))
     configured = {"medre": [catalog.core or DEFAULT_CORE_SOURCE]}
     for raw in catalog.adapters.values():
         name = package_name(raw)
         configured.setdefault(name, [])
         if raw not in configured[name]:
             configured[name].append(raw)
+    provider_error = None
+    try:
+        providers = set(installed_adapters())
+    except ToolManagementError as exc:
+        provider_error = redact_source(str(exc))
+        providers = set()
     rows = []
-    for name in sorted(configured.keys() | requested.keys()):
+    for name in sorted(configured.keys() | requested.keys() | providers):
         row: dict[str, Any] = {
             "package": name,
-            "configured": [_redact(raw) for raw in configured.get(name, [])],
-            "requested": _redact(requested[name]) if name in requested else None,
+            "configured": [redact_source(raw) for raw in configured.get(name, [])],
+            "requested": redact_source(requested[name]) if name in requested else None,
             "installed_version": None,
             "source": None,
         }
@@ -301,7 +296,7 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
             dist = importlib.metadata.distribution(name)
             row["installed_version"] = dist.version
             raw_url = dist.read_text("direct_url.json")
-            if raw_url:
+            if raw_url is not None:
                 direct = json.loads(raw_url)
                 row["source"] = {
                     "kind": (
@@ -309,7 +304,7 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
                         if direct.get("vcs_info")
                         else "local" if direct.get("dir_info") is not None else "url"
                     ),
-                    "url": _redact(direct["url"]),
+                    "url": redact_source(direct["url"]),
                     "commit": direct.get("vcs_info", {}).get("commit_id"),
                     "editable": bool(direct.get("dir_info", {}).get("editable")),
                 }
@@ -320,4 +315,8 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             row["provenance_error"] = "Installed source metadata is unreadable."
         rows.append(row)
-    return {"packages": rows, "receipt_error": receipt_error}
+    return {
+        "packages": rows,
+        "receipt_error": receipt_error,
+        "provider_error": provider_error,
+    }

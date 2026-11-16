@@ -78,7 +78,53 @@ def package_name(requirement: str) -> str:
         raise ToolManagementError(
             "Use a named requirement, such as 'my-adapter @ git+https://host/repo.git@main'."
         )
+    if requirement[match.end() :].lstrip().startswith("@"):
+        body, _ = split_requirement_marker(requirement)
+        source = body[match.end() :].lstrip()[1:].strip()
+        if not source or any(char.isspace() for char in source):
+            raise ToolManagementError(
+                "Direct source URLs must be non-empty and contain no whitespace; percent-encode URL paths."
+            )
     return re.sub(r"[-_.]+", "-", match[1]).lower()
+
+
+def split_requirement_marker(requirement: str) -> tuple[str, str | None]:
+    """Separate a marker, leaving semicolons inside direct URLs untouched."""
+    match = _REQUIREMENT.match(requirement)
+    assert match is not None
+    tail = requirement[match.end() :].lstrip()
+    if tail.startswith("@"):
+        parts = re.split(r"\s+;\s*", requirement, maxsplit=1)
+    else:
+        parts = requirement.split(";", 1)
+    return parts[0].rstrip(), parts[1].strip() if len(parts) == 2 else None
+
+
+def redact_source(value: str) -> str:
+    """Display source locations without URL userinfo or query secrets."""
+
+    def replace(match: re.Match[str]) -> str:
+        try:
+            url = urlsplit(match[0])
+        except ValueError:
+            return "(invalid source URL)"
+        if "@" not in url.netloc and not url.query:
+            return match[0]
+        host = url.netloc.rsplit("@", 1)[-1]
+        return urlunsplit(
+            (url.scheme, host, url.path, "redacted" if url.query else "", url.fragment)
+        )
+
+    # A malformed URL can contain spaces inside userinfo. Matching only to
+    # the first space would leave the rest of its password in the display.
+    start = re.search(r"(?:git\+)?(?:https?|ssh|file)://", value, re.IGNORECASE)
+    if start is not None:
+        source = re.split(r"\s+;\s*", value[start.start() :], maxsplit=1)[0]
+        if any(char.isspace() for char in source):
+            return value[: start.start()] + "(invalid source URL)"
+    return re.sub(
+        r"(?:git\+)?(?:https?|ssh|file)://\S+", replace, value, flags=re.IGNORECASE
+    )
 
 
 def sources_path() -> Path:
@@ -185,9 +231,13 @@ def selected_source(selection: str, sources: dict[str, str]) -> tuple[str, str]:
             raise ToolManagementError("An adapter source cannot replace MEDRE core.")
         existing = _REQUIREMENT.match(raw)
         assert existing is not None
+        _, marker = split_requirement_marker(raw)
         return (
             name,
-            existing[1] + ("[" + existing[2] + "]" if existing[2] else "") + pinned[3],
+            existing[1]
+            + ("[" + existing[2] + "]" if existing[2] else "")
+            + pinned[3]
+            + (" ; " + marker if marker else ""),
         )
     match = _SELECTION.fullmatch(selection)
     if match is None or match[1] not in sources:
@@ -343,13 +393,20 @@ class ToolInstallation:
                 "uv is not on PATH. Install uv, then retry this command. "
                 + _environment_guidance()
             )
-        result = subprocess.run(
-            [uv, "tool", "dir"], capture_output=True, text=True, check=False
-        )
-        if result.returncode:
+        try:
+            result = subprocess.run(
+                [uv, "tool", "dir"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+            if result.returncode or not Path(result.stdout.strip()).is_absolute():
+                raise ValueError
+        except (OSError, ValueError, subprocess.TimeoutExpired):
             raise ToolManagementError(
                 "Cannot locate uv's tool directory. Check 'uv tool dir'."
-            )
+            ) from None
         prefix = Path(sys.prefix)
         expected = Path(result.stdout.strip()) / "medre"
         if prefix.resolve() != expected.resolve():
@@ -465,7 +522,8 @@ class ToolInstallation:
         def source_location(raw: str) -> str:
             match = _REQUIREMENT.match(raw)
             assert match is not None
-            return raw[match.end() :].strip().split(" ; ", 1)[0]
+            source, _ = split_requirement_marker(raw)
+            return source[match.end() :].strip().removeprefix("@").strip()
 
         editable_names = {
             name

@@ -132,10 +132,12 @@ def test_numeric_instance_ids_do_not_shadow_an_explicit_menu_number(
 
 
 def test_windows_next_steps_quote_powershell_metacharacters(monkeypatch):
-    from medre.cli import bridge_commands
+    from medre.cli import bridge_commands, command_display
 
-    monkeypatch.setattr(bridge_commands, "os", SimpleNamespace(name="nt"))
-    command = bridge_commands._command_example("medre", "--config", "a&b's $file.yaml")
+    monkeypatch.setattr(command_display, "os", SimpleNamespace(name="nt"))
+    # dev_commands and native_commands import the bridge_commands re-export.
+    assert bridge_commands._command_example is command_display._command_example
+    command = command_display._command_example("medre", "--config", "a&b's $file.yaml")
     assert command == "medre --config 'a&b''s $file.yaml'"
 
 

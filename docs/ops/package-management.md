@@ -1,9 +1,16 @@
 # Manage MEDRE and adapter packages
 
+This guide describes the source-switching CLI on the development branch. The
+published 0.1.0 core has Git adapter defaults and does not recognize `sources`
+or inline adapter version constraints. Install uv and Git. Once source
+switching lands on main, use that Git revision (or a subsequent release that
+includes it) for the examples below. For the current published CLI, follow
+[Getting Started](getting-started.md) and use native uv commands for source changes.
+
 Install one persistent command, then select the adapters you need:
 
 ```bash
-uv tool install medre
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
 medre init
 medre adapters sources
 medre adapters install matrix meshtastic
@@ -17,7 +24,8 @@ published versions; no fallback to Git occurs if a package cannot resolve.
 Existing catalogs and installed source requests remain intact. If `medre` is
 unavailable after installation, run `uv tool update-shell` and follow its guidance.
 
-Use an exact requirement such as `uv tool install 'medre==0.1.0'` to pin core.
+Use an exact index requirement or reviewed Git commit to pin core; select a
+release containing source switching to retain the commands below.
 Inspect source choices separately from installed provenance:
 
 ```bash
@@ -49,11 +57,14 @@ Other explicitly requested packages, extras, markers, and the MEDRE source
 remain in the tool request. `remove` drops the selected explicit requirement;
 uv retains packages another installed distribution still depends on.
 
-`--dry-run` displays the full uv command without changing files or packages.
+`--dry-run` displays the uv request without changing files or packages. MEDRE
+redacts URL userinfo and query strings from its own output; a redacted preview
+is not a copyable command. Use credential helpers or native uv management
+if necessary. uv streams its own output; do not embed secrets in requirements.
 Package-changing commands stream uv's progress and return its failure status.
-On Windows, they print the uv command and exit 2 without changing packages;
-run that command in PowerShell after `medre.exe` exits so its executable is not
-locked. `--dry-run` remains a successful preview on every platform.
+On Windows, they print the uv preview and exit 2 without changing packages;
+run an unredacted command in PowerShell after `medre.exe` exits so its executable
+is not locked. If the preview is redacted, manage the request with uv directly. `--dry-run` remains a successful preview on every platform.
 Stop running bridges before changing packages and restart them afterward.
 An empty `medre adapters` inventory explains the active environment and points
 to source inspection and installation before generating a sample.
@@ -95,9 +106,10 @@ medre sources switch core --requirement 'medre>=0.1,<0.2' --dry-run
 ```
 
 Remove `--dry-run` to execute a reviewed command. A preview validates the
-selection and prints the complete request; it does not resolve versions or
+selection and prints the request (redacting URL credentials and query strings); it does not resolve versions or
 promise that a package is available. Select core as `core` or `medre`; select
-adapters by catalog alias or explicit installed distribution name. Optional
+adapters by catalog alias or explicit installed distribution name (an exact
+installed name takes precedence over a conflicting alias). Optional
 extras such as `matrix[e2e]` are retained and can be added. Switching never
 installs an absent distribution; use `adapters install` first. Inline index
 constraints such as `adapters install 'matrix[e2e]==0.1.0'` override the alias's
@@ -124,7 +136,8 @@ previously resolved working-tree bytes or commits. Unsupported custom
 receipt settings are refused rather than discarded. Editable mode survives
 supported request replay, and an explicit switch away from editable mode removes
 it. Source switching does not roll back databases; check state compatibility
-before downgrading. Windows prints the command for execution after MEDRE exits.
+before downgrading. Windows prints a preview for execution after MEDRE exits;
+manage redacted requests using uv directly.
 A core release predating these commands also removes their CLI surface when
 selected. Use uv directly if that older CLI cannot perform the next switch;
 uv's tool receipt retains the installed request independently of CLI version.
@@ -136,7 +149,9 @@ source development, `medre dev sync` keeps the selected checkout editable.
 ## Choose your own sources
 
 `medre adapters sources` prints the effective source catalog as YAML, with a
-comment showing the default override path. The default is `sources.yaml` next
+comment showing the default override path. URLs containing userinfo or query
+strings are redacted; edit the original catalog rather than copying a redacted
+display. The default is `sources.yaml` next
 to MEDRE's runtime config: `$XDG_CONFIG_HOME/medre/sources.yaml` (falling back
 to `~/.config/medre/sources.yaml`), or `$MEDRE_HOME/sources.yaml`.
 
