@@ -52,6 +52,10 @@ medre version
 medre adapters
 ```
 
+The published 0.1.0 CLI uses Git adapter defaults; install Git as well as uv.
+The `sources` commands below require a core build containing source switching
+(see the [package management guide](package-management.md)).
+
 Use `medre sources show` to distinguish installed sources from catalog choices,
 `medre sources switch` to select releases, Git revisions or local checkouts,
 `medre adapters sources` to inspect the YAML source catalog,

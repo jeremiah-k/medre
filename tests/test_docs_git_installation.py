@@ -74,3 +74,18 @@ def test_operator_index_is_a_valid_two_column_navigation_table() -> None:
     assert all(line.count("|") == 3 for line in rows)
     assert "[Getting Started](getting-started.md)" in index
     assert "[Recovery and replay](recovery-and-replay.md)" in index
+
+
+def test_new_source_commands_are_not_documented_as_available_in_010() -> None:
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "and Git" in readme
+    for guide in (
+        _doc("package-management.md"),
+        (_ROOT / "docs/dev/installation-sources.md").read_text(encoding="utf-8"),
+    ):
+        assert "0.1.0" in guide and "does not recognize" in guide
+        assert (
+            "uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'"
+            in guide
+        )
+        assert "uv tool install 'medre==0.1.0'" not in guide

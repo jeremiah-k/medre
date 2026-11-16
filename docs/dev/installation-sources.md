@@ -28,13 +28,19 @@ checkouts. These selections do not edit CI compatibility pins. See the
 
 ## Released packages and development sources
 
-New first-party adapter requests use index packages, with PyPI as uv's default
-index. Existing source catalogs are preserved and may explicitly retain Git.
+In a core build containing source switching, new first-party adapter requests
+use index packages, with PyPI as uv's default index. Existing source catalogs
+are preserved and may explicitly retain Git.
 The legacy `adapters reset` command deliberately selects upstream Git `main`;
 it is not a stable-release selector.
 
+The published 0.1.0 core does not recognize `sources` or inline adapter version
+constraints. Once this feature lands on main, install that Git revision (or a
+later published release containing the feature) before following these examples.
+Git is required for the development installation.
+
 ```bash
-uv tool install 'medre==0.1.0'
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
 medre adapters install 'matrix[e2e]==0.1.0'
 medre sources show --json
 medre sources switch --all --from index --dry-run
