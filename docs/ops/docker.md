@@ -7,6 +7,14 @@ separate from the named volume. Installing Python packages into this volume
 is unsupported: changing packages means pulling or building an image and recreating the container.
 Updating bridge configuration needs only a container recreation.
 
+No official image has been published yet. Release publications and manual
+workflow dispatches publish `ghcr.io/jeremiah-k/medre` tags; pull-request and
+main pushes only qualify images and never publish. Until the first release
+tag publishes image bytes, build locally (below) or dispatch the workflow for
+a development tag; the pull commands in
+[Release images and updates](#release-images-and-updates) apply once a tag
+exists.
+
 ## Build and start
 
 Docker Engine with Buildx, Docker Compose v2 or newer, Git, Make and Python 3.11+

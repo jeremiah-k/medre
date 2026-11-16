@@ -148,8 +148,8 @@ Docker Compose from an `env_file`, not by the MEDRE config loader. The
 loader treats `{...}` as a [path placeholder](#path-placeholders) and
 rejects `${VAR}` as an invalid placeholder, so these configs cannot be
 loaded by `medre config check` or `medre run` directly. Use `medre smoke`,
-the Docker Compose workflow (see [running-medre.md](running-medre.md)), or
-pre-resolve the placeholders before validation.
+the [Docker deployment guide](docker.md), or pre-resolve the placeholders
+before validation.
 
 ## YAML Schema Reference
 
