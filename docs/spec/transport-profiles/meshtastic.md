@@ -25,6 +25,7 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 | `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                         |
 | `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                         |
 | `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Window after start to suppress stale packets                      |
+| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Post-start window dropping relay-classified packets; `0` disables |
 | `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds         |
 | `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template         |
 | `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                            |
@@ -336,7 +337,9 @@ implementation authority.
 
 **Correlation:** Each queued item carries an internal `outbox_id` and `attempt_number` from the pipeline. These are stored in queue item metadata (never in the wire payload sent to the radio). When the delayed callback arrives, these keys enable exact outbox-level correlation with stale-callback protection.
 
-**Startup backlog suppression:** Packets with `rxTime` before `adapter_start_epoch - startup_backlog_suppress_seconds` are silently dropped.
+**Startup packet drain:** After each successful adapter start, relay-classified packets are dropped until `time.monotonic()` passes start plus `startup_packet_drain_seconds` (float, default 15.0; `0` disables). Each drop logs at DEBUG; one INFO line reports the dropped count when the window closes; drain counters surface in adapter diagnostics beside the `startup_backlog_packets_*` counters. The drain covers relay-classified traffic only: nodeinfo, routing observations, and enrichment packets are not drained. Connects over BLE, serial, and TCP drain the node's FROMRADIO queue, which can hold backlogged mesh traffic delivered immediately after connect. `rxTime` alone cannot separate that backlog from live traffic: some packets carry no `rxTime`, and node clocks are not synchronized to the host (mmrelay calibrates per-connection clock skew for this reason). The drain keys on monotonic arrival time, making the window independent of packet content and node clock state. The window arms at each successful adapter start and does not re-arm across transparent reconnects.
+
+**Startup backlog suppression:** The `rxTime` gate remains as defense-in-depth: packets with `rxTime` before `adapter_start_epoch - startup_backlog_suppress_seconds` (default 5.0) are silently dropped, notably covering transparent reconnects where the drain window does not re-arm.
 
 ---
 
@@ -489,7 +492,7 @@ deterministically degraded to inline fallback text.
 
 ## Validation Status
 
-- Config validation enforces: non-empty `adapter_id`, valid `connection_type`, connection-type-specific required fields, non-negative `max_text_bytes` (int, not bool), positive queue capacity/retry limits, ordered queue pressure thresholds, positive/capped reconnect delays, valid TCP liveness interval/timeout, and valid `outbound_mode`.
+- Config validation enforces: non-empty `adapter_id`, valid `connection_type`, connection-type-specific required fields, non-negative `max_text_bytes` (int, not bool), positive queue capacity/retry limits, ordered queue pressure thresholds, positive/capped reconnect delays, valid TCP liveness interval/timeout, non-negative finite numeric `startup_packet_drain_seconds` (bool rejected), and valid `outbound_mode`.
 - Classifier tests cover all 10 policy branches.
 - Codec tests cover text, reply, and reaction decode.
 - Renderer tests cover prefix, reply, native/cross-platform reaction, UTF-8 truncation.
