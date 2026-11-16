@@ -232,6 +232,11 @@
       "matchDatasources": ["custom.trunk-cli"],
       "minimumReleaseAge": "0 days",
       "automerge": false
+    },
+    {
+      "description": "Renovate's own tool pin is refreshed with deliberate Trunk toolchain upgrades, not tracked as a dependency",
+      "matchDepNames": ["renovate"],
+      "enabled": false
     }
   ]
 }
