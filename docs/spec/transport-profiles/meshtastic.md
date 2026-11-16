@@ -386,8 +386,8 @@ allowance, and the same failure class exists at the initial connection.
 initial setup arms a fixed five-second monotonic window scoped to its
 connection generation. Failed initial subscription retries still arm the
 initial drain, not the reconnect window. A failed activation may leave a
-watermark for a retired generation; it is not evidence of a live connection. While the window is open, relay-classified packets on
-that generation without a usable `rxTime` are dropped: they cannot prove they
+watermark for a retired generation; it is not evidence of a live connection.
+While the window is open, relay-classified packets on that generation without a usable `rxTime` are dropped: they cannot prove they
 are not pre-reconnect queue backlog. Packets with a usable `rxTime` are never
 dropped by this window — the `rxTime` gate owns their decision — so a
 reconnect never spends a blind content-independent drain on live packets,
@@ -395,8 +395,8 @@ even if reconnect completes before the initial drain's deadline. All packets
 remain subject to ordinary admission and connection-generation ownership.
 The first packet of the owning generation that reaches this gate at or after
 expiry emits one INFO completion line with the window's drop count; idle or
-replaced generations need not emit this summary. Afterwards missing and malformed timestamps relay as before, because their
-age cannot be judged. Repeated reconnects record fresh watermarks and arm
+replaced generations need not emit this summary. Afterwards missing and
+malformed timestamps relay as before, because their age cannot be judged. Repeated reconnects record fresh watermarks and arm
 fresh windows per generation, bounding unprovable-case loss per episode.
 The window shares the startup drain's operator opt-out:
 `startup_packet_drain_seconds: 0` disables both connect-window drop
@@ -455,61 +455,61 @@ tasks.
 
 `adapter.diagnostics()` returns (no secrets, no raw protobuf):
 
-| Key                                     | Type            | Description                                  |
-| --------------------------------------- | --------------- | -------------------------------------------- |
-| `adapter_id`                            | `str`           | Adapter identifier                           |
-| `started`                               | `bool`          | Adapter started flag                         |
-| `connection_type`                       | `str`           | Config connection mode                       |
-| `queue_pending`                         | `int`           | Items in outbound queue                      |
-| `queue_total_sent`                      | `int`           | Successfully sent items                      |
-| `queue_total_failed`                    | `int`           | Terminal failures                            |
-| `queue_total_enqueued`                  | `int`           | Total enqueue successes                      |
-| `queue_total_dequeued`                  | `int`           | Total dequeue operations                     |
-| `queue_total_rejected`                  | `int`           | Enqueue rejections (full queue)              |
-| `queue_total_requeued`                  | `int`           | Transient-failure front-requeues             |
-| `queue_total_exhausted`                 | `int`           | Items dropped after max attempts             |
-| `queue_total_permanent_failed`          | `int`           | Items dropped for permanent errors           |
-| `queue_utilization_pct`                 | `float`         | Queue fullness percentage                    |
-| `queue_pressure_state`                  | `str`           | `normal`/`warning`/`critical`/`full`         |
-| `queue_warning_threshold_pct`           | `float`         | Advisory pressure threshold                  |
-| `queue_critical_threshold_pct`          | `float`         | Health-degrading pressure threshold          |
-| `queue_peak_depth`                      | `int`           | Maximum observed pending depth               |
-| `drain_task_running`                    | `bool`          | Background drain task alive                  |
-| `classifier_packets_seen`               | `int`           | Total classified                             |
-| `classifier_packets_relayed`            | `int`           | Relay action count                           |
-| `classifier_packets_ignored`            | `int`           | Ignore action count                          |
-| `classifier_packets_dropped`            | `int`           | Drop action count                            |
-| `classifier_packets_deferred`           | `int`           | Deferred action count                        |
-| `classifier_packets_encrypted_dropped`  | `int`           | Encrypted drop sub-counter                   |
-| `classifier_packets_dm_ignored`         | `int`           | DM ignore sub-counter                        |
-| `classifier_packets_empty_text_ignored` | `int`           | Empty text sub-counter                       |
-| `inbound_published`                     | `int`           | Events published inbound                     |
-| `startup_backlog_packets_seen`          | `int`           | Relay packets evaluated by the `rxTime` gate |
-| `startup_backlog_packets_suppressed`    | `int`           | Stale backlog suppressions                   |
-| `startup_backlog_suppress_seconds`      | `float`         | Configured stale timestamp tolerance         |
-| `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline      |
-| `startup_packet_drain_seconds`          | `float`         | Configured initial monotonic window          |
-| `startup_drain_packets_dropped`         | `int`           | Relay packets dropped by the initial drain   |
-| `receive_ready_generation`              | `int \| None`   | Latest recorded activation watermark generation   |
-| `reconnect_backlog_packets_dropped`     | `int`           | Age-unprovable drops in reconnect windows    |
-| `reconnect_receive_bootstrap_seconds`   | `float`         | Fixed reconnect bootstrap window length      |
-| `outbound_mode`                         | `str`           | Current outbound mode                        |
-| `outbound_gate_suppressed`              | `int`           | Listen-only suppressions                     |
-| `session.connected`                     | `bool`          | Session connected                            |
-| `session.reconnecting`                  | `bool`          | Reconnect in progress                        |
-| `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts               |
-| `session.reconnect_total_attempts`      | `int`           | Lifetime reconnect attempts this start       |
-| `session.liveness_enabled`              | `bool`          | Active TCP round-trip supervision            |
-| `session.liveness_probe_successes`      | `int`           | Successful TCP probes                        |
-| `session.liveness_probe_failures`       | `int`           | Failed TCP probes                            |
-| `session.liveness_consecutive_failures` | `int`           | Current consecutive probe failures           |
-| `session.last_liveness_probe_time`      | `float?`        | Last probe monotonic timestamp               |
-| `session.last_liveness_success_time`    | `float?`        | Last successful probe timestamp              |
-| `session.last_liveness_error`           | `str?`          | Last probe failure text                      |
-| `session.transient_delivery_failures`   | `int`           | Transient send errors                        |
-| `session.permanent_delivery_failures`   | `int`           | Permanent send errors                        |
-| `session.stale_receive_callbacks`       | `int`           | Packets ignored from old interfaces          |
-| `session.stale_disconnect_callbacks`    | `int`           | Disconnects ignored from old interfaces      |
+| Key                                     | Type            | Description                                     |
+| --------------------------------------- | --------------- | ----------------------------------------------- |
+| `adapter_id`                            | `str`           | Adapter identifier                              |
+| `started`                               | `bool`          | Adapter started flag                            |
+| `connection_type`                       | `str`           | Config connection mode                          |
+| `queue_pending`                         | `int`           | Items in outbound queue                         |
+| `queue_total_sent`                      | `int`           | Successfully sent items                         |
+| `queue_total_failed`                    | `int`           | Terminal failures                               |
+| `queue_total_enqueued`                  | `int`           | Total enqueue successes                         |
+| `queue_total_dequeued`                  | `int`           | Total dequeue operations                        |
+| `queue_total_rejected`                  | `int`           | Enqueue rejections (full queue)                 |
+| `queue_total_requeued`                  | `int`           | Transient-failure front-requeues                |
+| `queue_total_exhausted`                 | `int`           | Items dropped after max attempts                |
+| `queue_total_permanent_failed`          | `int`           | Items dropped for permanent errors              |
+| `queue_utilization_pct`                 | `float`         | Queue fullness percentage                       |
+| `queue_pressure_state`                  | `str`           | `normal`/`warning`/`critical`/`full`            |
+| `queue_warning_threshold_pct`           | `float`         | Advisory pressure threshold                     |
+| `queue_critical_threshold_pct`          | `float`         | Health-degrading pressure threshold             |
+| `queue_peak_depth`                      | `int`           | Maximum observed pending depth                  |
+| `drain_task_running`                    | `bool`          | Background drain task alive                     |
+| `classifier_packets_seen`               | `int`           | Total classified                                |
+| `classifier_packets_relayed`            | `int`           | Relay action count                              |
+| `classifier_packets_ignored`            | `int`           | Ignore action count                             |
+| `classifier_packets_dropped`            | `int`           | Drop action count                               |
+| `classifier_packets_deferred`           | `int`           | Deferred action count                           |
+| `classifier_packets_encrypted_dropped`  | `int`           | Encrypted drop sub-counter                      |
+| `classifier_packets_dm_ignored`         | `int`           | DM ignore sub-counter                           |
+| `classifier_packets_empty_text_ignored` | `int`           | Empty text sub-counter                          |
+| `inbound_published`                     | `int`           | Events published inbound                        |
+| `startup_backlog_packets_seen`          | `int`           | Relay packets evaluated by the `rxTime` gate    |
+| `startup_backlog_packets_suppressed`    | `int`           | Stale backlog suppressions                      |
+| `startup_backlog_suppress_seconds`      | `float`         | Configured stale timestamp tolerance            |
+| `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline         |
+| `startup_packet_drain_seconds`          | `float`         | Configured initial monotonic window             |
+| `startup_drain_packets_dropped`         | `int`           | Relay packets dropped by the initial drain      |
+| `receive_ready_generation`              | `int \| None`   | Latest recorded activation watermark generation |
+| `reconnect_backlog_packets_dropped`     | `int`           | Age-unprovable drops in reconnect windows       |
+| `reconnect_receive_bootstrap_seconds`   | `float`         | Fixed reconnect bootstrap window length         |
+| `outbound_mode`                         | `str`           | Current outbound mode                           |
+| `outbound_gate_suppressed`              | `int`           | Listen-only suppressions                        |
+| `session.connected`                     | `bool`          | Session connected                               |
+| `session.reconnecting`                  | `bool`          | Reconnect in progress                           |
+| `session.reconnect_attempts`            | `int`           | Consecutive reconnect attempts                  |
+| `session.reconnect_total_attempts`      | `int`           | Lifetime reconnect attempts this start          |
+| `session.liveness_enabled`              | `bool`          | Active TCP round-trip supervision               |
+| `session.liveness_probe_successes`      | `int`           | Successful TCP probes                           |
+| `session.liveness_probe_failures`       | `int`           | Failed TCP probes                               |
+| `session.liveness_consecutive_failures` | `int`           | Current consecutive probe failures              |
+| `session.last_liveness_probe_time`      | `float?`        | Last probe monotonic timestamp                  |
+| `session.last_liveness_success_time`    | `float?`        | Last successful probe timestamp                 |
+| `session.last_liveness_error`           | `str?`          | Last probe failure text                         |
+| `session.transient_delivery_failures`   | `int`           | Transient send errors                           |
+| `session.permanent_delivery_failures`   | `int`           | Permanent send errors                           |
+| `session.stale_receive_callbacks`       | `int`           | Packets ignored from old interfaces             |
+| `session.stale_disconnect_callbacks`    | `int`           | Disconnects ignored from old interfaces         |
 
 ---
 
