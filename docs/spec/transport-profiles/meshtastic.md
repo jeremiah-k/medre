@@ -12,32 +12,32 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field                               | Type                                   | Default      | Description                                                       |
-| ----------------------------------- | -------------------------------------- | ------------ | ----------------------------------------------------------------- |
-| `adapter_id`                        | `str`                                  | _(required)_ | Unique adapter instance identifier                                |
-| `connection_type`                   | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                                   |
-| `host`                              | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
-| `port`                              | `int \| None`                          | `None`       | Port for TCP (default 4403)                                       |
-| `serial_port`                       | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`)     |
-| `ble_address`                       | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)           |
-| `origin_label`                      | `str`                                  | `""`         | Platform-neutral operator-defined source label for relay prefixes |
-| `default_channel`                   | `int`                                  | `0`          | Default radio channel index for outbound                          |
-| `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                         |
-| `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Stale `rxTime` tolerance before first receive readiness           |
-| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Initial-connect relay packet drain; `0` disables                  |
-| `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds         |
-| `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template         |
-| `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                            |
-| `queue_send_max_attempts`           | `int`                                  | `3`          | Max send attempts per queued item                                 |
-| `queue_max_size`                    | `int`                                  | `1024`       | Hard adapter-local outbound queue capacity                        |
-| `queue_warning_threshold_pct`       | `float`                                | `75.0`       | Advisory queue-pressure threshold                                 |
-| `queue_critical_threshold_pct`      | `float`                                | `90.0`       | Health-degrading queue-pressure threshold                         |
-| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`       | Initial session-level reconnect delay                             |
-| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`      | Maximum session-level reconnect delay                             |
-| `tcp_liveness_interval_seconds`     | `float`                                | `60.0`       | TCP round-trip probe interval; `0` disables                       |
-| `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`       | TCP round-trip probe timeout                                      |
-| `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`  | `"listen_only"` suppresses all radio sends                        |
+| Field                               | Type                                   | Default      | Description                                                                          |
+| ----------------------------------- | -------------------------------------- | ------------ | ------------------------------------------------------------------------------------ |
+| `adapter_id`                        | `str`                                  | _(required)_ | Unique adapter instance identifier                                                   |
+| `connection_type`                   | `Literal["fake","tcp","serial","ble"]` | `"fake"`     | Connection mode                                                                      |
+| `host`                              | `str \| None`                          | `None`       | Hostname/IP for TCP (required when `connection_type="tcp"`)                          |
+| `port`                              | `int \| None`                          | `None`       | Port for TCP (default 4403)                                                          |
+| `serial_port`                       | `str \| None`                          | `None`       | Serial device path (required when `connection_type="serial"`)                        |
+| `ble_address`                       | `str \| None`                          | `None`       | BLE MAC address (required when `connection_type="ble"`)                              |
+| `origin_label`                      | `str`                                  | `""`         | Platform-neutral operator-defined source label for relay prefixes                    |
+| `default_channel`                   | `int`                                  | `0`          | Default radio channel index for outbound                                             |
+| `channel_mapping`                   | `dict[int, str]`                       | `{}`         | Display-label map (NOT a relay allowlist)                                            |
+| `message_delay_seconds`             | `float`                                | `2.2`        | Minimum seconds between outbound messages                                            |
+| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`        | Stale `rxTime` tolerance behind each connection watermark                            |
+| `startup_packet_drain_seconds`      | `float`                                | `15.0`       | Initial-connect relay packet drain; `0` also disables the reconnect bootstrap window |
+| `sync_timeout_ms`                   | `int`                                  | `30000`      | Initial wait budget and SDK phase timeout in milliseconds                            |
+| `relay_prefix`                      | `str \| None`                          | `None`       | Automatic attribution; `""` disables or supply a template                            |
+| `max_text_bytes`                    | `int`                                  | `227`        | UTF-8 byte budget for final radio text                                               |
+| `queue_send_max_attempts`           | `int`                                  | `3`          | Max send attempts per queued item                                                    |
+| `queue_max_size`                    | `int`                                  | `1024`       | Hard adapter-local outbound queue capacity                                           |
+| `queue_warning_threshold_pct`       | `float`                                | `75.0`       | Advisory queue-pressure threshold                                                    |
+| `queue_critical_threshold_pct`      | `float`                                | `90.0`       | Health-degrading queue-pressure threshold                                            |
+| `reconnect_backoff_initial_seconds` | `float`                                | `10.0`       | Initial session-level reconnect delay                                                |
+| `reconnect_backoff_max_seconds`     | `float`                                | `300.0`      | Maximum session-level reconnect delay                                                |
+| `tcp_liveness_interval_seconds`     | `float`                                | `60.0`       | TCP round-trip probe interval; `0` disables                                          |
+| `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`       | TCP round-trip probe timeout                                                         |
+| `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`  | `"listen_only"` suppresses all radio sends                                           |
 
 ### Firmware pacing
 
@@ -361,13 +361,37 @@ counts still include suppressed packets. The startup counters reset on adapter
 restart and remain cumulative across initial connection recovery attempts.
 
 **Startup backlog suppression:** The separate `rxTime` gate drops packets whose
-valid timestamp predates `adapter_start_epoch - startup_backlog_suppress_seconds`
-(default 5.0; `0` disables). For this adapter, `adapter_start_epoch` records the
-initial receive-ready connection rather than the return of degraded `start()`;
-it is unset while the first native attempt is pending. After first successful
-setup, later transparent reconnects re-arm neither gate. Consequently, backlog
-received on subsequent reconnects may still relay, particularly without a
-usable `rxTime` or with a timestamp newer than the original cutoff. Subsequent reconnects do not provide a new suppression window.
+valid timestamp predates the receive-ready watermark of the packet's own
+connection generation minus `startup_backlog_suppress_seconds`
+(default 5.0; `0` disables). For this adapter, `adapter_start_epoch` records
+the initial receive-ready connection rather than the return of degraded
+`start()`; it is unset while the first native attempt is pending and remains
+the fallback baseline for generations without a recorded watermark (fake mode,
+direct test injection, or pruned history). Every receive-ready installation —
+the first connection and every transparent reconnect alike — records a fresh
+watermark before the installed client can subscribe or dispatch a packet, so
+queue backlog drained by a reconnected radio is judged against that reconnect
+instead of the original startup. Future timestamps are never suppressed: an
+ahead-of-host radio clock reads as skew, not stale backlog, so queue backlog
+on a sufficiently ahead-skewed radio is indistinguishable from live traffic
+by `rxTime`. A radio clock trailing the host by more than the tolerance can
+suppress genuinely fresh packets; the tolerance doubles as the skew
+allowance, and the same failure class exists at the initial connection.
+
+**Reconnect receive bootstrap window:** Every receive-ready installation
+after the first also arms a fixed five-second monotonic window scoped to its
+connection generation. While the window is open, relay-classified packets on
+that generation without a usable `rxTime` are dropped: they cannot prove they
+are not pre-reconnect queue backlog. Packets with a usable `rxTime` are never
+dropped by this window — the `rxTime` gate owns their decision — so a
+reconnect never spends a blind content-independent drain on live packets.
+Lazy expiry emits one INFO completion line with the window's drop count;
+afterwards missing and malformed timestamps relay as before, because their
+age cannot be judged. Repeated reconnects record fresh watermarks and arm
+fresh windows per generation, bounding unprovable-case loss per episode.
+The window shares the startup drain's operator opt-out:
+`startup_packet_drain_seconds: 0` disables both connect-window drop
+families, and no additional configuration key exists.
 
 ---
 
@@ -457,6 +481,9 @@ tasks.
 | `adapter_start_epoch`                   | `float \| None` | First receive-ready wall-clock baseline      |
 | `startup_packet_drain_seconds`          | `float`         | Configured initial monotonic window          |
 | `startup_drain_packets_dropped`         | `int`           | Relay packets dropped by the initial drain   |
+| `receive_ready_generation`              | `int \| None`   | Latest receive-ready connection generation   |
+| `reconnect_backlog_packets_dropped`     | `int`           | Age-unprovable drops in reconnect windows    |
+| `reconnect_receive_bootstrap_seconds`   | `float`         | Fixed reconnect bootstrap window length      |
 | `outbound_mode`                         | `str`           | Current outbound mode                        |
 | `outbound_gate_suppressed`              | `int`           | Listen-only suppressions                     |
 | `session.connected`                     | `bool`          | Session connected                            |
