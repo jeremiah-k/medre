@@ -14,12 +14,12 @@ services through the same adapter, routing, and evidence contracts.
 
 ## Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 **1. Install the CLI and example providers.**
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install medre
 medre adapters install matrix meshtastic
 medre adapters
 ```

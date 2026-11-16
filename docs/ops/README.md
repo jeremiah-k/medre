@@ -1,6 +1,6 @@
 # Operate MEDRE
 
-New here? Start with **[Getting Started](getting-started.md)**: install from Git,
+New here? Start with **[Getting Started](getting-started.md)**: install released packages,
 verify the pipeline without credentials, and build a first route with the
 wizard. A persistent uv
 tool is convenient for exploration; a locked uv project is preferable for

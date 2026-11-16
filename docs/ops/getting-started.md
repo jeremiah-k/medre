@@ -10,11 +10,11 @@ and chats first. Before updating a bridge, stop it and
 
 ## 1. Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git,
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/),
 then run:
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install medre
 medre adapters install matrix meshtastic
 ```
 

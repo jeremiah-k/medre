@@ -1,4 +1,4 @@
-# Installation sources and channel planning
+# Installation sources and provenance
 
 A package version, a source choice, and a qualified stack are different facts.
 Core and adapters can all report `0.1.0` while editable and Git installations
@@ -26,48 +26,48 @@ sync`. A local profile can point adapters at arbitrary sibling or fork
 checkouts. These selections do not edit CI compatibility pins. See the
 [development environment](environment.md) for profile and test commands.
 
-## Released packages
+## Released packages and development sources
 
-Install the published core into a persistent tool environment with an explicit
-version, for example `uv tool install 'medre==0.1.0'`. Select published adapter
-versions in a separate source catalog rather than assuming built-in aliases
-select PyPI. Built-in adapter defaults and `adapters reset` currently select
-upstream Git `main`, even when core itself came from PyPI.
+New first-party adapter requests use index packages, with PyPI as uv's default
+index. Existing source catalogs are preserved and may explicitly retain Git.
+The legacy `adapters reset` command deliberately selects upstream Git `main`;
+it is not a stable-release selector.
 
-```yaml
-core: medre==0.1.0
-adapters:
-  matrix: medre-adapter-matrix[e2e]==0.1.0
-  meshtastic: medre-adapter-meshtastic==0.1.0
-  lxmf: medre-adapter-lxmf==0.1.0
+```bash
+uv tool install 'medre==0.1.0'
+medre adapters install 'matrix[e2e]==0.1.0'
+medre sources show --json
+medre sources switch --all --from index --dry-run
+medre sources switch core --from git --ref main --dry-run
+medre sources switch core --from local --path /work/medre --editable --dry-run
 ```
 
-This partial catalog replaces only the listed aliases; other built-in aliases
-retain their defaults. Select the named adapters explicitly. Do not describe
-a mixed index/Git environment as an entirely released stack. Only select
-versions actually published on the configured index. Stop bridges before
-changing sources and inspect the management command's dry run first.
+Use index, Git and local checkout as source kinds; a version or Git revision is
+a separate selection. `pypi` is a convenience alias for index, respecting uv's
+index configuration. A fork is an explicit Git URL, not a separate channel.
+A local checkout can be an installed snapshot or editable. See
+[source switching](../ops/package-management.md#switch-installed-package-sources)
+for execution, scopes and complete examples.
 
-## Channel work to plan
+## Requested intent and resolved state
 
-Named channels can be conveniences over source catalogs, not a second package
-resolver or runtime configuration. A future released channel should select
-published versions only and explain missing providers. A development channel
-should preserve moving-source intent while recording exact resolved commits.
-Fork URLs and local editable paths remain explicit per-package overrides.
+Source catalogs configure aliases and explicit synchronization preferences.
+A switch preserves them and delegates the installed request to uv's receipt.
+Plain upgrades retain that receipt; reinstalling from a catalog or requesting
+`--sync-sources` deliberately reapplies catalog intent. A successful switch is
+not an update to deployment lockfiles or CI compatibility pins.
 
-Switching should preview the complete core/adapter request, preserve deliberate
-extras and unrelated packages, and show which requirements change. Switching
-sources is not a state rollback; database migration compatibility and backups
-remain separate concerns. Preserve the existing uv-tool ownership checks and
-Windows handoff when extending management commands.
+`medre sources show` distinguishes configured choices, the supported tool
+receipt's requested requirements, and installed metadata. It works without a
+managed tool receipt, imports no providers and performs no index query. For Git
+installs, direct-source metadata exposes the resolved commit. For local
+editables, the directory remains live and its contents can change after
+installation; a source location is not proof of clean or qualified bytes.
 
-Qualification should record requested requirements, resolved distribution
-versions, Git URLs and commits or index artifact hashes, editable locations and
-dirty state, interpreter, SDK versions and the relevant lockfile. A channel
-name alone is not qualification evidence. Core's curated compatibility manifest
-continues to contain merged Git revisions; it is not a list of released wheels.
-
-No named-channel flag or automatic default-source change is implemented by
-this tooling update. The next product change should build on source catalogs,
-add source-switching regressions, and qualify the actual published artifact set.
+Qualification must independently record requested requirements, installed
+versions, resolved Git commits or index artifact hashes, editable working-tree
+commit and dirty state, interpreter, SDK versions and the deployment lockfile.
+A source label alone is not qualification evidence. Core's curated compatibility
+manifest continues to contain merged Git revisions; it is not a list of
+released wheels. uv owns locking for deployment projects, and MEDRE neither
+writes `uv.lock` nor implements a second resolver or version-availability service.

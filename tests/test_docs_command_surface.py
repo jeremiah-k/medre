@@ -59,6 +59,7 @@ class TestConfigurationCliSurface:
         "diagnostics",
         "routes",
         "adapters",
+        "sources",
     ]
 
     @pytest.mark.parametrize("command", REQUIRED_COMMANDS)
@@ -187,6 +188,7 @@ class TestParserCommandsDocumented:
             "init",
             "dev",
             "adapters",
+            "sources",
             "diagnostics",
             "routes",
             "smoke",

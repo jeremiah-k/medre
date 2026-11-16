@@ -1,7 +1,7 @@
 # Installation Reference
 
 For a first real bridge, use [Getting Started](getting-started.md). It includes
-Git installation, a local smoke, credentials, and a two-way route. This page
+Package installation, a local smoke, credentials, and a two-way route. This page
 covers the **other installation methods** and how to verify them, without
 maintaining a second copy of the operator tutorial.
 
@@ -12,13 +12,13 @@ SDK is included in core; adapters are separately installable distributions.
 
 ## Which installation method?
 
-| Goal                                           | Use                                                | Repeatability                                      |
-| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| Operate a bridge                               | [Locked uv deployment project](#locked-deployment) | Pin Git commits and commit `uv.lock`               |
-| Keep a short `medre` command without a project | `uv tool install` below                            | Explicit Git revisions, but no deployment lockfile |
-| Try help or version once                       | `uvx --from ... medre version`                     | Temporary isolated tool environment                |
-| Develop MEDRE                                  | Editable source checkout below                     | Core `uv.lock`                                     |
-| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement     | Depends on your requirements lock                  |
+| Goal                                           | Use                                                | Repeatability                                                        |
+| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------- |
+| Operate a bridge                               | [Locked uv deployment project](#locked-deployment) | Pin Git commits and commit `uv.lock`                                 |
+| Keep a short `medre` command without a project | `uv tool install` below                            | Exact index versions or Git revisions, without a deployment lockfile |
+| Try help or version once                       | `uvx --from ... medre version`                     | Temporary isolated tool environment                                  |
+| Develop MEDRE                                  | Editable source checkout below                     | Core `uv.lock`                                                       |
+| Use a built artifact or pip                    | Virtualenv with wheel / direct Git requirement     | Depends on your requirements lock                                    |
 
 Adapters install from **Git, local paths, or package indexes**; no PyPI
 publication is required. See [adapter installation](adapter-installation.md)
@@ -46,21 +46,23 @@ If you prefer a globally available **isolated CLI** rather than a deployment
 project, install core once, then add providers to the **same tool environment**:
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install medre
 medre adapters install matrix
 medre version
 medre adapters
 ```
 
-Use `medre adapters sources` to inspect or customize the YAML source catalog,
+Use `medre sources show` to distinguish installed sources from catalog choices,
+`medre sources switch` to select releases, Git revisions or local checkouts,
+`medre adapters sources` to inspect the YAML source catalog,
 `medre adapters remove ALIAS` to remove a provider requirement, and
 `medre update` to update the tool within its recorded source constraints.
 Add `--dry-run` to preview a package change. See
 [package management](package-management.md) for private/local sources, extras,
 and environment detection.
 
-These branches are convenient for trials; replace them with reviewed commit
-SHAs for repeatability. `uv tool install` does **not** create a deployment
+Git branches are convenient for trials; use reviewed commit SHAs or exact
+index versions for repeatability. `uv tool install` does **not** create a deployment
 `uv.lock`, and its environment is separate from your project's `.venv`. Use
 `uv tool list` to inspect installed tools. If `medre` is not on your `PATH`,
 follow uv's `uv tool update-shell` guidance.

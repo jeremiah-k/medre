@@ -1,4 +1,4 @@
-"""Keep Git-first operator installation instructions aligned with package boundaries."""
+"""Keep operator installation instructions aligned with package boundaries."""
 
 from pathlib import Path
 
@@ -28,7 +28,7 @@ def test_persistent_cli_install_includes_the_provider_in_the_same_tool() -> None
     end = install.index("```", start + 7)
     command = install[start:end]
     assert "medre adapters install matrix" in command
-    assert "'git+https://github.com/jeremiah-k/medre.git" in command
+    assert "uv tool install medre" in command
     assert "medre version" in command
     assert "uv.lock" in install
     assert "same tool environment" in install
@@ -56,7 +56,7 @@ def test_smoke_in_install_guide_persists_evidence_without_config_rewrite() -> No
     assert "not network or RF reception" in install
 
 
-def test_readme_has_a_runnable_git_first_path_and_data_warning() -> None:
+def test_readme_has_a_runnable_installation_path_and_data_warning() -> None:
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
     assert "uv tool install" in readme
     assert "medre config check --config sample.yaml" in readme
