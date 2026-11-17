@@ -2,8 +2,8 @@
 
 Covers both halves of the bounded-retention decision for authoritative
 admission-gate refusal evidence.  The durable half: the
-``inbound_pressure_outage_gaps`` table is required by the released
-catalog, its records round-trip content-free through
+``inbound_pressure_outage_gaps`` table installs through the allowlisted
+additive predecessor path, its records round-trip content-free through
 the storage authority surface, and record validation refuses malformed
 counters.  The runtime half: retained refusal keys are bounded by a
 documented constant, every discarded fact is counted unconditionally
@@ -32,6 +32,8 @@ from medre.core.storage.sqlite._pressure import (
     SQLITE_MAX_PRESSURE_COUNT,
     pressure_window_start,
 )
+from medre.core.storage.sqlite.schema import _PRESSURE_OUTAGE_GAPS_DDL
+from medre.core.storage.sqlite.schema_validation import execute_ddl
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime import app as _app_module
 from tests.helpers.inbound_gate import GateAppDouble as _GateApp
@@ -58,6 +60,26 @@ _GAP_FIELDS = frozenset(
 _FLOODED_GATE_BOUND = 2
 
 
+def _expected_gap_table_sql() -> str:
+    """Derive the exact stored form from the authoritative DDL slice.
+
+    The same derivation scheme as the prerelease identity validators: the
+    expected catalog definition comes from the declared DDL, never from a
+    hand-written string, so detection cannot drift from the declared shape.
+    """
+    reference = sqlite3.connect(":memory:")
+    try:
+        execute_ddl(reference, _PRESSURE_OUTAGE_GAPS_DDL)
+        row = reference.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='inbound_pressure_outage_gaps'"
+        ).fetchone()
+    finally:
+        reference.close()
+    assert row is not None
+    return str(row[0])
+
+
 def _gap_table_sql(db_path: Path) -> str | None:
     db = sqlite3.connect(db_path)
     try:
@@ -74,6 +96,142 @@ async def _open_storage(tmp_path: Path, name: str) -> SQLiteStorage:
     storage = SQLiteStorage(str(tmp_path / name))
     await storage.initialize()
     return storage
+
+
+def _drop_gap_table(db_path: Path) -> None:
+    """Reduce a current-shape database to the allowlisted predecessor.
+
+    Dropping exactly the accounting-gap table from a stamped,
+    otherwise-byte-exact database yields the approved additive
+    predecessor layout: every other catalog object already matches the
+    declared shape.
+    """
+    db = sqlite3.connect(db_path)
+    try:
+        db.execute("DROP TABLE inbound_pressure_outage_gaps")
+        db.commit()
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Additive installation
+# ---------------------------------------------------------------------------
+
+
+async def test_additive_predecessor_gains_the_gap_table(tmp_path: Path) -> None:
+    """A stamped database without the gap table gains it on open."""
+    storage = await _open_storage(tmp_path, "predecessor.db")
+    await storage.close()
+    db_path = tmp_path / "predecessor.db"
+    _drop_gap_table(db_path)
+    assert _gap_table_sql(db_path) is None
+
+    migrated = SQLiteStorage(str(db_path))
+    try:
+        await migrated.initialize()
+        installed = _gap_table_sql(db_path)
+        expected = _expected_gap_table_sql()
+        assert installed == expected
+        # The installed table is immediately usable through the authority
+        # surface, and a second open is a no-op for the table shape.
+        await migrated.record_inbound_pressure_outage_gap(
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 90,
+            refusals_observed=0,
+            refusals_retained=0,
+            refusals_discarded=0,
+        )
+        rows = await migrated.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1
+    finally:
+        await migrated.close()
+
+    reopened = SQLiteStorage(str(db_path))
+    try:
+        await reopened.initialize()
+        assert _gap_table_sql(db_path) == expected
+        rows = await reopened.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1
+    finally:
+        await reopened.close()
+
+
+async def test_exact_legacy_gap_table_upgrade_preserves_rows(tmp_path: Path) -> None:
+    """A previously opened #462 prerelease database retains its gap history."""
+    from medre.core.storage.sqlite._prerelease_migrate import (
+        known_outage_gap_table_forms,
+        outage_gap_token_rebuild_applies,
+    )
+
+    db_path = tmp_path / "legacy-gap.db"
+    storage = await _open_storage(tmp_path, db_path.name)
+    try:
+        await storage.record_inbound_pressure_outage_gap(
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 30,
+            refusals_observed=5,
+            refusals_retained=3,
+            refusals_discarded=2,
+        )
+    finally:
+        await storage.close()
+
+    columns = known_outage_gap_table_forms().columns
+    db = sqlite3.connect(db_path)
+    try:
+        db.execute(
+            "ALTER TABLE inbound_pressure_outage_gaps "
+            "RENAME TO inbound_pressure_outage_gaps__old"
+        )
+        # Literal predecessor from e9816b4e26; do not derive it from the detector.
+        db.execute("""CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
+    gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL,
+    refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
+    refusals_retained INTEGER NOT NULL CHECK (refusals_retained >= 0),
+    refusals_discarded INTEGER NOT NULL CHECK (refusals_discarded >= 0)
+);""")
+        assert outage_gap_token_rebuild_applies(db)
+        db.execute(
+            f"INSERT INTO inbound_pressure_outage_gaps ({', '.join(columns)}) "
+            f"SELECT {', '.join(columns)} FROM inbound_pressure_outage_gaps__old"  # nosec B608 # SQL uses declared schema identifiers or fixed numeric constants; row values are bound.
+        )
+        db.execute("DROP TABLE inbound_pressure_outage_gaps__old")
+        db.commit()
+    finally:
+        db.close()
+
+    upgraded = SQLiteStorage(str(db_path))
+    try:
+        await upgraded.initialize()
+        rows = await upgraded.list_inbound_pressure_outage_gaps()
+        assert len(rows) == 1
+        assert rows[0]["gap_id"] == 1
+        assert rows[0]["gap_token"] == "0" * 31 + "1"
+        assert rows[0]["refusals_observed"] == 5
+        assert rows[0]["refusals_retained"] == 3
+        assert rows[0]["refusals_discarded"] == 2
+        assert _gap_table_sql(db_path) == _expected_gap_table_sql()
+        await upgraded.record_inbound_pressure_outage_gap(
+            gap_token=rows[0]["gap_token"],
+            opened_unix_seconds=_BASE_EPOCH,
+            recovered_unix_seconds=_BASE_EPOCH + 30,
+            refusals_observed=5,
+            refusals_retained=3,
+            refusals_discarded=2,
+        )
+        assert await upgraded.list_inbound_pressure_outage_gaps() == rows
+    finally:
+        await upgraded.close()
+
+    reopened = SQLiteStorage(str(db_path))
+    try:
+        await reopened.initialize()
+        assert await reopened.list_inbound_pressure_outage_gaps() == rows
+    finally:
+        await reopened.close()
 
 
 # ---------------------------------------------------------------------------

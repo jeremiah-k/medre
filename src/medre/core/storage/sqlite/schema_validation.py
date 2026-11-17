@@ -10,13 +10,31 @@ from medre.core.storage.backend import (
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
+from medre.core.storage.sqlite._prerelease_migrate import (
+    apply_prerelease_migrations,
+    known_decision_table_forms,
+    known_outage_gap_table_forms,
+    known_pressure_table_forms,
+    known_stripped_diagnostic_table_forms,
+    known_stripped_diagnostic_view_form,
+)
 from medre.core.storage.sqlite.schema import (
+    _ADMISSION_ORDER_INDEX_DDL,
+    _COLLECTION_LOG_DDL,
+    _DEADLINE_CLEANUP_INDEX_DDL,
+    _DIAGNOSTICS_DDL,
+    _DIAGNOSTICS_INDEX_DDL,
     _EXPECTED_SCHEMA_VERSION,
     _INDEXES,
+    _PRESSURE_OUTAGE_GAPS_DDL,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
+    _RETENTION_EPOCHS_DDL,
+    _ROUTING_FACTS_DDL,
     _SCHEMA,
+    _SNAPSHOT_OWNER_INDEX_DDL,
+    _SNAPSHOTS_DDL,
 )
 
 
@@ -40,6 +58,149 @@ def _expected_definitions() -> dict[tuple[str, str], str]:
         reference.close()
 
 
+@lru_cache(maxsize=1)
+def _known_grant_table_forms() -> tuple[str, str]:
+    """Exact old and ALTER-generated spellings of one safe nullable addition.
+
+    The old form is derived from the authoritative DDL, not a permissive
+    set-of-columns approximation. Constraints must match byte for byte.
+    """
+    reference = sqlite3.connect(":memory:")
+    try:
+        reference.executescript(
+            _SCHEMA.replace("    expired_at TEXT,\n", "") + _INDEXES
+        )
+        old = _definitions(reference)[("table", "event_content_access_grants")]
+        reference.execute(
+            "ALTER TABLE event_content_access_grants ADD COLUMN expired_at TEXT"
+        )
+        altered = _definitions(reference)[("table", "event_content_access_grants")]
+        return old, altered
+    finally:
+        reference.close()
+
+
+#: Catalog objects an approved additive predecessor may lack entirely.  They
+#: are created atomically by :func:`apply_safe_additions` from the same
+#: authoritative DDL; every other object must already match byte for byte.
+_ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("table", "event_content_collection_log"),
+        ("table", "content_retention_epochs"),
+        ("table", "delivery_evidence_diagnostics"),
+        ("table", "event_routing_facts"),
+        ("table", "delivery_outbox_snapshots"),
+        ("table", "inbound_pressure_outage_gaps"),
+        ("index", "idx_outbox_deadline_cleanup_order"),
+        ("index", "idx_diagnostics_identity"),
+        ("index", "idx_events_admission_order"),
+        ("index", "idx_outbox_snapshot_owner_unique"),
+    }
+)
+
+
+def safe_additive_state(db: sqlite3.Connection) -> bool:
+    """Accept only the exact old grant table, the exact old decision table,
+    and allowlisted missing objects.
+
+    Every unrelated table, index, view and trigger must already match. Called
+    read-only at preflight and again after acquiring BEGIN IMMEDIATE.
+    """
+    actual = _definitions(db)
+    expected = _expected_definitions()
+    if ("table", "_medre_schema_meta") not in actual:
+        return False
+    version = db.execute(
+        "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
+    ).fetchone()
+    if version is None or str(version[0]) != str(_EXPECTED_SCHEMA_VERSION):
+        return False
+    if actual.keys() - expected.keys():
+        return False
+    missing = expected.keys() - actual.keys()
+    if missing - _ADDITIVE_OBJECTS:
+        return False
+    old, altered = _known_grant_table_forms()
+    legacy_decision = known_decision_table_forms().legacy
+    legacy_pressure = known_pressure_table_forms().legacy
+    legacy_gap = known_outage_gap_table_forms().legacy
+    for key, definition in actual.items():
+        if key == ("table", "event_content_access_grants"):
+            if definition not in {
+                expected[key],
+                old,
+                altered,
+            }:
+                return False
+        elif key == ("table", "operator_delivery_decisions"):
+            if definition not in {expected[key], legacy_decision}:
+                return False
+        elif key == ("table", "inbound_pressure_observations"):
+            if definition not in {expected[key], legacy_pressure}:
+                return False
+        elif key == ("table", "inbound_pressure_outage_gaps"):
+            if definition not in {expected[key], legacy_gap}:
+                return False
+        elif key in {
+            ("table", "delivery_receipts"),
+            ("table", "delivery_observations"),
+            ("table", "delivery_outbox"),
+            ("table", "durable_ingress_work"),
+        }:
+            table = key[1]
+            if definition not in {
+                expected[key],
+                known_stripped_diagnostic_table_forms().get(table),
+            }:
+                return False
+        elif key == ("view", "delivery_status"):
+            if definition not in {
+                expected[key],
+                known_stripped_diagnostic_view_form(),
+            }:
+                return False
+        elif definition != expected[key]:
+            return False
+    return True
+
+
+def apply_safe_additions(db: sqlite3.Connection) -> None:
+    """Apply allowlisted additive DDL inside the caller's IMMEDIATE transaction."""
+    if not safe_additive_state(db):
+        raise ValueError("Schema is not an approved additive predecessor")
+    current = _definitions(db)
+    if ("table", "event_content_collection_log") not in current:
+        execute_ddl(db, _COLLECTION_LOG_DDL)
+    if ("table", "content_retention_epochs") not in current:
+        execute_ddl(db, _RETENTION_EPOCHS_DDL)
+    if ("table", "delivery_evidence_diagnostics") not in current:
+        execute_ddl(db, _DIAGNOSTICS_DDL)
+    if ("table", "event_routing_facts") not in current:
+        execute_ddl(db, _ROUTING_FACTS_DDL)
+    if ("table", "delivery_outbox_snapshots") not in current:
+        execute_ddl(db, _SNAPSHOTS_DDL)
+    if ("table", "inbound_pressure_outage_gaps") not in current:
+        execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
+    if ("index", "idx_outbox_deadline_cleanup_order") not in current:
+        execute_ddl(db, _DEADLINE_CLEANUP_INDEX_DDL)
+    if ("index", "idx_diagnostics_identity") not in current:
+        execute_ddl(db, _DIAGNOSTICS_INDEX_DDL)
+    if ("index", "idx_events_admission_order") not in current:
+        execute_ddl(db, _ADMISSION_ORDER_INDEX_DDL)
+    if ("index", "idx_outbox_snapshot_owner_unique") not in current:
+        execute_ddl(db, _SNAPSHOT_OWNER_INDEX_DDL)
+    if (
+        current[("table", "event_content_access_grants")]
+        == _known_grant_table_forms()[0]
+    ):
+        db.execute("ALTER TABLE event_content_access_grants ADD COLUMN expired_at TEXT")
+    # Named additive migration steps run last: each detects its exact
+    # allowlisted predecessor form from the same authoritative DDL and
+    # rewrites only what that change requires, inside the caller's
+    # IMMEDIATE transaction.
+    apply_prerelease_migrations(db)
+
+
 def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     """Validate without writes; return False only for an empty database.
 
@@ -50,6 +211,11 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     the exact catalog contract; no independent fingerprint inventory can drift.
     """
     actual = _definitions(db)
+    # SQLite writes an ALTER-added nullable column at the end of the stored
+    # CREATE TABLE text. That exact known variant has the same constraints.
+    grant_key = ("table", "event_content_access_grants")
+    if actual.get(grant_key) == _known_grant_table_forms()[1]:
+        actual[grant_key] = _expected_definitions()[grant_key]
     if not actual:
         return False
     if ("table", "_medre_schema_meta") not in actual:

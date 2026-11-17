@@ -757,8 +757,9 @@ Free-form diagnostic text — `error`, `capability_reason`, and
 the receipts table carries no inline diagnostic columns. Every typed read API
 resolves diagnostic text from the side table. An existing schema-version-1
 database whose evidence tables still carry the retired inline diagnostic
-columns predates the released catalog and is refused under §10; the
-diagnostic separation ships inside the released catalog itself.
+columns is an allowlisted predecessor: initialization copies the
+historical inline text into the side table and rebuilds the tables without
+the columns.
 
 `rendering_evidence` stores the serialized rendering evidence JSON string for the
 delivery. `NULL` when no evidence is available (suppressed, failed, or skipped
@@ -1382,9 +1383,9 @@ Retention policy is quota-shaped and operator-owned:
   no eviction, GC, or TTL. Raising (or lowering) capacity is an operator action.
 
 Both attachment tables are required by the current catalog. A stamped
-database missing either table is refused before schema DDL under §10.2.
-No rows are backfilled; existing `message.file` events retain their
-admitted descriptors.
+database missing either table is refused before schema DDL, because neither
+is an allowlisted missing-table migration (§10.2). No rows are backfilled;
+existing `message.file` events retain their admitted descriptors.
 
 ### 4.13 event_attachment_associations
 
@@ -1455,8 +1456,9 @@ producer-side staging refusal (`overflow`), and staged work dropped before
 an admission attempt (`cancelled_before_admission`). `scheduled` does not
 imply that the callback subsequently failed admission; it can describe
 healthy traffic. The gate outcomes remain a strict subset of the vocabulary.
-Databases at the exact three-value predecessor layout predate the released
-catalog and are refused under §10. Rows are upserted from the runtime gate's batched
+Databases at the exact three-value predecessor layout upgrade through the
+allowlisted additive migration (guarded table rebuild, rows
+preserved, idempotent). Rows are upserted from the runtime gate's batched
 pressure counters and the producer sink's coalesced reports (one
 count-carrying upsert per key per flush). Writes are append-only upserts
 per §5 — no row is ever deleted — and growth is rate-bounded: at most one
@@ -1514,9 +1516,15 @@ only — never adapter identity, windows, payloads, sender identity, or
 transport-native content — and never become canonical events, receipts,
 or outbox state. Writes are idempotent inserts (append-only per §5), and
 conflicting facts under the same retry token MUST fail closed; rows are
-never updated or deleted. The `gap_token` is operational identity, never a
-recovery or send permit. A database without this table, or at any layout
-predating the released catalog, is refused without modification under §10.
+never updated or deleted. A database at the exact predecessor layout
+without this table upgrades through the allowlisted additive
+installation (the table is created from the declared DDL slice inside
+the startup transaction). A second exact predecessor has the table but
+lacks `gap_token`: its existing rows and `gap_id` values MUST be preserved
+through the allowlisted, transactional table rebuild. Each legacy row
+receives a deterministic content-free 32-hex token derived from its
+`gap_id`. This identity is never a recovery or send permit. Every other
+layout difference still refuses to start.
 
 ### 4.16 Index Policy
 
@@ -1610,7 +1618,7 @@ back the checkpoint transaction. No returned checkpoint guarantees remote RF
 receipt. Even acceptance of every part MUST NOT finalize the parent delivery;
 that remains the delivery lifecycle's responsibility.
 
-This is a required table in the released catalog. A previously
+This is a required table, not an additive-DDL exception. A previously
 stamped database missing it MUST be rejected before schema DDL, without mutation,
 under §10.2. The schema marker remains `1`. Operators MUST retain their original
 database and follow the recovery decision in §10.5 if writable initialization
@@ -1628,7 +1636,7 @@ Rows in `canonical_events` **MUST NOT** be updated or deleted. The `append` meth
 
 Every delivery attempt produces a new row in `delivery_receipts`. Existing rows **MUST NOT** be updated or deleted. Capacity rejection creates a new receipt with `failure_kind = 'capacity_rejection'` and `parent_receipt_id` set to the original receipt, rather than mutating the existing row. The separated diagnostic rows in `delivery_evidence_diagnostics` (Section 4.10.1) are append-only under the same guarantee.
 
-The current status of a delivery is a projection from the `delivery_status` view. Outbox-backed delivery follows the outbox row's committed `receipt_id`; outbox-less delivery follows durable append order. No code path **SHALL** write to the view directly. The view projects the structured evidence columns of `delivery_receipts`; it carries no diagnostic column and does not resolve the write-time separated diagnostic text. Typed read APIs resolve diagnostics from the side table; the view intentionally remains a pure structured-facts projection so its definition stays stable.
+The current status of a delivery is a projection from the `delivery_status` view. Outbox-backed delivery follows the outbox row's committed `receipt_id`; outbox-less delivery follows durable append order. No code path **SHALL** write to the view directly. The view projects the structured evidence columns of `delivery_receipts`; it carries no diagnostic column and does not resolve the write-time separated diagnostic text. Typed read APIs resolve diagnostics from the side table; the view intentionally remains a pure structured-facts projection so its definition stays additive-stable.
 
 ### 5.3 Native Message References
 
@@ -1965,23 +1973,45 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 The tagged 0.1.0 SQL snapshot identifies the released catalog baseline.
 The schema version remains `1`; that stamp alone does not establish catalog
-compatibility. Writable initialization accepts the exact released catalog.
-Every other layout MUST be refused without modifying the database, unless a
-release explicitly declares it as a forward-only supported predecessor.
-Changes to a published persisted-state contract require the compatibility
-and versioning review described in the
-[versioning policy](../dev/versioning-policy.md).
+compatibility. Writable initialization accepts the exact current catalog and
+only the structurally exact additive predecessors declared below. Unsupported
+development layouts MUST be refused without modifying the database. Changes
+to a published persisted-state contract require the compatibility and versioning
+review described in the [versioning policy](../dev/versioning-policy.md).
 
-A declared predecessor MAY be migrated within one `BEGIN IMMEDIATE`
-transaction: guarded rebuilds recreate the declared table, copy or transform
-the explicitly recognized rows, and check their invariants inside the open
-transaction. `initialize()` MUST validate the old catalog against the exact
-allowlist before DDL and validate the complete resulting catalog before
-commit. No predecessor ships today; the catalogs of released builds are the
-released catalog. There is no promise to migrate abandoned, unpublished
-development layouts, and no release is obligated to carry a migration for
-every shape change. All other unsupported layouts MUST be rejected without
-modification.
+Only explicitly allowlisted, structurally exact predecessors MAY be migrated
+within one `BEGIN IMMEDIATE` transaction. The executable allowlist is
+[`schema_validation.py`](../../src/medre/core/storage/sqlite/schema_validation.py)
+and the named rebuild steps in
+[`_prerelease_migrate.py`](../../src/medre/core/storage/sqlite/_prerelease_migrate.py)
+(the legacy module name is retained). The recognized changes are:
+
+- Recognized missing tables: `event_content_collection_log`, `content_retention_epochs`,
+  `delivery_evidence_diagnostics`, `event_routing_facts`,
+  `delivery_outbox_snapshots`, and `inbound_pressure_outage_gaps`.
+- Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
+  `idx_diagnostics_identity`, `idx_events_admission_order`, and
+  `idx_outbox_snapshot_owner_unique`.
+- The exact predecessor of `event_content_access_grants` without nullable
+  `expired_at`.
+- The exact predecessor definitions for `operator_delivery_decisions`,
+  `inbound_pressure_observations`, and `inbound_pressure_outage_gaps` (the
+  guarded action/outcome widenings and retry-token addition).
+- The exact predecessor definitions with inline diagnostics in
+  `delivery_receipts`, `delivery_observations`, `delivery_outbox`, and
+  `durable_ingress_work`, including the associated `delivery_status` view.
+  The guarded rebuilds separate diagnostics from delivery authority.
+
+These are named exceptions, not permission to change arbitrary tables,
+columns or constraints. Guarded rebuilds recreate the declared table, copy
+or transform the explicitly recognized rows, and check their invariants
+inside the open transaction. For the decision action widening this includes
+preserved row counts and a clean
+`PRAGMA foreign_key_check(operator_delivery_decisions)` for that rebuilt table;
+unrelated pre-existing foreign-key violations are not attributed to it.
+`initialize()` MUST validate the old catalog against the exact allowlist
+before DDL and validate the complete resulting catalog before commit.
+All other unsupported layouts MUST be rejected without modification.
 
 ### 10.1 Schema Version Check
 
@@ -1995,7 +2025,7 @@ For an already-stamped MEDRE database, `initialize()` **MUST** inspect
 `PRAGMA table_info` for every required table **before schema DDL executes**.
 This prevents `CREATE TABLE IF NOT EXISTS` from silently filling in newly
 introduced required tables. Missing fields and tables not covered by an
-explicitly verified forward-only predecessor MUST raise
+explicitly verified additive predecessor MUST raise
 `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`). The error message **MUST** identify the affected table, the
 missing columns, unexpected columns or metadata details as separate clauses,
 and the database file path. It MUST NOT suggest support for an arbitrary
@@ -2332,9 +2362,9 @@ normalized target_channel, outbox_id, attempt_number)` identity and
     `_medre_schema_meta` stores `schema_version = 1`. The released SQL snapshot
     identifies the tagged catalog; the version stamp alone does not prove
     compatibility. Column and structural validation (Sections 10.2–10.3) MUST
-    reject layouts outside the exact released catalog and declared forward-only
-    predecessors. Published storage changes require compatibility review; a
-    predecessor declaration does not authorize arbitrary schema transformations.
+    reject layouts outside the exact current catalog and declared additive
+    predecessors. Published storage changes require compatibility review; the
+    existing allowlist does not authorize arbitrary schema transformations.
 
 12. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core

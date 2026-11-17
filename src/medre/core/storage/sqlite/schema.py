@@ -1229,11 +1229,19 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
-# Derive single-object DDL slices verbatim from the authoritative schema so
-# helpers that need one table or index never hand-write a diverging copy.
+# Derive the approved additive table verbatim from the authoritative schema.
+# This prevents fresh and additive-upgraded databases from diverging.
 _COLLECTION_LOG_DDL = _SCHEMA[
     _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
         "-- Durable content-retention activation epochs."
+    )
+]
+
+# The approved additive activation-epoch table derives from the same
+# authoritative schema, ending at the collection log's successor object.
+_RETENTION_EPOCHS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Durable content-retention activation epochs.") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS event_relations ("
     )
 ]
 
@@ -1243,7 +1251,79 @@ _DIAGNOSTICS_DDL = _SCHEMA[
     )
 ]
 
-# Exact single-statement DDL for the outage accounting-gap table.
+# Derive the approved additive snapshot-table DDL verbatim from the
+# authoritative schema, exactly like the diagnostics side table above.
+_SNAPSHOTS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Frozen outbox dispatch work snapshot") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS durable_ingress_work ("
+    )
+]
+
+_DIAGNOSTICS_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- Diagnostic coalescing reads") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_ingress_work_claim"
+    )
+]
+
+# The approved additive uniqueness guard comes from the same index catalog.
+_SNAPSHOT_OWNER_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- A frozen work snapshot has one owner:") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_event_created"
+    )
+]
+
+_ROUTING_FACTS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Typed admission routing facts") : _SCHEMA.index(
+        "-- One current, immutable admission fact per canonical body."
+    )
+]
+
+# The approved additive admission-ordering index derives verbatim from the
+# same index catalog, exactly like the diagnostics index above.
+_ADMISSION_ORDER_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- Retention candidate discovery") : _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_relations_event_id"
+    )
+]
+
+# Exact additive index for bounded deadline-cleanup candidate discovery.
+_DEADLINE_CLEANUP_INDEX_DDL = _INDEXES[
+    _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_outbox_deadline_cleanup_order"
+    ) : _INDEXES.index("-- One-per-adapter claims probe active owners")
+]
+
+# Exact single-statement DDL for the operator decision table and its
+# dependent index.  The allowlisted additive CHECK-widening rebuild recreates
+# the table from this slice so the stored definition matches the declared
+# catalog byte for byte.
+_OPERATOR_DECISIONS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS operator_delivery_decisions"
+    ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS _medre_schema_meta")
+]
+_OPERATOR_DECISIONS_INDEX_DDL = _INDEXES[
+    _INDEXES.index(
+        "CREATE INDEX IF NOT EXISTS idx_operator_decisions_event"
+    ) : _INDEXES.index("CREATE INDEX IF NOT EXISTS idx_outbox_due")
+]
+
+# Exact single-statement DDL for the pre-admission pressure table.  The
+# allowlisted additive outcome-vocabulary widening rebuild recreates the
+# table from this slice so the stored definition matches the declared
+# catalog byte for byte.  No index and no foreign key references the
+# table, so the rebuild carries no dependent catalog objects.
+_PRESSURE_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS inbound_pressure_observations"
+    ) : _SCHEMA.index("-- Accounting-gap records for admission-gate refusal")
+]
+
+# Exact single-statement DDL for the outage accounting-gap table.  The
+# approved additive installation creates the table when it is missing;
+# a separate allowlisted rebuild adds its immutable retry token
+# to the exact preceding table shape without losing existing rows.  No
+# index and no foreign key references the table.
 _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
     _SCHEMA.index(
         "-- Accounting-gap records for admission-gate refusal"
