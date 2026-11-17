@@ -39,10 +39,10 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 _DOCS_DIR = _ROOT / "docs"
 
 #: Forbidden internal terms shared across test suites.
-#: Both test_docs_no_internal_planning_language and
-#: test_release_readiness_convergence scan for these patterns. Each pattern
-#: is built from concatenated fragments so no blocked phrase appears as a
-#: literal substring of this source file.
+#: The durable-language enforcer (``tests/test_docs_no_internal_planning_language.py``)
+#: scans these patterns across ``docs/``, ``src/``, ``tests/``, and
+#: ``examples/``. Each pattern is built from concatenated fragments so no
+#: blocked phrase appears as a literal substring of this source file.
 FORBIDDEN_TERMS: list[re.Pattern[str]] = [
     re.compile(r"\balpha " + r"stage\b", re.IGNORECASE),
     re.compile(r"\bbeta " + r"period\b", re.IGNORECASE),
@@ -64,11 +64,10 @@ FORBIDDEN_TERMS: list[re.Pattern[str]] = [
 ]
 
 #: Internal vocabulary banned from durable artifacts. Kept separate from
-#: FORBIDDEN_TERMS because release-readiness convergence tests scan only the
-#: shared FORBIDDEN_TERMS list against docs, while the durable-language
-#: enforcer applies the union of both lists everywhere. Each pattern is
-#: built from concatenated fragments so no blocked word appears as a literal
-#: substring of this source file.
+#: FORBIDDEN_TERMS so each family can be imported and scanned on its own;
+#: the durable-language enforcer applies the union of both lists everywhere.
+#: Each pattern is built from concatenated fragments so no blocked word
+#: appears as a literal substring of this source file.
 PLANNING_CYCLE_TERMS: list[re.Pattern[str]] = [
     # Bare-substring patterns (no \b): match the two internal labels that
     # have no legitimate use in this mesh-relay codebase and would only
@@ -188,9 +187,9 @@ def find_stale_terms(
 ) -> list[tuple[Path, int, str]]:
     """Scan .md files under the given doc subdirectories for forbidden terms.
 
-    Backward-compatible narrow scanner: walks ``docs/<subdir>`` for ``*.md``
-    files only. Used by release-readiness convergence tests that scope their
-    check to spec/ and ops/ docs.
+    Narrow scanner: walks ``docs/<subdir>`` for ``*.md`` files only. Used by
+    the durable-language enforcer for the per-subdirectory core-docs scans
+    (spec/, ops/, dev/).
 
     Args:
         scan_paths: Subdirectory names under ``docs/`` to scan

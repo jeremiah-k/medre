@@ -4,16 +4,18 @@ Verifies that evidence-levels.md, README, authority maps, schemas, CLI docs,
 and test filenames are convergent — no drift between status vocabularies, no
 stale process language in durable docs, and no leftover alpha/beta test
 filenames.
+
+Durable-language vocabulary (planning-cycle terms, stale process language,
+stale alpha/beta branding) is enforced once, globally, by
+``tests/test_docs_no_internal_planning_language.py`` over ``docs/``, ``src/``,
+``tests/``, and ``examples/``; this file does not duplicate those scans.
 """
 
 from __future__ import annotations
 
-from functools import cache
 from pathlib import Path
 
 import pytest
-
-from tests.helpers.forbidden_terms import FORBIDDEN_TERMS, find_stale_terms
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -125,74 +127,6 @@ def test_ops_docs_show_config_and_storage_path_distinction() -> None:
     assert (
         "read-only" in text_lower or "readonly" in text_lower
     ), "configuration.md must describe --storage-path as read-only"
-
-
-# ===========================================================================
-# 7. No stale process language in spec/ops
-# ===========================================================================
-
-
-@cache
-def _stale_terms_in_docs(subdir: str) -> tuple[tuple[Path, int, str], ...]:
-    """Cache immutable spec/ops scans shared by the paired guards below."""
-    return tuple(find_stale_terms([subdir], FORBIDDEN_TERMS))
-
-
-def test_no_stale_process_language_in_spec() -> None:
-    """spec/ docs must not contain stale internal process language."""
-    raw = _stale_terms_in_docs("spec")
-    violations = [
-        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
-        for md_file, lineno, content in raw
-    ]
-    assert not violations, "Found stale process language in spec/:\n" + "\n".join(
-        violations
-    )
-
-
-def test_no_stale_process_language_in_ops() -> None:
-    """ops/ docs must not contain stale internal process language."""
-    raw = _stale_terms_in_docs("ops")
-    violations = [
-        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
-        for md_file, lineno, content in raw
-    ]
-    assert not violations, "Found stale process language in ops/:\n" + "\n".join(
-        violations
-    )
-
-
-# ===========================================================================
-# 8. Durable docs free of stale alpha/beta branding
-# ===========================================================================
-
-
-def test_no_stale_alpha_beta_branding_in_spec() -> None:
-    """spec/ docs must not contain stale alpha/beta branding terms from the
-    FORBIDDEN_TERMS list defined in tests/helpers/forbidden_terms.py.
-
-    Note: planning-cycle vocabulary (PLANNING_CYCLE_TERMS) is enforced
-    separately by the durable-language guard, not by this convergence test."""
-    raw = _stale_terms_in_docs("spec")
-    violations = [
-        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
-        for md_file, lineno, content in raw
-    ]
-    assert not violations, "Found stale alpha/beta branding in spec/:\n" + "\n".join(
-        violations
-    )
-
-
-def test_no_stale_alpha_beta_branding_in_ops() -> None:
-    """ops/ docs must not contain stale alpha/beta branding terms."""
-    raw = _stale_terms_in_docs("ops")
-    violations = [
-        f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
-        for md_file, lineno, content in raw
-    ]
-    assert not violations, "Found stale alpha/beta branding in ops/:\n" + "\n".join(
-        violations
-    )
 
 
 # ===========================================================================
