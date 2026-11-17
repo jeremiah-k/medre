@@ -390,8 +390,9 @@ async def test_non_additive_narrowing_still_fails_closed(tmp_path: Path) -> None
     finally:
         await storage.close()
     message = str(exc_info.value)
-    assert "recreate" in message
+    assert "explicit recovery or reset decision" in message
     assert "additive" in message
+    assert "pre-release" not in message.lower()
     assert "does not automatically transform" not in message
     assert db_path.read_bytes() == original_bytes
 
