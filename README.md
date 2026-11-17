@@ -7,40 +7,25 @@ networks you need.
 
 ## Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then
-install MEDRE with the adapters you want. This example installs Matrix and
-Meshtastic from PyPI together in one isolated environment:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```bash
-uv tool install --python 3.12 \
-  --with medre-adapter-matrix \
-  --with medre-adapter-meshtastic medre
-medre adapters
+uv tool install medre
 ```
 
-Python 3.12 or newer is required for Matrix; uv can install the interpreter for
-you. For other networks, replace or add adapter packages from the table below.
-See [installation](docs/ops/install.md) for Windows, reproducible deployments,
-and other installation methods.
-
-**1. Try a simulated bridge.**
+Add the adapters for the networks you want to connect. For example:
 
 ```bash
-medre config sample > sample.yaml
-medre config check --config sample.yaml
-medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
+medre adapters install matrix meshtastic
 ```
 
-The sample drives a one-way diagnostic route with simulated adapters; it checks
-your installation and local routing without connecting accounts or radios, and
-is not itself a bidirectional bridge.
+Matrix requires Python 3.12+. See [installation options](docs/ops/install.md)
+for interpreter and platform setup.
 
-**2. Connect your networks.**
+## Run a bridge
 
-Follow [Getting Started](docs/ops/getting-started.md#3-connect-your-accounts-or-devices)
-to set up your accounts or devices, choose which conversations to connect, and
-save a `bridge.yaml` config.
-Then validate and run it:
+Use [Getting Started](docs/ops/getting-started.md#3-connect-your-accounts-or-devices)
+to connect your accounts or devices and create `bridge.yaml`. Then run:
 
 ```bash
 medre config check --config bridge.yaml
@@ -49,6 +34,17 @@ medre run --config bridge.yaml
 
 Leave MEDRE running to keep the bridge connected; press **Ctrl+C** to stop it.
 For container deployments, see [Docker](docs/ops/docker.md).
+
+### Optional: try an offline demo
+
+```bash
+medre config sample > sample.yaml
+medre config check --config sample.yaml
+medre smoke --config sample.yaml --storage-path smoke.sqlite3
+```
+
+The sample sends a test message through a one-way route using simulated adapters.
+It runs locally without accounts or radios.
 
 ## Adapters
 
