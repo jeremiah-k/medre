@@ -24,6 +24,10 @@ from medre.core.storage.sqlite._prerelease_migrate import (
     apply_prerelease_migrations,
     known_decision_table_forms,
 )
+from medre.core.storage.sqlite.catalog_assessment import (
+    CatalogCompatibility,
+    assess_storage_catalog,
+)
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.schema_validation import safe_additive_state
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -676,3 +680,37 @@ def test_pressure_rebuild_noop_on_current_shape() -> None:
         assert stored[0] == _prerelease_migrate.known_pressure_table_forms().current
     finally:
         probe.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests: read-only assessment classifies the predecessors without migrating
+# ---------------------------------------------------------------------------
+
+
+def _assert_assessed_supported_upgrade(db_path: Path, expected_detail: str) -> None:
+    """One predecessor classifies for upgrade and stays byte-identical."""
+    before = db_path.read_bytes()
+    assessment = assess_storage_catalog(str(db_path))
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
+    assert assessment.stored_version == "1"
+    assert assessment.detail is not None
+    assert expected_detail in assessment.detail
+    # Classifying never migrated the inspected source.
+    assert db_path.read_bytes() == before
+
+
+def test_assessment_classifies_decision_predecessor_without_migrating(
+    tmp_path: Path,
+) -> None:
+    """The add93ab8af-era shape reports a recognized upgrade, unchanged."""
+    db_path = _create_old_shape_db(tmp_path / "assess-decision.sqlite")
+    _populate_delivery_history(db_path, decisions=1)
+    _assert_assessed_supported_upgrade(db_path, "operator_delivery_decisions")
+
+
+def test_assessment_classifies_pressure_predecessor_without_migrating(
+    tmp_path: Path,
+) -> None:
+    """The pressure-vocabulary predecessor reports a recognized upgrade."""
+    db_path = _create_pressure_legacy_shape_db(tmp_path / "assess-pressure.sqlite")
+    _assert_assessed_supported_upgrade(db_path, "inbound_pressure_observations")

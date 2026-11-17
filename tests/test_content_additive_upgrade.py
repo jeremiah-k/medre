@@ -6,6 +6,10 @@ from contextlib import closing
 import pytest
 
 from medre.core.storage.backend import StorageInitializationError
+from medre.core.storage.sqlite.catalog_assessment import (
+    CatalogCompatibility,
+    assess_storage_catalog,
+)
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
     _INDEXES,
@@ -300,3 +304,51 @@ async def test_additive_upgrade_rejects_unrelated_shape_drift_without_writes(tmp
             ).fetchone()
             is None
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: read-only assessment of the additive predecessors
+# ---------------------------------------------------------------------------
+
+
+def _catalog_of(path: str) -> dict[tuple[str, str], str]:
+    with closing(sqlite3.connect(path)) as db:
+        return {
+            (str(row[0]), str(row[1])): str(row[2])
+            for row in db.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+            )
+        }
+
+
+def test_assessment_classifies_grant_table_predecessor(tmp_path) -> None:
+    """The old grant-table form is a recognized upgrade, not a mismatch."""
+    path = str(tmp_path / "grant-predecessor.db")
+    _old_database(path, missing_expired_at=True)
+    before = _catalog_of(path)
+
+    assessment = assess_storage_catalog(path)
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
+    assert assessment.stored_version == "1"
+    assert assessment.detail is not None
+    assert "event_content_access_grants" in assessment.detail
+    # Classifying never migrated the inspected source.
+    assert _catalog_of(path) == before
+
+
+def test_assessment_classifies_missing_additive_objects(tmp_path) -> None:
+    """Missing allowlisted objects name themselves in the upgrade detail."""
+    path = str(tmp_path / "additive-predecessor.db")
+    _old_database(path, missing_diagnostics=True)
+    before = _catalog_of(path)
+
+    assessment = assess_storage_catalog(path)
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
+    assert assessment.detail is not None
+    assert "missing objects:" in assessment.detail
+    assert "event_content_collection_log" in assessment.detail
+    assert "content_retention_epochs" in assessment.detail
+    assert "event_routing_facts" in assessment.detail
+    assert "delivery_outbox_snapshots" in assessment.detail
+    assert _catalog_of(path) == before
