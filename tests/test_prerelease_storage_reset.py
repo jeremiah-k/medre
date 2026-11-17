@@ -11,6 +11,9 @@ Covers:
 - Error message names the affected table and missing columns.
 - ``_EXPECTED_SCHEMA_VERSION`` remains at 1 during prerelease.
 - ``open_readonly`` raises the same structured error for old-shape DBs.
+- Unsupported catalogs (a narrowed declared CHECK) are refused without
+  modifying the database.
+- Reopening a current-catalog database leaves the catalog unchanged.
 """
 
 from __future__ import annotations
@@ -27,7 +30,11 @@ from medre.core.storage.backend import (
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
-from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _SCHEMA
+from medre.core.storage.sqlite.schema import (
+    _EXPECTED_SCHEMA_VERSION,
+    _INDEXES,
+    _SCHEMA,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
@@ -569,3 +576,109 @@ def test_constraint_mismatch_diagnostic_preserves_recovery_choice() -> None:
     assert "CHECK(attempt_number >= 1)" in message
     assert "explicit recovery or reset decision" in message
     assert "pre-release" not in message.lower()
+
+
+# ---------------------------------------------------------------------------
+# Helpers: catalog snapshots
+# ---------------------------------------------------------------------------
+
+
+def _catalog(db_path: Path) -> dict[tuple[str, str], str]:
+    """Return the persisted catalog as ``(kind, name) -> stored sql``."""
+    raw = sqlite3.connect(db_path)
+    try:
+        return {
+            (str(row[0]), str(row[1])): str(row[2])
+            for row in raw.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+            )
+        }
+    finally:
+        raw.close()
+
+
+def _table_counts(db_path: Path) -> dict[str, int]:
+    """Return one row count per catalog table."""
+    raw = sqlite3.connect(db_path)
+    try:
+        names = [
+            str(row[0])
+            for row in raw.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name NOT GLOB 'sqlite_*'"
+            )
+        ]
+        return {
+            name: int(
+                raw.execute(
+                    f"SELECT COUNT(*) FROM {name}"  # nosec B608 # Fixture tables.
+                ).fetchone()[0]
+            )
+            for name in names
+        }
+    finally:
+        raw.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests: unsupported catalogs are refused without modification
+# ---------------------------------------------------------------------------
+
+
+async def test_narrowed_check_catalog_is_refused_without_modification(
+    tmp_path: Path,
+) -> None:
+    """A stamped catalog that narrows a declared CHECK is refused, unchanged.
+
+    The narrowed database is not the released catalog and matches no
+    allowlisted forward predecessor, so writable initialization raises the
+    constraint mismatch, states the recovery or reset decision the operator
+    owns, and leaves the database bytes untouched.
+    """
+    current_status_check = "    CHECK (observed_status IN ('pending', 'retry_wait')),\n"
+    narrowed_status_check = "    CHECK (observed_status IN ('pending')),\n"
+    assert current_status_check in _SCHEMA
+    ddl = _SCHEMA.replace(current_status_check, narrowed_status_check)
+    db_path = tmp_path / "narrowed.sqlite"
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl + _INDEXES)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta VALUES ('schema_version', ?)",
+            (str(_EXPECTED_SCHEMA_VERSION),),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    original_bytes = db_path.read_bytes()
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        with pytest.raises(PreReleaseSchemaConstraintMismatchError) as exc_info:
+            await storage.initialize()
+    finally:
+        await storage.close()
+    message = str(exc_info.value)
+    assert "explicit recovery or reset decision" in message
+    assert "additive" in message
+    assert "pre-release" not in message.lower()
+    assert db_path.read_bytes() == original_bytes
+
+
+async def test_current_catalog_reopen_is_a_no_op(tmp_path: Path) -> None:
+    """Reopening a database at the released catalog changes nothing."""
+    db_path = tmp_path / "current.sqlite"
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+    finally:
+        await storage.close()
+    catalog = _catalog(db_path)
+    counts = _table_counts(db_path)
+    reopened = SQLiteStorage(db_path=str(db_path))
+    try:
+        await reopened.initialize()
+    finally:
+        await reopened.close()
+    assert _catalog(db_path) == catalog
+    assert _table_counts(db_path) == counts

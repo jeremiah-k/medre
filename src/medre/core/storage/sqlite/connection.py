@@ -37,9 +37,7 @@ from medre.core.storage.sqlite.ingress_sql import (
 )
 from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.schema_validation import (
-    apply_safe_additions,
     execute_ddl,
-    safe_additive_state,
     validate_schema_definition,
 )
 
@@ -138,10 +136,7 @@ def sync_open(db_path: str) -> sqlite3.Connection:
         # leave no partial schema behind.
         db.execute("PRAGMA busy_timeout=5000")
         db.execute("BEGIN IMMEDIATE")
-        if safe_additive_state(db):
-            apply_safe_additions(db)
-            validate_schema_definition(db, db_path)
-        elif not validate_schema_definition(db, db_path):
+        if not validate_schema_definition(db, db_path):
             execute_ddl(db, _SCHEMA)
             execute_ddl(db, _INDEXES)
             db.execute(
@@ -267,7 +262,7 @@ def sync_find_schema_shape_mismatch(
 ) -> PreReleaseSchemaMismatchError | None:
     """Reject unsupported catalogs before any DDL.
 
-    A version-1 stamp authorizes only verified, allowlisted additive DDL.
+    A version-1 stamp authorizes only the exact released catalog.
     Unstamped, nonempty databases cannot be silently adopted as fresh state.
     All structural comparisons use a read-only handle, so mismatch does not
     create schema artifacts or rewrite an operator's database.
@@ -313,8 +308,6 @@ def sync_find_schema_shape_mismatch(
         # Don't relabel an explicit version mismatch as an old-shape error.
         # validate_schema_definition provides its dedicated diagnostic.
         if str(version[0]) != str(_EXPECTED_SCHEMA_VERSION):
-            return None
-        if safe_additive_state(db):
             return None
         for table, required in required_columns.items():
             rows = db.execute(f"PRAGMA table_info({table})").fetchall()
