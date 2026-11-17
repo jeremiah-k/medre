@@ -1,7 +1,9 @@
 # Manage MEDRE and adapter packages
 
 The published 0.1.1 core includes the `sources` commands and package-index
-defaults, so the examples below need only uv. Core 0.1.0 predates them:
+defaults. Fresh index-only installations need uv; Git is also required for
+Git-backed requests, including those retained when upgrading older installations
+and the Git examples below. Core 0.1.0 predates these commands:
 follow [Getting Started](getting-started.md) and use native uv commands for
 source changes.
 
@@ -9,7 +11,7 @@ Install one persistent command, then select the adapters you need. Matrix
 requires Python 3.12 or later:
 
 ```bash
-uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install --python 3.12 medre
 medre init
 medre adapters sources
 medre adapters install matrix meshtastic

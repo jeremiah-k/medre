@@ -53,13 +53,12 @@ async def collect_evidence_bundle(
 
     **Persistence boundary:** This function reads from storage
     (``canonical_events``, ``delivery_receipts``, ``native_message_refs``,
-    ``delivery_outbox`` rows) via read-only queries.  It never
-    writes to storage or mutates lifecycle state.  All derived sections
+    ``delivery_outbox`` rows) via read-only queries. All derived sections
     (delivery outcome ledger, retry summary, convergence, orphan report,
     recovery) are computed on demand from loaded rows.  The diagnostics
-    snapshot builds and immediately stops a runtime — any state changes
-    during that ephemeral lifecycle are not persisted to the operator's
-    database.
+    snapshot constructs and cleans up an unstarted runtime. Opt-in live
+    health starts and stops a runtime and may have normal lifecycle effects;
+    evidence queries and derived reports do not authorize storage mutations.
 
     Parameters
     ----------
@@ -73,9 +72,9 @@ async def collect_evidence_bundle(
         storage (read-only).
     include_refresh_health:
         When ``True``, start the runtime once, refresh adapter health,
-        capture a live snapshot, and stop the runtime cleanly.  The report
-        will have ``runtime_started: true``.  Incompatible with
-        *storage_path*.
+        capture a live snapshot, and stop the runtime cleanly. The result
+        records whether a runtime was started. Storage-path mode bypasses
+        runtime construction and live health.
     storage_path:
         When provided, open the SQLite database at this path directly in
         read-only mode.  Config-related sections (config_summary,
@@ -163,7 +162,8 @@ async def collect_evidence_bundle(
             errors.append(sections["live_health"]["error"])
     else:
         sections["live_health"] = _section_skipped(
-            "Use --include-refresh-health to populate this section"
+            "Use include_refresh_health=True with config-backed collection "
+            "to populate this section"
         )
 
     # -- Storage section ----------------------------------------------------

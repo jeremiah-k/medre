@@ -1,6 +1,6 @@
-"""Tests for pre-release storage reset UX: schema mismatch error diagnostics.
+"""Tests for incompatible storage diagnostics: schema mismatch error diagnostics.
 
-Verifies that old-shape pre-release databases produce actionable errors that
+Verifies that unsupported historical databases produce actionable errors that
 include the database path, the affected table, and the missing columns —
 giving operators clear guidance to preserve state and choose recovery or reset.
 
@@ -9,7 +9,7 @@ Covers:
 - ``PreReleaseSchemaMismatchError`` attributes (path, table, missing_columns).
 - Error message includes the database file path.
 - Error message names the affected table and missing columns.
-- ``_EXPECTED_SCHEMA_VERSION`` remains at 1 during prerelease.
+- ``_EXPECTED_SCHEMA_VERSION`` identifies the current released catalog.
 - ``open_readonly`` raises the same structured error for old-shape DBs.
 """
 
@@ -119,17 +119,12 @@ async def test_schema_mismatch_names_table_and_columns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: expected schema version stays at 1 during prerelease
+# Tests: current released schema version
 # ---------------------------------------------------------------------------
 
 
 def test_expected_schema_version_remains_1() -> None:
-    """_EXPECTED_SCHEMA_VERSION is 1 for the entire prerelease period.
-
-    Schema version stays at 1 until storage compatibility becomes
-    release-tracked.  DDL shape changes during prerelease do not require
-    a version bump; shape validation catches old builds instead.
-    """
+    """The current catalog retains the released version-1 stamp."""
     assert _EXPECTED_SCHEMA_VERSION == 1
 
 

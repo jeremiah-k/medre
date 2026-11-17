@@ -216,15 +216,15 @@ Pinned provider: `medre-adapter-simplexchat`; SDK package
 `simplex-chat` (its native library is prefetched by the adapter contract
 job in CI).
 
-| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                                                | Automation                                                                                                               |
-| ---------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                                                     | SDK contract tier runs in CI; a two-profile local tier on one host is not built yet and would be the next reachable step |
-| SimpleX replies (G05, and register G08)  | `live`                     | Provider-owned `tests/test_native_peer_evidence_gate.py` at the pinned provider commit; the native-quote candidate path stays capability `fallback` pending an independently observed quote in a destination client. | Operator-run (independent peer profile)                                                                                  |
+| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                           | Automation                                                                                                               |
+| ---------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                                | SDK contract tier runs in CI; a two-profile local tier on one host is not built yet and would be the next reachable step |
+| SimpleX replies (G05, and register G08)  | `live`                     | Provider PR #40 retains SDK 7.1.3 independent recipient quote captures, restart/uncertain-handoff traces and an ordinary routed probe at recorded source pairs; replies now advertise `native`. | Operator-run (independent peer profile)                                                                                  |
 
-Whether two SimpleX profiles on one host can produce an independently
-observed quote cannot be verified from the pinned provider repositories
-alone; the provider's own qualification gate is written against an
-independent peer, so no local-tier reply qualification is claimed.
+The provider campaign used separate native profiles and processes on one host.
+Its retained observations establish the recorded reply cases, not qualification
+of every current core/provider pair or every deployment. Consult the provider
+qualification records and re-run changed-pair campaigns as needed.
 
 ## Landed legs and outstanding legs
 

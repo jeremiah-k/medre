@@ -278,20 +278,20 @@ The `medre evidence` command produces a structured bundle with per-section statu
 | `collected_at`    | `str`       | ISO-8601 UTC timestamp                                     |
 | `medre_version`   | `str`       | Installed package version                                  |
 | `config_source`   | `str`       | How the config file was found (`"cli_arg"`, `"xdg"`, etc.) |
-| `runtime_started` | `bool`      | Always `false` via CLI (evidence is read-only)             |
+| `runtime_started` | `bool`      | Always `false` via the storage-only CLI                    |
 | `sections`        | `dict`      | Grouped evidence, each with its own status                 |
 | `errors`          | `list[str]` | Flat list of error strings across all sections             |
 | `limitations`     | `list[str]` | What the evidence does not prove                           |
 
 **Sections:**
 
-| Section                | Populated when                                  | Key data fields                                                                     |
-| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `config_summary`       | Always (if config loads)                        | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path`                   |
-| `route_validation`     | Always (if config loads)                        | `route_count`, `valid`, `route_errors`                                              |
-| `diagnostics_snapshot` | Always (if config loads)                        | Full `build_runtime_snapshot` output                                                |
-| `live_health`          | Only with `--include-refresh-health`            | Full runtime snapshot with `health.live_health` populated                           |
-| `storage`              | When config uses `sqlite` backend and DB exists | `db_exists`, `event_count`, `receipt_count`, `event`, `trace_event`, `trace_replay` |
+| Section                | Populated when                                       | Key data fields                                                                     |
+| ---------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `config_summary`       | Config-backed Python collection only                 | `adapters`, `routes`, `limits`, `storage_backend`, `storage_path`                   |
+| `route_validation`     | Config-backed Python collection only                 | `route_count`, `valid`, `route_errors`                                              |
+| `diagnostics_snapshot` | Config-backed Python collection only                 | Full `build_runtime_snapshot` output                                                |
+| `live_health`          | Python collection with `include_refresh_health=True` | Full runtime snapshot with `health.live_health` populated                           |
+| `storage`              | Existing SQLite database                             | `db_exists`, `event_count`, `receipt_count`, `event`, `trace_event`, `trace_replay` |
 
 ## Interpreting the Bundle
 
@@ -316,11 +316,11 @@ The `medre evidence` command produces a structured bundle with per-section statu
 
 The `medre evidence --storage-path` command is **read-only**: it inspects an
 existing SQLite database without building the runtime or starting adapters.
-Consequently, `runtime_started` is always `false` and `live_health` is always
-omitted when evidence is collected via the CLI.
+Consequently, `runtime_started` is always `false` and live health is not
+collected via the CLI.
 
 The `--include-refresh-health` flag does **not** exist on the `evidence`
-command. Live health data is available only through
+command. On the CLI, request live health through
 `medre diagnostics --refresh-health --config PATH`, which does build the
 runtime, start all enabled adapters, poll each adapter's `health_check()`
 once, capture the snapshot, and then stop the runtime cleanly. With real

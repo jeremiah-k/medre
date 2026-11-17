@@ -36,7 +36,7 @@ _MAX_ERROR_LEN: int = 512
 
 _LIMITATIONS: list[str] = [
     "Evidence is a point-in-time snapshot, not continuous monitoring",
-    "Diagnostics snapshot reflects build-time state unless --include-refresh-health is used",
+    "Diagnostics snapshot reflects build-time state; live health requires explicit opt-in",
     "Storage section requires an existing initialised database",
     "Fake adapters report synthetic health, not real transport connectivity",
     "No sustained throughput, reconnection resilience, or load evidence",

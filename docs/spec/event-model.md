@@ -176,15 +176,15 @@ class EventRelation(msgspec.Struct, frozen=True):
 
 ### 2.2 Field Reference
 
-| Field               | Type                                                       | Default | Description                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `relation_type`     | `Literal["reply", "reaction", "edit", "delete", "thread"]` | —       | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction.                                                                                                                                                                                                                                                                                 |
-| `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                                                                                                                                                                                                    |
-| `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table.                                                                                                                                                                                   |
-| `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                                                                                                                                                                                                          |
-| `fallback_text`     | `str \| None`                                              | —       | Human-readable text carrying the semantic content of this relation when the target adapter's capability level is `"fallback"`. Used by the target-native renderer to produce degraded text output within its native format (e.g., inline `[Alice] re: original msg > reply text` inside a Matrix message body). Not a generic text payload. Not used when capability is `"native"` or `"unsupported"`. |
-| `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                                                                                                                                                                                                                |
-| `target_fact`       | `RelationTargetFact \| None`                               | `None`  | Core-computed destination-scoped binding and mutation-eligibility fact (Section 2.6). Derived exclusively from stored canonical events and `NativeMessageRef` records — never from wire/user relation metadata. Present only on in-flight enriched copies; never persisted into `canonical_events`.                                                                                                    |
+| Field               | Type                                                       | Default | Description                                                                                                                                                                                                                                                                                         |
+| ------------------- | ---------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relation_type`     | `Literal["reply", "reaction", "edit", "delete", "thread"]` | —       | Semantic type of the relation. MUST be one of the five known types. Invalid values raise `ValueError` at construction.                                                                                                                                                                              |
+| `target_event_id`   | `str \| None`                                              | —       | Canonical event ID this relation points to. Set after correlation by the relation resolution stage.                                                                                                                                                                                                 |
+| `target_native_ref` | `NativeRef \| None`                                        | —       | Structured `NativeRef` identifying the native reference when the canonical event ID has not yet been resolved. The relation resolution stage resolves this to `target_event_id` via the `native_message_refs` table.                                                                                |
+| `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                                                                                                       |
+| `fallback_text`     | `str \| None`                                              | —       | Human-readable relation context for target-native degraded rendering, including native reply/thread rendering when its required destination binding is unavailable. Not a generic text payload; unsupported relations are skipped.                                                                  |
+| `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                                                                                                             |
+| `target_fact`       | `RelationTargetFact \| None`                               | `None`  | Core-computed destination-scoped binding and mutation-eligibility fact (Section 2.6). Derived exclusively from stored canonical events and `NativeMessageRef` records — never from wire/user relation metadata. Present only on in-flight enriched copies; never persisted into `canonical_events`. |
 
 ### 2.3 Valid Relation Types
 
@@ -237,24 +237,26 @@ inline text.
 
 **Capability-driven degradation rules:**
 
-| Target capability level | Delivery strategy | Rendering behaviour                                         |
-| ----------------------- | ----------------- | ----------------------------------------------------------- |
-| `"native"`              | `direct`          | Native relation rendering (e.g. `m.in_reply_to` on Matrix)  |
-| `"fallback"`            | `fallback_text`   | Target-native renderer produces its format with inline text |
-| `"unsupported"`         | `skip`            | No rendering; delivery suppressed before adapter invocation |
+| Target capability level | Delivery strategy | Rendering behaviour                                                   |
+| ----------------------- | ----------------- | --------------------------------------------------------------------- |
+| `"native"`              | `direct`          | Native relation when realizable; renderer-specific fallback may apply |
+| `"fallback"`            | `fallback_text`   | Target-native renderer produces its format with inline text           |
+| `"unsupported"`         | `skip`            | No rendering; delivery suppressed before adapter invocation           |
 
 A transport that declares `"unsupported"` for a relation type receives no
 delivery for events carrying that relation. A transport that declares
-`"native"` never uses `fallback_text`. Only the `"fallback"` level triggers
-degraded text rendering via the target-native renderer.
+`"native"` selects the `direct` planning strategy, not a guarantee that the
+native relation can be realized. A renderer may use readable relation fallback
+when a required destination binding is unavailable, without changing the
+recorded plan strategy. Mutations remain subject to their fail-closed authority
+rules. `"fallback"` selects the planned `fallback_text` strategy.
 
 **Example:** A `reply` relation with `fallback_text = "original msg text"`
 routed to a Matrix adapter (replies = `"native"`) is rendered as a native
-`m.in_reply_to` relation. The same event routed to a MeshCore adapter
-(replies = `"unsupported"`) is skipped entirely. If a hypothetical adapter
-declared replies = `"fallback"`, the MeshCore renderer would produce its
-native channel message format with the reply context embedded as inline text
-drawn from `fallback_text`.
+`m.in_reply_to` relation when the reply target is bound in that destination.
+The same event routed to a MeshCore adapter (replies = `"fallback"`) uses its
+native channel message format with readable
+inline relation context. An adapter advertising `"unsupported"` is skipped.
 
 ### 2.6 Relation Target Facts (`target_fact`)
 

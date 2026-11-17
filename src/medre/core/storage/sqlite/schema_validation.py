@@ -247,15 +247,16 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     except (TypeError, ValueError):
         raise StorageInitializationError(
             f"Storage schema version is not an integer: {version[0]!r}. "
-            f"Expected {_EXPECTED_SCHEMA_VERSION}. Preserve the database and use "
-            "a compatible build or explicit reset."
+            f"Expected {_EXPECTED_SCHEMA_VERSION}. Preserve the database and "
+            "verify a backup before using a compatible build or choosing an explicit reset."
         ) from None
     if stored != _EXPECTED_SCHEMA_VERSION:
         raise StorageInitializationError(
             f"Storage schema version mismatch: database has version {stored}, "
             f"but this version of medre expects version {_EXPECTED_SCHEMA_VERSION}. "
             "Resolve the mismatch manually; no automatic schema transformation "
-            "or silent reset is performed."
+            "or silent reset is performed. Preserve the database and verify a backup "
+            "before using a compatible build or choosing an explicit reset."
         )
     expected = _expected_definitions()
     # Inspect table constraints before missing indexes so diagnostics identify

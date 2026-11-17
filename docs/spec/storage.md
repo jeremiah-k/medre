@@ -917,7 +917,10 @@ FROM current_rows
 WHERE authority_rank = 1;
 ```
 
-The view is dropped and recreated on every `initialize()` call to ensure the column shape stays current when new columns are added to `delivery_receipts` (e.g. `rendering_evidence`). `DROP VIEW IF EXISTS` followed by `CREATE VIEW` guarantees the view definition always matches the table schema.
+The view is created from the authoritative DDL for a fresh database. A
+guarded migration that changes its definition rebuilds it transactionally.
+Opening an already-compatible database validates the stored definition rather
+than dropping and recreating it.
 
 The current delivery status is a projection, but immutable append order is not by itself lifecycle authority for outbox-backed delivery. An outbox-backed receipt is eligible only when the exact `(outbox_id, receipt_id)` pointer matches mutable outbox state. Among committed outbox generations, the generation rank comes from the outbox row's finalized `attempt_number`, never from a receipt's own attempt claim; this prevents a late append from an older generation from regressing current authority. Outbox-less evidence retains append-order semantics. The latest candidate across the committed-outbox and outbox-less authority classes wins by durable `sequence`. No code path **SHALL** write to this view directly.
 
@@ -1382,7 +1385,8 @@ Retention policy is quota-shaped and operator-owned:
   their event association are not written. **Nothing is evicted**. There is
   no eviction, GC, or TTL. Raising (or lowering) capacity is an operator action.
 
-Both attachment tables are required by the current catalog. A stamped
+Both attachment tables are present in the tagged 0.1.0 and 0.1.1 catalogs
+and are required by the current catalog. A stamped
 database missing either table is refused before schema DDL, because neither
 is an allowlisted missing-table migration (§10.2). No rows are backfilled;
 existing `message.file` events retain their admitted descriptors.
@@ -1644,7 +1648,9 @@ Storing the same `(adapter, native_channel_id, native_message_id)` tuple twice *
 
 ## 6. WAL Mode
 
-The SQLite implementation **MUST** enable WAL (Write-Ahead Logging) journal mode on every connection. WAL mode **MUST** be active for the lifetime of the connection.
+Writable SQLite connections **MUST** enable WAL (Write-Ahead Logging) journal
+mode after successful catalog initialization. Read-only inspection MUST NOT
+change the database journal mode.
 
 WAL mode provides:
 

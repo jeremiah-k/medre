@@ -45,7 +45,7 @@ For the normative per-table ownership rules, see
 
 ## Stale Storage Reset
 
-The schema version is frozen at 1, but the
+The currently released schema version is 1, but the
 layout (which tables, columns, and indexes exist, and which constraint
 vocabularies are allowed) can change between builds. When you upgrade to a
 newer core build, MEDRE automatically applies the known additive layout
@@ -79,7 +79,7 @@ Alternatively, if MEDRE fails to start with an error like:
 
 ```text
 PreReleaseSchemaMismatchError: Storage schema shape mismatch: table
-'delivery_outbox': missing required columns ['failure_kind_detail'].
+'delivery_receipts': missing required columns ['confirmation_level'].
 (database: /home/user/.local/state/medre/medre.sqlite) The database does not
 match the supported catalog. MEDRE automatically applies known additive
 layout migrations; a database requiring changes outside that policy
@@ -465,7 +465,7 @@ FROM chain ORDER BY attempt_number;
 
 ## Evidence Collection
 
-When something goes wrong, `medre evidence` collects a diagnostic bundle. It is safe to paste into a GitHub issue — no secrets are included.
+When something goes wrong, `medre evidence` collects a storage-backed diagnostic bundle. Review its redacted output before sharing it.
 
 ### Offline Mode (From Storage)
 
@@ -473,7 +473,8 @@ When something goes wrong, `medre evidence` collects a diagnostic bundle. It is 
 medre evidence --storage-path /path/to/medre.db --json
 ```
 
-Opens the database in read-only mode, collects config, diagnostics, route information, and event data.
+Opens an existing database in read-only mode and derives event and delivery
+evidence. It does not load configuration, construct a runtime or refresh health.
 
 ### Scope to a Specific Event
 
@@ -484,13 +485,13 @@ medre evidence --storage-path /path/to/medre.db --replay-run <run_id> --json
 
 ### What Is in the Bundle
 
-| Section                         | Contents                                                  |
-| ------------------------------- | --------------------------------------------------------- |
-| `sections.config_summary`       | Redacted runtime config and resolved paths                |
-| `sections.route_validation`     | Route definitions and validation status                   |
-| `sections.diagnostics_snapshot` | Per-adapter health and counters                           |
-| `sections.live_health`          | Live adapter health (requires `--include-refresh-health`) |
-| `sections.storage`              | Event and delivery records from SQLite                    |
+| Section                         | Contents                                                           |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `sections.config_summary`       | Python config-backed collection: redacted config and paths         |
+| `sections.route_validation`     | Python config-backed collection: route validation                  |
+| `sections.diagnostics_snapshot` | Python config-backed collection: adapter state and counters        |
+| `sections.live_health`          | Config-backed Python collection with `include_refresh_health=True` |
+| `sections.storage`              | Event and delivery records from SQLite                             |
 
 Top-level fields: `schema_version`, `medre_version`, `command`, `status`, `collected_at`, `config_source`, `errors`, `limitations`.
 

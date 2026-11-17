@@ -111,7 +111,9 @@ config = LxmfConfig(
 
 For propagated delivery, configure the outbound LXMF propagation-node destination
 hash explicitly. `LXMRouter` starts with no outbound propagation node selected;
-MEDRE will refuse a propagated handoff until one is configured.
+MEDRE will refuse a propagated handoff until one is configured. Native
+destination discovery is also required; a propagation node alone does not
+make an unobserved destination addressable.
 
 **DIRECT is the recommended default.** It provides the best reliability trade-off: link-based delivery with retries and proof receipts. However:
 
@@ -239,7 +241,9 @@ not qualify for automatic attachment by other nodes under the transport filter.
 - **Same LAN (AutoInterface):** 1–5 seconds.
 - **TCP link, online peer:** Seconds.
 - **Multi-hop mesh:** Accumulates per-hop.
-- **Offline peer:** No path possible. Use PROPAGATED delivery via propagation node.
+- **Offline peer:** PROPAGATED delivery via a configured propagation node can
+  reach a previously natively discovered destination; discovery is still
+  required before handoff.
 
 ## rnsd Usage
 
