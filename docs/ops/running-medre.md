@@ -47,9 +47,15 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 This abbreviated text example omits config/state path lines and component logs.
 The `Core`, `Python` and `Adapter` lines report the running installation:
-provider entries show the installed version with its provenance — a git commit
-for Git checkouts, `index` for registry releases, or an editable local path —
-and community distributions appear with their package name in brackets.
+provider entries show installed versions and recorded source metadata — an
+abbreviated Git commit, `index` when no direct URL is recorded, or an editable
+local path or direct URL. Community distributions appear with their normalized
+package name in brackets. This is an inventory, not a list of enabled adapters
+or proof of installed bytes or qualification. Unreadable metadata yields `?`,
+`unknown source`, or an incomplete-inventory notice without stopping startup.
+URL userinfo, queries and fragments are redacted, but paths and hostnames may
+be private; review logs before sharing. See the
+[package-management spec](../spec/package-management.md#startup-installation-summary).
 Adapter startup durations depend on the SDK and connection. `Routes` counts
 configured routes; the registration line counts expanded executable legs.
 
