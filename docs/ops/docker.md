@@ -7,9 +7,7 @@ separate from the named volume. Installing Python packages into this volume
 is unsupported: changing packages means pulling or building an image and recreating the container.
 Updating bridge configuration needs only a container recreation.
 
-The Docker publication workflow is introduced in core 0.1.1; the 0.1.0
-release predates it. Release publications and manual workflow dispatches
-publish `ghcr.io/jeremiah-k/medre` tags; pull-request and main pushes only
+Release publications and manual workflow dispatches publish `ghcr.io/jeremiah-k/medre` tags; pull-request and main pushes only
 qualify images and never publish. A tag is available only after successful
 publication. If the desired tag does not exist, build locally (below) or
 dispatch the workflow for a development tag; see

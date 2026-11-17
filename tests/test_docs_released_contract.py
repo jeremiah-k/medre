@@ -43,8 +43,8 @@ def test_storage_policy_documents_exact_missing_object_allowlist() -> None:
 
 def test_installed_source_and_thread_fallback_contracts() -> None:
     getting_started = _read("docs/ops/getting-started.md")
-    assert "Upgrading preserves existing saved" in getting_started
-    assert "Git remains necessary" in getting_started
+    assert "Upgrading preserves saved" in getting_started
+    assert "Git-backed requests" in getting_started
     for path in ("docs/spec/event-model.md", "docs/spec/routing-delivery.md"):
         text = _read(path)
         assert (
