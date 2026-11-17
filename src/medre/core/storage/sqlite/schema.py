@@ -1,10 +1,10 @@
 """Schema DDL, indexes, and schema-version metadata.
 
 This module owns all database-shape definitions used by the SQLite storage
-backend.  During pre-release development the schema version remains frozen at
-``1`` while the required shape evolves; incompatible old shapes are rejected.
-Only explicitly allowlisted exact additive predecessor layouts can be upgraded.  Once a release compatibility boundary is declared, DDL changes must
-advance :data:`_EXPECTED_SCHEMA_VERSION`.
+backend. The released baseline has schema version ``1``; the stamp alone
+does not establish compatibility. Only explicitly allowlisted exact predecessor
+layouts can be migrated. Published catalog changes require compatibility
+review and deliberate versioning.
 """
 
 from __future__ import annotations
@@ -617,16 +617,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 # ---------------------------------------------------------------------------
 
 _EXPECTED_SCHEMA_VERSION: int = 1
-"""Frozen schema version — stays at **1** until the project curator declares a
-release compatibility boundary.  DDL shape changes during pre-release do **not**
-require a version bump; the expected version is only incremented once the
-storage contract is formally release-tracked.
+"""Published schema version 1. The tagged 0.1.0 catalog is the baseline.
 
-That said, the version **is** checked on every
-:meth:`SQLiteStorage.initialize` call and a mismatch will raise an error.
-This strictness is intentional: it catches databases whose shape differs from
-the current pre-release contract. MEDRE rejects that mismatch rather than
-transforming it automatically.
+The version is checked on every initialize call, but the stamp alone is not
+proof of compatibility. Exact catalog validation and guarded, allowlisted
+migrations determine whether a database can open. Published state changes
+require compatibility review under the versioning policy.
 """
 
 # ---------------------------------------------------------------------------
@@ -932,10 +928,10 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 }
 
 # Structural constraints that cannot be inferred from column presence alone.
-# Existing pre-release databases must already carry these relationships; MEDRE
+# Existing databases must already carry these relationships; MEDRE
 # rejects older shapes rather than rebuilding them automatically.
 # Required table-level UNIQUE constraints.  These are part of logical identity,
-# so column-presence validation alone is insufficient: an older pre-release
+# so column-presence validation alone is insufficient: an older
 # table can have every current column while still enforcing a stale key.
 _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
     "event_routing_facts": frozenset({("event_id",)}),
@@ -1004,7 +1000,7 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 }
 
 # Required table-level CHECK clauses.  Column/FK validation cannot detect an
-# existing pre-release table created without these invariants because
+# existing table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
     "content_retention_epochs": (
@@ -1325,7 +1321,7 @@ _PRESSURE_DDL = _SCHEMA[
 
 # Exact single-statement DDL for the outage accounting-gap table.  The
 # approved additive installation creates the table when it is missing;
-# a separate allowlisted prerelease rebuild adds its immutable retry token
+# a separate allowlisted rebuild adds its immutable retry token
 # to the exact preceding table shape without losing existing rows.  No
 # index and no foreign key references the table.
 _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[

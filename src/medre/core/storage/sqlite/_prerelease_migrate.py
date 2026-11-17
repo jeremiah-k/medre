@@ -1,12 +1,12 @@
-"""Allowlisted additive pre-release schema migration steps.
+"""Allowlisted schema migration steps.
 
 Each step upgrades one exact, explicitly allowlisted predecessor layout to
 the current declared shape.  Detection reuses the same derivation scheme as
-the prerelease identity validators: the predecessor definition is produced
+the exact catalog validators: the predecessor definition is produced
 from the authoritative DDL in this repository, never hand-written, and must
 match the stored SQLite catalog byte for byte.  A database whose stored
 layout matches no allowlisted predecessor is never touched here; strict
-prerelease validation refuses it with recreation guidance.
+catalog validation refuses it with recovery guidance.
 
 Steps run inside the writable open path's existing ``BEGIN IMMEDIATE``
 transaction (see :func:`medre.core.storage.sqlite.connection.sync_open`) and
@@ -195,14 +195,14 @@ def rebuild_operator_delivery_decisions(db: sqlite3.Connection) -> None:
     after = int(after_row[0])
     if after != before:
         raise StorageInitializationError(
-            f"Pre-release migration '{_WIDEN_DECISION_ACTIONS_STEP}' "
+            f"Storage migration '{_WIDEN_DECISION_ACTIONS_STEP}' "
             f"changed the operator decision row count: {before} before, "
             f"{after} after; the rebuild was rolled back."
         )
     violations = db.execute(f"PRAGMA foreign_key_check({_DECISION_TABLE})").fetchall()
     if violations:
         raise StorageInitializationError(
-            f"Pre-release migration '{_WIDEN_DECISION_ACTIONS_STEP}' left "
+            f"Storage migration '{_WIDEN_DECISION_ACTIONS_STEP}' left "
             f"{len(violations)} foreign-key violation(s); the rebuild was "
             "rolled back."
         )
@@ -296,7 +296,7 @@ def rebuild_inbound_pressure_observations(db: sqlite3.Connection) -> None:
     after = int(after_row[0])
     if after != before:
         raise StorageInitializationError(
-            f"Pre-release migration '{_WIDEN_PRESSURE_OUTCOMES_STEP}' "
+            f"Storage migration '{_WIDEN_PRESSURE_OUTCOMES_STEP}' "
             f"changed the inbound pressure row count: {before} before, "
             f"{after} after; the rebuild was rolled back."
         )
@@ -308,7 +308,7 @@ def known_outage_gap_table_forms() -> _DecisionForms:
     if _CURRENT_GAP_TOKEN_COLUMN not in _PRESSURE_OUTAGE_GAPS_DDL:
         raise StorageInitializationError(
             "Authoritative outage-gap DDL no longer has the retry-token "
-            "column; the prerelease predecessor cannot be derived."
+            "column; the exact predecessor cannot be derived."
         )
     old_db = sqlite3.connect(":memory:")
     current_db = sqlite3.connect(":memory:")
@@ -331,7 +331,7 @@ def known_outage_gap_table_forms() -> _DecisionForms:
 
 
 def outage_gap_token_rebuild_applies(db: sqlite3.Connection) -> bool:
-    """Detect only the exact prerelease table shape without retry tokens."""
+    """Detect only the exact predecessor table shape without retry tokens."""
     return _stored_table_sql(db, _GAP_TABLE) == (known_outage_gap_table_forms().legacy)
 
 
@@ -364,7 +364,7 @@ def rebuild_inbound_pressure_outage_gaps(db: sqlite3.Connection) -> None:
     ).fetchone()
     if after is None or int(after[0]) != len(rows):
         raise StorageInitializationError(
-            f"Pre-release migration '{_ADD_GAP_RETRY_TOKEN_STEP}' "
+            f"Storage migration '{_ADD_GAP_RETRY_TOKEN_STEP}' "
             "changed the outage-gap record count; the rebuild was rolled back."
         )
 
@@ -654,7 +654,7 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
         )
     # The rows round-trip through the temporary table so the final stored
     # CREATE TABLE text is the declared DDL verbatim: an ALTER TABLE rename
-    # stores the name quoted, which the prerelease identity contract rejects.
+    # stores the name quoted, which the exact catalog contract rejects.
     db.execute(temp_sql)
     _copy_inline_diagnostics_to_side_table(db, family, table)
     if family == "outbox":
@@ -691,7 +691,7 @@ def _rebuild_stripped_diagnostic_table(db: sqlite3.Connection, family: str) -> N
     after = int(after_row[0])
     if after != before:
         raise StorageInitializationError(
-            f"Pre-release migration '{_STRIP_DIAGNOSTIC_COLUMNS_STEP}' "
+            f"Storage migration '{_STRIP_DIAGNOSTIC_COLUMNS_STEP}' "
             f"changed the {table} record count; the rebuild was rolled back."
         )
 
@@ -769,7 +769,7 @@ class _MigrationStep:
     apply: Callable[[sqlite3.Connection], None]
 
 
-#: Ordered allowlisted pre-release migration steps.  A step must detect its
+#: Ordered allowlisted migration steps.  A step must detect its
 #: exact predecessor layout, transform it additively, and be a no-op on the
 #: resulting current shape.
 _MIGRATION_STEPS: tuple[_MigrationStep, ...] = (

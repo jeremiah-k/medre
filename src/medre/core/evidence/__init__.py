@@ -9,7 +9,7 @@ It also exposes pure helper models for delivery outcome ledgers, retry/outbox
 accountability, adapter status evidence, shutdown evidence, and evidence tier
 classification.
 
-Internal package — no stable public API guarantees (MEDRE pre-release).
+Internal evidence implementation; use the documented public contracts.
 """
 
 from medre.core.evidence.adapter_status import (

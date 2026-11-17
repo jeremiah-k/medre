@@ -26,7 +26,7 @@ import msgspec
 # ---------------------------------------------------------------------------
 
 BUNDLE_SCHEMA_VERSION: int = 1
-"""Evidence bundle schema version.  Frozen at 1 during pre-release."""
+"""Evidence bundle schema version.  Version 1 is the published evidence format."""
 
 # ---------------------------------------------------------------------------
 # Receipt summary

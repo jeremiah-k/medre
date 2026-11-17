@@ -265,7 +265,7 @@ def sync_write_with_followups(
 def sync_find_schema_shape_mismatch(
     db_path: str, required_columns: dict[str, frozenset[str]]
 ) -> PreReleaseSchemaMismatchError | None:
-    """Reject unrecognized prerelease shapes before any DDL.
+    """Reject unsupported catalogs before any DDL.
 
     A version-1 stamp authorizes only verified, allowlisted additive DDL.
     Unstamped, nonempty databases cannot be silently adopted as fresh state.

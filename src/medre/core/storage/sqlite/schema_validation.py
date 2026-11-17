@@ -1,4 +1,4 @@
-"""Exact prerelease schema identity derived from the authoritative SQLite DDL."""
+"""Exact SQLite schema identity derived from the authoritative SQLite DDL."""
 
 from __future__ import annotations
 
@@ -208,7 +208,7 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     definitions covers defaults, types, nullability, collations, foreign-key
     actions, CHECK/UNIQUE constraints, expression/partial indexes, views and
     triggers. Semantically equivalent hand-written DDL is deliberately outside
-    the prerelease contract; no independent fingerprint inventory can drift.
+    the exact catalog contract; no independent fingerprint inventory can drift.
     """
     actual = _definitions(db)
     # SQLite writes an ALTER-added nullable column at the end of the stored
@@ -247,7 +247,8 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     except (TypeError, ValueError):
         raise StorageInitializationError(
             f"Storage schema version is not an integer: {version[0]!r}. "
-            f"Expected {_EXPECTED_SCHEMA_VERSION}. Recreate prerelease state."
+            f"Expected {_EXPECTED_SCHEMA_VERSION}. Preserve the database and use "
+            "a compatible build or explicit reset."
         ) from None
     if stored != _EXPECTED_SCHEMA_VERSION:
         raise StorageInitializationError(
