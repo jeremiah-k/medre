@@ -34,6 +34,10 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 ```console
 2026-10-18T20:00:00-0500 [INFO] medre: MEDRE starting (bridge) with 2 adapter(s): matrix, radio
+2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre 0.1.1 (index)
+2026-10-18T20:00:00-0500 [INFO] medre:   Python:  3.13.5 (Linux x86_64)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix 0.1.0 (git c987da62)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic 0.1.1 (git e52d33e5)
 2026-10-18T20:00:00-0500 [INFO] medre.runtime.route_engine: Registered 2 expanded route(s)
 2026-10-18T20:00:00-0500 [INFO] medre:   Routes: 1 enabled, 0 disabled (1 configured)
 2026-10-18T20:00:01-0500 [INFO] medre:   started matrix.matrix (312ms)
@@ -41,7 +45,11 @@ otherwise invisible in `routes validate` / `routes topology`.
 2026-10-18T20:00:01-0500 [INFO] medre: Runtime ready (2 adapter(s) running)
 ```
 
-This abbreviated text example omits config/state paths and component logs.
+This abbreviated text example omits config/state path lines and component logs.
+The `Core`, `Python` and `Adapter` lines report the running installation:
+provider entries show the installed version with its provenance — a git commit
+for Git checkouts, `index` for registry releases, or an editable local path —
+and community distributions appear with their package name in brackets.
 Adapter startup durations depend on the SDK and connection. `Routes` counts
 configured routes; the registration line counts expanded executable legs.
 

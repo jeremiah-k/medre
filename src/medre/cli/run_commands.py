@@ -17,6 +17,7 @@ from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
 from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
+from medre.runtime.installation_summary import installation_lines
 from medre.runtime.summaries import (
     format_duration_ms,
     shutdown_summary,
@@ -363,6 +364,11 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     )
     _print(f"  Config:  {paths.config_file}")
     _print(f"  State:   {paths.state_dir}")
+
+    # Report the running installation: core and provider versions with their
+    # install provenance (git commit, index release, editable checkout).
+    for line in installation_lines():
+        _print(line)
 
     # Show disabled adapters for visibility.
     all_cfgs = config.adapters.all_configs()

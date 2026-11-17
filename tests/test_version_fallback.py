@@ -10,6 +10,7 @@ import pytest
 
 from medre.cli.main import _get_version as cli_fallback
 from medre.runtime.evidence._helpers import _get_version as evidence_fallback
+from medre.runtime.installation_summary import _core_version as startup_fallback
 
 
 def _packaged_version() -> str:
@@ -18,7 +19,9 @@ def _packaged_version() -> str:
 
 
 @pytest.mark.parametrize(
-    "fallback", [cli_fallback, evidence_fallback], ids=["cli", "evidence"]
+    "fallback",
+    [cli_fallback, evidence_fallback, startup_fallback],
+    ids=["cli", "evidence", "startup"],
 )
 def test_version_fallback_matches_the_packaged_version(fallback, monkeypatch):
     def missing(name: str):
