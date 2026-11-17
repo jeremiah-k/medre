@@ -517,20 +517,80 @@ def test_cli_storage_status_fresh_db(fresh_db: Path) -> None:
         str(fresh_db),
     )
     assert "HEALTHY" in stdout
+    assert "Catalog: current" in stdout
     assert "Schema version: 1" in stdout
     assert str(fresh_db) in stdout
+    assert stderr == ""
 
 
 def test_cli_storage_status_old_db(old_db: Path) -> None:
-    """`medre storage status --storage-path` reports MISMATCH for an old-shape DB."""
+    """`medre storage status --storage-path` reports UNSUPPORTED for an old-shape DB.
+
+    An unqualified healthy verdict is impossible for a catalog the startup
+    openers would refuse; the verdict carries the startup authority's first
+    refusal (this shape predates the typed routing-facts table entirely).
+    """
     stdout, stderr = _run_cli(
         "storage",
         "status",
         "--storage-path",
         str(old_db),
     )
-    assert "MISMATCH" in stdout
-    assert "event_relations" in stdout
+    assert "Catalog: unsupported" in stdout
+    assert "Status: UNSUPPORTED" in stdout
+    assert "HEALTHY" not in stdout
+    assert "event_routing_facts" in stdout
+
+
+def test_cli_storage_status_supported_upgrade(tmp_path: Path) -> None:
+    """`medre storage status` reports a recognized predecessor as upgradable.
+
+    A current catalog missing one allowlisted object is the smallest
+    recognized additive predecessor. The status command never migrates the
+    inspected database; it reports that one normal writable startup applies
+    the guarded migration.
+    """
+    db_path = _seed_fresh_db(tmp_path)
+    raw = sqlite3.connect(str(db_path))
+    try:
+        raw.execute("DROP TABLE event_routing_facts")
+        raw.commit()
+    finally:
+        raw.close()
+    before = db_path.read_bytes()
+    stdout, stderr = _run_cli(
+        "storage",
+        "status",
+        "--storage-path",
+        str(db_path),
+    )
+    assert "Catalog: supported_upgrade" in stdout
+    assert "Status: SUPPORTED UPGRADE" in stdout
+    assert "guarded writable migration" in stdout
+    assert "event_routing_facts" in stdout
+    assert stderr == ""
+    assert db_path.read_bytes() == before
+
+
+def test_cli_storage_status_corrupt_db_is_unavailable(tmp_path: Path) -> None:
+    """`medre storage status` on an unreadable file reports UNAVAILABLE.
+
+    Assessment I/O failure is a distinct verdict from an unsupported
+    catalog: no compatibility conclusion is offered and the command exits
+    with the build-error code.
+    """
+    db_path = tmp_path / "corrupt.db"
+    db_path.write_bytes(b"not a database at all" * 32)
+    code, stdout, stderr = _run_cli_exit(
+        "storage",
+        "status",
+        "--storage-path",
+        str(db_path),
+    )
+    assert code == EXIT_BUILD
+    assert "Catalog: unavailable" in stdout
+    assert "Status: UNAVAILABLE" in stdout
+    assert "HEALTHY" not in stdout
 
 
 def test_cli_storage_status_missing_db(tmp_path: Path) -> None:
@@ -569,7 +629,7 @@ def test_cli_storage_status_connect_error(
 
 
 def test_cli_storage_status_missing_schema_meta(tmp_path: Path) -> None:
-    """Status reports schema version None when schema metadata is absent."""
+    """A database with no schema objects is new state, not a mismatch."""
     db_path = tmp_path / "no-meta.db"
     conn = sqlite3.connect(db_path)
     conn.close()
@@ -581,43 +641,8 @@ def test_cli_storage_status_missing_schema_meta(tmp_path: Path) -> None:
         str(db_path),
     )
     assert "Schema version: None" in stdout
-    assert "Status: MISMATCH" in stdout
-    assert stderr == ""
-
-
-def test_cli_storage_status_table_info_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Status treats PRAGMA table_info failures as missing columns."""
-    db_path = tmp_path / "pragma-error.db"
-    db_path.write_bytes(b"placeholder")
-
-    class _SelectResult:
-        def fetchone(self) -> dict[str, str]:
-            return {"value": "1"}
-
-    class _Conn:
-        row_factory = None
-
-        def execute(self, sql: str) -> _SelectResult:
-            if sql.startswith("SELECT value FROM _medre_schema_meta"):
-                return _SelectResult()
-            raise sqlite3.OperationalError("malformed schema")
-
-        def close(self) -> None:
-            pass
-
-    monkeypatch.setattr(sqlite3, "connect", lambda *_args, **_kwargs: _Conn())
-
-    stdout, stderr = _run_cli(
-        "storage",
-        "status",
-        "--storage-path",
-        str(db_path),
-    )
-    assert "Schema version: 1" in stdout
-    assert "MISSING" in stdout
-    assert "Status: MISMATCH" in stdout
+    assert "Catalog: empty_new" in stdout
+    assert "Status: EMPTY" in stdout
     assert stderr == ""
 
 

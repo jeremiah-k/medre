@@ -495,7 +495,8 @@ medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.
 ### Storage Path in Diagnostics
 
 Use `medre paths` to inspect resolved locations and `medre storage status` to
-check a database path and schema compatibility. Storage-only CLI evidence does
+assess a database's catalog compatibility with the same exact validation
+storage startup applies. Storage-only CLI evidence does
 not populate the config-backed `config_summary` section.
 
 ```bash

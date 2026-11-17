@@ -60,13 +60,22 @@ when starting fresh is acceptable.
 
 ### How to tell if your database is stale
 
-Run `medre storage status --storage-path <path>` to check the database
-path, schema version, and required columns. Use `medre paths` to discover
-the resolved state directory, then pass `{state}/medre.sqlite` as the storage
-path. **A healthy storage status is not a complete schema-catalog check**:
-CHECK constraints, foreign-key definitions, and index identities are validated
-at storage open, not fully by this command. A database can therefore report
-healthy status and still be refused by strict startup validation.
+Run `medre storage status --storage-path <path>` to assess the stored
+catalog. Use `medre paths` to discover the resolved state directory, then
+pass `{state}/medre.sqlite` as the storage path. The command applies the
+same exact catalog validation and predecessor recognition that storage
+startup applies, over one consistent read-only snapshot, and reports one
+verdict: `current` (status HEALTHY), `supported_upgrade` (a recognized
+additive predecessor), `unsupported`, `empty_new` (no schema objects; a
+writable start creates the declared schema as new state), or `unavailable`
+(the assessment could not read the database).
+
+The assessment proves catalog compatibility only. It does not prove writable
+access — permissions, concurrent locks, or later file changes can still
+prevent a successful open — nor database integrity, remote availability, or
+any behavior under concurrent changes. `unavailable` is a distinct verdict
+from `unsupported` and carries no compatibility conclusion. Assessing a
+database never writes schema or data, migrates, or checkpoints.
 
 If inspection refuses a recognized additive predecessor (including the older
 operator-decision CHECK), **do not reset the database on that message**. Stop
