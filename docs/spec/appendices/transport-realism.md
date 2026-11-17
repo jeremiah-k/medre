@@ -1,6 +1,6 @@
 # Transport Realism Ladder
 
-MEDRE is pre-release, but transport claims still require evidence at the layer
+Transport claims require evidence at the layer
 being claimed. Unit fakes are necessary and intentionally insufficient for
 SDK, endpoint, hardware, and endurance claims.
 

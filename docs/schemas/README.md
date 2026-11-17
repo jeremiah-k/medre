@@ -139,7 +139,7 @@ versioning policy (including independent adapter-native and SQLite versions),
 with contract tests and a documented compatibility decision; never silently
 replace a released freeze manifest.
 
-### Bounded source-native facts (proposed initial 0.1.0 contract)
+### Bounded source-native facts (published 0.1.0 contract)
 
 `bridge_context.source.native_facts` is an optional **public** source-owned
 projection: `{"namespace": "meshtastic", "fields": {"portnum": 1}}`.

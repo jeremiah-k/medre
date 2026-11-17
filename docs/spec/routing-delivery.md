@@ -401,10 +401,8 @@ Boolean capability fields (`text`, `attachments`, `presence`,
 Three-level string fields (`reactions`, `edits`, `deletes`, `replies`, `threads`)
 map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported.
 
-All built-in adapters currently advertise `threads="fallback"`. Thread relations
-therefore exercise the production `fallback_text` path, but native thread
-emission has not yet been verified for any built-in transport, and no
-live-service or hardware evidence for thread degradation has been recorded.
+Matrix advertises `threads="native"`; the remaining built-in adapters advertise
+`threads="fallback"` and exercise the production `fallback_text` path.
 
 #### 6.3.3 Event-Kind Mapping
 
@@ -436,13 +434,13 @@ sub-kind; adding a native event kind requires a core policy and adapter contract
 
 #### 6.3.4 Relation Mapping
 
-| Relation Type | Capability Field | Note                                                                       |
-| ------------- | ---------------- | -------------------------------------------------------------------------- |
-| `reply`       | `replies`        | Checked for every reply relation.                                          |
-| `reaction`    | `reactions`      | Checked for every reaction relation.                                       |
-| `edit`        | `edits`          | Checked for every edit relation.                                           |
-| `delete`      | `deletes`        | Checked for every delete relation.                                         |
-| `thread`      | `threads`        | Checked for every thread relation; built-ins currently advertise fallback. |
+| Relation Type | Capability Field | Note                                                                                                     |
+| ------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
+| `reply`       | `replies`        | Checked for every reply relation.                                                                        |
+| `reaction`    | `reactions`      | Checked for every reaction relation.                                                                     |
+| `edit`        | `edits`          | Checked for every edit relation.                                                                         |
+| `delete`      | `deletes`        | Checked for every delete relation.                                                                       |
+| `thread`      | `threads`        | Checked for every thread relation; Matrix advertises `native`, the other built-ins advertise `fallback`. |
 
 Relation-level capability checking for `reaction`, `edit`, `delete`, and
 `thread` is intentionally centralized in the resolver alongside `reply`. All five
@@ -478,12 +476,11 @@ edits, and deletes. `native` permits direct thread rendering, `fallback`
 selects deterministic textual degradation, and `unsupported` suppresses the
 target before rendering.
 
-The current built-in adapters all advertise `threads="fallback"`. This is an
-intentional fail-closed posture: Matrix has an underlying native `m.thread`
-protocol but MEDRE has not yet verified native thread emission, while Meshtastic,
-MeshCore, and LXMF have no equivalent native conversation primitive. A future
-adapter MAY advertise `native` only after its renderer and transport path have
-conformance coverage for native thread semantics.
+Matrix advertises `threads="native"` and renders the relation as a native
+`m.thread` rooted at the bound thread root. Meshtastic, MeshCore, and LXMF
+advertise `threads="fallback"` and have no equivalent native conversation
+primitive. A built-in adapter MAY advertise `native` only after its renderer
+and transport path have conformance coverage for native thread semantics.
 
 #### 6.3.7 Rendering Evidence
 

@@ -20,7 +20,7 @@ This specification governs:
 - Sanitization guarantees for all diagnostic and evidence paths.
 - Evidence boundary definitions (live, docker, hardware).
 - Limitations of what evidence can and cannot prove.
-- Pre-release contractual guarantees.
+- Contractual guarantees.
 
 ## Structured correlation and metric export
 
@@ -310,7 +310,7 @@ The `collect_evidence_bundle()` function assembles a comprehensive evidence bund
 
 | Key                            | Type           | Semantics                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`               | `int`          | Currently `1`. Frozen during pre-release.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `schema_version`               | `int`          | Currently `1`; frozen as part of the published 0.1.0 baseline.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `status`                       | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `sections`                     | `dict`         | Per-section evidence data (see § 7.1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `errors`                       | `list[str]`    | Accumulated error strings from section collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -372,9 +372,10 @@ storage-path, and config-error bundles MUST validate against the same schema.
 
 The machine schema is independent of the per-event core `EvidenceBundle` model
 in §16. The two surfaces serve different consumers; changing one MUST NOT
-silently reinterpret the other. `schema_version` is frozen at `1` during
-pre-release; incompatible machine-contract changes update the schema, example,
-and tests in the same change without advancing the version.
+silently reinterpret the other. `schema_version` is frozen at `1` in the
+published 0.1.0 baseline; incompatible machine-contract changes update the
+schema, example, and tests in the same change and follow the versioning
+policy for the frozen baseline.
 
 ### 7.3 Fixed Limitations
 
@@ -561,9 +562,9 @@ This applies to all diagnostic paths: adapter `diagnostics()`, session diagnosti
 
 **Planning authority boundary for diagnostics and evidence.** Diagnostics and evidence are derived-only consumers of `DeliveryPlan` fields (`capability_level`, `capability_field`, `capability_reason`, `primary_strategy`). Delivery receipts persist those planning facts as structured fields, and operator reporting reads those structured fields directly. Human-readable capability reasons are display text, not a machine-readable encoding. Diagnostics observe and record what the planning pipeline decided; they do not re-decide capability or strategy. The one exception is replay execution (§ 14.5): replay intentionally re-runs planning against current capabilities and configuration rather than reusing the original live `DeliveryPlan`. This is by design — replay produces its own `DeliveryPlan` instances and dispatches them through the delivery pipeline with `source="replay"`, so replay outcomes reflect current transport reality, not stale historical planning state. Replay planning uses the same `CapabilityDecisionResolver` as live delivery (see Routing and Delivery Specification, § 6.3.8).
 
-## 13. Pre-Release Contractual Guarantees
+## 13. Contractual Guarantees
 
-The following six guarantees are contractual during the pre-release period:
+The following six guarantees are contractual:
 
 1. **No secret leakage through any diagnostic path.** Frozen dataclasses and explicit sanitization enforce this. Turning up log verbosity MUST NOT leak secrets.
 
@@ -873,7 +874,7 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 | Field                          | Type                       | Semantics                                                                                                                         |
 | ------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`               | `int`                      | Currently `1`. Frozen during pre-release.                                                                                         |
+| `schema_version`               | `int`                      | Currently `1`; frozen as part of the published 0.1.0 baseline.                                                                    |
 | `event_id`                     | `str`                      | The canonical event ID this bundle covers.                                                                                        |
 | `event_summary`                | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found.                           |
 | `delivery_receipts`            | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                                                        |
