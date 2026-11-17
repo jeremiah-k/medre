@@ -35,12 +35,13 @@ The legacy `adapters reset` command deliberately selects upstream Git `main`;
 it is not a stable-release selector.
 
 The published 0.1.0 core does not recognize `sources` or inline adapter version
-constraints. Once this feature lands on main, install that Git revision (or a
-later published release containing the feature) before following these examples.
-Git is required for the development installation.
+constraints. Main includes the feature; install a main Git revision (or a later
+published release containing it) before following these examples.
+Git is required for the development installation. The Matrix provider in this
+example requires Python 3.12 or later.
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'
 medre adapters install 'matrix[e2e]==0.1.0'
 medre sources show --json
 medre sources switch --all --from index --dry-run

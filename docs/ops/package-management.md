@@ -1,16 +1,18 @@
 # Manage MEDRE and adapter packages
 
-This guide describes the source-switching CLI on the development branch. The
-published 0.1.0 core has Git adapter defaults and does not recognize `sources`
-or inline adapter version constraints. Install uv and Git. Once source
-switching lands on main, use that Git revision (or a subsequent release that
-includes it) for the examples below. For the current published CLI, follow
-[Getting Started](getting-started.md) and use native uv commands for source changes.
+This guide describes the source-switching CLI included on main. The published
+0.1.0 core has Git adapter defaults and does not recognize `sources` or inline
+adapter version constraints. Core 0.1.1 introduces these commands.
+Install uv and Git for the examples below that use a main Git revision, or
+use a published release containing source switching when available. For core
+0.1.0, follow [Getting Started](getting-started.md) and use native uv
+commands for source changes.
 
-Install one persistent command, then select the adapters you need:
+Install one persistent command, then select the adapters you need. Matrix
+requires Python 3.12 or later:
 
 ```bash
-uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'
 medre init
 medre adapters sources
 medre adapters install matrix meshtastic

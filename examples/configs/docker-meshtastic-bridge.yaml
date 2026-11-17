@@ -30,11 +30,11 @@
 #        meshtastic/meshtasticd:2.7.26 \
 #        meshtasticd -s --fsdir=/var/lib/meshtasticd-ci -p 4403 -h 11
 #
-#   2. Set the host environment variable (defaults to localhost):
-#      export MESHTASTIC_HOST=localhost
+#   2. Make a private config copy and replace ${MESHTASTIC_HOST} with the
+#      reachable daemon address (see docs/ops/docker.md).
 #
-#   3. Run the config:
-#      PYTHONPATH=src medre run --config examples/configs/docker-meshtastic-bridge.yaml
+#   3. Validate the resolved copy with `medre config check --config PATH`
+#      before running `medre run --config PATH`.
 #
 # NOT for production. NOT a substitute for live radio validation.
 #
@@ -59,7 +59,7 @@ adapters:
   # Real Meshtastic adapter — points at Docker meshtasticd
   # ---------------------------------------------------------------------------
   # Connection uses TCP to the containerized meshtasticd daemon.
-  # MESHTASTIC_HOST defaults to "localhost"; override for remote Docker hosts.
+  # Replace ${MESHTASTIC_HOST} with a reachable daemon address.
   meshtastic:
     daemon:
       enabled: true

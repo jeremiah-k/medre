@@ -7,6 +7,14 @@ separate from the named volume. Installing Python packages into this volume
 is unsupported: changing packages means pulling or building an image and recreating the container.
 Updating bridge configuration needs only a container recreation.
 
+The Docker publication workflow is introduced in core 0.1.1; the 0.1.0
+release predates it. Release publications and manual workflow dispatches
+publish `ghcr.io/jeremiah-k/medre` tags; pull-request and main pushes only
+qualify images and never publish. A tag is available only after successful
+publication. If the desired tag does not exist, build locally (below) or
+dispatch the workflow for a development tag; see
+[Release images and updates](#release-images-and-updates).
+
 ## Build and start
 
 Docker Engine with Buildx, Docker Compose v2 or newer, Git, Make and Python 3.11+
@@ -51,6 +59,35 @@ volume-only backup does not include the bind-mounted config. The image
 runs `medre run` directly and receives SIGTERM through Compose's init process;
 Compose allows 40 seconds for the configured runtime shutdown. Increase this
 allowance when your runtime or SDK shutdown budget is longer.
+
+## Prepare a Docker bridge example
+
+The two `examples/configs/docker-*-bridge.yaml` files are SDK-boundary test
+templates, not ready-to-run deployment configs. Compose bind-mounts the YAML
+unchanged, and MEDRE rejects unresolved `${VAR}` placeholders. A Compose
+`env_file` does not resolve them. With the relevant test service already
+running, make a new private copy (do not overwrite existing bridge state):
+
+```bash
+( umask 077; set -C; cat examples/configs/docker-matrix-bridge.yaml > config.yaml )
+# Or use examples/configs/docker-meshtastic-bridge.yaml instead.
+```
+
+Edit the private copy with a YAML-aware editor. For the Matrix example, replace
+`${MEDRE_HOMESERVER}`, `${MEDRE_USER_ID}`, `${MEDRE_ACCESS_TOKEN}`, and both
+occurrences of `${MEDRE_ROOM_ID}` with concrete YAML string values. For the
+Meshtastic example, replace `${MESHTASTIC_HOST}` with the daemon's reachable
+host name or IP. In the container, `localhost` refers to the container itself,
+not the host or another service; use a reachable address on the configured
+network. Keep credentials out of command history and version control. Use
+proper YAML quoting for values containing special characters. Alternatively,
+remove the placeholders and use supported MEDRE environment overrides for
+adapter fields, retaining concrete route selectors in YAML.
+
+Run `make check` before `make run` (select another private file via
+`MEDRE_CONFIG=/absolute/path/config.yaml` on both commands if needed).
+The original integration tests construct their configs programmatically;
+these examples do not reproduce their qualification evidence by themselves.
 
 ## Adapter and source selection
 

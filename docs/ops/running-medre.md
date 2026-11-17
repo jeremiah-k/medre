@@ -1,6 +1,6 @@
 # Running MEDRE
 
-Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker/Podman deployment, and delivery semantics.
+Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker deployment, and delivery semantics.
 
 ## Starting MEDRE
 
@@ -538,174 +538,16 @@ SQLite and the local filesystem only — no replication, remote backup, or
 distributed coordination; operators own backup, log rotation, and disk
 monitoring.
 
-## Docker / Podman Deployment
+## Docker Deployment
 
-> **Note:** The Docker example configs
-> `examples/configs/docker-matrix-bridge.yaml` and
-> `examples/configs/docker-meshtastic-bridge.yaml` use `${VAR}` placeholders
-> (e.g. `${MEDRE_HOMESERVER}`) that are resolved by Docker Compose from an
-> `env_file`, not by the MEDRE config loader. These configs cannot be loaded
-> by `medre config check` or `medre run` directly — use the Docker Compose
-> workflow below, or `medre smoke`. See [configuration.md](configuration.md)
-> § "Pre-flight Validation with `medre config check`" for details.
-
-### Container Image
-
-Prepare a `wheelhouse/` build context containing MEDRE, the selected adapter
-wheels, and their locked Python dependencies for the container's Python version,
-OS, and architecture. Build adapters from reviewed Git revisions or local
-checkouts before assembling the image; this also works before index publication.
-See [adapter installation](adapter-installation.md) for dependency ownership
-and deployment locking. The example installs the plaintext Matrix and Meshtastic
-providers used by the Docker example configs.
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY wheelhouse/ /wheels/
-RUN python -m pip install --no-index --find-links=/wheels \
-    medre medre-adapter-matrix medre-adapter-meshtastic
-ENV MEDRE_HOME=/opt/medre
-ENTRYPOINT ["medre"]
-CMD ["run"]
-```
-
-```bash
-docker build -t medre .
-```
-
-### Running with Config File
-
-```bash
-docker run -d \
-  --name medre \
-  -v /srv/medre:/opt/medre \
-  medre run
-```
-
-### Running with Environment Variables
-
-```bash
-docker run -d \
-  --name medre \
-  -e MEDRE_HOME=/opt/medre \
-  -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
-  -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>" \
-  -e MEDRE_ADAPTER__MAIN__ENABLED=true \
-  -v medre-state:/opt/medre \
-  medre run
-```
-
-### Serial Device Passthrough
-
-For Meshtastic and MeshCore with serial connections:
-
-```bash
-docker run -d \
-  --device /dev/ttyACM0:/dev/ttyACM0 \
-  -v /srv/medre:/opt/medre \
-  medre run
-```
-
-The container user needs read/write access to the device. Options: run as user in `dialout` group, use `--group-add dialout`, or set udev rules.
-
-### MEDRE_HOME Layout Inside Container
-
-```text
-/opt/medre/
-├── config.yaml
-├── state/
-│   ├── medre.sqlite
-│   └── adapters/
-│       ├── bot/
-│       │   └── matrix/
-│       │       └── store/
-│       └── radio/
-│           └── meshtastic/
-├── data/
-├── cache/
-└── logs/                 # reserved path; console logs use stdout
-```
-
-### Volume Ownership
-
-The container process needs read/write access to the mounted volume:
-
-```bash
-mkdir -p /host/medre-data
-chown 1000:1000 /host/medre-data
-
-docker run --user 1000:1000 \
-  --env MEDRE_HOME=/opt/medre \
-  --volume /host/medre-data:/opt/medre \
-  medre
-```
-
-### Container Startup Sequence
-
-1. Container runtime sets `MEDRE_HOME` and adapter variables.
-2. Path resolution — pure computation, no I/O.
-3. Config loaded from `$MEDRE_HOME/config.yaml`.
-4. Runtime built — Matrix store paths derived here.
-5. `app.start()` — directories created (idempotent), storage initialized, adapters started in sorted order.
-6. Running — pipeline processes events.
-7. Shutdown — on `SIGTERM`/`SIGINT`, graceful shutdown in reverse order. State persists in volume.
-
-### Container Checklist
-
-| Concern                   | Mechanism                                                  |
-| ------------------------- | ---------------------------------------------------------- |
-| Persistent state          | Mount volume at `MEDRE_HOME`                               |
-| SQLite durability         | WAL mode, file on mounted volume                           |
-| Matrix crypto persistence | Auto-derived store path under adapter root                 |
-| Log persistence           | Container logging driver or explicit stdout capture        |
-| Serial device access      | `--device` passthrough, correct permissions                |
-| Deterministic paths       | `MEDRE_HOME` set to fixed absolute path                    |
-| Adapter isolation         | Unique `adapter_id` per adapter, path separator validation |
-| Idempotent startup        | `_ensure_dirs()` uses `exist_ok=True`                      |
-| Config injection          | Environment variables or mounted `config.yaml`             |
-
-### Operational Procedures
-
-**First run (fresh volume):**
-
-```bash
-mkdir -p /host/medre-data
-cp config.yaml /host/medre-data/
-docker run -d --name medre \
-  --env MEDRE_HOME=/opt/medre \
-  --volume /host/medre-data:/opt/medre \
-  --device /dev/ttyACM0:/dev/ttyACM0 \
-  medre
-docker logs medre  # verify startup
-```
-
-**Restart (existing volume):**
-
-```bash
-docker start medre
-```
-
-**Upgrade (new container, same volume):**
-
-```bash
-docker stop medre && docker rm medre
-docker run -d --name medre \
-  --env MEDRE_HOME=/opt/medre \
-  --volume /host/medre-data:/opt/medre \
-  --device /dev/ttyACM0:/dev/ttyACM0 \
-  medre:new-version
-```
-
-**Backup:**
-
-```bash
-docker stop medre
-tar czf medre-backup-$(date +%Y%m%d).tar.gz /host/medre-data/
-# or just the critical state:
-tar czf medre-state-backup.tar.gz /host/medre-data/state/
-```
+Container deployment has one authoritative guide: [Docker](docker.md). It
+covers the committed image and Compose deployment, source-selected builds,
+published and development image tags, persistent state on the `/data` volume,
+the separately mounted host config file, serial and Bluetooth hardware access,
+and update and backup procedures. The deployment runs as a non-root user with
+a read-only container filesystem; keep secrets in the host config file or a
+local Compose override, never in image build arguments. Podman and Kubernetes
+are not qualified by the committed Docker workflow.
 
 ## Explicit Non-Guarantees
 

@@ -62,10 +62,12 @@ medre run --config bridge.yaml
 
 ## Delivery, recovery, and state
 
-The adapter preserves text and source attribution; replies and threads use
-readable text fallbacks. Native sender display attribution is enabled by
-default. Attachments, native mutations, reactions, read receipts, typing, and
-puppeting are unsupported.
+The adapter preserves text and source attribution. Replies send a native quote
+when the durable destination binding resolves a usable parent and fall back to
+readable text otherwise, subject to destination text budgets and normal
+delivery authority; threads use readable text fallbacks. Native sender
+display attribution is enabled by default. Attachments, native mutations,
+reactions, read receipts, typing, and puppeting are unsupported.
 
 First use establishes a history baseline. Later starts resume from durable
 admission checkpoints. Outbound admission returns `deferred` with `local_queue`

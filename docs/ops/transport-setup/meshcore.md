@@ -9,14 +9,14 @@ Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre
 
 ## Prerequisites
 
-| Requirement          | Details                                                                                                        |
-| -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                             |
-| Python               | 3.11 or later                                                                                                  |
-| Package install      | Install meshcore in the MEDRE environment; see [installation](../install.md) (exact pin from project metadata) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                      |
-| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                |
-| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                             |
+| Requirement          | Details                                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                          |
+| Python               | 3.11 or later                                                                                                               |
+| Package install      | Install the provider in the MEDRE environment; see [installation](../install.md) (its pinned MeshCore SDK installs with it) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                   |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                             |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                          |
 
 Fake mode is the default and recommended path for all development and testing. Real connectivity modes are opt-in for live validation only.
 
@@ -87,8 +87,7 @@ bluetoothctl --version
 sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
-# Install the meshcore SDK (includes bleak)
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
+# The provider distribution installs the pinned meshcore SDK (includes bleak)
 ```
 
 #### Pair the device first
@@ -190,12 +189,11 @@ BLE connections are sensitive to distance and interference. Try these steps:
 
 ##### `bleak` import error
 
-The `meshcore` package depends on `bleak`, but if you installed MEDRE without
-the SDK:
-
-```bash
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
-```
+The pinned `meshcore` SDK depends on `bleak`; it installs with the provider
+distribution. Check the interpreter in the
+[MEDRE environment](../install.md#run-provider-sdk-tools-in-the-same-environment)
+first. If the import fails there, check whether the provider and its native SDK
+are installed correctly; an unrelated shell interpreter proves nothing.
 
 ##### `bluetoothctl scan on` does not show the node
 
@@ -216,12 +214,22 @@ sudo systemctl restart bluetooth
 
 ### Firmware Compatibility
 
-`meshcore` is exact-pinned by the `meshcore` optional dependency group in `pyproject.toml`. Verify the installed SDK surface:
+The provider distribution pins its MeshCore SDK directly in its package
+metadata; the installed adapter's declared pin is the version authority.
+Verify the installed SDK surface in the environment containing MEDRE:
 
 ```bash
+# Activated deployment project:
 python -c "import meshcore; print(meshcore.__all__)"
-# Should output: ['BinaryReqType', 'BLEConnection', 'ConnectionManager', 'EventType', 'MeshCore', 'SerialConnection', 'TCPConnection', 'logger']
+# Persistent uv tool (POSIX):
+"$(uv tool dir)/medre/bin/python" -c "import meshcore; print(meshcore.__all__)"
 ```
+
+For the equivalent Windows PowerShell invocation see
+[installation](../install.md#run-provider-sdk-tools-in-the-same-environment).
+The SDK should expose `MeshCore`, `BLEConnection`, `SerialConnection`,
+`TCPConnection`, `ConnectionManager`, `EventType` and `BinaryReqType`. Run
+the optional TCP connectivity probe above with the same interpreter.
 
 ## Connection Modes
 
@@ -319,19 +327,7 @@ Additional rules:
 - `message_delay_seconds` must be finite and >= 0.
 - `default_channel` must be >= 0.
 
-## Environment Variables
-
-| Variable                   | Required for | Default | Example             | Description                                 |
-| -------------------------- | ------------ | ------- | ------------------- | ------------------------------------------- |
-| `MESHCORE_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode                             |
-| `MESHCORE_HOST`            | TCP          |         | `192.168.1.100`     | Node hostname or IP                         |
-| `MESHCORE_PORT`            | TCP          | `4000`  | `4000`              | TCP port                                    |
-| `MESHCORE_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                          |
-| `MESHCORE_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                             |
-| `MESHCORE_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                   |
-| `MESHCORE_DESTINATION`     | DM tests     |         | `a1b2c3...`         | Hex pubkey prefix for direct message target |
-
-### Env-First Adapter Creation
+## Environment Overrides
 
 ```bash
 export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
@@ -342,7 +338,9 @@ export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 ```
 
 `MEDRE_MESHCORE_*` runtime config variables are unsupported. Use
-`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead; see
+[configuration](../configuration.md#environment-variable-overrides) for the
+complete override contract.
 
 ## Manual Adapter Wiring
 

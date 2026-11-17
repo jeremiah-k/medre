@@ -6,22 +6,44 @@ persistence, and delivery evidence; each transport is an independently installed
 Python adapter. MEDRE began with mesh and LoRa bridges and supports messaging
 services through the same adapter, routing, and evidence contracts.
 
-> **Working pre-release — testers welcome; not production-ready.** Configuration,
-> event, and database schemas are not frozen. Expect breaking changes, test with
-> disposable state, and back up persistent state before updates. Do not delete
-> an active database to work around a schema mismatch: it may contain pending
-> messages and evidence.
+> **Working pre-release — testers welcome; not production-ready.** MEDRE is
+> alpha software: expect breaking changes, test with disposable state, and
+> back up persistent state before updates. Do not delete an active database to
+> work around a schema mismatch: it may contain pending messages and evidence.
+>
+> Frozen and evolving are per-artifact facts, not a blanket promise. The
+> published 0.1.0 schemas are frozen — [docs/schemas/README.md](docs/schemas/README.md)
+> and the [freeze manifest](docs/schemas/v0.1.0.freeze.json) record exactly
+> which released files are frozen — and the tagged 0.1.0 SQLite catalog is the
+> released storage baseline. The current configuration schema still evolves
+> additively between releases
+> ([current adapter config schema](docs/schemas/current/adapter-config.schema.json)),
+> and there is no general database migration: startup accepts the released
+> catalog and explicitly allowlisted additive predecessors, refuses other stale
+> prerelease layouts without modifying them, and recovery from a rejected
+> database is a manual backup and reset
+> ([WAL-safe backup and reset procedure](docs/ops/operator-workflows.md#step-by-step-reset-procedure)).
 
 ## Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
-The published 0.1.0 core still defaults adapter installation to Git; the index
-defaults and `sources` commands described on main require a newer core build.
-
-**1. Install the CLI and example providers.**
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/). The
+steps below work with the published 0.1.0 core, whose adapter installation
+defaults to Git, so have uv and Git installed for that path. Core 0.1.1
+introduces package-index defaults and the `sources` commands. Even with core
+0.1.0, index-only installation is possible when the needed provider packages
+are published, using native uv:
 
 ```bash
-uv tool install medre
+uv tool install --python 3.12 --with medre-adapter-matrix --with medre-adapter-meshtastic medre==0.1.0
+```
+
+Alternatively, install core and add the example providers using MEDRE:
+
+**1. Install the CLI and example providers.** Matrix requires Python 3.12 or
+newer; select a compatible interpreter when creating the tool environment.
+
+```bash
+uv tool install --python 3.12 medre
 medre adapters install matrix meshtastic
 medre adapters
 ```

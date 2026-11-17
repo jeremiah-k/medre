@@ -13,7 +13,7 @@ Setting up and running the MEDRE Meshtastic adapter against a real radio node. P
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | Meshtastic node      | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
 | Python               | 3.11 or later                                                                                |
-| Package install      | Install meshtastic in the MEDRE environment; see [installation](../install.md)               |
+| Package install      | Install the provider in the MEDRE environment; see [installation](../install.md)             |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4403                                    |
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                              |
 | Radio channel        | A channel index (default 0) not used for critical or emergency communications                |
@@ -27,19 +27,30 @@ Fake mode is the default and recommended path for all development and testing. R
 Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Default port: 4403.
 
 1. Power on the node and connect it to your network.
-2. Find the node's IP address (check DHCP table, or use `meshtastic --info`).
-3. Verify TCP connectivity:
+1. Find the node's IP address (check the DHCP table).
+1. Verify TCP connectivity:
 
-```bash
-nc -zv meshtastic.local 4403
-```
+   ```bash
+   nc -zv meshtastic.local 4403
+   ```
 
-4. Optionally verify with the Meshtastic CLI:
+1. Optionally verify with the Meshtastic CLI supplied by the provider. Use
+   the appropriate environment (stop any MEDRE process owning the radio first):
 
-```bash
-# Install meshtastic in the MEDRE environment; see [installation](../install.md)   # pinned mtjk fork; also provides the meshtastic CLI
-meshtastic --host meshtastic.local --info
-```
+   ```bash
+   # Activated deployment project:
+   meshtastic --host meshtastic.local --info
+   # Persistent uv tool (POSIX):
+   "$(uv tool dir)/medre/bin/meshtastic" --host meshtastic.local --info
+   ```
+
+   On Windows PowerShell:
+
+   ```powershell
+   & (Join-Path (uv tool dir) 'medre/Scripts/meshtastic.exe') --host meshtastic.local --info
+   ```
+
+   See [the same-environment SDK instructions](../install.md#run-provider-sdk-tools-in-the-same-environment).
 
 ### Serial Connectivity
 
@@ -65,9 +76,11 @@ bluetoothctl scan on
 
 ### Firmware Compatibility
 
-`mtjk` is exact-pinned by the `meshtastic` optional dependency group in
-`pyproject.toml`. If you encounter protocol errors, update the project pin and
-node firmware together, then rerun the installed-SDK and local validation tiers.
+The provider distribution pins its Meshtastic SDK (`mtjk`) directly in its
+package metadata, which also supplies the `meshtastic` CLI used above; the
+installed adapter's declared pin is the version authority. If you encounter
+protocol errors, upgrade the installed provider and node firmware together,
+then rerun the installed-SDK and local validation tiers.
 
 ## Connection Modes
 
@@ -150,20 +163,7 @@ config = MeshtasticConfig(
 
 Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
 
-## Environment Variables
-
-| Variable                     | Required for | Default | Example             | Description                                  |
-| ---------------------------- | ------------ | ------- | ------------------- | -------------------------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | All          |         | `tcp`               | Connection mode: `tcp`, `serial`, `ble`      |
-| `MESHTASTIC_HOST`            | TCP          |         | `meshtastic.local`  | Node hostname or IP                          |
-| `MESHTASTIC_PORT`            | TCP          | `4403`  | `4403`              | TCP port                                     |
-| `MESHTASTIC_SERIAL_PORT`     | Serial       |         | `/dev/ttyUSB0`      | Serial device path                           |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE          |         | `AA:BB:CC:DD:EE:FF` | BLE MAC address                              |
-| `MESHTASTIC_CHANNEL_INDEX`   | All          | `0`     | `0`                 | Channel for test messages                    |
-| `MESHTASTIC_NODE_ID`         | All          |         | `!25d6e474`         | Meshtastic node ID                           |
-| `MESHTASTIC_LIVE_SEND`       | Live TX      |         | `1`                 | Transmit guard. `1` enables RF transmission. |
-
-### Multi-Instance Env Overrides
+## Environment Overrides
 
 Override an existing YAML adapter:
 
@@ -180,7 +180,9 @@ export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 ```
 
 `MEDRE_MESHTASTIC_*` runtime config variables are unsupported. Use
-`MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>`; see
+[configuration](../configuration.md#environment-variable-overrides) for the
+complete override contract.
 
 ## Manual Adapter Wiring
 
@@ -250,6 +252,37 @@ INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
 **Queue durability:** The adapter-local queue is in-memory and non-durable across process restart. During an ordinary adapter stop, an item interrupted mid-send is reported through the queue-terminal path; when there is no in-flight cancellation, pending queue items remain on the adapter object for a subsequent `start()` of that same object. Durable delivery receipts/outbox state remain owned by core storage.
 
 Shutdown is idempotent.
+
+## Startup drain and reconnect receive watermark
+
+A Meshtastic radio hands its FROMRADIO queue to the next successful
+connection, and BLE, serial and TCP connections can deliver queued mesh
+packets without a usable `rxTime` or with an unsynchronized clock. After the
+first receive-ready connection of each adapter start, the session drops
+relay-classified packets for `startup_packet_drain_seconds` (default 15.0;
+`0` disables) before `rxTime` evaluation, decode, staging or publication. A
+real message arriving during the interval is also lost; drained packets are
+not replayed or retried. Non-relay classification, node information and
+native routing correlation are not gated by the drain.
+
+After a transparent reconnect, the radio can hand its pre-reconnect queue to
+the fresh connection. Every connection generation records a receive-ready
+watermark, and the `rxTime` cutoff judges each packet against its own
+generation's watermark with `startup_backlog_suppress_seconds` (default 5.0)
+as the cutoff tolerance. A fixed five-second, generation-scoped window drops
+relay-classified packets without a usable `rxTime` right after a reconnect:
+they cannot prove they are not queue backlog. Provably fresh traffic relays
+immediately, a rapid reconnect retires any remaining initial drain, and
+`startup_packet_drain_seconds: 0` disables both the initial drain and the
+reconnect window. The timestamp cutoff still applies after either drain
+expires (or is disabled): a radio clock trailing the host by more than the
+configured `startup_backlog_suppress_seconds` tolerance can drop fresh
+messages. Check clock synchronization and the `startup_backlog_packets_suppressed`
+diagnostic before adjusting the tolerance. A zero tolerance setting disables
+the timestamp cutoff; future timestamps are accepted, and unknown-age packets
+are accepted after the reconnect window, subject to ordinary admission. See
+[configuration](../configuration.md) for the field reference and the [transport profile](../../spec/transport-profiles/meshtastic.md)
+for the normative contract.
 
 ## Health States
 

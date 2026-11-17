@@ -22,21 +22,21 @@
 #   - E2EE encryption (plaintext mode only)
 #   - Reconnect resilience or retry-against-live
 #
-# REQUIRED ENVIRONMENT VARIABLES:
+# TEMPLATE PLACEHOLDERS (replace in a private YAML copy):
 #   MEDRE_HOMESERVER   - Synapse homeserver URL (e.g. http://localhost:8008)
 #   MEDRE_USER_ID      - Bot user ID (e.g. @bot:localhost)
 #   MEDRE_ACCESS_TOKEN - Bot access token
 #   MEDRE_ROOM_ID      - Target room ID (e.g. !room:localhost)
 #
 # USAGE:
-#   This config cannot be used directly with `medre run` — credentials
-#   and room IDs must be provided via environment variables.  Docker
+#   This config cannot be used directly with `medre run` — resolve the
+#   placeholders in a private copy as documented in docs/ops/docker.md. Docker
 #   integration tests (test_synapse_bridge_smoke.py,
 #   test_synapse_run_session.py) build configs programmatically from
 #   conftest.py fixtures that auto-register users and allocate ports.
 #
 # NOT for production.  NOT for direct `medre run` usage without Docker
-# Synapse running and environment variables set.
+# Synapse running and concrete YAML values.
 
 runtime:
   name: docker-matrix-bridge
@@ -52,8 +52,8 @@ adapters:
   # ---------------------------------------------------------------------------
   # Real Matrix adapter — points at Docker Synapse
   # ---------------------------------------------------------------------------
-  # Credentials come from environment variables set by Docker integration
-  # test fixtures (conftest.py).  No real secrets in this file.
+  # Replace placeholders in a private copy; integration test fixtures
+  # build separate configs programmatically. No real secrets in this file.
   matrix:
     synapse:
       enabled: true
