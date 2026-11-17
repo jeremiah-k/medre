@@ -4,10 +4,6 @@ MEDRE connects conversations across Matrix, Meshtastic, MeshCore, LXMF, XMPP,
 Chatmail and SimpleX Chat. Start with two connections; add more when you need them.
 The example below connects Matrix and Meshtastic.
 
-MEDRE is a working pre-release and **not production-ready**. Use test accounts
-and chats first. Before updating a bridge, stop it and
-[back up its private state](operator-workflows.md#pre-release-storage-reset).
-
 ## 1. Install MEDRE
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
@@ -114,6 +110,7 @@ conversations.
 After the first test works, use a
 [locked deployment](install.md#locked-deployment) to keep your installed versions
 consistent. See [running MEDRE](running-medre.md) for service setup and monitoring.
+For updates and state backups, see [operator workflows](operator-workflows.md).
 These are optional next steps, not prerequisites for trying the bridge.
 
 ## Need help?

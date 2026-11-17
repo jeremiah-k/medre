@@ -32,21 +32,13 @@ project that is not activated, use `uv run --locked medre ...` instead.
 | Validate native behavior with hardware                         | [Live validation](live-validation/short-iterations.md)                                                                                    |
 | Diagnose a failure                                             | [Troubleshooting](troubleshooting.md)                                                                                                     |
 
-## Before testing a new revision
+## Updates and backups
 
-MEDRE is a working pre-release, not a stable storage-format promise. Keep a
-copy of your configuration and commit-pinned dependency lockfile. Stop MEDRE
-and back up its private state before changing revisions. A schema change may
-require **starting with a new disposable test database** rather than reusing
-old SQLite state. Resetting a disposable test database is expected. For a
-bridge that has sent real traffic, inspect outstanding handoffs first: resetting
-discards queued deliveries and native reply/duplicate-correlation identifiers.
-See [configuration](configuration.md) for state paths and
-[recovery](recovery-and-replay.md) for investigating existing deliveries.
-
-A `sent` receipt is transport-specific and does not always prove that a remote
-radio received a packet. See [running MEDRE](running-medre.md) for receipt
-semantics. Share only sanitized diagnostics when reporting problems.
+Keep your configuration and dependency lockfile with your deployment. Before
+updating, stop MEDRE and back up its private state using the
+[operator workflows](operator-workflows.md). See [recovery and replay](recovery-and-replay.md)
+for investigating queued deliveries, and [configuration](configuration.md) for
+state paths.
 
 Operator docs cover **procedures**. Normative runtime behavior lives in
 [the specification](../spec/README.md); contributor guidance belongs in

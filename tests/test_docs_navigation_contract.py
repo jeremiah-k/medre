@@ -60,7 +60,7 @@ def test_onboarding_has_distinct_tool_and_project_workflows() -> None:
     assert "uv init --bare" in deployment
     assert "uv sync --locked" in deployment
     assert "uv run --locked medre version" in deployment
-    assert "not production-ready" in guide
+    assert "operator-workflows.md" in guide
     assert "WAL sidecars" in deployment
     assert "## 1. Install" in guide
     assert "## 2. Verify" in guide
