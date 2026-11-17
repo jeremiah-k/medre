@@ -214,7 +214,8 @@ sudo systemctl restart bluetooth
 ### Firmware Compatibility
 
 The provider distribution pins its MeshCore SDK directly in its package
-metadata (`meshcore==2.3.15`). Verify the installed SDK surface:
+metadata; the installed adapter's declared pin is the version authority.
+Verify the installed SDK surface:
 
 ```bash
 python -c "import meshcore; print(meshcore.__all__)"

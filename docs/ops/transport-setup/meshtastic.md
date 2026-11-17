@@ -64,11 +64,11 @@ bluetoothctl scan on
 
 ### Firmware Compatibility
 
-The provider distribution pins its Meshtastic SDK directly in its package
-metadata (`mtjk==2.7.11.post14`), which also supplies the `meshtastic` CLI
-used above. If you encounter protocol errors, upgrade the installed provider
-and node firmware together, then rerun the installed-SDK and local validation
-tiers.
+The provider distribution pins its Meshtastic SDK (`mtjk`) directly in its
+package metadata, which also supplies the `meshtastic` CLI used above; the
+installed adapter's declared pin is the version authority. If you encounter
+protocol errors, upgrade the installed provider and node firmware together,
+then rerun the installed-SDK and local validation tiers.
 
 ## Connection Modes
 
