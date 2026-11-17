@@ -16,7 +16,7 @@ suppresses cancellation.
 
 **Platform identifier:** `xmpp`
 
-**Maturity note:** XMPP integration is at a **pre-release** stage. Delivery status reflects local stream handoff only; server acceptance, recipient delivery and read state are separate.
+**Delivery boundary:** Delivery status reflects local stream handoff only; server acceptance, recipient delivery and read state are separate.
 
 ---
 

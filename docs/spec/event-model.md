@@ -200,9 +200,9 @@ The constructor validates `relation_type` at construction time. Values outside
 the five known types raise `ValueError`.
 
 **Thread capability:** The `"thread"` type participates in capability planning
-through `AdapterCapabilities.threads`. All current built-in adapters advertise
-`"fallback"` and degrade the relation to deterministic inline text. No built-in
-adapter currently advertises verified native thread emission.
+through `AdapterCapabilities.threads`. Matrix advertises `"native"` and emits
+the relation as a native `m.thread`; the remaining built-in adapters advertise
+`"fallback"` and degrade the relation to deterministic inline text.
 
 ### 2.4 Resolution Flow
 
