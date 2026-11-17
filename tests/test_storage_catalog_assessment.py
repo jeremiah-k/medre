@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from medre.core.storage.sqlite import catalog_assessment
+import medre.core.storage.sqlite.catalog_assessment as catalog_assessment
 from medre.core.storage.sqlite._prerelease_migrate import (
     known_outage_gap_table_forms,
     outage_gap_token_rebuild_applies,
