@@ -2036,7 +2036,10 @@ After the database opens, normal shape validation repeats with
 catalog fingerprint described in §10.3, so an accepted database matches the
 declared layout exactly.
 
-This validation catches older databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against unsupported databases.
+A version-1 stamp alone does not identify every historical catalog shape.
+Column-shape and structural-constraint validation together distinguish supported
+catalogs from unrecognized layouts. The published version-1 snapshot remains
+immutable; future schema generations follow the versioning policy.
 
 The `delivery_receipts.confirmation_level` column is required. A stamped
 database missing it is refused unless its complete catalog matches an
@@ -2073,14 +2076,18 @@ unstamped database MUST NOT be adopted.
 
 ### 10.4 Future supported additive changes
 
-With the tagged 0.1.0 catalog as the released baseline, adding a table, index,
-or optional field MAY be handled by a **forward-only, explicitly versioned**
-migration if it preserves existing data and has tested upgrade, rollback-on-
-failure, and restart behavior. Breaking or ambiguous transformations require an
-explicit operator decision and are not implied by a version number alone.
-There is no promise to migrate abandoned, unpublished development layouts.
-The current exact-catalog check continues to reject all unrecognized layouts;
-this section does not authorize any additional automatic migrations.
+The tagged 0.1.0 catalog is the released upgrade baseline. A supported change
+to the persisted layout MUST identify its supported source and target catalogs
+and provide an explicit forward-only migration, with data-preservation,
+rollback-on-failure, and restart tests. An unchanged catalog reopens without
+transformation. Normal supported upgrades preserve state rather than requiring
+a reset.
+
+Breaking or ambiguous transformations require an explicit compatibility and
+recovery decision; a version number alone does not authorize a transformation.
+The executable allowlist in §10 defines the migrations implemented today.
+Unrecognized catalogs remain outside that allowlist; this section does not
+introduce an additional migration step.
 
 ### 10.5 Unsupported Database Recovery and Reset
 
