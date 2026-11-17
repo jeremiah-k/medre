@@ -4,7 +4,8 @@ Runs the production durable-runtime assembly (real SQLite, durable ingress
 admission, background RetryWorker with its lifetime task group, capacity
 controller) twice on fresh disposable state:
 
-* ``defaults`` — ``RuntimeLimits``/``RetryConfig`` defaults and one held lane.
+* ``retry_enabled_default_cadence`` — default capacity and polling cadence,
+  with retries enabled and the explicit overrides reported below.
 * ``constrained`` — one deliberately constrained profile where the global
   delivery limit leaves exactly one spare slot beside the held operation.
 
@@ -13,8 +14,8 @@ boundary for the whole measurement. Fresh healthy work admitted during the
 hold must complete; the held row must never reach a terminal state while the
 barrier is held, and a before-start refusal must recover through its durable
 cooldown. The report compares retained terminal-history sizes and healthy
-versus held lanes, and records claim/count query timings, loop
-responsiveness, healthy-lane completion ages, worker bookkeeping, and DB/WAL
+versus held lanes, and records claim/count query timings, round
+progress, observed healthy-lane completion latency, worker bookkeeping, and DB/WAL
 footprints. It is a measurement, not a performance pass/fail verdict, and
 fake handoff observations prove local acceptance only — never recipient
 delivery.
@@ -29,13 +30,14 @@ import platform
 import sqlite3
 import subprocess
 import time
-from dataclasses import dataclass, field
+from contextlib import AsyncExitStack
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.config.model import RuntimeLimits
+from medre.config.model import RetryConfig, RuntimeLimits
 from medre.core.contracts.adapter import AdapterHandoffResult, AdapterSendError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
@@ -87,6 +89,10 @@ class _LaneTracker:
         self.max_concurrent = 0
         self._current_by_adapter: dict[str, int] = {}
         self.max_by_adapter: dict[str, int] = {}
+
+    @property
+    def current(self) -> int:
+        return self._current
 
     def enter(self, adapter_id: str) -> None:
         self._current += 1
@@ -306,9 +312,13 @@ async def _stage(
     store: SQLiteStorage, runner: PipelineRunner, event_id: str, channel: str
 ) -> None:
     """Admit one event durably and stage its outbox obligations."""
-    await runner.admit_ingress(_event(event_id, channel), "live")
+    admitted = await runner.admit_ingress(_event(event_id, channel), "live")
+    if not admitted.created or admitted.event_id != event_id:
+        raise RuntimeError(f"{event_id}: expected a new durable admission")
     ingress = DurableIngressWorker(storage=store, pipeline=runner, batch_size=1)
-    assert await ingress.run_once() == 1
+    processed = await ingress.run_once()
+    if processed != 1:
+        raise RuntimeError(f"{event_id}: expected one ingress item, got {processed}")
 
 
 async def _seed_terminal_history(
@@ -316,31 +326,45 @@ async def _seed_terminal_history(
     runner: PipelineRunner,
     *,
     history_rows: int,
+    adapter: FakePresentationAdapter,
 ) -> int:
     """Retain ``history_rows`` terminal rows through guarded transitions."""
-    staged = 0
-    while staged < history_rows:
-        batch = min(_SEED_CLAIM_BATCH, history_rows - staged)
-        for index in range(staged, staged + batch):
-            await _stage(store, runner, f"seed-{index:06d}", _SEED_CHANNEL)
-        staged += batch
-    settled = 0
-    now = datetime.now(timezone.utc).isoformat()
-    while settled < staged:
-        claimed = await store.claim_due_outbox_items(
-            now, "history-settler", lease_seconds=300, limit=_SEED_CLAIM_BATCH
-        )
-        if not claimed:
-            break
-        for item in claimed:
-            if not await store.mark_outbox_sent(item.outbox_id):
+    # Exercise the real initial-attempt path, including receipt and native-ref
+    # creation, rather than stamping attempt-zero rows as sent without evidence.
+    # This one-shot worker owns no background task; seed timings are excluded.
+    settler = RetryWorker(
+        store,
+        runner,
+        None,
+        initial_dispatch=True,
+        enabled=False,
+        batch_size=_SEED_CLAIM_BATCH,
+    )
+    for start in range(0, history_rows, _SEED_CLAIM_BATCH):
+        stop = min(start + _SEED_CLAIM_BATCH, history_rows)
+        event_ids = [f"seed-{index:06d}" for index in range(start, stop)]
+        for event_id in event_ids:
+            await _stage(store, runner, event_id, _SEED_CHANNEL)
+        await settler._process_due(datetime.now(timezone.utc))
+        for event_id in event_ids:
+            rows = await store.list_outbox_items_for_event(
+                event_id, metadata_only=True
+            )
+            if (
+                len(rows) != 1
+                or rows[0].target_adapter != _SETTLER_LANE
+                or rows[0].status != "sent"
+                or rows[0].attempt_number != 1
+                or not rows[0].receipt_id
+            ):
                 raise AssertionError(
-                    f"guarded terminal transition refused {item.outbox_id}"
+                    f"seed {event_id}: missing settled attempt evidence"
                 )
-            settled += 1
-    if settled != staged:
-        raise AssertionError(f"seeded {staged} rows but settled {settled}")
-    return settled
+        # Claim order is not part of this measurement contract.
+        if sorted(p.event_id for p in adapter.delivered_payloads) != event_ids:
+            raise AssertionError("seed handoffs do not match the staged event set")
+        adapter.delivered_payloads.clear()
+    return history_rows
 
 
 async def _run_profile(
@@ -354,52 +378,70 @@ async def _run_profile(
     if any(destination.glob(db_path.name + "*")):
         raise FileExistsError("measurement requires fresh disposable SQLite state")
     store = SQLiteStorage(str(db_path))
-    await store.initialize()
-    tracker = _LaneTracker()
-    held_entered, held_release = asyncio.Event(), asyncio.Event()
-    held = _HeldAdapter(_HELD_LANE, tracker, held_entered, held_release)
-    healthy = {name: _TrackedAdapter(name, tracker) for name in _HEALTHY_LANES}
-    settler = _TrackedAdapter(_SETTLER_LANE, tracker)
-    refuser = _CooldownRefusalAdapter(_REFUSER_LANE, tracker)
-    adapters = {
-        _HELD_LANE: held,
-        **healthy,
-        _SETTLER_LANE: settler,
-        _REFUSER_LANE: refuser,
-    }
-    runner = _pipeline(store, adapters)
-    limits = RuntimeLimits(
-        max_inflight_deliveries=profile.delivery_limit,
-        delivery_acquire_timeout_seconds=0.05,
-    )
-    capacity = CapacityController(limits)
-    runner.set_capacity_controller(capacity)
-    await runner.start()
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(store.close)
+        await store.initialize()
+        footprint_at_close: dict[str, int] = {}
 
-    seeded = await _seed_terminal_history(store, runner, history_rows=history_rows)
+        def record_pre_close_footprint() -> None:
+            footprint_at_close.update(
+                {
+                    path.name: path.stat().st_size
+                    for path in destination.glob(db_path.name + "*")
+                    if path.is_file()
+                }
+            )
 
-    probe = _QueryProbe(store)
-    probe.install()
-    dispatcher = RetryWorker(
-        store,
-        runner,
-        capacity,
-        initial_dispatch=True,
-        enabled=profile.retries_enabled,
-        interval_seconds=profile.interval_seconds,
-        batch_size=profile.batch_size,
-        max_attempts=4,
-        stop_timeout_seconds=0.5,
-    )
-    dispatcher.set_available_target_adapters(adapters.keys())
-    await dispatcher.start()
+        resources.callback(record_pre_close_footprint)
+        tracker = _LaneTracker()
+        held_entered, held_release = asyncio.Event(), asyncio.Event()
+        held = _HeldAdapter(_HELD_LANE, tracker, held_entered, held_release)
+        healthy = {name: _TrackedAdapter(name, tracker) for name in _HEALTHY_LANES}
+        settler = FakePresentationAdapter(adapter_id=_SETTLER_LANE)
+        refuser = _CooldownRefusalAdapter(_REFUSER_LANE, tracker)
+        adapters = {
+            _HELD_LANE: held,
+            **healthy,
+            _SETTLER_LANE: settler,
+            _REFUSER_LANE: refuser,
+        }
+        runner = _pipeline(store, adapters)
+        limits = RuntimeLimits(
+            max_inflight_deliveries=profile.delivery_limit,
+            delivery_acquire_timeout_seconds=0.05,
+        )
+        capacity = CapacityController(limits)
+        runner.set_capacity_controller(capacity)
+        resources.push_async_callback(runner.stop)
+        await runner.start()
 
-    round_metrics: list[dict[str, Any]] = []
-    healthy_rows_completed = 0
-    healthy_row_ages_ms: list[float] = []
-    expected_total_rows = 0
-    try:
-        # Stage the held event before the first dispatch cycle: one lane parks
+        seeded = await _seed_terminal_history(
+            store, runner, history_rows=history_rows, adapter=settler
+        )
+
+        probe = _QueryProbe(store)
+        resources.callback(probe.restore)
+        probe.install()
+        dispatcher = RetryWorker(
+            store,
+            runner,
+            capacity,
+            initial_dispatch=True,
+            enabled=profile.retries_enabled,
+            interval_seconds=profile.interval_seconds,
+            batch_size=profile.batch_size,
+            max_attempts=4,
+            stop_timeout_seconds=0.5,
+        )
+        dispatcher.set_available_target_adapters(adapters.keys())
+        resources.push_async_callback(dispatcher.stop)
+        await dispatcher.start()
+
+        round_metrics: list[dict[str, Any]] = []
+        healthy_rows_completed = 0
+        healthy_observed_latency_ms: list[float] = []
+        expected_total_rows = 0
+        # Stage the held event before admitting fresh fanout work: one lane parks
         # behind the barrier while its healthy fanout completes immediately.
         await _stage(store, runner, "held-1", _ROOM_CHANNEL)
         await _poll_until(
@@ -420,12 +462,19 @@ async def _run_profile(
         for round_index in range(profile.healthy_batches):
             staged_at = time.perf_counter()
             round_rows: list[tuple[str, str, str]] = []
+            admission_started: dict[str, float] = {}
             for event_index in range(profile.events_per_batch):
                 event_id = f"fresh-{round_index:02d}-{event_index:02d}"
+                admission_started[event_id] = time.perf_counter()
                 await _stage(store, runner, event_id, _ROOM_CHANNEL)
                 rows = await store.list_outbox_items_for_event(
                     event_id, metadata_only=True
                 )
+                if (
+                    len(rows) != len(healthy) + 1
+                    or {r.target_adapter for r in rows} != {_HELD_LANE, *healthy}
+                ):
+                    raise AssertionError(f"{event_id}: unexpected fanout obligations")
                 for row in rows:
                     if row.target_adapter in healthy:
                         round_rows.append((event_id, row.target_adapter, row.outbox_id))
@@ -447,21 +496,25 @@ async def _run_profile(
                         event_id, metadata_only=True
                     )
                     row = next(r for r in rows if r.outbox_id == outbox_id)
-                    if row.status != "pending" and first_progress_ms is None:
-                        first_progress_ms = (time.perf_counter() - staging_done) * 1000
+                    if (
+                        row.status in {"in_progress", "sent"}
+                        and first_progress_ms is None
+                    ):
+                        first_progress_ms = (time.perf_counter() - staged_at) * 1000
                     if row.status == "sent":
                         sent_at[outbox_id] = time.perf_counter()
                 await asyncio.sleep(_POLL_SECONDS)
             healthy_rows_completed += len(sent_at)
-            healthy_row_ages_ms.extend(
-                (sent_at[a] - staging_done) * 1000 for a in sent_at
+            healthy_observed_latency_ms.extend(
+                (sent_at[outbox_id] - admission_started[event_id]) * 1000
+                for event_id, _, outbox_id in round_rows
             )
             round_metrics.append(
                 {
                     "round": round_index,
                     "healthy_rows": len(round_rows),
                     "staging_ms": round((staging_done - staged_at) * 1000, 3),
-                    "first_claim_progress_ms": (
+                    "first_observed_progress_ms": (
                         round(first_progress_ms, 3)
                         if first_progress_ms is not None
                         else None
@@ -488,7 +541,7 @@ async def _run_profile(
             timeout=45.0,
             description="cooldown refusal never recovered through its schedule",
         )
-        if refuser.deliver_calls < calls_before + 2:
+        if refuser.deliver_calls != calls_before + 2:
             raise AssertionError(
                 f"cooldown row reported sent after {refuser.deliver_calls} "
                 f"handoff calls (expected a refusal plus a re-dispatch)"
@@ -497,18 +550,17 @@ async def _run_profile(
         # Logical accounting: healthy lanes terminal exactly once, the held
         # row never terminal behind the barrier, and lane exclusivity intact.
         counts_now = await probe._original_count()
-        if counts_now.get("in_progress", 0) != 1:
-            raise AssertionError(
-                f"expected exactly the held row in_progress: {counts_now}"
-            )
         # Terminal accounting: seeded history + round rows + the held event's
         # healthy fanout + the recovered cooldown row.
         expected_sent = seeded + expected_total_rows + len(healthy) + 1
-        if counts_now.get("sent", 0) != expected_sent:
+        if counts_now != {
+            "sent": expected_sent,
+            "in_progress": 1,
+            "pending": profile.healthy_batches * profile.events_per_batch,
+        }:
             raise AssertionError(
-                f"unexpected sent count {counts_now.get('sent')}: expected "
-                f"{expected_sent} (seed + healthy rounds + held-1 fanout + "
-                f"cooldown recovery)"
+                f"unexpected terminal/active accounting: {counts_now}; "
+                f"expected {expected_sent} sent rows"
             )
         if healthy_rows_completed != expected_total_rows:
             raise AssertionError(
@@ -517,6 +569,20 @@ async def _run_profile(
             )
         if held.delivered_payloads:
             raise AssertionError("held destination accepted a handoff")
+        held_rows = await store.list_outbox_items_for_event(
+            "held-1", metadata_only=True
+        )
+        held_row = next(r for r in held_rows if r.target_adapter == _HELD_LANE)
+        if held_row.status != "in_progress" or held_row.active_attempt != 1:
+            raise AssertionError("original held attempt no longer owns its handoff")
+        await _poll_until(
+            lambda: set(dispatcher._active) == {_HELD_LANE}
+            and capacity.delivery_current == 1
+            and dispatcher.outbox_counts == counts_now,
+            timeout=10.0,
+            description="worker bookkeeping did not settle to the held lane",
+        )
+        delivery_current_while_held = capacity.delivery_current
         for name, adapter in healthy.items():
             expected_handoffs = profile.healthy_batches * profile.events_per_batch + 1
             if len(adapter.delivered_payloads) != expected_handoffs:
@@ -535,17 +601,17 @@ async def _run_profile(
             )
 
         # Explicit final query samples against the retained history size.
-        now = datetime.now(timezone.utc).isoformat()
         final_claim_ms: list[float] = []
         final_count_ms: list[float] = []
         for _ in range(_FINAL_QUERY_SAMPLES):
             started = time.perf_counter()
             batch = await probe._original_claim(
-                now,
+                datetime.now(timezone.utc).isoformat(),
                 "final-probe",
                 lease_seconds=300,
-                limit=20,
+                limit=min(profile.batch_size, profile.delivery_limit - 1),
                 excluded_adapters=(_HELD_LANE,),
+                one_per_adapter=True,
             )
             final_claim_ms.append((time.perf_counter() - started) * 1000)
             if batch:
@@ -569,16 +635,12 @@ async def _run_profile(
             "dead_lettered": dispatcher.state.dead_lettered,
         }
         outbox_counts = dispatcher.outbox_counts
-    finally:
-        await dispatcher.stop()
-        probe.restore()
-        await runner.stop()
-        footprint_at_close = {
-            path.name: path.stat().st_size
-            for path in destination.glob(db_path.name + "*")
-            if path.is_file()
-        }
-        await store.close()
+    if (
+        dispatcher.state.abandoned
+        or tracker.current != 0
+        or capacity.delivery_current != 0
+    ):
+        raise AssertionError("synthetic dispatcher did not retire its held operation")
     footprint_after_close = {
         path.name: path.stat().st_size
         for path in destination.glob(db_path.name + "*")
@@ -595,9 +657,15 @@ async def _run_profile(
             "dispatch_interval_seconds": (
                 profile.interval_seconds
                 if profile.interval_seconds is not None
-                else "default(10.0)"
+                else RetryConfig().interval_seconds
             ),
             "retries_enabled": profile.retries_enabled,
+            "worker_fallback_max_attempts": 4,
+            "route_retry_policy": asdict(RetryPolicy(jitter=False)),
+            "runtime_limits": asdict(limits),
+            "delivery_acquire_timeout_seconds": 0.05,
+            "dispatcher_stop_timeout_seconds": 0.5,
+            "initial_dispatch": True,
             "healthy_batches": profile.healthy_batches,
             "events_per_batch": profile.events_per_batch,
             "history_rows_seeded": history_rows,
@@ -617,16 +685,16 @@ async def _run_profile(
             "cooldown_refusals_recovered": 1,
         },
         "healthy_lane_completion": {
-            "age_ms": _timings(healthy_row_ages_ms),
-            "sample_count": len(healthy_row_ages_ms),
+            "observed_completion_latency_ms": _timings(healthy_observed_latency_ms),
+            "sample_count": len(healthy_observed_latency_ms),
         },
-        "loop_responsiveness": {
+        "round_progress": {
             "rounds": round_metrics,
-            "first_claim_progress_ms": _timings(
+            "first_observed_progress_ms": _timings(
                 [
-                    r["first_claim_progress_ms"]
+                    r["first_observed_progress_ms"]
                     for r in round_metrics
-                    if r["first_claim_progress_ms"] is not None
+                    if r["first_observed_progress_ms"] is not None
                 ]
             ),
         },
@@ -657,7 +725,7 @@ async def _run_profile(
         "worker_state": worker_state,
         "capacity_snapshot_while_held": {
             "delivery_limit": capacity.delivery_limit,
-            "delivery_current": 1,
+            "delivery_current": delivery_current_while_held,
             "max_concurrent_handoffs": tracker.max_concurrent,
             "max_concurrent_by_adapter": dict(sorted(tracker.max_by_adapter.items())),
         },
@@ -676,7 +744,7 @@ def _source_identity() -> dict[str, Any]:
     dirty = None
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "HEAD"],
             cwd=package_root,
             capture_output=True,
             text=True,
@@ -711,23 +779,22 @@ async def measure_held_lane_workload(
     *,
     history_rows: int = 120,
 ) -> dict[str, Any]:
-    """Run the defaults profile and the constrained profile, then report."""
-    if not 0 <= history_rows <= _MAX_HISTORY_ROWS:
+    """Run the default-cadence and constrained retry-enabled profiles."""
+    if type(history_rows) is not int or not 0 <= history_rows <= _MAX_HISTORY_ROWS:
         raise ValueError(f"history-rows must be in [0, {_MAX_HISTORY_ROWS}]")
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     profiles = [
         _Profile(
-            name="defaults",
+            name="retry_enabled_default_cadence",
             delivery_limit=RuntimeLimits().max_inflight_deliveries,
-            batch_size=20,
+            batch_size=RetryConfig().batch_size,
             interval_seconds=None,
             retries_enabled=True,
             healthy_batches=2,
             events_per_batch=3,
             extra={
-                "runtime_limits": "RuntimeLimits() defaults",
-                "note": "existing default dispatch cadence and capacity",
+                "note": "default capacity and cadence; retries and timeouts overridden",
             },
         ),
         _Profile(
@@ -739,7 +806,6 @@ async def measure_held_lane_workload(
             healthy_batches=2,
             events_per_batch=2,
             extra={
-                "runtime_limits": "max_inflight_deliveries=2 (held + one spare)",
                 "note": "the only configured spare slot serves all healthy lanes",
             },
         ),
@@ -760,6 +826,11 @@ async def measure_held_lane_workload(
             "the held lane models a stalled destination with an explicit "
             "barrier at the adapter boundary; a real SDK may be "
             "cancellation-resistant where this fake is not",
+            "completion latency runs from the start of admission to the first "
+            "polling observation of sent; staging and observation delay are included",
+            "first observed progress is not an exact claim timestamp or loop lag",
+            "terminal history uses real initial dispatch with synthetic handoffs; "
+            "seed timings and seed handoffs are excluded from the measured lane sample",
             "timings are measurement data only; no performance pass/fail "
             "verdict and no machine-speed gate",
             "restart recovery semantics are characterized by the four-way "
