@@ -29,9 +29,7 @@ def _profile() -> subject._Profile:
 
 @pytest.mark.parametrize("history_rows", [0, 1])
 async def test_measurement_retains_real_attempt_history(tmp_path, history_rows):
-    result = await subject._run_profile(
-        tmp_path, _profile(), history_rows=history_rows
-    )
+    result = await subject._run_profile(tmp_path, _profile(), history_rows=history_rows)
     assert result["terminal_history_retained"]["seeded_sent_rows"] == history_rows
     assert result["healthy_vs_held"]["healthy_rows_completed"] == 6
     assert result["healthy_vs_held"]["healthy_rows_expected"] == 6
@@ -56,10 +54,13 @@ async def test_measurement_retains_real_attempt_history(tmp_path, history_rows):
             for status, attempt, receipt in rows
         )
         if rows:
-            assert db.execute(
-                "SELECT COUNT(*) FROM delivery_receipts WHERE receipt_id=?",
-                (rows[0][2],),
-            ).fetchone()[0] == 1
+            assert (
+                db.execute(
+                    "SELECT COUNT(*) FROM delivery_receipts WHERE receipt_id=?",
+                    (rows[0][2],),
+                ).fetchone()[0]
+                == 1
+            )
     finally:
         db.close()
 

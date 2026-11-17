@@ -348,9 +348,7 @@ async def _seed_terminal_history(
             await _stage(store, runner, event_id, _SEED_CHANNEL)
         await settler._process_due(datetime.now(timezone.utc))
         for event_id in event_ids:
-            rows = await store.list_outbox_items_for_event(
-                event_id, metadata_only=True
-            )
+            rows = await store.list_outbox_items_for_event(event_id, metadata_only=True)
             if (
                 len(rows) != 1
                 or rows[0].target_adapter != _SETTLER_LANE
@@ -471,10 +469,9 @@ async def _run_profile(
                 rows = await store.list_outbox_items_for_event(
                     event_id, metadata_only=True
                 )
-                if (
-                    len(rows) != len(healthy) + 1
-                    or {r.target_adapter for r in rows} != {_HELD_LANE, *healthy}
-                ):
+                if len(rows) != len(healthy) + 1 or {
+                    r.target_adapter for r in rows
+                } != {_HELD_LANE, *healthy}:
                     raise AssertionError(f"{event_id}: unexpected fanout obligations")
                 for row in rows:
                     if row.target_adapter in healthy:
