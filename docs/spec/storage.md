@@ -2059,7 +2059,7 @@ procedure may preserve state. If the operator explicitly chooses to start
 fresh, use the following workflow; no automatic deletion or recreation is
 performed.
 
-1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
+1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and a catalog compatibility verdict (`current`, `supported_upgrade`, `unsupported`, `empty_new`, or `unavailable`), read-only and without migrating. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
 2. **Stop all database users and preserve state if it matters.** Make and verify a SQLite-aware backup in a private location, or preserve the complete matching main database and WAL/SHM file set with all users stopped. Do not copy only the main file: committed transactions may still reside in the WAL. See the [operator reset procedure](../ops/operator-workflows.md#step-by-step-reset-procedure).
 3. **Reset deliberately.** Only after verifying the backup or explicitly choosing to discard all state, run the reset command against the resolved path with all database users stopped.
 4. **Rerun MEDRE.** The next startup creates a fresh database with the current schema shape.

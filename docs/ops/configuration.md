@@ -1524,7 +1524,9 @@ medre resolve --storage-path PATH --event ID --plan-id PLAN --target-adapter ADA
     native attempts.
 
 medre storage status [--storage-path PATH]
-    Storage management (read-only). Reports schema health.
+    Storage management (read-only). Reports a catalog compatibility
+    assessment: current, supported upgrade, unsupported, empty/new, or
+    unavailable. Never writes, migrates, or checkpoints.
 
 medre storage collect [--storage-path PATH] [--mode retain|relay-only] [--limit N] [--after EVENT] [--apply] [--yes]
     Storage management (opt-in content collection). Defaults to retain with

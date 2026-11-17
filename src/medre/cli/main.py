@@ -952,7 +952,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     storage_sub = storage_p.add_subparsers(dest="storage_command", required=True)
 
     storage_status_p = storage_sub.add_parser(
-        "status", help="Report storage schema health (read-only)"
+        "status", help="Report storage catalog compatibility (read-only)"
     )
     storage_status_p.add_argument(
         "--storage-path",

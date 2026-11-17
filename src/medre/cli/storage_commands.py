@@ -1,6 +1,6 @@
 """Storage CLI commands: inspection, retention control, collection, and reset.
 
-``medre storage status``              — read-only schema health check.
+``medre storage status``              — read-only catalog compatibility assessment.
 ``medre storage retention status``    — read-only retention policy status.
 ``medre storage retention activate``  — open a new relay-only activation epoch.
 ``medre storage reset``               — destructive reset with optional backup.
@@ -19,6 +19,11 @@ from medre.core.storage.content_retention import (
     RETENTION_DEFAULT_INTERVAL,
     retention_epoch_grace_seconds,
     retention_epoch_observation_age_seconds,
+)
+from medre.core.storage.sqlite.catalog_assessment import (
+    CatalogAssessment,
+    CatalogCompatibility,
+    assess_storage_catalog,
 )
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG
@@ -94,22 +99,74 @@ def _heartbeat_observation(
     return "stale", True, grace_seconds
 
 
-async def _storage_status(storage_path: str) -> None:
-    """Open the database read-only and report schema health.
+#: Operator-facing verdict token per classification. ``HEALTHY`` is printed
+#: only for an exact current catalog: a database the startup openers would
+#: refuse can never receive an unqualified healthy verdict.
+_STATUS_TOKENS = {
+    CatalogCompatibility.CURRENT: "HEALTHY",
+    CatalogCompatibility.SUPPORTED_UPGRADE: "SUPPORTED UPGRADE",
+    CatalogCompatibility.UNSUPPORTED: "UNSUPPORTED",
+    CatalogCompatibility.EMPTY_NEW: "EMPTY",
+    CatalogCompatibility.UNAVAILABLE: "UNAVAILABLE",
+}
 
-    Reports the stored schema version, expected schema version, and the
-    result of required-column validation for every table.
+#: Operator guidance per classification, printed after the verdict token.
+_STATUS_GUIDANCE = {
+    CatalogCompatibility.CURRENT: "",
+    CatalogCompatibility.SUPPORTED_UPGRADE: (
+        " — recognized additive predecessor; a guarded writable migration"
+        " is available. Stop other database users and perform one normal"
+        " writable MEDRE startup; read-only inspection cannot apply it."
+    ),
+    CatalogCompatibility.UNSUPPORTED: (
+        " — the catalog matches neither the current schema nor a recognized"
+        " predecessor; preserve the database and make an explicit recovery"
+        " or reset decision."
+    ),
+    CatalogCompatibility.EMPTY_NEW: (
+        " — no schema objects present; a writable MEDRE startup creates the"
+        " current schema as new state."
+    ),
+    CatalogCompatibility.UNAVAILABLE: (
+        " — the assessment could not read the database; no compatibility"
+        " conclusion was reached."
+    ),
+}
 
-    Uses a raw ``sqlite3`` connection with ``?mode=ro`` instead of
-    :class:`SQLiteStorage` so that unhealthy / mismatched databases can
-    still be inspected without triggering schema validation errors.
-    """
-    import sqlite3
 
-    from medre.core.storage.sqlite.schema import (
-        _EXPECTED_SCHEMA_VERSION,
-        _REQUIRED_COLUMNS,
+def _print_catalog_assessment(
+    resolved: Path, assessment: CatalogAssessment, expected_version: int
+) -> None:
+    """Print one completed catalog assessment as the status report."""
+    print(f"Storage: {resolved}")
+    print(
+        f"Schema version: {assessment.stored_version} "
+        f"(expected: {expected_version})"
     )
+    print(f"Catalog: {assessment.classification.value}")
+    if assessment.detail:
+        print(f"Diagnostic: {assessment.detail}")
+    print()
+    print(
+        f"Status: {_STATUS_TOKENS[assessment.classification]}"
+        f"{_STATUS_GUIDANCE[assessment.classification]}"
+    )
+
+
+async def _storage_status(storage_path: str) -> None:
+    """Report the exact storage catalog compatibility assessment.
+
+    Runs the shared read-only assessment — the same exact catalog validator
+    and predecessor authority the writable and read-only startup openers
+    apply — over one consistent read snapshot, and reports one verdict:
+    current, supported upgrade, unsupported, empty/new, or unavailable.
+
+    A completed assessment describes catalog compatibility only. It does
+    not prove writable access, database integrity, remote availability, or
+    any behavior under concurrent changes; ``unavailable`` means the
+    assessment itself could not read the database. No files are written.
+    """
+    from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
 
     resolved = Path(storage_path).resolve()
     if not resolved.exists():
@@ -117,59 +174,14 @@ async def _storage_status(storage_path: str) -> None:
         sys.exit(EXIT_BUILD)
 
     try:
-        conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
+        assessment = assess_storage_catalog(str(resolved))
     except Exception as exc:
         print(f"Storage error: {exc}", file=sys.stderr)
         sys.exit(EXIT_BUILD)
 
-    try:
-        # Read schema version.
-        try:
-            row = conn.execute(
-                "SELECT value FROM _medre_schema_meta WHERE key = 'schema_version'"
-            ).fetchone()
-            stored_version = int(row["value"]) if row else None
-        except Exception:
-            stored_version = None
-
-        expected_version = _EXPECTED_SCHEMA_VERSION
-        version_match = stored_version == expected_version
-
-        # Validate column shape for each required table.
-        table_results: dict[str, dict[str, object]] = {}
-        all_ok = version_match
-        for table, required in _REQUIRED_COLUMNS.items():
-            try:
-                rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-                existing = {r["name"] for r in rows}
-            except Exception:
-                existing = set()
-            missing = sorted(required - existing)
-            table_results[table] = {
-                "ok": len(missing) == 0,
-                "missing_columns": missing,
-            }
-            if missing:
-                all_ok = False
-
-        # Print report.
-        print(f"Storage: {resolved}")
-        print(
-            f"Schema version: {stored_version} (expected: {expected_version}, "
-            f"match: {version_match})"
-        )
-        print()
-        for table, info in table_results.items():
-            status = "OK" if info["ok"] else f"MISSING {info['missing_columns']}"
-            print(f"  {table}: {status}")
-        print()
-        if all_ok:
-            print("Status: HEALTHY")
-        else:
-            print("Status: MISMATCH — storage requires operator intervention")
-    finally:
-        conn.close()
+    _print_catalog_assessment(resolved, assessment, _EXPECTED_SCHEMA_VERSION)
+    if assessment.classification is CatalogCompatibility.UNAVAILABLE:
+        sys.exit(EXIT_BUILD)
 
 
 async def _storage_reset(storage_path: str, *, backup: bool, yes: bool) -> None:
