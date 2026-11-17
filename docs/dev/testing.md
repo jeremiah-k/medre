@@ -358,8 +358,8 @@ command runs.
 
 The schema version (`_EXPECTED_SCHEMA_VERSION`) is 1. The tagged 0.1.0 SQL
 snapshot identifies the released baseline; the version stamp alone is not a
-compatibility proof. Tests cover exact catalog validation, the declared additive
-predecessors, and refusal of unsupported layouts. Published storage changes need
+compatibility proof. Tests cover exact catalog validation and refusal of
+unsupported layouts. Published storage changes need
 the compatibility review described in the [versioning policy](versioning-policy.md).
 
 The schema stamp is not a compatibility proof; column-shape and complete catalog validation guard against unsupported databases. Tests verify that:
@@ -368,10 +368,9 @@ The schema stamp is not a compatibility proof; column-shape and complete catalog
 - A database that reports the correct version but is missing required columns (unsupported catalog) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError` (tested in `test_prerelease_storage_reset.py`).
 - Column-shape validation reports the affected table and all missing columns in the error (tested in `test_prerelease_storage_reset.py`).
 
-Test strict catalog rejection for layouts outside the additive policy and each
-explicitly allowlisted predecessor migration for upgrade, idempotent reopen,
-and preserved row counts and foreign-key integrity (tested in
-`test_prerelease_schema_migration.py`). The released baseline is the 0.1.0
+Tests cover exact catalog validation, refusal of unsupported layouts without
+modification, and reopen idempotence at the released catalog (tested in
+`test_prerelease_storage_reset.py`). The released baseline is the 0.1.0
 tagged catalog; each future explicit forward-only migration requires tests for
 upgrade, interruption/rollback and restart. No migration path is required for
 abandoned unpublished development shapes.

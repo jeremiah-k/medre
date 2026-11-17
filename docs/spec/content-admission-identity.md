@@ -15,7 +15,7 @@ permission to send. It cannot change when future content expires.
 
 This body-identity contract introduces no general migration or compatibility
 reader. The [storage policy](storage.md#10-database-compatibility-policy)
-defines the guarded additive predecessors and refusal of unsupported SQLite
+defines catalog acceptance and refusal of unsupported SQLite
 shapes. Event bodies, reply excerpts,
 rendering evidence, packet plans, attachments and provider-owned copies must
 all be included before core-owned content can be collected. This contract
