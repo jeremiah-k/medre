@@ -27,7 +27,10 @@ def test_diagnostics_smoke_examples_share_the_generated_config():
 def test_onboarding_distinguishes_sample_from_bidirectional_bridge():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     guide = (OPS / "getting-started.md").read_text(encoding="utf-8")
-    assert "one-way diagnostic route" in readme
+    # The sample must read as a simulated one-way check, not a real bridge;
+    # phrasing may vary as long as both properties stay stated.
+    assert "one-way" in readme
+    assert "simulated adapters" in readme
     assert "one-way forwarding only" in guide
     assert "guided-configuration.md" in guide
     advanced = (OPS / "guided-configuration.md").read_text(encoding="utf-8")
