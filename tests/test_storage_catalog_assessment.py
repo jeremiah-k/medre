@@ -27,7 +27,7 @@ from medre.core.storage.sqlite.catalog_assessment import (
     assess_catalog,
     assess_storage_catalog,
 )
-from medre.core.storage.sqlite.connection import sync_open_readonly
+from medre.core.storage.sqlite.connection import sync_open, sync_open_readonly
 from medre.core.storage.sqlite.schema import (
     _INDEXES,
     _PRESSURE_OUTAGE_GAPS_DDL,
@@ -68,9 +68,10 @@ def test_current_catalog_classifies_current(tmp_path: Path) -> None:
     assert assessment.detail is None
 
 
-
 @pytest.mark.parametrize("stamp", [b"1", "01", " 1 "])
-def test_current_stamp_parsing_agrees_with_startup(tmp_path: Path, stamp: str | bytes) -> None:
+def test_current_stamp_parsing_agrees_with_startup(
+    tmp_path: Path, stamp: str | bytes
+) -> None:
     """Display serialization must not change the validator's version semantics."""
     path = _build_current(tmp_path / "stamp.sqlite")
     with closing(sqlite3.connect(path)) as db, db:
@@ -82,6 +83,22 @@ def test_current_stamp_parsing_agrees_with_startup(tmp_path: Path, stamp: str | 
     assessment = assess_storage_catalog(str(path))
     assert assessment.classification is CatalogCompatibility.CURRENT
     assert assessment.stored_version == str(stamp)
+    with closing(sync_open(str(path))) as db:
+        assert validate_schema_definition(db, str(path))
+
+
+def test_noncanonical_stamp_does_not_expand_predecessor_allowlist(
+    tmp_path: Path,
+) -> None:
+    path = _build_current(tmp_path / "predecessor.sqlite")
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("DROP TABLE event_routing_facts")
+        db.execute(
+            "UPDATE _medre_schema_meta SET value=? WHERE key='schema_version'",
+            (b"1",),
+        )
+    assert _classify(path) is CatalogCompatibility.UNSUPPORTED
+
 
 def test_changed_default_is_unsupported(tmp_path: Path) -> None:
     assert _SCHEMA.count(_LINEAGE_DEFAULT) == 1
@@ -341,8 +358,9 @@ def test_assessment_reads_one_consistent_snapshot(tmp_path: Path) -> None:
         writer.close()
 
 
-
-def test_public_assessment_owns_one_snapshot(tmp_path: Path, monkeypatch) -> None:
+def test_public_assessment_owns_one_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Commit between the first catalog read and subsequent metadata reads."""
     path = _build_current(tmp_path / "public-snapshot.sqlite")
     original = catalog_assessment._definitions
@@ -371,6 +389,7 @@ def test_public_assessment_owns_one_snapshot(tmp_path: Path, monkeypatch) -> Non
         fresh = assess_storage_catalog(str(path))
         assert fresh.classification is CatalogCompatibility.UNSUPPORTED
         assert fresh.stored_version == "99"
+
 
 def test_committed_live_wal_state_is_visible_without_writes(tmp_path: Path) -> None:
     """Committed WAL frames are readable and never rewritten or checkpointed.
