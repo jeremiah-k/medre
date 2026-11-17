@@ -125,7 +125,8 @@ async def test_measurement_cleanup_covers_setup_and_active_hold(
             monkeypatch.setattr(subject, "_poll_until", fail_after_hold)
         expected_cleanup = ["dispatcher", "probe", "runner", "store"]
     error = asyncio.CancelledError if failure == "seed_cancelled" else RuntimeError
-    with pytest.raises(error):
+    match = None if failure == "seed_cancelled" else "injected failure"
+    with pytest.raises(error, match=match):
         await subject._run_profile(tmp_path, _profile(), history_rows=0)
     assert cleanup == expected_cleanup
 
