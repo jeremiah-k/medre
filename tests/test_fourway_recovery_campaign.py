@@ -15,6 +15,7 @@ and uncertain handoff must keep their distinct recovery behaviors.
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from medre.core.ingress import DurableIngressWorker
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.content_ceiling import ContentCeilingPolicy
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
@@ -278,7 +280,8 @@ class _RendezvousDestinationAdapter(FakePresentationAdapter):
     async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         self._tracker.enter(self.adapter_id)
         try:
-            await wait_until(self._release.is_set, timeout=5.0)
+            if not await wait_until(self._release.is_set, timeout=5.0):
+                raise TimeoutError("healthy lane rendezvous was not released")
             return await super().deliver(result)
         finally:
             self._tracker.exit(self.adapter_id)
@@ -367,9 +370,11 @@ async def _stage_event(
         source_channel_id=channel,
         source_native_ref=native,
     )
-    await runner.admit_ingress(event, "live")
+    admitted = await runner.admit_ingress(event, "live")
+    assert admitted.created and admitted.event_id == event_id
     ingress = DurableIngressWorker(storage=store, pipeline=runner, batch_size=1)
-    assert await ingress.run_once() == 1
+    processed = await ingress.run_once()
+    assert processed == 1
     return event, native
 
 
@@ -379,9 +384,9 @@ async def _wait_row_statuses(
     expected: dict[str, str],
     *,
     timeout: float = 8.0,
-) -> dict[str, object]:
+) -> dict[str, DeliveryOutboxItem]:
     """Poll until each target adapter's row reaches its expected status."""
-    rows: dict[str, object] = {}
+    rows: dict[str, DeliveryOutboxItem] = {}
 
     async def settled() -> bool:
         found = {
@@ -419,52 +424,55 @@ async def test_held_destination_isolation_and_restart_recovery(
     """
     path = str(tmp_path / "held-isolation.sqlite")
     store = SQLiteStorage(path)
-    await store.initialize()
-    tracker = _LaneTracker()
-    held_entered, held_release = asyncio.Event(), asyncio.Event()
-    lanes_up = asyncio.Event()
-    held = _HeldDestinationAdapter("held", tracker, held_entered, held_release)
-    healthy = {
-        name: _RendezvousDestinationAdapter(name, tracker, lanes_up)
-        for name in _FANOUT_ADAPTERS[1:]
-    }
-    refuser = _BeforeStartRefusalAdapter(
-        _REFUSER_ADAPTER, tracker, retry_after_seconds=1.0
-    )
-    adapters = {"held": held, **healthy, _REFUSER_ADAPTER: refuser}
-
-    runner = _held_lane_pipeline(store, adapters)
-    capacity = CapacityController(
-        RuntimeLimits(
-            max_inflight_deliveries=_HELD_DELIVERY_LIMIT,
-            delivery_acquire_timeout_seconds=0.05,
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(store.close)
+        await store.initialize()
+        tracker = _LaneTracker()
+        held_entered, held_release = asyncio.Event(), asyncio.Event()
+        lanes_up = asyncio.Event()
+        held = _HeldDestinationAdapter("held", tracker, held_entered, held_release)
+        healthy = {
+            name: _RendezvousDestinationAdapter(name, tracker, lanes_up)
+            for name in _FANOUT_ADAPTERS[1:]
+        }
+        refuser = _BeforeStartRefusalAdapter(
+            _REFUSER_ADAPTER, tracker, retry_after_seconds=1.0
         )
-    )
-    runner.set_capacity_controller(capacity)
-    await runner.start()
+        adapters = {"held": held, **healthy, _REFUSER_ADAPTER: refuser}
 
-    # Content-ceiling new-start fence: with a ceiling configured, direct
-    # ingress handling is refused; fresh work must cross durable admission.
-    with pytest.raises(ValueError):
-        await runner.handle_ingress(
-            make_event(event_id="direct-start", source_adapter="ingress")
+        runner = _held_lane_pipeline(store, adapters)
+        capacity = CapacityController(
+            RuntimeLimits(
+                max_inflight_deliveries=_HELD_DELIVERY_LIMIT,
+                delivery_acquire_timeout_seconds=0.05,
+            )
         )
+        runner.set_capacity_controller(capacity)
+        resources.push_async_callback(runner.stop)
+        await runner.start()
 
-    dispatcher = RetryWorker(
-        store,
-        runner,
-        capacity,
-        initial_dispatch=True,
-        enabled=True,
-        interval_seconds=_FAST_POLL_SECONDS,
-        batch_size=8,
-        max_attempts=4,
-        stop_timeout_seconds=0.5,
-    )
-    dispatcher.set_available_target_adapters(adapters.keys())
-    await dispatcher.start()
+        # Content-ceiling new-start fence: with a ceiling configured, direct
+        # ingress handling is refused; fresh work must cross durable admission.
+        with pytest.raises(ValueError):
+            await runner.handle_ingress(
+                make_event(event_id="direct-start", source_adapter="ingress")
+            )
 
-    try:
+        dispatcher = RetryWorker(
+            store,
+            runner,
+            capacity,
+            initial_dispatch=True,
+            enabled=True,
+            interval_seconds=_FAST_POLL_SECONDS,
+            batch_size=8,
+            max_attempts=4,
+            stop_timeout_seconds=0.5,
+        )
+        dispatcher.set_available_target_adapters(adapters.keys())
+        resources.push_async_callback(dispatcher.stop)
+        await dispatcher.start()
+
         held_event, held_native = await _stage_event(
             store, runner, "held-message", "room"
         )
@@ -608,15 +616,14 @@ async def test_held_destination_isolation_and_restart_recovery(
         # dispatch task is cancelled inside the native boundary, so the
         # reserved attempt is left without receipt evidence: an uncertain
         # native handoff.
-        await dispatcher.stop()
-        assert not held.delivered_payloads
-    finally:
-        await runner.stop()
-        await store.close()
+    assert not held.delivered_payloads
+    assert not dispatcher.state.abandoned
+    assert tracker.current == 0
+    assert capacity.delivery_current == 0
 
     reopened = SQLiteStorage(path)
-    await reopened.initialize()
     try:
+        await reopened.initialize()
         after_stop = {
             event_id: await reopened.list_outbox_items_for_event(event_id)
             for event_id in sibling_rows
@@ -653,30 +660,32 @@ async def test_held_destination_isolation_and_restart_recovery(
 
     # Generation B: fresh adapter instances over the same durable state.
     restored_store = SQLiteStorage(path)
-    await restored_store.initialize()
-    restored_healthy = {
-        name: FakePresentationAdapter(adapter_id=name) for name in healthy
-    }
-    restored_held = FakePresentationAdapter(adapter_id="held")
-    restored_refuser = FakePresentationAdapter(adapter_id=_REFUSER_ADAPTER)
-    restored_adapters = {
-        "held": restored_held,
-        **restored_healthy,
-        _REFUSER_ADAPTER: restored_refuser,
-    }
-    resumed = _held_lane_pipeline(restored_store, restored_adapters)
-    await resumed.start()
-    recovery = RetryWorker(
-        restored_store,
-        resumed,
-        None,
-        initial_dispatch=True,
-        enabled=True,
-        interval_seconds=_FAST_POLL_SECONDS,
-        batch_size=8,
-        max_attempts=4,
-    )
-    try:
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(restored_store.close)
+        await restored_store.initialize()
+        restored_healthy = {
+            name: FakePresentationAdapter(adapter_id=name) for name in healthy
+        }
+        restored_held = FakePresentationAdapter(adapter_id="held")
+        restored_refuser = FakePresentationAdapter(adapter_id=_REFUSER_ADAPTER)
+        restored_adapters = {
+            "held": restored_held,
+            **restored_healthy,
+            _REFUSER_ADAPTER: restored_refuser,
+        }
+        resumed = _held_lane_pipeline(restored_store, restored_adapters)
+        resources.push_async_callback(resumed.stop)
+        await resumed.start()
+        recovery = RetryWorker(
+            restored_store,
+            resumed,
+            None,
+            initial_dispatch=True,
+            enabled=True,
+            interval_seconds=_FAST_POLL_SECONDS,
+            batch_size=8,
+            max_attempts=4,
+        )
         # Canonical event/target identity: re-decoding the same native
         # references must not create a second set of obligations.
         for original, native in (
@@ -771,6 +780,3 @@ async def test_held_destination_isolation_and_restart_recovery(
         assert recovery.state.succeeded == 1
         assert recovery.state.failed == 1
         assert recovery.state.processed == 2
-    finally:
-        await resumed.stop()
-        await restored_store.close()
