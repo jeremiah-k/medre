@@ -153,7 +153,6 @@ def test_optimized_python_stages_history(tmp_path: Path):
 import asyncio
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from scripts.measure_held_lane_workload import _Profile, _run_profile
 
 profile = _Profile('optimized', 2, 2, 0.2, True, 1, 1)

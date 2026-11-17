@@ -92,6 +92,7 @@ class _LaneTracker:
 
     @property
     def current(self) -> int:
+        """Number of synthetic handoffs currently at the adapter boundary."""
         return self._current
 
     def enter(self, adapter_id: str) -> None:
@@ -651,7 +652,7 @@ async def _run_profile(
         "profile": profile.name,
         "config": {
             "delivery_limit": profile.delivery_limit,
-            "held_lane_occupies": 1,
+            "held_lane_occupies": delivery_current_while_held,
             "spare_delivery_slots": profile.delivery_limit - 1,
             "dispatch_batch_size": profile.batch_size,
             "dispatch_interval_seconds": (
@@ -678,11 +679,13 @@ async def _run_profile(
         },
         "healthy_vs_held": {
             "healthy_rows_completed": healthy_rows_completed,
-            "healthy_rows_expected": expected_total_rows,
+            "healthy_rows_expected": (
+                profile.healthy_batches * profile.events_per_batch * len(healthy)
+            ),
             "held_rows_completed_during_hold": 0,
-            "held_row_status": "in_progress",
+            "held_row_status": held_row.status,
             "held_row_reserved_attempt": held_row.active_attempt,
-            "cooldown_refusals_recovered": 1,
+            "cooldown_refusals_recovered": refuser.deliver_calls - calls_before - 1,
         },
         "healthy_lane_completion": {
             "observed_completion_latency_ms": _timings(healthy_observed_latency_ms),
@@ -794,7 +797,9 @@ async def measure_held_lane_workload(
             healthy_batches=2,
             events_per_batch=3,
             extra={
-                "note": "default capacity and cadence; retries and timeouts overridden",
+                "note": (
+                    "default capacity and cadence; retries and timeouts overridden"
+                ),
             },
         ),
         _Profile(
