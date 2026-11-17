@@ -8,6 +8,10 @@ from medre.core.storage.sqlite._prerelease_migrate import (
     _DIAGNOSTIC_COLUMN_ANCHORS,
     known_stripped_diagnostic_view_form,
 )
+from medre.core.storage.sqlite.catalog_assessment import (
+    CatalogCompatibility,
+    assess_storage_catalog,
+)
 from medre.core.storage.sqlite.connection import sync_open
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 
@@ -53,6 +57,56 @@ def test_predecessor_delivery_status_view_projects_retired_columns() -> None:
         assert "retry_jitter, rendering_evidence" in expected
     finally:
         db.close()
+
+
+def test_assessment_classifies_stripped_diagnostic_predecessor(tmp_path) -> None:
+    """The retired-column predecessor reports a recognized upgrade, unchanged.
+
+    Assessing the predecessor classifies it for the guarded writable
+    migration without performing any part of that migration on the
+    inspected source.
+    """
+    path = tmp_path / "strip-predecessor.db"
+    db = sqlite3.connect(path)
+    try:
+        db.executescript(_retired_schema() + _INDEXES)
+        db.execute("INSERT INTO _medre_schema_meta VALUES ('schema_version', '1')")
+        db.commit()
+        before = {
+            (str(row[0]), str(row[1])): str(row[2])
+            for row in db.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+            )
+        }
+    finally:
+        db.close()
+
+    assessment = assess_storage_catalog(str(path))
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
+    assert assessment.stored_version == "1"
+    assert assessment.detail is not None
+    for name in (
+        "delivery_receipts",
+        "delivery_observations",
+        "delivery_outbox",
+        "durable_ingress_work",
+        "delivery_status",
+    ):
+        assert name in assessment.detail
+
+    db = sqlite3.connect(path)
+    try:
+        after = {
+            (str(row[0]), str(row[1])): str(row[2])
+            for row in db.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL"
+            )
+        }
+    finally:
+        db.close()
+    assert after == before
 
 
 def test_populated_predecessor_upgrades_without_losing_fk_or_clear(tmp_path) -> None:

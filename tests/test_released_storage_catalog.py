@@ -11,21 +11,32 @@ the fixture.
 from __future__ import annotations
 
 import hashlib
+import io
 import sqlite3
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from medre.core.storage.backend import StorageInitializationError
+from medre.core.storage.backend import (
+    PreReleaseSchemaConstraintMismatchError,
+    StorageInitializationError,
+)
+from medre.core.storage.sqlite.catalog_assessment import (
+    CatalogCompatibility,
+    assess_storage_catalog,
+)
 from medre.core.storage.sqlite.connection import (
     sync_find_schema_shape_mismatch,
     sync_open,
     sync_open_readonly,
 )
 from medre.core.storage.sqlite.schema import _REQUIRED_COLUMNS
-from medre.core.storage.sqlite.schema_validation import validate_schema_definition
+from medre.core.storage.sqlite.schema_validation import (
+    safe_additive_state,
+    validate_schema_definition,
+)
 
 _FIXTURE = Path(__file__).parent / "fixtures/released-storage-0.1.0.sql"
 _FIXTURE_SHA256 = "623dceec6e92745222c98dac94de976c66bdb50834fe588fa373520822295811"
@@ -172,3 +183,95 @@ async def test_readonly_version_refusal_preserves_database(
     assert "compatible build" in str(error.value)
     assert "explicit reset" in str(error.value)
     assert path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# Tests: shared read-only catalog assessment on the released fixture
+# ---------------------------------------------------------------------------
+
+
+def _run_storage_status(path: Path) -> tuple[int, str]:
+    """Run ``storage status`` for *path* and return (exit code, stdout)."""
+    from medre.cli.main import main
+
+    stdout = io.StringIO()
+    code = 0
+    try:
+        with redirect_stdout(stdout):
+            main(["storage", "status", "--storage-path", str(path)])
+    except SystemExit as exit_error:
+        code = exit_error.code if isinstance(exit_error.code, int) else 1
+    assert "Traceback" not in stdout.getvalue()
+    return code, stdout.getvalue()
+
+
+def test_released_catalog_assessment_is_current_and_stable(tmp_path: Path) -> None:
+    """The populated released fixture classifies current, repeatedly."""
+    path = tmp_path / "released.sqlite"
+    _populate(path)
+    with closing(sqlite3.connect(path)) as db:
+        before = _state(db)
+    for _ in range(2):
+        assessment = assess_storage_catalog(str(path))
+        assert assessment.classification is CatalogCompatibility.CURRENT
+        assert assessment.stored_version == "1"
+        assert assessment.detail is None
+    with closing(sqlite3.connect(path)) as db:
+        assert _state(db) == before
+
+
+def test_missing_required_index_is_unsupported_for_status_and_startup(
+    tmp_path: Path,
+) -> None:
+    """A dropped required index is refused by status and startup alike.
+
+    Regression for the reviewed operator-facing defect: the status command
+    once printed an unqualified healthy verdict for this database while
+    startup rejected it. The exact assessment and the CLI now agree, and
+    the original database bytes are preserved throughout.
+    """
+    path = tmp_path / "released.sqlite"
+    _populate(path)
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("DROP INDEX idx_outbox_active_adapter")
+    before = path.read_bytes()
+
+    assessment = assess_storage_catalog(str(path))
+    assert assessment.classification is CatalogCompatibility.UNSUPPORTED
+    assert assessment.stored_version == "1"
+    assert assessment.detail is not None
+    assert "idx_outbox_active_adapter" in assessment.detail
+
+    with closing(sync_open_readonly(str(path))) as db:
+        assert safe_additive_state(db) is False
+        with pytest.raises(PreReleaseSchemaConstraintMismatchError) as error:
+            validate_schema_definition(db, str(path))
+        assert "idx_outbox_active_adapter" in str(error.value)
+
+    code, stdout = _run_storage_status(path)
+    assert code == 0
+    assert "Catalog: unsupported" in stdout
+    assert "Status: UNSUPPORTED" in stdout
+    assert "HEALTHY" not in stdout
+    assert path.read_bytes() == before
+
+
+def test_assessment_preserves_stopped_fixture_files(tmp_path: Path) -> None:
+    """Assessing a stopped fixture writes no file, row, or catalog change."""
+    path = tmp_path / "released.sqlite"
+    _populate(path)
+    with closing(sqlite3.connect(path)) as db:
+        before_state = _state(db)
+    before_bytes = path.read_bytes()
+    before_listing = sorted(entry.name for entry in tmp_path.iterdir())
+
+    assessment = assess_storage_catalog(str(path))
+    assert assessment.classification is CatalogCompatibility.CURRENT
+    code, stdout = _run_storage_status(path)
+    assert code == 0
+    assert "Status: HEALTHY" in stdout
+
+    assert path.read_bytes() == before_bytes
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == before_listing
+    with closing(sqlite3.connect(path)) as db:
+        assert _state(db) == before_state
