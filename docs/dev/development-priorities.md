@@ -65,19 +65,18 @@ physical space recovery claim.
 
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
-reconnect and restart. SimpleX now has a scoped quote candidate with durable
-ownership and native-parent validation; its advertised reply capability remains
-`fallback` until independent recipient-side qualification. Keep that distinction
-in operator docs and machine-readable profiles. Privacy policy design and
+reconnect and restart. SimpleX declares native quote replies with thread and
+plain-text fallbacks (#519); independent recipient-side qualification remains
+open (G08). Privacy policy design and
 optional plugin retention share the
 [content lifecycle design](content-lifecycle.md); presentation alternatives
 and application-service scope are described in the
 [presentation guide](../ops/message-presentation.md).
 
-## Prerelease development contract
+## Storage development contract
 
 Develop against one current schema and API contract. Reject incompatible
-prerelease state and use fresh state. Initialization applies only explicitly
+older layouts and use fresh state. Initialization applies only explicitly
 allowlisted, structurally exact additive catalog changes in one SQLite write
 transaction after validating the predecessor catalog exactly; the allowlist
 is specified in

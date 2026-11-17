@@ -15,8 +15,8 @@ replace that body. The same distinction applies to other transports.
   forks, and editable development checkouts. Adapters release independently.
   Official stable/development channel selection and remembered custom sources
   belong in package-management commands. The source-channel interface and
-  release dependency migration require implementation and qualification;
-  no package publication is authorized by this record.
+  release dependency migration require implementation and qualification
+  (implemented in core #520); this record itself authorized no publication.
 - **D3 — metadata/trust: CLOSED.** MMRelay 1.5 emits only canonical MEDRE
   metadata, never flat `meshtastic_*` keys. The visible canonical body is
   authoritative. Other senders' metadata is trusted only for the relay itself
@@ -29,7 +29,7 @@ replace that body. The same distinction applies to other transports.
   the mesh. No extra disclosure toggle is required by this decision.
 - **Signing: later schema version.** Claims in current envelopes are hints,
   never verification or authorization facts. A versioned MEDRE signing feature
-  will be proposed after 0.1.0 and consumed by MMRelay later.
+  may be proposed in a later schema generation and consumed by MMRelay later.
 
 ## Generic interoperability contract
 

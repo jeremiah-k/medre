@@ -1,7 +1,7 @@
 # Installation sources and provenance
 
 A package version, a source choice, and a qualified stack are different facts.
-Core and adapters can all report `0.1.0` while editable and Git installations
+Core and adapters can all report a released version while editable and Git installations
 contain changes beyond that release. Keep requested sources and resolved
 provenance separate when reporting a run.
 
@@ -28,15 +28,14 @@ checkouts. These selections do not edit CI compatibility pins. See the
 
 ## Released packages and development sources
 
-In a core build containing source switching, new first-party adapter requests
+From core 0.1.1 onward, new first-party adapter requests
 use index packages, with PyPI as uv's default index. Existing source catalogs
 are preserved and may explicitly retain Git.
 The legacy `adapters reset` command deliberately selects upstream Git `main`;
 it is not a stable-release selector.
 
-The published 0.1.0 core does not recognize `sources` or inline adapter version
-constraints. Main includes the feature; install a main Git revision (or a later
-published release containing it) before following these examples.
+Core 0.1.0 does not recognize `sources` or inline adapter version constraints;
+core 0.1.1 and later include the feature.
 Git is required for the development installation. The Matrix provider in this
 example requires Python 3.12 or later.
 
