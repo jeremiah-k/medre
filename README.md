@@ -31,8 +31,9 @@ medre config check --config sample.yaml
 medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 ```
 
-This checks your installation and local routing with simulated adapters,
-without connecting accounts or radios.
+The sample drives a one-way diagnostic route with simulated adapters; it checks
+your installation and local routing without connecting accounts or radios, and
+is not itself a bidirectional bridge.
 
 **2. Connect your networks.**
 

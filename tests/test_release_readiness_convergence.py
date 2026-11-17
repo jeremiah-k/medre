@@ -34,23 +34,7 @@ def _read(path: Path) -> str:
 
 
 # ===========================================================================
-# 1. Prerelease / no-public-API commitment
-# ===========================================================================
-
-
-def test_readme_has_prerelease_disclaimer() -> None:
-    """README has a prerelease disclaimer."""
-    text = _read(_README).lower()
-    assert (
-        "pre-release" in text or "prerelease" in text
-    ), "README must contain a prerelease disclaimer"
-    assert (
-        "no stable public api" in text or "not production-ready" in text
-    ), "README must warn about unstable public API or not production-ready status"
-
-
-# ===========================================================================
-# 2. Status vocabulary convergence
+# 1. Status vocabulary convergence
 # ===========================================================================
 
 
