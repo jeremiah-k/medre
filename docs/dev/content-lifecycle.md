@@ -67,11 +67,11 @@ runtime's epoch-bounded collection worker (disabled by default; a
 declared `retain` policy never collects; the activation boundary and
 worker behavior are specified in
 [content retention](../spec/content-retention.md)). Broader timed
-profiles remain unimplemented. Prerelease schema
+profiles remain unimplemented. Development schema
 changes use fresh development state, and existing databases accept only the
 explicitly allowlisted additive catalog additions, without alternate readers
 or data transformations for earlier layouts. Recent context
-is a proposed first-release default once implemented and qualified. An unbounded
+is a proposed default once implemented and qualified. An unbounded
 archive is not a requirement for reliable bridging.
 
 Advanced controls need separate limits for full bodies, excerpts, attachments,
