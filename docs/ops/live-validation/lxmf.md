@@ -138,7 +138,7 @@ config = LxmfConfig(
 
 - **Same LAN (AutoInterface):** 1–5 seconds.
 - **TCP link, online peer:** Seconds.
-- **Offline peer:** No path. Use PROPAGATED via propagation node (not yet supported in LxmfConfig).
+- **Offline peer:** No path. Use PROPAGATED via a propagation node.
 
 ## Singleton Constraint
 

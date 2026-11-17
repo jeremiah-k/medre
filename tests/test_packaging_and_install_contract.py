@@ -822,9 +822,11 @@ class TestContractMetadataAlignment:
         # Find the Development Status classifier.
         status_clf = [c for c in classifiers if "Development Status" in c]
         assert status_clf, "no Development Status classifier in pyproject"
+        # The installation contract no longer restates the Development Status
+        # classifier; maturity claims live in pyproject metadata only.
         assert (
-            status_clf[0] in content
-        ), f"classifier {status_clf[0]!r} not mentioned in spec"
+            status_clf[0] not in content
+        ), f"classifier {status_clf[0]!r} must not be restated in the installation contract"
 
     def test_console_script_in_contract(self) -> None:
         contract_path = _REPO_ROOT / "docs" / "ops" / "install.md"

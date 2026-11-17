@@ -163,7 +163,7 @@ Canonical public three-component PEP 440 version tags (optionally prefixed by
 `latest`. Initial official images target
 **linux/amd64**; other architectures require qualification before publication.
 A GitHub release predating this workflow has no image automatically created.
-The GHCR package must be made public once for anonymous pulls.
+The GHCR package is public; anonymous pulls require no authentication.
 
 For a development image, run the Docker Image workflow manually. Select its
 workflow branch, optionally set `core_ref` to a different core branch, tag or

@@ -507,9 +507,9 @@ medre storage status
 medre evidence --storage-path /path/to/medre.db --json | jq '.sections.config_summary.storage_path'
 ```
 
-The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing pre-release schema mismatches, stop the runtime and preserve
+The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing schema mismatches between core builds, stop the runtime and preserve
 the SQLite database **and its WAL sidecars** before considering a reset. See
-[pre-release storage reset](operator-workflows.md#pre-release-storage-reset).
+[stale storage reset](operator-workflows.md#stale-storage-reset).
 
 ## Evidence Assertion Criteria
 

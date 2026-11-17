@@ -43,12 +43,12 @@ All stored rows are either immutable facts (events, receipts, native refs, termi
 For the normative per-table ownership rules, see
 [spec/storage.md §16](../spec/storage.md).
 
-## Pre-Release Storage Reset
+## Stale Storage Reset
 
-MEDRE is prerelease software. The schema version is frozen at 1, but the
+The schema version is frozen at 1, but the
 layout (which tables, columns, and indexes exist, and which constraint
 vocabularies are allowed) can change between builds. When you upgrade to a
-newer prerelease build, MEDRE automatically applies the known additive layout
+newer core build, MEDRE automatically applies the known additive layout
 migrations to the existing database at startup: new allowlisted tables,
 columns, and indexes, and constraint widenings rebuilt under row-count and
 foreign-key integrity checks. Changes outside that additive policy — renames,
@@ -90,7 +90,7 @@ requires a reset.
 ### Step-by-step reset procedure
 
 **Reset freely only when you intend to discard the entire test bridge state.**
-A new prerelease installation does not need to preserve an empty or disposable
+A new installation does not need to preserve an empty or disposable
 SQLite database. Once you have sent real traffic, however, MEDRE may have
 queued outbound deliveries awaiting a retry or native handoff confirmation.
 Clearing the database drops those pending operations and the native IDs used to
@@ -214,9 +214,9 @@ file-level reset backup as a live SQLite snapshot.
 
 ### When this does not apply
 
-This workflow applies only to prerelease builds where the column shape
-changed. It makes no promise about the storage-compatibility policy MEDRE may
-adopt after the first release.
+This workflow applies to databases created by older core builds whose column
+shape changed. Later storage-compatibility changes follow the documented
+versioning review (docs/dev/versioning-policy.md).
 
 ## Preferred Product Path
 

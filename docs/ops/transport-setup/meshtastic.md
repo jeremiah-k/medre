@@ -5,7 +5,7 @@ Install the provider in the same environment as MEDRE using the
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
 The provider supplies both its SDK-free fake and its native SDK dependencies.
 
-Setting up and running the MEDRE Meshtastic adapter against a real radio node. Pre-release — no stable public API.
+Setting up and running the MEDRE Meshtastic adapter against a real radio node.
 
 ## Prerequisites
 
@@ -347,7 +347,7 @@ Only relay-action text messages produce canonical events. Everything else is cla
 3. **Recovery is local-client supervision, not peer reachability.** TCP liveness proves the MEDRE↔local-radio API round trip only. A healthy adapter does not imply that any remote mesh peer is reachable.
 4. **No ACK confirmation for broadcast sends.** Local send acceptance is not remote receipt confirmation.
 5. **BLE not validated.** BLE connectivity is implemented but not exercised against real hardware.
-6. **Single-channel operation.** Current prerelease validation covers text on a single channel index only.
+6. **Single-channel operation.** Current validation covers text on a single channel index only.
 7. **No inbound pubsub delivery proven at Docker level.** meshtasticd simulation mode may not relay packets between TCP clients.
 
 ## See Also

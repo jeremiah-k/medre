@@ -5,8 +5,7 @@ Package installation, a local smoke, credentials, and a two-way route. This page
 covers the **other installation methods** and how to verify them, without
 maintaining a second copy of the operator tutorial.
 
-MEDRE requires Python **3.11 or newer**, is **pre-release** (package classifier
-`Development Status :: 3 - Alpha`), and is licensed **MIT** (MEDRE-owned core source; adapters and SDKs have separate terms). Its
+MEDRE requires Python **3.11 or newer** and is licensed **MIT** (MEDRE-owned core source; adapters and SDKs have separate terms). Its
 console entry point is `medre.cli:main` (the command is `medre`). No transport
 SDK is included in core; adapters are separately installable distributions.
 
@@ -52,10 +51,9 @@ medre version
 medre adapters
 ```
 
-The published 0.1.0 CLI uses Git adapter defaults; install Git as well as uv.
-Core 0.1.1 introduces the `sources` commands and index defaults; use a build
-containing that feature (see the [package management guide](package-management.md)).
-Index-only installs are already possible through native uv `--with` when all
+Core 0.1.0 used Git adapter defaults; core 0.1.1 and later include the
+`sources` commands and index defaults (see the
+[package management guide](package-management.md)). Index-only installs are already possible through native uv `--with` when all
 selected packages are available from an index. The provider's Python requirement
 applies to the entire tool environment; for an existing Python 3.11 MEDRE tool,
 reinstall through native uv with `--python 3.12` and retain the complete request
