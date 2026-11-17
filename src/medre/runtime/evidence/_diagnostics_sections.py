@@ -247,7 +247,7 @@ async def _collect_diagnostics_snapshot(
     config: Any,
     paths: MedrePaths,
 ) -> dict[str, Any]:
-    """Build diagnostics snapshot section (no runtime start, no I/O)."""
+    """Build a snapshot without starting the runtime; clean up constructed resources."""
     from medre.runtime.snapshot import build_runtime_snapshot
 
     enabled_adapters = config.adapters.all_enabled()

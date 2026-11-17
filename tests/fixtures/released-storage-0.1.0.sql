@@ -1,0 +1,590 @@
+
+CREATE TABLE IF NOT EXISTS canonical_events (
+    event_id TEXT PRIMARY KEY,
+    event_kind TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    timestamp TEXT NOT NULL,
+    source_adapter TEXT NOT NULL,
+    source_transport_id TEXT NOT NULL,
+    source_channel_id TEXT,
+    parent_event_id TEXT,
+    lineage TEXT NOT NULL DEFAULT '[]',
+    payload TEXT NOT NULL DEFAULT '{}',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    depth INTEGER NOT NULL DEFAULT 0,
+    trace_id TEXT,
+    root_event_id TEXT,
+    conversation_id TEXT,
+    source_native_adapter TEXT,
+    source_native_channel_id TEXT,
+    source_native_message_id TEXT,
+    source_native_thread_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Typed admission routing facts, separated at write time from the opaque
+-- event metadata JSON.  One row per event whose admission metadata carried
+-- the routing namespace; absence of a row is the standing fact that no
+-- routing decision was accepted at admission.  Values are bounded route
+-- identifiers, the fanout group, and the bounded route trace, written once
+-- in the admission transaction and never rewritten.  These facts do NOT
+-- authorize retention, reads, or collection.
+CREATE TABLE IF NOT EXISTS event_routing_facts (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    matched_routes TEXT NOT NULL CHECK (json_valid(matched_routes) AND json_type(matched_routes) = 'array'),
+    fanout_group TEXT,
+    route_trace TEXT NOT NULL CHECK (json_valid(route_trace) AND json_type(route_trace) = 'array' AND json_array_length(route_trace) <= 16),
+    recorded_at TEXT NOT NULL
+);
+
+-- One current, immutable admission fact per canonical body.  Absence of a
+-- body is not an empty string.  These facts do NOT authorize retention, reads,
+-- or collection: those require separately implemented consumer authority.
+CREATE TABLE IF NOT EXISTS event_body_identity (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    version INTEGER NOT NULL CHECK (version = 1),
+    present_at_admission INTEGER NOT NULL CHECK (present_at_admission IN (0, 1)),
+    recorded_at TEXT NOT NULL
+);
+
+-- Canonical body text is stored separately from identity and envelope JSON.
+-- No row means no text; an empty string is an explicitly present body.
+-- This table is not a grant. It must not be exposed by ordinary inspection.
+CREATE TABLE IF NOT EXISTS event_body_content (
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    field TEXT NOT NULL CHECK (field IN ('body', 'text')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, field)
+);
+
+-- One durable dependency per content owner. The ingress owner is admitted
+-- atomically with the event and durable work; each outbox owner is created
+-- atomically with its outbox generation. No collector runs in this slice.
+CREATE TABLE IF NOT EXISTS event_content_dependencies (
+    event_id TEXT NOT NULL REFERENCES event_body_identity(event_id),
+    owner_kind TEXT NOT NULL CHECK (owner_kind IN ('ingress', 'append', 'outbox')),
+    owner_id TEXT NOT NULL CHECK (length(owner_id) > 0),
+    acquired_at TEXT NOT NULL,
+    deadline TEXT,
+    released_at TEXT,
+    PRIMARY KEY (event_id, owner_kind, owner_id),
+    CHECK (deadline IS NULL OR acquired_at < deadline)
+);
+
+-- Explicit opt-in content read policy. No implicit grant is created by
+-- admission. The immutable event-level hard ceiling is set once, on first
+-- authorized policy installation; future grants cannot extend it.
+CREATE TABLE IF NOT EXISTS event_content_access_policies (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    version INTEGER NOT NULL CHECK (version = 1),
+    hard_ceiling TEXT NOT NULL,
+    allowed_consumers TEXT NOT NULL CHECK (json_valid(allowed_consumers)),
+    max_optional_hold_microseconds INTEGER NOT NULL CHECK (max_optional_hold_microseconds > 0),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS event_content_access_grants (
+    event_id TEXT NOT NULL REFERENCES event_content_access_policies(event_id),
+    scope TEXT NOT NULL CHECK (scope = 'body'),
+    consumer TEXT NOT NULL CHECK (length(consumer) BETWEEN 1 AND 128),
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    expired_at TEXT,
+    PRIMARY KEY(event_id, scope, consumer),
+    CHECK (issued_at < expires_at)
+);
+
+-- Immutable logical-collection receipt. Does not claim physical erasure or
+-- removal of provider/native/backup copies. Retains dedup and admission facts.
+CREATE TABLE IF NOT EXISTS event_content_collection_log (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    collected_at TEXT NOT NULL,
+    policy TEXT NOT NULL CHECK (policy = 'relay-only'),
+    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
+    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
+);
+
+-- Durable content-retention activation epochs. One append-only row per
+-- relay-only policy activation; the admission watermark is the store's
+-- maximum local admission created_at observed inside the activation
+-- transaction (NULL only when the store held no events then), and every
+-- retention sweep is bounded to events admitted strictly after it, so
+-- pre-activation history is never swept. The heartbeat column only moves
+-- forward. This table is not event-scoped, holds no content, references no
+-- event, and never authorizes deletion.
+CREATE TABLE IF NOT EXISTS content_retention_epochs (
+    epoch INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode TEXT NOT NULL CHECK (mode = 'relay-only'),
+    activated_at TEXT NOT NULL,
+    admission_watermark TEXT,
+    last_observed_active_at TEXT,
+    activated_by TEXT NOT NULL CHECK (activated_by IN ('runtime-first-start','operator'))
+);
+
+CREATE TABLE IF NOT EXISTS event_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    relation_type TEXT NOT NULL,
+    target_event_id TEXT,
+    target_native_adapter TEXT,
+    target_native_channel_id TEXT,
+    target_native_message_id TEXT,
+    target_native_thread_id TEXT,
+    key TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+-- Relation excerpts are content, not relation identity. Native target refs
+-- stay in event_relations even when the text excerpt becomes unavailable.
+CREATE TABLE IF NOT EXISTS event_relation_excerpts (
+    relation_id INTEGER NOT NULL REFERENCES event_relations(id),
+    excerpt TEXT NOT NULL,
+    UNIQUE (relation_id)
+);
+
+CREATE TABLE IF NOT EXISTS conversation_membership (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    root_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    conversation_id TEXT NOT NULL,
+    resolved_target_event_id TEXT REFERENCES canonical_events(event_id),
+    relation_type TEXT,
+    depth INTEGER NOT NULL,
+    resolution_state TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (depth >= 0),
+    CHECK (conversation_id = root_event_id),
+    CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))
+);
+
+CREATE TABLE IF NOT EXISTS conversation_projection_state (
+    singleton_id INTEGER PRIMARY KEY,
+    projection_revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_event_id TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK (singleton_id = 1),
+    CHECK (projection_revision >= 1),
+    CHECK (status IN ('clean', 'dirty', 'rebuilding')),
+    CHECK (status = 'rebuilding' OR last_event_id IS NULL)
+);
+
+CREATE TABLE IF NOT EXISTS native_message_refs (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    adapter TEXT NOT NULL,
+    native_channel_id TEXT,
+    native_message_id TEXT NOT NULL,
+    native_thread_id TEXT,
+    native_relation_id TEXT,
+    direction TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(adapter, native_channel_id, native_message_id)
+);
+
+CREATE TABLE IF NOT EXISTS delivery_receipts (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    route_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
+    failure_kind TEXT,
+    capability_level TEXT,
+    capability_field TEXT,
+    delivery_strategy TEXT,
+    adapter_message_id TEXT,
+    next_retry_at TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    parent_receipt_id TEXT,
+    source TEXT NOT NULL DEFAULT 'live',
+    replay_run_id TEXT,
+    retry_max_attempts INTEGER,
+    retry_backoff_base REAL,
+    retry_max_delay REAL,
+    retry_jitter INTEGER,
+    outbox_id TEXT,
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    created_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (receipt_kind IN ('attempt', 'lifecycle')),
+    CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
+    CHECK (source IN ('live', 'retry', 'replay')),
+    CHECK (source != 'live' OR replay_run_id IS NULL),
+    CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id))),
+    CHECK (capability_level IS NULL OR capability_level IN ('native', 'fallback', 'unsupported')),
+    CHECK (delivery_strategy IS NULL OR delivery_strategy IN ('direct', 'fallback_text', 'skip', 'propagated', 'opportunistic', 'paper')),
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
+);
+
+-- delivery_status view: one row per unique (event_id, delivery_plan_id,
+-- target_adapter, target_channel) tuple.  Outbox-backed receipts are current only when the
+-- outbox row points at that receipt_id; receipts that lost a guarded outbox
+-- transition remain immutable historical evidence but do not become current
+-- status merely because they were appended later.
+-- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
+-- are treated as the same group, avoiding duplicate rows when some receipts
+-- have NULL and others have '' for target_channel.
+-- Drop and recreate to ensure column shape stays current.
+DROP VIEW IF EXISTS delivery_status;
+CREATE VIEW delivery_status AS
+WITH authoritative_receipts AS (
+    SELECT dr.*, NULL AS committed_attempt
+    FROM delivery_receipts dr
+    WHERE dr.outbox_id IS NULL
+    UNION ALL
+    SELECT dr.*, o.attempt_number AS committed_attempt
+    FROM delivery_receipts dr
+    JOIN delivery_outbox o
+      ON o.outbox_id = dr.outbox_id
+     AND o.receipt_id = dr.receipt_id
+),
+ranked AS (
+    SELECT dr.*,
+           CASE
+               WHEN outbox_id IS NULL THEN
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY sequence DESC
+                   )
+               ELSE
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY committed_attempt DESC, sequence DESC
+                   )
+           END AS class_rank
+    FROM authoritative_receipts dr
+),
+candidates AS (
+    SELECT * FROM ranked WHERE class_rank = 1
+),
+current_rows AS (
+    SELECT c.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY event_id, delivery_plan_id, target_adapter,
+                            COALESCE(target_channel, '')
+               ORDER BY sequence DESC
+           ) AS authority_rank
+    FROM candidates c
+)
+SELECT sequence, receipt_id, event_id, delivery_plan_id,
+       target_adapter, target_channel, route_id, status,
+       receipt_kind, failure_kind,
+       capability_level, capability_field, delivery_strategy,
+       adapter_message_id, next_retry_at, attempt_number,
+       parent_receipt_id, source, replay_run_id,
+       retry_max_attempts, retry_backoff_base,
+       retry_max_delay, retry_jitter,
+       outbox_id, confirmation_level, created_at
+FROM current_rows
+WHERE authority_rank = 1;
+
+CREATE TABLE IF NOT EXISTS delivery_outbox (
+    outbox_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    route_id TEXT NOT NULL DEFAULT '',
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    target_address TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    active_attempt INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    failure_kind TEXT,
+    next_attempt_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_attempt_at TEXT,
+    locked_at TEXT,
+    lease_until TEXT,
+    worker_id TEXT,
+    payload_hash TEXT,
+    receipt_id TEXT,
+    parent_receipt_id TEXT,
+    dispatch_source TEXT NOT NULL DEFAULT 'live',
+    replay_run_id TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
+    CHECK (attempt_number >= 0),
+    CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
+    CHECK (active_attempt IS NULL OR status = 'in_progress'),
+    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),
+    CHECK (dispatch_source IN ('live', 'replay', 'retry')),
+    CHECK (dispatch_source != 'live' OR replay_run_id IS NULL),
+    CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id)))
+);
+
+CREATE TABLE IF NOT EXISTS delivery_observations (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    native_channel_id TEXT,
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL,
+    adapter_message_id TEXT,
+    state TEXT NOT NULL,
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    observed_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (state IN ('delivered', 'failed', 'rejected', 'cancelled')),
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
+);
+
+-- Free-form delivery diagnostic text, separated at write time from the durable
+-- delivery facts that remain inline in the evidence rows.  One append-only row
+-- per written field; evidence rows carry no inline diagnostic columns and
+-- every read resolves text from this table.  A diagnostic row is written in the same transaction as its
+-- parent evidence row, so it never exists without that parent.  Structured
+-- provider metadata stays inline and content-classified in its family table.
+CREATE TABLE IF NOT EXISTS delivery_evidence_diagnostics (
+    diag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    family TEXT NOT NULL CHECK (family IN ('receipt', 'observation', 'outbox', 'ingress')),
+    row_id TEXT NOT NULL CHECK (length(row_id) > 0),
+    attempt INTEGER NOT NULL CHECK (attempt >= 0),
+    field TEXT NOT NULL CHECK (field IN ('error', 'capability_reason', 'rendering_evidence', 'failure_kind_detail', 'error_summary', 'last_error')),
+    diagnostic TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radio_attempt_progress (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    plan_fingerprint TEXT NOT NULL CHECK (length(plan_fingerprint) = 64),
+    plan_json TEXT NOT NULL CHECK (json_valid(plan_json)),
+    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+-- Frozen outbox dispatch work snapshot: the privately owned accepted work
+-- context for one outbox generation.  Written atomically with its outbox row,
+-- read only under the exact outbox identity by the recovery path, and retired
+-- (deleted) atomically by guarded terminal settlement.  Historical rows that
+-- predate this table keep their inline delivery_outbox.metadata bytes as the
+-- frozen context; those inline bytes are never transformed.
+CREATE TABLE IF NOT EXISTS delivery_outbox_snapshots (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 0),
+    snapshot_version INTEGER NOT NULL CHECK (snapshot_version = 1),
+    snapshot_kind TEXT NOT NULL CHECK (snapshot_kind IN ('staged', 'direct')),
+    context_json TEXT NOT NULL CHECK (json_valid(context_json)),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+CREATE TABLE IF NOT EXISTS durable_ingress_work (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    provenance TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    locked_at TEXT,
+    lease_until TEXT,
+    worker_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS adapter_checkpoints (
+    adapter_id TEXT NOT NULL,
+    stream TEXT NOT NULL,
+    cursor TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(adapter_id, stream)
+);
+
+-- Durable attachment content.  Content-addressed: one row per unique
+-- retained byte string; identical content admitted twice stores once and
+-- consumes quota once.  ``data`` is the plaintext payload (see
+-- docs/spec/security-privacy.md); ordinary event queries never select it.
+CREATE TABLE IF NOT EXISTS attachment_blobs (
+    content_ref TEXT PRIMARY KEY,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+    media_kind TEXT,
+    mime_type TEXT,
+    created_at TEXT NOT NULL,
+    data BLOB NOT NULL
+);
+
+-- Event → content association.  One primary attachment per canonical
+-- event; the association is the only authority for loading retained bytes
+-- for an event (a content_ref named in a render payload without this
+-- association is forged and must fail).
+CREATE TABLE IF NOT EXISTS event_attachment_associations (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    content_ref TEXT NOT NULL REFERENCES attachment_blobs(content_ref),
+    created_at TEXT NOT NULL
+);
+
+-- Pre-admission inbound pressure aggregates.  One row per (window,
+-- source, outcome); counters only — no arrival ever persists payload,
+-- sender, or transport-native content here.  Written before durable
+-- admission, so it is the only durable trace of arrivals the admission
+-- gate turned away and of producer-side staging that never reached it.
+-- Required in the strict prerelease shape, alongside the attachment
+-- tables; incompatible state is never repaired.
+CREATE TABLE IF NOT EXISTS inbound_pressure_observations (
+    window_start INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('rejected', 'timed_out', 'deferred', 'scheduled', 'overflow', 'cancelled_before_admission')),
+    count INTEGER NOT NULL CHECK (count > 0),
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY(window_start, source, outcome)
+);
+
+-- Accounting-gap records for admission-gate refusal evidence retained
+-- across a detected storage outage.  One append-only row per detected
+-- outage interval: content-free interval bounds and saturating counters
+-- only — no adapter identity, window, payload, sender, or
+-- transport-native content.  The row exists so post-recovery state
+-- distinguishes "zero refusals occurred during the outage" from
+-- "refusals occurred and some retained facts were discarded"; it never
+-- becomes a canonical event, receipt, or outbox entry.
+CREATE TABLE IF NOT EXISTS inbound_pressure_outage_gaps (
+    gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gap_token TEXT NOT NULL UNIQUE CHECK (length(gap_token) = 32),
+    opened_at TEXT NOT NULL,
+    recovered_at TEXT NOT NULL,
+    refusals_observed INTEGER NOT NULL CHECK (refusals_observed >= 0),
+    refusals_retained INTEGER NOT NULL CHECK (refusals_retained >= 0),
+    refusals_discarded INTEGER NOT NULL CHECK (refusals_discarded >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_state (
+    plugin_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(plugin_id, key)
+);
+
+-- Operator decisions are immutable audit evidence, not native-send grants.
+-- The action vocabulary covers the exact unstarted cancellation and the
+-- audit-only exact-target resolve/resume acknowledgements.
+CREATE TABLE IF NOT EXISTS operator_delivery_decisions (
+    decision_id TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    observed_generation INTEGER NOT NULL,
+    observed_updated_at TEXT NOT NULL,
+    observed_status TEXT NOT NULL,
+    action TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    CHECK (action IN ('cancel_unstarted', 'resolve_uncertain', 'resume_scheduled')),
+    CHECK (observed_status IN ('pending', 'retry_wait')),
+    CHECK (observed_generation >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS _medre_schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_timestamp
+    ON canonical_events(timestamp, event_id);
+-- Retention candidate discovery pages the stable local admission ordering;
+-- event IDs are deliberately not assumed to be chronological.
+CREATE INDEX IF NOT EXISTS idx_events_admission_order
+    ON canonical_events(created_at, event_id);
+CREATE INDEX IF NOT EXISTS idx_relations_event_id
+    ON event_relations(event_id, id);
+CREATE INDEX IF NOT EXISTS idx_relations_target_event_id
+    ON event_relations(target_event_id);
+CREATE INDEX IF NOT EXISTS idx_relations_target_native_ref
+    ON event_relations(target_native_adapter, target_native_channel_id, target_native_message_id);
+CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
+    ON native_message_refs(event_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_event
+    ON delivery_receipts(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_outbox_attempt
+    ON delivery_receipts(outbox_id, attempt_number, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
+    ON delivery_receipts(replay_run_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_source
+    ON delivery_receipts(source, replay_run_id);
+-- Lineage index for unresolved-delivery recovery scans: matches the
+-- correlated current-outcome predicate for (event, plan, adapter, channel),
+-- including the COALESCE normalization of NULL/'' channel values.
+-- replay_run_id is receipt provenance and is intentionally not part of the
+-- lineage key.
+CREATE INDEX IF NOT EXISTS idx_receipts_lineage
+    ON delivery_receipts(event_id, delivery_plan_id, target_adapter,
+                         COALESCE(target_channel, ''), sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
+    ON delivery_receipts(status, failure_kind, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
+    ON delivery_receipts(parent_receipt_id, source);
+CREATE INDEX IF NOT EXISTS idx_operator_decisions_event
+    ON operator_delivery_decisions(event_id, outbox_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_due
+    ON delivery_outbox(status, next_attempt_at);
+-- Deadline cleanup resumes in admission order without sorting the backlog.
+CREATE INDEX IF NOT EXISTS idx_outbox_deadline_cleanup_order
+    ON delivery_outbox(created_at, outbox_id)
+    WHERE status IN ('pending', 'retry_wait') AND active_attempt IS NULL
+      AND worker_id IS NULL AND locked_at IS NULL AND lease_until IS NULL;
+-- One-per-adapter claims probe active owners by adapter before lease expiry.
+CREATE INDEX IF NOT EXISTS idx_outbox_active_adapter
+    ON delivery_outbox(target_adapter, status, lease_until);
+CREATE INDEX IF NOT EXISTS idx_outbox_plan_target
+    ON delivery_outbox(delivery_plan_id, target_adapter, target_channel);
+CREATE INDEX IF NOT EXISTS idx_outbox_event
+    ON delivery_outbox(event_id);
+-- A frozen work snapshot has one owner: the exact outbox row.  The
+-- creation generation is recorded for provenance, not to permit multiple
+-- competing work documents for one outbox ID.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_snapshot_owner_unique
+    ON delivery_outbox_snapshots(outbox_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_event_created
+    ON delivery_outbox(event_id, created_at, outbox_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_lineage
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), attempt_number
+    );
+-- A non-empty replay run ID is a durable idempotency key for one logical
+-- delivery target.  The expression normalizes NULL/'' target channels exactly
+-- like DeliveryIdentity so concurrent executions of the same replay run
+-- cannot allocate sibling outbox generations.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_replay_run_identity_unique
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), replay_run_id
+    )
+    WHERE replay_run_id IS NOT NULL AND replay_run_id <> '';
+CREATE INDEX IF NOT EXISTS idx_observations_event
+    ON delivery_observations(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_observations_outbox
+    ON delivery_observations(outbox_id, attempt_number, sequence);
+-- Diagnostic coalescing reads resolve one evidence row's separated fields by
+-- family and row identity; diag_id breaks recency ties in append order.
+CREATE INDEX IF NOT EXISTS idx_diagnostics_identity
+    ON delivery_evidence_diagnostics(family, row_id, field, diag_id);
+CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
+    ON durable_ingress_work(status, lease_until, created_at);
+-- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
+-- index closes the gap: no two outbox items with NULL target_channel can
+-- share the same (event_id, delivery_plan_id, target_adapter, attempt_number) tuple.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
+    ON delivery_outbox(event_id, delivery_plan_id, target_adapter, attempt_number)
+    WHERE target_channel IS NULL;

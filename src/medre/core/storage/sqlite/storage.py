@@ -488,7 +488,8 @@ class _SQLiteStorageBase:
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
                 "Resolve the mismatch manually — no automatic schema "
-                "transformation is performed."
+                "transformation is performed. Preserve the database and verify a backup "
+                "before using a compatible build or choosing an explicit reset."
             ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:

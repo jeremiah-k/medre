@@ -65,8 +65,8 @@ schema must document whether it is additive, requires a new schema generation,
 or requires a migration. The snapshots guard releases; they must not be edited
 to make an unexpected CI failure disappear.
 
-The current checkout can still report `0.1.0` while containing post-tag
-changes. Distribution metadata alone does not identify a published artifact
+A development checkout can report a released package version while containing
+post-tag changes. Distribution metadata alone does not identify a published artifact
 or qualify a mixed source stack. Preserve the frozen released baseline and
 review differences against exact tagged artifacts. Abandoned experimental
 shapes from before the first release are not automatically supported migration

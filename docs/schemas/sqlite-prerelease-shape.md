@@ -8,7 +8,9 @@ indexes, views and triggers — after the database opens. Unexpected objects,
 including triggers, are refused. SQLite-managed objects are excluded.
 
 Schema version remains `1`; the tagged 0.1.0 catalog identifies the released
-baseline. Unsupported catalogs are refused without mutation. The exact
+baseline. The 0.1.1 release has the same catalog, including both attachment
+tables. Databases with that catalog reopen without a migration. Unsupported
+catalogs are refused without mutation. The exact
 allowlisted predecessors can migrate at a writable open. Future changes require
 compatibility review and tested migrations; abandoned unpublished development
 layouts need not be supported.

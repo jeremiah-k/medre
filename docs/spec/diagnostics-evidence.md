@@ -382,7 +382,7 @@ policy for the frozen baseline.
 The evidence bundle always includes these limitation statements:
 
 1. Evidence is a point-in-time snapshot, not continuous monitoring.
-2. Diagnostics snapshot reflects build-time state unless `--include-refresh-health` is used.
+2. Diagnostics snapshot reflects build-time state; config-backed Python collection may explicitly request a separate live-health section with `include_refresh_health=True`. The storage-only CLI never starts adapters.
 3. Storage section requires an existing initialized database.
 4. Fake adapters report synthetic health, not real transport connectivity.
 5. No sustained throughput, reconnection resilience, or load evidence.
@@ -572,7 +572,7 @@ The following six guarantees are contractual:
 
 3. **Deterministic serialization when consumed through `RuntimeSnapshot.to_dict()`.** Recursive key sorting and adapter_id ordering guarantee stable JSON output for identical state and clock inputs.
 
-4. **Observational-only semantics.** Calling `diagnostics()`, `capture_runtime_snapshot()`, `build_runtime_snapshot()`, or `collect_evidence_bundle()` SHALL NOT modify any adapter state, trigger health checks, or perform I/O.
+4. **Observational-only semantics.** Calling `diagnostics()`, `capture_runtime_snapshot()`, or `build_runtime_snapshot()` SHALL NOT initiate native I/O, health checks, or change adapter state. `collect_evidence_bundle()` is an orchestration operation, not a pure snapshot function: config-backed collection reads configuration and storage, constructs and cleans up a diagnostic runtime, and, only when `include_refresh_health=True`, starts a runtime and requests live health. Storage-path mode reads the existing database without constructing a runtime. That opt-in lifecycle can perform native I/O and change adapter state. Evidence queries themselves are read-only; derived reports do not authorize delivery, repair, or modification of historical evidence. Runtime lifecycle effects are governed by the normal runtime contracts.
 
 5. **Stable common keys.** The eight common keys listed in § 2 are contractual and SHALL NOT be removed without a version bump.
 

@@ -8,7 +8,7 @@
   "generated_at": "2026-05-27T12:00:02Z",
   "limitations": [
     "Evidence is a point-in-time snapshot, not continuous monitoring",
-    "Diagnostics snapshot reflects build-time state unless --include-refresh-health is used",
+    "Diagnostics snapshot reflects build-time state; live health requires explicit opt-in",
     "Storage section requires an existing initialised database",
     "Fake adapters report synthetic health, not real transport connectivity",
     "No sustained throughput, reconnection resilience, or load evidence",
@@ -114,7 +114,7 @@
       "status": "skipped",
       "error": null,
       "data": null,
-      "note": "Use --include-refresh-health to populate this section"
+      "note": "Use include_refresh_health=True with config-backed collection to populate this section"
     },
     "storage": {
       "status": "passed",

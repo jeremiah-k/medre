@@ -83,12 +83,9 @@ history is never swept, REPLAY scope never constructs the worker, and every
 per-event mutation still rechecks all blockers inside its own
 `BEGIN IMMEDIATE` transaction exactly as below. Absent that declaration, a scheduler MUST NOT invoke collection automatically.
 
-Writable initialization MAY automatically apply only exactly recognized additive
-catalog states: the nullable `expired_at` grant field, the independent
-collection-receipt table, the `content_retention_epochs` activation-epoch
-table, the delivery diagnostics table and its identity index, the
-`event_routing_facts` table, the `delivery_outbox_snapshots`
-table with its `idx_outbox_snapshot_owner_unique` index, and the
-`idx_events_admission_order` index on `canonical_events(created_at,
-event_id)`. All other schema
-changes MUST fail before DDL.
+Writable initialization MAY automatically migrate only the structurally exact
+predecessors listed in the authoritative
+[database compatibility policy](storage.md#10-database-compatibility-policy),
+including its guarded table rebuilds and allowlisted missing objects. This
+collection policy introduces no additional migration authority. Unsupported
+catalogs MUST be refused before schema DDL.

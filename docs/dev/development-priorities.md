@@ -66,8 +66,10 @@ physical space recovery claim.
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
 reconnect and restart. SimpleX declares native quote replies with thread and
-plain-text fallbacks (#519); independent recipient-side qualification remains
-open (G08). Privacy policy design and
+plain-text fallbacks (#519). Provider-owned peer and boundary campaigns recorded
+independent recipient observations at their tested source pairs (SDK 7.1.3);
+repeat qualification against changed pins remains tracked under G05/G08.
+Privacy policy design and
 optional plugin retention share the
 [content lifecycle design](content-lifecycle.md); presentation alternatives
 and application-service scope are described in the
@@ -75,20 +77,17 @@ and application-service scope are described in the
 
 ## Storage development contract
 
-Develop against one current schema and API contract. Reject incompatible
-older layouts and use fresh state. Initialization applies only explicitly
+Develop against one current schema and API contract. Preserve incompatible
+databases for an explicit operator recovery or reset decision. Initialization applies only explicitly
 allowlisted, structurally exact additive catalog changes in one SQLite write
 transaction after validating the predecessor catalog exactly; the allowlist
 is specified in
-[storage](../spec/storage.md#10-database-compatibility-policy). Renames,
-constraint narrowing, data backfills, version bumps and general legacy schema
-transformations stay refused; allowlisted constraint widenings follow the
-guarded additive policy.
-Provide no legacy readers, version aliases or compatibility shims. Version
-fields identify the supported format and allow strict refusal; they promise
-no general upgrade framework. Known allowlisted additive predecessors are
-migrated at writable open; every other earlier development format stays
-refused with recreation guidance.
+[storage](../spec/storage.md#10-database-compatibility-policy). Unrecognized transformations, including constraint narrowing, remain refused;
+allowlisted constraint widenings follow the guarded additive policy. Changes to released catalog generations require explicit
+forward migration and preservation, rollback and restart tests under the
+[versioning policy](versioning-policy.md). Known predecessors migrate at
+writable open; unsupported catalogs are preserved for recovery or deliberate
+reset, not silently discarded.
 
 ## Architecture decisions
 

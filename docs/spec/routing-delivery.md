@@ -399,7 +399,7 @@ Boolean capability fields (`text`, `attachments`, `presence`,
 `metadata_fields`) map `True` → native, `False` → unsupported.
 
 Three-level string fields (`reactions`, `edits`, `deletes`, `replies`, `threads`)
-map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported.
+map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported. These are planning decisions. A `direct` plan may still render a readable relation fallback when a destination binding is absent; rendering evidence records that fallback without rewriting the plan.
 
 Matrix advertises `threads="native"`; the remaining built-in adapters advertise
 `threads="fallback"` and exercise the production `fallback_text` path.

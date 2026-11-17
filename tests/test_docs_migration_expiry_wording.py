@@ -7,7 +7,7 @@ behavior, so the contradictions cannot quietly return:
   decision-audit spec pages must therefore distinguish the exact allowlisted
   additive predecessor (rebuilt transactionally at a writable open; a
   read-only open reports that a guarded writable migration is available)
-  from unsupported catalogs (refused with recreation guidance), without
+  from unsupported catalogs (refused without modification), without
   claiming a blanket no-migration stance or a general upgrade framework.
 - The operator getting-started guide must not claim message expiry is
   blanket-unavailable: narrow implemented mechanisms exist (opt-in
@@ -92,19 +92,17 @@ def test_exact_target_decision_describes_writable_and_readonly_opens() -> None:
 
 
 def test_exact_target_decision_keeps_fail_closed_refusal() -> None:
-    """Unsupported older shapes stay refused with recreation guidance."""
+    """Unsupported older shapes stay refused without modification."""
     text = _normalized(EXACT_TARGET_DECISION_MD)
     assert (
         "Any other older shape outside the additive allowlist is still refused "
-        "at initialization with recreation guidance" in text
+        "at initialization without changes" in text
     ), (
         "exact-target-decision.md must keep the fail-closed refusal for "
         "shapes outside the additive allowlist"
     )
-    assert "no general upgrade framework" in text, (
-        "exact-target-decision.md must state that no general upgrade "
-        "framework is provided"
-    )
+    assert "preserve the database" in text
+    assert "Future supported catalog changes follow the versioning policy" in text
 
 
 def test_exact_target_decision_has_no_blanket_no_migration_claim() -> None:
@@ -151,16 +149,14 @@ def test_operator_resolution_keeps_fail_closed_refusal() -> None:
     """Layouts outside the allowlist stay refused; no upgrade framework."""
     text = _normalized(OPERATOR_EXACT_RESOLUTION_MD)
     assert (
-        "Any other earlier development layout MUST still be refused with "
-        "recreation guidance" in text
+        "Any other earlier development layout MUST still be refused without "
+        "modification" in text
     ), (
         "operator-exact-resolution.md must keep refusing earlier layouts "
         "outside the additive allowlist"
     )
-    assert "not a general upgrade framework" in text, (
-        "operator-exact-resolution.md must state the allowlist is not a "
-        "general upgrade framework"
-    )
+    assert "Preserve unsupported catalogs" in text
+    assert "Future supported catalog changes follow the versioning policy" in text
 
 
 def test_operator_resolution_has_no_blanket_no_upgrade_claim() -> None:

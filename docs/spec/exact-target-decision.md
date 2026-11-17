@@ -134,8 +134,9 @@ preserved row counts, and a clean
 before commit — and a read-only open of that recognized predecessor reports
 that a guarded writable migration is available instead of suggesting a reset. Any other
 older shape outside the additive allowlist is still refused at initialization
-with recreation guidance; qualification uses fresh state, and no general
-upgrade framework is provided.
+without changes; preserve the database and follow the
+[recovery policy](storage.md#105-unsupported-database-recovery-and-reset).
+Future supported catalog changes follow the versioning policy.
 
 ## Local caller boundary
 

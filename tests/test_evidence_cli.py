@@ -336,7 +336,7 @@ class TestEvidenceBundleCore:
 
     @pytest.mark.asyncio
     async def test_live_health_skipped_by_default(self, config_fake: Path) -> None:
-        """Live health section is skipped without --include-refresh-health."""
+        """Live health is skipped without the Python API opt-in."""
         report = await collect_evidence_bundle(str(config_fake))
         assert report["runtime_started"] is False
         assert report["sections"]["live_health"]["status"] == "skipped"

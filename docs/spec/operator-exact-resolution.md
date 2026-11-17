@@ -60,8 +60,9 @@ from the authoritative DDL — and a read-only open of that recognized
 predecessor reports that a guarded writable migration is available instead of
 suggesting a reset. Other approved additive changes follow the same guarded
 writable-initialization policy. Any other earlier development layout MUST still
-be refused with recreation guidance. The allowlist is explicit and additive,
-not a general upgrade framework: unsupported catalogs get no upgrade path.
+be refused without modification. Preserve unsupported catalogs for an
+explicit [recovery or reset decision](storage.md#105-unsupported-database-recovery-and-reset).
+Future supported catalog changes follow the versioning policy.
 
 Qualify candidates against separately selected fresh state; test migration and
 rollback against disposable copies, not production or shared development data.

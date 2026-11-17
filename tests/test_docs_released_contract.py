@@ -1,6 +1,7 @@
 """Keep current operator guidance aligned with released contracts."""
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -61,3 +62,28 @@ def test_packaging_status_is_not_an_operator_banner() -> None:
             text,
             re.IGNORECASE,
         ), path
+
+
+def test_collection_policy_defers_to_the_storage_allowlist() -> None:
+    section = _read("docs/spec/content-collection-guard.md")
+    assert "storage.md#10-database-compatibility-policy" in section
+    assert "Unsupported catalogs MUST be refused before schema DDL" in " ".join(
+        section.split()
+    )
+    assert "collection policy introduces no additional migration authority" in section
+
+
+def test_evidence_collection_does_not_advertise_a_removed_cli_flag() -> None:
+    tree = ast.parse(_read("src/medre/runtime/evidence/_helpers.py"))
+    assignment = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "_LIMITATIONS"
+    )
+    assert assignment.value is not None
+    limitations = ast.literal_eval(assignment.value)
+    assert all("--include-refresh-health" not in item for item in limitations)
+    example = json.loads(_read("docs/schemas/examples/evidence-bundle-example.json"))
+    assert example["limitations"] == limitations
