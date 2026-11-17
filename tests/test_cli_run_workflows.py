@@ -14,6 +14,7 @@ import json
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -588,3 +589,50 @@ class TestStaleShutdownState:
         # Both runs should have completed successfully (not hung).
         output2 = stdout2.getvalue()
         assert "Runtime shutting down" in output2
+
+
+@pytest.mark.asyncio
+async def test_startup_installation_summary_survives_core_metadata_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import medre.cli.run_commands as run_mod
+    from medre.runtime import installation_summary
+
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG_SINGLE_ADAPTER)
+
+    def broken_version(name: str) -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid metadata")
+
+    # Patch only the summary's dependency lookups, not global provider discovery.
+    provider = SimpleNamespace(
+        metadata={"Name": "medre-adapter-matrix"},
+        version="0.1.0",
+        read_text=lambda filename: None,
+    )
+    not_found = installation_summary.importlib.metadata.PackageNotFoundError
+    monkeypatch.setattr(
+        installation_summary,
+        "importlib",
+        SimpleNamespace(
+            metadata=SimpleNamespace(
+                version=broken_version,
+                distribution=broken_version,
+                PackageNotFoundError=not_found,
+                entry_points=lambda **kwargs: [
+                    SimpleNamespace(name="matrix", dist=provider)
+                ],
+            )
+        ),
+    )
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        task = asyncio.create_task(run_mod._run(str(config)))
+        trigger = asyncio.create_task(_trigger_shutdown_after_startup(run_mod, stdout))
+        await asyncio.gather(task, trigger)
+    output = stdout.getvalue()
+    assert "Core:    medre ? (unknown source)" in output
+    assert "Python:  " in output
+    assert "Adapter: matrix 0.1.0 (index)" in output
+    assert "Runtime ready (" in output or "Runtime running (" in output
+    assert output.index("State:") < output.index("Core:") < output.index("Python:")

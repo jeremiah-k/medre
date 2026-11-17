@@ -130,3 +130,30 @@ even when no catalog alias or supported tool receipt exists; an unreadable
 provider metadata inventory MUST be reported without discarding known catalog
 and receipt rows. An explicit installed distribution name takes precedence
 over a conflicting catalog alias during source switching.
+
+## Startup installation summary
+
+`medre run` MUST report a best-effort installation summary at INFO in the
+startup header, after the config and state paths and before runtime construction.
+It includes the core version and source, Python version/system/architecture,
+and a deterministic list of installed adapter entry-point transport/distribution
+pairs (not just configured or enabled adapter instances). Core-owned entries
+MUST be excluded by normalized distribution name; nonstandard distribution names
+MUST be shown in brackets. The summary MUST NOT load provider implementations,
+query an index, or change deployment state.
+
+The source label reflects installed metadata only: `index` means no direct URL
+record was found, `source` means core distribution metadata is absent, `git`
+shows an abbreviated recorded commit, `editable` shows a recorded local
+directory, and `url` shows a direct source location. Recognized non-Git VCS
+revisions MAY be displayed. Invalid, inconsistent or unsupported metadata
+MUST yield `unknown source`; a missing, unreadable or unsafe-to-display version
+MUST yield `?` independently. The source-tree core version fallback is not an installed version.
+These labels establish neither index identity, source-tree cleanliness, exact
+installed bytes, nor qualification. URL userinfo, query values and fragments
+MUST NOT appear in the startup summary, including for non-HTTP schemes. Paths
+and hostnames remain visible, so operators MUST NOT embed credentials in paths
+and SHOULD review logs before sharing them. Invalid metadata MUST NOT be logged
+verbatim or prevent startup; an incomplete provider inventory MUST be indicated
+without suppressing healthy entries already discovered. This text is not a
+versioned evidence or snapshot schema.
