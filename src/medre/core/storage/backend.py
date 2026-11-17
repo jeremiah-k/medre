@@ -130,7 +130,7 @@ class StorageInitializationError(StorageError):
 
 
 class PreReleaseSchemaMismatchError(StorageInitializationError):
-    """Raised when a pre-release database differs from the declared shape.
+    """Raised when a database differs from the declared shape. (Legacy type name.)
 
     Attributes
     ----------
@@ -170,17 +170,17 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
         reason = "; ".join(differences) or "incompatible definition"
         path_hint = f" (database: {path})" if path else ""
         super().__init__(
-            f"Pre-release schema shape mismatch: table '{table}': "
+            f"Storage schema shape mismatch: table '{table}': "
             f"{reason}.{path_hint} "
-            f"The database does not match the current pre-release shape. "
-            f"MEDRE automatically applies known additive pre-release layout "
+            f"The database does not match the supported catalog. "
+            f"MEDRE automatically applies known additive layout "
             f"migrations; a database requiring changes outside that policy "
-            f"must be recreated."
+            f"requires an explicit recovery or reset decision."
         )
 
 
 class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
-    """Raised when a pre-release table lacks required structural constraints."""
+    """Raised when a table lacks required structural constraints. (Legacy type name.)"""
 
     def __init__(
         self,
@@ -193,12 +193,12 @@ class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
         self.missing_constraints = missing_constraints
         path_hint = f" (database: {path})" if path else ""
         super().__init__(
-            f"Pre-release schema constraint mismatch: table '{table}' is "
+            f"Storage schema constraint mismatch: table '{table}' is "
             f"missing required constraints {sorted(missing_constraints)}.{path_hint} "
-            "The database does not match the current pre-release shape. "
-            "MEDRE automatically applies known additive pre-release layout "
+            "The database does not match the supported catalog. "
+            "MEDRE automatically applies known additive layout "
             "migrations; a database requiring changes outside that policy "
-            "must be recreated."
+            "requires an explicit recovery or reset decision."
         )
 
 

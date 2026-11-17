@@ -374,7 +374,7 @@ class EvidenceCollector:
 
         # -- Convergence diagnostics (pure, from receipts + outbox) -----------
         # Convergence diagnostics are pure functions over already-loaded snapshots.
-        # Failures surface during pre-release intentionally — no silent degradation.
+        # Failures surface intentionally — no silent degradation.
         convergence_summary_obj = build_convergence_summary(
             receipts=receipts,
             outbox_items=outbox_items,

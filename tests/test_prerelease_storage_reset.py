@@ -2,7 +2,7 @@
 
 Verifies that old-shape pre-release databases produce actionable errors that
 include the database path, the affected table, and the missing columns —
-giving operators clear guidance to recreate the database.
+giving operators clear guidance to preserve state and choose recovery or reset.
 
 Covers:
 
@@ -407,7 +407,7 @@ async def test_corrupt_existing_db_raises_stable_initialization_error(
 
 
 async def test_schema_mismatch_error_is_actionable() -> None:
-    """Error message contains guidance to recreate the database."""
+    """Error message gives recovery or deliberate reset guidance."""
     db_path = _create_old_shape_db()
     try:
         storage = SQLiteStorage(db_path=db_path)
@@ -416,7 +416,8 @@ async def test_schema_mismatch_error_is_actionable() -> None:
 
         msg = str(exc_info.value).lower()
         # The error should tell the operator what to do.
-        assert "recreate" in msg
+        assert "explicit recovery or reset decision" in msg
+        assert "pre-release" not in msg
         assert "additive" in msg
     finally:
         os.unlink(db_path)
@@ -555,3 +556,16 @@ async def test_same_version_db_missing_dispatch_source_is_rejected(
     assert _EXPECTED_SCHEMA_VERSION == 1
     assert exc_info.value.table == "delivery_outbox"
     assert "dispatch_source" in exc_info.value.missing_columns
+
+
+def test_constraint_mismatch_diagnostic_preserves_recovery_choice() -> None:
+    error = PreReleaseSchemaConstraintMismatchError(
+        "/private/medre.sqlite", "delivery_outbox", ["CHECK(attempt_number >= 1)"]
+    )
+    message = str(error)
+    assert "Storage schema constraint mismatch" in message
+    assert "delivery_outbox" in message
+    assert "/private/medre.sqlite" in message
+    assert "CHECK(attempt_number >= 1)" in message
+    assert "explicit recovery or reset decision" in message
+    assert "pre-release" not in message.lower()

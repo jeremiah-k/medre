@@ -250,8 +250,8 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SCHEMA_VERSION: int = 1
-"""Current snapshot schema version.  Frozen at 1 during pre-release; internal
-breaking changes update tests and docs but do not bump the version."""
+"""Version 1 is the published snapshot format; changes require compatibility
+review of the exported contract."""
 
 _ALLOWED_SNAPSHOT_SCOPES: frozenset[str] = frozenset({"build", "live"})
 

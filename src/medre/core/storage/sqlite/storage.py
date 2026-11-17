@@ -297,7 +297,7 @@ class _SQLiteStorageBase:
     async def _validate_schema_shape(self) -> None:
         """Verify that every required table has all expected columns.
 
-        This catches old pre-release databases whose ``schema_version`` still
+        This catches older databases whose ``schema_version`` still
         reads ``1`` but whose column shape predates the current DDL.  The
         check is intentionally lightweight — it inspects ``PRAGMA
         table_info`` for each required table and compares column names
@@ -322,7 +322,7 @@ class _SQLiteStorageBase:
                 )
 
     async def _validate_schema_foreign_keys(self) -> None:
-        """Reject pre-release tables that lack required foreign-key mappings."""
+        """Reject tables that lack required foreign-key mappings."""
         for table, required in _REQUIRED_FOREIGN_KEYS.items():
             rows = await self._read_all(f"PRAGMA foreign_key_list({table})")
             existing = {
@@ -341,7 +341,7 @@ class _SQLiteStorageBase:
                 )
 
     async def _validate_schema_unique_constraints(self) -> None:
-        """Reject pre-release tables whose logical UNIQUE keys are stale."""
+        """Reject tables whose logical UNIQUE keys are stale."""
         for table, required in _REQUIRED_UNIQUE_CONSTRAINTS.items():
             indexes = await self._read_all(
                 'SELECT name, "unique" FROM pragma_index_list(?)',
@@ -368,7 +368,7 @@ class _SQLiteStorageBase:
                 )
 
     async def _validate_schema_checks(self) -> None:
-        """Reject pre-release tables that omit required CHECK constraints."""
+        """Reject tables that omit required CHECK constraints."""
         for table, required in _REQUIRED_CHECK_CONSTRAINTS.items():
             row = await self._read_one(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -431,7 +431,7 @@ class _SQLiteStorageBase:
                     PreReleaseSchemaConstraintMismatchError,
                 ) as exc:
                     raise StorageInitializationError(
-                        "This database has a recognized additive pre-release "
+                        "This database has a recognized additive "
                         "layout update, but a read-only inspection cannot "
                         "apply it. Stop other MEDRE database users and start "
                         "MEDRE once with a normal writable storage open to "
@@ -498,9 +498,8 @@ class _SQLiteStorageBase:
                 f"{_EXPECTED_SCHEMA_VERSION}. "
                 "Resolve the mismatch manually — no automatic schema transformation "
                 "or "
-                f"silent reset is performed.  Options: export data, delete "
-                f"the database file, and restart; or downgrade medre to "
-                f"match the database version."
+                "silent reset is performed. Preserve the database and verify a backup "
+                "before using a compatible build or choosing an explicit reset."
             )
 
     async def close(self) -> None:

@@ -49,7 +49,7 @@ from medre.runtime.route_plan import build_route_plan
 __all__ = ["create_support_bundle", "BUNDLE_SCHEMA_VERSION"]
 
 BUNDLE_SCHEMA_VERSION: int = 1
-"""Manifest ``bundle_schema_version``. Frozen at 1 during pre-release."""
+"""Manifest ``bundle_schema_version``. Version 1 is the published manifest format."""
 
 _DEFAULT_OUTPUT_NAME = "medre-support-bundle.zip"
 # Centralized redaction marker — kept as a module alias so existing call
