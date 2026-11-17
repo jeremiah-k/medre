@@ -98,10 +98,10 @@ windows. Radio firmware resets, host power loss and longer outages remain outsid
 that evidence. Native packet observations keep their protocol-specific meaning;
 these external receiver logs do not change delivery confirmation levels.
 
-The required `radio_attempt_progress` table ships in the released catalog.
-A store that already has the
-compatible catalog needs no reset for this handoff change. Start normally;
-only if writable startup rejects an
+The required `radio_attempt_progress` table was introduced in core #342.
+It is not an allowlisted missing-table migration. A store that already has the
+compatible catalog needs no reset for this handoff change. Start normally to
+apply any recognized additive migrations; only if writable startup rejects an
 unsupported catalog, follow the [storage recovery and reset procedure](operator-workflows.md#stale-storage-reset).
 This handoff change introduces no additional database shape change.
 
