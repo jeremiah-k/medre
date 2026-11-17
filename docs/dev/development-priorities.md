@@ -67,7 +67,7 @@ Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
 reconnect and restart. SimpleX declares native quote replies with thread and
 plain-text fallbacks (#519). Provider-owned peer and boundary campaigns recorded
-independent recipient observations at their tested source pairs (SDK 7.1.3);
+independent recipient observations at their tested source pairs;
 repeat qualification against changed pins remains tracked under G05/G08.
 Privacy policy design and
 optional plugin retention share the

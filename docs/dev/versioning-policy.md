@@ -28,9 +28,8 @@ unsupported declarations are refused without an implicit default. Separate plugi
 adopt their own explicitly named compatibility contract when the plugin runtime
 is implemented; do not reuse the adapter API version by accident.
 
-Package tags need not be minted to establish the adapter API version. Core
-and some providers have published `0.1.0`; publication remains independent
-per distribution. Follow PEP 440 and use monotonically increasing distribution
+Package tags need not be minted to establish the adapter API version.
+Publication is independent per distribution. Follow PEP 440 and use monotonically increasing distribution
 versions. Core's release workflows accept canonical public three-component
 versions (for example `0.1.1`, `0.1.1rc1` or `0.1.1.post1`), optionally prefixed
 by `v` on the tag, matching `project.version` exactly. Mark prerelease versions

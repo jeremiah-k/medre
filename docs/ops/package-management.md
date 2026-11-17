@@ -1,11 +1,11 @@
 # Manage MEDRE and adapter packages
 
-The published 0.1.1 core includes the `sources` commands and package-index
-defaults. Fresh index-only installations need uv; Git is also required for
-Git-backed requests, including those retained when upgrading older installations
-and the Git examples below. Core 0.1.0 predates these commands:
-follow [Getting Started](getting-started.md) and use native uv commands for
-source changes.
+Use the `sources` commands to inspect and switch installed packages. Fresh
+index-only installations need uv; Git is also required for Git-backed requests,
+including requests retained when upgrading an existing installation.
+If your installed CLI does not recognize a command, update the original
+installation or use native uv to manage it; `medre version` reports the installed
+core and `medre sources show` reports package provenance.
 
 Install one persistent command, then select the adapters you need. Matrix
 requires Python 3.12 or later:
@@ -25,8 +25,7 @@ published versions; no fallback to Git occurs if a package cannot resolve.
 Existing catalogs and installed source requests remain intact. If `medre` is
 unavailable after installation, run `uv tool update-shell` and follow its guidance.
 
-Use an exact index requirement or reviewed Git commit to pin core; select a
-release containing source switching to retain the commands below.
+Use an exact index requirement or reviewed Git commit when pinning a deployment.
 Inspect source choices separately from installed provenance:
 
 ```bash
@@ -45,7 +44,7 @@ served it. The inventory is not a qualification record or lockfile.
 ## Add, change, or remove adapters
 
 ```bash
-medre adapters install 'matrix[e2e]==0.1.0' --dry-run
+medre adapters install 'matrix[e2e]' --dry-run
 medre adapters install 'matrix[e2e]'
 medre adapters remove meshtastic
 ```
@@ -91,8 +90,8 @@ use the same Git source kind.
 medre sources switch --all --from index --dry-run
 medre sources switch --all --from index
 
-# Select one release, or follow upstream development.
-medre sources switch core --from index --version 0.1.0 --dry-run
+# Select an index source, or follow upstream development.
+medre sources switch core --from index --dry-run
 medre sources switch matrix --from git --ref main --dry-run
 
 # Fork branch; omit --ref to follow a custom repository's default HEAD.
@@ -113,8 +112,10 @@ adapters by catalog alias or explicit installed distribution name (an exact
 installed name takes precedence over a conflicting alias). Optional
 extras such as `matrix[e2e]` are retained and can be added. Switching never
 installs an absent distribution; use `adapters install` first. Inline index
-constraints such as `adapters install 'matrix[e2e]==0.1.0'` override the alias's
-source and select a released version.
+constraints in the form `ALIAS[EXTRAS]==VERSION` override the alias's source
+and select the chosen released version. Replace `VERSION` with the version you
+intend to deploy. For source switching, `--version` selects an exact release;
+use it only when deliberately pinning that package.
 
 `--all` selects core and explicitly installed first-party adapters, retaining
 community and unrelated requests. Repository, ref, version, path and explicit

@@ -34,10 +34,10 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 ```console
 2026-10-18T20:00:00-0500 [INFO] medre: MEDRE starting (bridge) with 2 adapter(s): matrix, radio
-2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre 0.1.1 (index)
-2026-10-18T20:00:00-0500 [INFO] medre:   Python:  3.13.5 (Linux x86_64)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix 0.1.0 (git c987da62)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic 0.1.1 (git e52d33e5)
+2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre <installed-version> (index)
+2026-10-18T20:00:00-0500 [INFO] medre:   Python:  <python-version> (Linux x86_64)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix <installed-version> (git <commit>)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic <installed-version> (git <commit>)
 2026-10-18T20:00:00-0500 [INFO] medre.runtime.route_engine: Registered 2 expanded route(s)
 2026-10-18T20:00:00-0500 [INFO] medre:   Routes: 1 enabled, 0 disabled (1 configured)
 2026-10-18T20:00:01-0500 [INFO] medre:   started matrix.matrix (312ms)

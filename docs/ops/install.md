@@ -51,10 +51,10 @@ medre version
 medre adapters
 ```
 
-Core 0.1.0 used Git adapter defaults; core 0.1.1 and later include the
-`sources` commands and index defaults (see the
-[package management guide](package-management.md)). Index-only installs are already possible through native uv `--with` when all
-selected packages are available from an index. The provider's Python requirement
+Adapter installation defaults to package-index requirements. Existing
+Git-backed requests retain their source and require Git. See
+[package management](package-management.md) for source inspection and switching.
+Native uv `--with` can also install providers into the same tool environment. The provider's Python requirement
 applies to the entire tool environment; for an existing Python 3.11 MEDRE tool,
 reinstall through native uv with `--python 3.12` and retain the complete request
 (including other providers, extras and sources).
@@ -131,7 +131,7 @@ python -m pip install 'medre-adapter-matrix @ git+https://github.com/jeremiah-k/
 ```
 
 For an existing environment or CI artifact, use
-`python -m pip install ./dist/medre-0.1.1-py3-none-any.whl`, or a Git direct URL
+`python -m pip install PATH_TO_WHEEL`, or a Git direct URL
 requirement as documented in [adapter installation](adapter-installation.md).
 Pip does not consume `uv.lock`; use a separate pinned requirements/constraints
 workflow if you need reproducibility with pip.

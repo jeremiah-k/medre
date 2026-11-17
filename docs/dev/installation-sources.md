@@ -28,20 +28,18 @@ checkouts. These selections do not edit CI compatibility pins. See the
 
 ## Released packages and development sources
 
-From core 0.1.1 onward, new first-party adapter requests
-use index packages, with PyPI as uv's default index. Existing source catalogs
+New first-party adapter requests use index packages, with PyPI as uv's default
+index. Existing source catalogs
 are preserved and may explicitly retain Git.
 The legacy `adapters reset` command deliberately selects upstream Git `main`;
 it is not a stable-release selector.
 
-Core 0.1.0 does not recognize `sources` or inline adapter version constraints;
-core 0.1.1 and later include the feature.
 Git is required for the development installation. The Matrix provider in this
 example requires Python 3.12 or later.
 
 ```bash
 uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'
-medre adapters install 'matrix[e2e]==0.1.0'
+medre adapters install 'matrix[e2e]'
 medre sources show --json
 medre sources switch --all --from index --dry-run
 medre sources switch core --from git --ref main --dry-run

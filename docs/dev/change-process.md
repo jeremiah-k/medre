@@ -21,6 +21,20 @@ Update the affected ops/dev page directly. Describe tooling behavior and checks
 in the PR. Temporary audits, review ledgers and validation logs belong outside
 tracked documentation, for example in ignored `.zcode/`.
 
+## Package and dependency references
+
+Use each package's `pyproject.toml`, such as the
+[core package metadata](../../pyproject.toml), as the authority for its declared
+version and dependency pins; refer to the lockfile for a resolved deployment. Link to that
+metadata instead of repeating the latest package or SDK versions in guides or
+license inventories. License documentation records license terms and provenance;
+update it when those facts change, not for routine dependency bumps.
+
+Use `medre version`, `medre adapters` or `medre sources show` to inspect an
+installation. Keep exact versions where they establish a compatibility floor,
+frozen release baseline, deliberate deployment pin or historical qualification
+record. An example value is not a claim about the latest available release.
+
 ## Optional release notes
 
 Use [unreleased operator notes](../changes/unreleased.md) when operator actions

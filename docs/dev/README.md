@@ -50,8 +50,7 @@ the relevant spec/ops/dev page.
 
 ## Release and development status
 
-Core has published 0.1.1 and development continues. Begin with the development
-environment guide above and use the testing guide for evidence tiers and
-scoped verification. The [versioning policy](versioning-policy.md) governs
+Begin with the development environment guide above and use the testing guide
+for evidence tiers and scoped verification. The [versioning policy](versioning-policy.md) governs
 changes to published contracts. If usage documentation conflicts with runtime
 contracts, `docs/spec/` is the authority.
