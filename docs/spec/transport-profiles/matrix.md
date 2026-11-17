@@ -553,7 +553,7 @@ Matrix is a presentation adapter with rich native relation support. The Matrix r
 | Reactions     | `"fallback"`     | `fallback_text` | Described `m.emote` room message (attribution, exact key, bounded target preview) rendered identically under either delivery strategy |
 | Edits         | `"native"`       | `direct`        | `m.replace` / `m.new_content` — only for `bound_owned` targets; otherwise suppressed (see above)                                      |
 | Deletes       | `"native"`       | `direct`        | `redact_event` — only for `bound_owned` targets; otherwise suppressed (see above)                                                     |
-| Threads       | `"native"`       | `direct`        | `m.thread` rooted at the bound thread root, with spec reply-fallback parent semantics                                                 |
+| Threads       | `"native"`       | `direct`        | `m.thread` with a bound destination root; otherwise a plain reply or message                                                          |
 
 Every outbound render wraps its wire content in a closed
 `_matrix_operation` envelope (`send_event` / `redact_event`); the adapter

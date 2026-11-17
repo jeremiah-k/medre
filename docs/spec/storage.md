@@ -639,8 +639,8 @@ For non-cycle descendants, `depth` is the number of selected parent edges to the
 projected root/cycle boundary. `conversation_id` currently **MUST** equal
 `root_event_id`.
 
-During current pre-release development this table is part of schema version `1`. An
-older version-1 database that lacks this table is an incompatible development shape and
+This table is required by schema version `1`. An
+older version-1 database that lacks this table is an unsupported catalog and
 **MUST** be rejected; MEDRE does not migrate or synthesize compatibility rows.
 
 ### 4.2.2 conversation_projection_state
@@ -667,7 +667,7 @@ session was active or did not shut down cleanly, so the next startup MUST rebuil
 current projection revision resumes after that cursor; every scanned event is still
 recomputed from immutable evidence rather than trusting partial derived rows. A
 projection-revision change discards the cursor and forces a full rebuild. The database
-schema version remains `1` during pre-release development.
+schema version remains `1`.
 
 ### 4.3 native_message_refs
 
@@ -757,7 +757,7 @@ Free-form diagnostic text — `error`, `capability_reason`, and
 the receipts table carries no inline diagnostic columns. Every typed read API
 resolves diagnostic text from the side table. An existing schema-version-1
 database whose evidence tables still carry the retired inline diagnostic
-columns is an allowlisted prerelease predecessor: initialization copies the
+columns is an allowlisted predecessor: initialization copies the
 historical inline text into the side table and rebuilds the tables without
 the columns.
 
@@ -923,7 +923,7 @@ The current delivery status is a projection, but immutable append order is not b
 
 The grouping key is `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required because plan IDs are not globally unique across events. `COALESCE(target_channel, '')` treats `NULL` and empty-string channels as the same target within one event.
 
-### 4.6 plugin_state (schema-reserved; plugin subsystem planned — not implemented; tracked for post-prerelease)
+### 4.6 plugin_state (schema-reserved; plugin subsystem planned — not implemented)
 
 ```sql
 CREATE TABLE plugin_state (
@@ -937,7 +937,7 @@ CREATE TABLE plugin_state (
 
 Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
 
-> **Status:** Planned — not implemented; tracked for post-prerelease. The DDL
+> **Status:** Planned — not implemented. The DDL
 > row is reserved today; no plugin subsystem reads or writes through it.
 
 ### 4.7 \_medre_schema_meta
@@ -951,9 +951,9 @@ CREATE TABLE _medre_schema_meta (
 
 Internal metadata table. Tracks the storage schema version. On initialization, the implementation **MUST** check that the stored `schema_version` matches `_EXPECTED_SCHEMA_VERSION`. On a fresh database, the version row is inserted. If the version mismatches, `StorageInitializationError` **MUST** be raised.
 
-### 4.8 Identity Tables (planned — not implemented; tracked for post-prerelease)
+### 4.8 Identity Tables (planned — not implemented)
 
-> **Status:** Planned — not implemented; tracked for post-prerelease. The
+> **Status:** Planned — not implemented. The
 > identity tables below are not part of the current SQLite DDL (see
 > [schema.py](../../src/medre/core/storage/sqlite/schema.py)). They document
 > the intended shape for future implementation. Do not assume they exist at
@@ -1013,9 +1013,9 @@ CREATE TABLE actor_permissions (
 );
 ```
 
-### 4.9 native_archive (planned — not implemented; tracked for post-prerelease)
+### 4.9 native_archive (planned — not implemented)
 
-> **Status:** Planned — not implemented; tracked for post-prerelease. The
+> **Status:** Planned — not implemented. The
 > `native_archive` table is not part of the current SQLite DDL. It documents
 > the intended shape for future opt-in raw-data archiving. Do not assume it
 > exists at runtime.
@@ -1116,7 +1116,7 @@ The schema enforces the same base invariants independently of lifecycle code:
 `attempt_number` is non-negative; a live `active_attempt` is exactly the next
 dispatch generation and is legal only while the row is `in_progress`; and the
 `status` column is closed over the documented outbox vocabulary. These checks are
-part of the pre-release schema shape, so an invalid row cannot be manufactured by
+part of the declared schema catalog, so an invalid row cannot be manufactured by
 a direct SQL caller and then interpreted differently by another subsystem.
 
 **Statuses:**
@@ -1382,12 +1382,10 @@ Retention policy is quota-shaped and operator-owned:
   their event association are not written. **Nothing is evicted**. There is
   no eviction, GC, or TTL. Raising (or lowering) capacity is an operator action.
 
-Existing schema-version-1 databases gain both attachment tables
-automatically: the tables are created by `CREATE TABLE IF NOT EXISTS` at
-open and are intentionally absent from the pre-release required-column
-shape guard (§10.2), so an older prerelease database is upgraded in place
-rather than rejected. No rows are backfilled — pre-existing `message.file`
-events keep whatever descriptor they were admitted with.
+Both attachment tables are required by the current catalog. A stamped
+database missing either table is refused before schema DDL, because neither
+is an allowlisted missing-table migration (§10.2). No rows are backfilled;
+existing `message.file` events retain their admitted descriptors.
 
 ### 4.13 event_attachment_associations
 
@@ -1459,7 +1457,7 @@ an admission attempt (`cancelled_before_admission`). `scheduled` does not
 imply that the callback subsequently failed admission; it can describe
 healthy traffic. The gate outcomes remain a strict subset of the vocabulary.
 Databases at the exact three-value predecessor layout upgrade through the
-allowlisted additive prerelease migration (guarded table rebuild, rows
+allowlisted additive migration (guarded table rebuild, rows
 preserved, idempotent). Rows are upserted from the runtime gate's batched
 pressure counters and the producer sink's coalesced reports (one
 count-carrying upsert per key per flush). Writes are append-only upserts
@@ -1475,7 +1473,7 @@ timestamps only — never payloads, sender identity, or transport-native
 content — and it is operational evidence: rows never become canonical
 events, receipts, or outbox state, and pressure history deliberately spans
 runtime restarts. No outcome in either half claims durable admission. This
-table is required by the strict prerelease schema. Initialization MUST
+table is required by the strict schema catalog. Initialization MUST
 reject a database that omits it before executing any schema DDL.
 
 ### 4.15.1 inbound_pressure_outage_gaps
@@ -1530,7 +1528,7 @@ layout difference still refuses to start.
 
 ### 4.16 Index Policy
 
-All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.
+All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the declared schema catalog but are not individually versioned.
 
 - Non-`UNIQUE` indexes affect query performance, not correctness. A database that lacks one **SHALL** return the same results, just more slowly.
 - A `UNIQUE` expression/partial index MAY provide redundant integrity hardening for an invariant whose production write path is already race-safe. Runtime correctness **MUST NOT** depend on that index being the concurrency primitive; for example, named replay admission is serialized by `BEGIN IMMEDIATE` and the unique replay-run index is defense in depth.
@@ -1620,11 +1618,11 @@ back the checkpoint transaction. No returned checkpoint guarantees remote RF
 receipt. Even acceptance of every part MUST NOT finalize the parent delivery;
 that remains the delivery lifecycle's responsibility.
 
-This is a required prerelease table, not an additive-DDL exception. A previously
+This is a required table, not an additive-DDL exception. A previously
 stamped database missing it MUST be rejected before schema DDL, without mutation,
 under §10.2. The schema marker remains `1`. Operators MUST retain their original
-database and follow the explicit backup/reset procedure in §10.5 when choosing
-this development schema. Serialized MeshCore and Meshtastic integration is qualified separately from
+database and follow the recovery decision in §10.5 if writable initialization
+rejects the catalog. Serialized MeshCore and Meshtastic integration is qualified separately from
 physical radio campaigns. Explicit tail continuation changes no SQLite table
 shape, schema marker or package version.
 
@@ -1889,7 +1887,7 @@ Pages are a live view of append-only evidence, not a snapshot.
 (`canonical_events.timestamp`), distinct from receipt creation time. Outbox
 rows joined by `outbox_id` may only enrich disposition/retryability fields; they
 are never acceptance evidence. `idx_receipts_lineage` belongs to the declared
-prerelease shape; initialization refuses its absence. Recovery SQL leaves index
+catalog; initialization refuses its absence. Recovery SQL leaves index
 selection to SQLite rather than requiring a particular query-plan hint.
 `replay_run_id` remains execution provenance and is not part of the lineage key.
 
@@ -1971,7 +1969,7 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 `queued` is **not** directly claimable; stale reclaim requires a storage-level staleness query and is distinct from the directly claimable statuses (`pending`, `retry_wait`). See [state-machines.md](state-machines.md) §2.3 "Stale Queued Reclaim" for the full transition semantics.
 
-## 10. Pre-Release Database Policy
+## 10. Database Compatibility Policy
 
 The tagged 0.1.0 SQL snapshot identifies the released catalog baseline.
 The schema version remains `1`; that stamp alone does not establish catalog
@@ -1981,39 +1979,52 @@ development layouts MUST be refused without modifying the database. Changes
 to a published persisted-state contract require the compatibility and versioning
 review described in the [versioning policy](../dev/versioning-policy.md).
 
-Only explicitly allowlisted, structurally exact additive changes MAY be applied
-within one `BEGIN IMMEDIATE` transaction. The allowlisted changes are
-the nullable `event_content_access_grants.expired_at` field, the independent
-`event_content_collection_log` table, the write-time separated
-`delivery_evidence_diagnostics` table with its `idx_diagnostics_identity`
-index, the typed `event_routing_facts` admission table (Section 4.1.1), and
-the independent `delivery_outbox_snapshots` work-snapshot table
-(Section 4.10.2), together with the `idx_outbox_deadline_cleanup_order`
-partial index and the widened `operator_delivery_decisions` action-vocabulary
-`CHECK`. A widening cannot be `ALTER`ed in place: it is applied by a guarded
-table rebuild that recreates the table from the declared DDL, copies the
-legacy rows with an explicit column list, and asserts preserved row counts
-and a clean `PRAGMA foreign_key_check(operator_delivery_decisions)` for
-that rebuilt table before commit. Unrelated pre-existing foreign-key
-violations are not attributed to this localized migration. This does not authorize
-renames, constraint narrowing, data backfills, or general legacy schema
-transformations. The `initialize()` method **MUST** validate the old catalog
-against one exact allowlisted predecessor before any DDL and validate the
-complete resulting catalog before commit. All other stale prerelease layouts
-MUST be rejected:
+Only explicitly allowlisted, structurally exact predecessors MAY be migrated
+within one `BEGIN IMMEDIATE` transaction. The executable allowlist is
+[`schema_validation.py`](../../src/medre/core/storage/sqlite/schema_validation.py)
+and the named rebuild steps in
+[`_prerelease_migrate.py`](../../src/medre/core/storage/sqlite/_prerelease_migrate.py)
+(the legacy module name is retained). The recognized changes are:
+
+- Recognized missing tables: `event_content_collection_log`, `content_retention_epochs`,
+  `delivery_evidence_diagnostics`, `event_routing_facts`,
+  `delivery_outbox_snapshots`, and `inbound_pressure_outage_gaps`.
+- Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
+  `idx_diagnostics_identity`, `idx_events_admission_order`, and
+  `idx_outbox_snapshot_owner_unique`.
+- The exact predecessor of `event_content_access_grants` without nullable
+  `expired_at`.
+- The exact predecessor definitions for `operator_delivery_decisions`,
+  `inbound_pressure_observations`, and `inbound_pressure_outage_gaps` (the
+  guarded action/outcome widenings and retry-token addition).
+- The exact predecessor definitions with inline diagnostics in
+  `delivery_receipts`, `delivery_observations`, `delivery_outbox`, and
+  `durable_ingress_work`, including the associated `delivery_status` view.
+  The guarded rebuilds separate diagnostics from delivery authority.
+
+These are named exceptions, not permission to change arbitrary tables,
+columns or constraints. Guarded rebuilds recreate the declared table, copy
+or transform the explicitly recognized rows, and check their invariants
+inside the open transaction. For the decision action widening this includes
+preserved row counts and a clean
+`PRAGMA foreign_key_check(operator_delivery_decisions)` for that rebuilt table;
+unrelated pre-existing foreign-key violations are not attributed to it.
+`initialize()` MUST validate the old catalog against the exact allowlist
+before DDL and validate the complete resulting catalog before commit.
+All other unsupported layouts MUST be rejected without modification.
 
 ### 10.1 Schema Version Check
 
-On a fresh database, the version row is inserted automatically into `_medre_schema_meta`. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` **MUST** be raised with guidance to resolve the mismatch manually (export data, delete the database file, and restart; or downgrade to match the database version).
+On a fresh database, the version row is inserted automatically into `_medre_schema_meta`. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` **MUST** be raised with guidance to resolve the mismatch manually (preserve and verify a backup, then use a compatible build or explicitly reset).
 
-Because `_EXPECTED_SCHEMA_VERSION` remains `1` in the current development phase, this check catches databases with a different stamped version. It does not catch databases that report version `1` but were created by an older prerelease build with a different column shape (that is the job of Section 10.2).
+Because `_EXPECTED_SCHEMA_VERSION` remains `1`, this check catches databases with a different stamped version. It does not catch databases that report version `1` but were created by an older build with a different column shape (that is the job of Section 10.2).
 
 ### 10.2 Column-Shape Validation
 
 For an already-stamped MEDRE database, `initialize()` **MUST** inspect
 `PRAGMA table_info` for every required table **before schema DDL executes**.
 This prevents `CREATE TABLE IF NOT EXISTS` from silently filling in newly
-introduced prerelease tables. Missing fields and tables not covered by an
+introduced required tables. Missing fields and tables not covered by an
 explicitly verified additive predecessor MUST raise
 `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`). The error message **MUST** identify the affected table, the
 missing columns, unexpected columns or metadata details as separate clauses,
@@ -2025,13 +2036,11 @@ After the database opens, normal shape validation repeats with
 catalog fingerprint described in §10.3, so an accepted database matches the
 declared layout exactly.
 
-This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against stale prerelease databases.
+This validation catches older databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against unsupported databases.
 
-This change adds the required `delivery_receipts.confirmation_level` column while
-the prerelease schema version remains `1`. A database created by an earlier
-prerelease build therefore fails required-column validation by design. Operators
-MUST back up/reset that prerelease database using §10.5; MEDRE does not
-transform that database in place.
+The `delivery_receipts.confirmation_level` column is required. A stamped
+database missing it is refused unless its complete catalog matches an
+explicitly supported predecessor. No generic backfill is authorized.
 
 ### 10.3 Structural-Constraint Validation
 
@@ -2054,7 +2063,7 @@ defaults, primary and foreign keys (including actions), CHECK/UNIQUE constraints
 collations, expression and partial indexes, and views. Missing or unexpected
 objects, including triggers, MUST be refused. SQLite-managed objects such as
 statistics and sequence tables are excluded. Hand-written equivalent DDL is
-outside this prerelease identity contract.
+outside this exact catalog contract.
 
 Validation MUST leave an incompatible database unchanged. Writable initialization
 MUST repeat validation while holding its initialization transaction to prevent
@@ -2064,18 +2073,22 @@ unstamped database MUST NOT be adopted.
 
 ### 10.4 Future supported additive changes
 
-After a first supported schema baseline is declared, adding a table, index,
+With the tagged 0.1.0 catalog as the released baseline, adding a table, index,
 or optional field MAY be handled by a **forward-only, explicitly versioned**
 migration if it preserves existing data and has tested upgrade, rollback-on-
 failure, and restart behavior. Breaking or ambiguous transformations require an
 explicit operator decision and are not implied by a version number alone.
 There is no promise to migrate abandoned, unpublished development layouts.
 The current exact-catalog check continues to reject all unrecognized layouts;
-this section does not enable automatic migration today.
+this section does not authorize any additional automatic migrations.
 
-### 10.5 Pre-Release Stale Database Reset
+### 10.5 Unsupported Database Recovery and Reset
 
-When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
+When writable `initialize()` rejects an unsupported database catalog, it leaves
+the store unchanged. A compatible previous build or a supported recovery
+procedure may preserve state. If the operator explicitly chooses to start
+fresh, use the following workflow; no automatic deletion or recreation is
+performed.
 
 1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
 2. **Stop all database users and preserve state if it matters.** Make and verify a SQLite-aware backup in a private location, or preserve the complete matching main database and WAL/SHM file set with all users stopped. Do not copy only the main file: committed transactions may still reside in the WAL. See the [operator reset procedure](../ops/operator-workflows.md#step-by-step-reset-procedure).
@@ -2281,21 +2294,21 @@ contract](storage-column-classification.md).
 
 ### 16.1 Ownership Summary
 
-| Table / category                | Creator                                                                                          | Mutator                                                           | Deleter                                       | Retention                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
-| `canonical_events`              | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment)               | None (append-only)                                                | None                                          | Forever                          |
-| `event_relations`               | `append()` (inline), `store_relation()` (post-hoc)                                               | None (append-only)                                                | None                                          | Forever                          |
-| `conversation_membership`       | `ConversationProjectionService` from immutable event/relation/native-ref facts                   | `ConversationProjectionService` (derived idempotent repair)       | None; rebuilt in place                        | Rebuildable current projection   |
-| `conversation_projection_state` | `ConversationProjectionService` during startup                                                   | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker     |
-| `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                                         | None (idempotent insert)                                          | None                                          | Forever                          |
-| `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                              | None (append-only)                                                | None                                          | Forever                          |
-| `delivery_observations`         | Core runtime from adapter-reported post-handoff transport facts                                  | None (append-only)                                                | None                                          | Forever                          |
-| `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                                   | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
-| `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                                    | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
-| `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                                   | Cursor-owning adapters                                            | None                                          | Forever                          |
-| `radio_attempt_progress`        | Owned radio checkpoint API after full outbox claim validation                                    | CAS part transitions and restart-to-unknown only                  | None                                          | Forever                          |
-| `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
-| `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                                     | `initialize()` (version row)                                      | None                                          | Forever                          |
+| Table / category                | Creator                                                                            | Mutator                                                           | Deleter                                       | Retention                        |
+| ------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `canonical_events`              | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                                | None                                          | Forever                          |
+| `event_relations`               | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                                | None                                          | Forever                          |
+| `conversation_membership`       | `ConversationProjectionService` from immutable event/relation/native-ref facts     | `ConversationProjectionService` (derived idempotent repair)       | None; rebuilt in place                        | Rebuildable current projection   |
+| `conversation_projection_state` | `ConversationProjectionService` during startup                                     | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker     |
+| `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                          | None                                          | Forever                          |
+| `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                                | None                                          | Forever                          |
+| `delivery_observations`         | Core runtime from adapter-reported post-handoff transport facts                    | None (append-only)                                                | None                                          | Forever                          |
+| `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
+| `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
+| `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                            | None                                          | Forever                          |
+| `radio_attempt_progress`        | Owned radio checkpoint API after full outbox claim validation                      | CAS part transitions and restart-to-unknown only                  | None                                          | Forever                          |
+| `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented)                | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
+| `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                      | None                                          | Forever                          |
 
 ### 16.2 Ownership Rules
 

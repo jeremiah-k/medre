@@ -83,7 +83,7 @@ history is never swept, REPLAY scope never constructs the worker, and every
 per-event mutation still rechecks all blockers inside its own
 `BEGIN IMMEDIATE` transaction exactly as below. Absent that declaration, a scheduler MUST NOT invoke collection automatically.
 
-Pre-release initialize MAY automatically apply only exactly recognized additive
+Writable initialization MAY automatically apply only exactly recognized additive
 catalog states: the nullable `expired_at` grant field, the independent
 collection-receipt table, the `content_retention_epochs` activation-epoch
 table, the delivery diagnostics table and its identity index, the

@@ -133,7 +133,7 @@ def test_operator_sdk_commands_use_the_installed_tool_environment() -> None:
 
 def test_rejected_store_reset_points_to_wal_safe_backup() -> None:
     spec = (_ROOT / "docs/spec/storage.md").read_text(encoding="utf-8")
-    reset = spec.split("### 10.5 Pre-Release Stale Database Reset", 1)[1].split(
+    reset = spec.split("### 10.5 Unsupported Database Recovery and Reset", 1)[1].split(
         "## 11.", 1
     )[0]
     assert "Do not copy only the main file" in reset

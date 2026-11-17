@@ -476,10 +476,12 @@ edits, and deletes. `native` permits direct thread rendering, `fallback`
 selects deterministic textual degradation, and `unsupported` suppresses the
 target before rendering.
 
-Matrix advertises `threads="native"` and renders the relation as a native
-`m.thread` rooted at the bound thread root. Meshtastic, MeshCore, and LXMF
-advertise `threads="fallback"` and have no equivalent native conversation
-primitive. A built-in adapter MAY advertise `native` only after its renderer
+Matrix advertises `threads="native"`; the renderer emits `m.thread` only
+when the root is bound in the destination room. If the root is unbound, an
+independently bound explicit reply parent permits a plain reply; otherwise
+rendering produces a plain message with readable relation fallback, not a
+fabricated native ID. The other six built-in adapters advertise
+`threads="fallback"` and use deterministic inline text. A built-in adapter MAY advertise `native` only after its renderer
 and transport path have conformance coverage for native thread semantics.
 
 #### 6.3.7 Rendering Evidence

@@ -55,7 +55,7 @@ storage API MUST report SQLite failures and payload-integrity violations as
 remain `ValueError`. The API is for trusted core code; a consumer string is not authentication
 and must never be exposed to an untrusted extension as a capability.
 
-**This is not operational content expiry.** The prerelease SQLite shape now
+**This is not operational content expiry.** The SQLite schema
 separates canonical body/text and relation excerpts and persists mandatory
 content dependencies atomically with ingress/outbox writes. `read_event_for_ingress`,
 `read_event_for_outbox`, `read_body_for_outbox`, and
@@ -74,9 +74,9 @@ Before enabling an operator policy, implement one persisted content-reference
 and availability model with bounded grant rows and validated constraints.
 Admission now captures mandatory ingress/outbox dependencies transactionally;
 remaining readers MUST distinguish retained, unavailable and denied content
-without rewriting native attempt fences. Incompatible prerelease layouts MUST be
-refused and replaced with fresh development state; legacy readers, backfills
-and upgrade paths are not part of this contract.
+without rewriting native attempt fences. Unsupported catalogs MUST be refused without mutation; only the exact
+allowlisted migrations in the storage policy are supported. Recovery or reset
+requires an explicit operator decision.
 
 A write-capable collector MUST account for relations, observations, radio
 packet plans, attachment content, provider journals, WAL/backups and external

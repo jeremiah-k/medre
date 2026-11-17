@@ -201,8 +201,11 @@ the five known types raise `ValueError`.
 
 **Thread capability:** The `"thread"` type participates in capability planning
 through `AdapterCapabilities.threads`. Matrix advertises `"native"` and emits
-the relation as a native `m.thread`; the remaining built-in adapters advertise
-`"fallback"` and degrade the relation to deterministic inline text.
+`m.thread` only with a bound destination thread root. Without that root, an
+independently bound explicit reply parent permits a plain Matrix reply; otherwise
+the renderer sends a plain message with readable relation fallback. The other
+built-in adapters advertise `"fallback"` and degrade the relation to
+deterministic inline text. See [Matrix rendering](transport-profiles/matrix.md#relation-degradation-behavior).
 
 ### 2.4 Resolution Flow
 

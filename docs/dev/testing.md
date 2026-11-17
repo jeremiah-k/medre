@@ -362,20 +362,19 @@ compatibility proof. Tests cover exact catalog validation, the declared additive
 predecessors, and refusal of unsupported layouts. Published storage changes need
 the compatibility review described in the [versioning policy](versioning-policy.md).
 
-Because the version is frozen, column-shape validation is the primary guard against stale prerelease databases. Tests verify that:
+The schema stamp is not a compatibility proof; column-shape and complete catalog validation guard against unsupported databases. Tests verify that:
 
 - A fresh database starts with `schema_version == 1` in `_medre_schema_meta`.
-- A database that reports the correct version but is missing required columns (stale prerelease shape) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError` (tested in `test_prerelease_storage_reset.py`).
+- A database that reports the correct version but is missing required columns (unsupported catalog) raises `PreReleaseSchemaMismatchError`, not a generic `StorageInitializationError` (tested in `test_prerelease_storage_reset.py`).
 - Column-shape validation reports the affected table and all missing columns in the error (tested in `test_prerelease_storage_reset.py`).
 
-Before declaring a supported database baseline, keep schema version 1: test
-strict catalog rejection for layouts outside the additive policy, and test
-each explicitly allowlisted additive predecessor migration for upgrade,
-idempotent reopen, and preserved row counts and foreign-key integrity (tested
-in `test_prerelease_schema_migration.py`). Once a baseline is supported, each
-explicit forward-only additive migration must have tests for upgrade,
-interruption/rollback, and restart. No migration path is required for
-abandoned prerelease database shapes.
+Test strict catalog rejection for layouts outside the additive policy and each
+explicitly allowlisted predecessor migration for upgrade, idempotent reopen,
+and preserved row counts and foreign-key integrity (tested in
+`test_prerelease_schema_migration.py`). The released baseline is the 0.1.0
+tagged catalog; each future explicit forward-only migration requires tests for
+upgrade, interruption/rollback and restart. No migration path is required for
+abandoned unpublished development shapes.
 
 ## Operator/CLI Tests
 

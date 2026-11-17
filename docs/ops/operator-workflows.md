@@ -54,7 +54,9 @@ columns, and indexes, and constraint widenings rebuilt under row-count and
 foreign-key integrity checks. Changes outside that additive policy — renames,
 removals, narrowed constraints — are still rejected at startup with a
 `PreReleaseSchemaMismatchError` or `PreReleaseSchemaConstraintMismatchError`;
-such a database must be reset manually.
+such a database is preserved for an explicit recovery decision. Use a
+compatible previous build if appropriate, or back up and deliberately reset
+when starting fresh is acceptable.
 
 ### How to tell if your database is stale
 
@@ -76,16 +78,18 @@ layouts require a deliberate recovery or reset decision.
 Alternatively, if MEDRE fails to start with an error like:
 
 ```text
-PreReleaseSchemaMismatchError: Pre-release schema shape mismatch: table
+PreReleaseSchemaMismatchError: Storage schema shape mismatch: table
 'delivery_outbox': missing required columns ['failure_kind_detail'].
 (database: /home/user/.local/state/medre/medre.sqlite) The database does not
-match the current pre-release shape. MEDRE automatically applies known
-additive pre-release layout migrations; a database requiring changes outside
-that policy must be recreated.
+match the supported catalog. MEDRE automatically applies known additive
+layout migrations; a database requiring changes outside that policy
+requires an explicit recovery or reset decision.
 ```
 
-then the database needs a change outside the additive migration policy and
-requires a reset.
+then the catalog is outside the additive migration policy. Preserve the
+original database and choose a compatible previous build, a supported recovery
+procedure if available, or an explicit reset. Reset is not required merely
+because a database was created by an older release.
 
 ### Step-by-step reset procedure
 
@@ -214,9 +218,13 @@ file-level reset backup as a live SQLite snapshot.
 
 ### When this does not apply
 
-This workflow applies to databases created by older core builds whose column
-shape changed. Later storage-compatibility changes follow the documented
-versioning review (docs/dev/versioning-policy.md).
+Use this workflow only when writable initialization rejects an unsupported
+schema version or catalog (including missing or unexpected columns, constraints,
+indexes, views or other objects), and you deliberately choose a fresh store.
+An older build alone is not a reason to reset. A recognized additive
+predecessor can be migrated at a normal writable open; a compatible database
+needs no reset. Storage changes follow the
+[versioning policy](../dev/versioning-policy.md).
 
 ## Preferred Product Path
 

@@ -46,13 +46,13 @@ MUST report the storage-error exit code. Preview output is not a mutation
 grant, and cancellation is distinct from native _uncertain handoff_
 reconciliation. Automatic retry policy and exact replay execution are unchanged.
 
-## Prerelease storage compatibility
+## Storage compatibility
 
-The additional audit table is part of the **required** prerelease SQLite shape.
+The additional audit table is part of the **required** SQLite catalog.
 Before schema creation on an existing database, MEDRE validates the complete
 catalog against the current shape or an explicitly allowlisted additive
 predecessor, even when the stored schema version remains `1`. The authoritative
-allowlist is specified in [storage](storage.md#10-pre-release-database-policy).
+allowlist is specified in [storage](storage.md#10-database-compatibility-policy).
 For the decision-audit table, the exact single-action
 `operator_delivery_decisions` predecessor is one such allowed shape: a writable
 open applies its guarded additive migration — a transactional table rebuild

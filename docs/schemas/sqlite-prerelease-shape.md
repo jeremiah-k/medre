@@ -1,4 +1,4 @@
-# Prerelease SQLite schema identity
+# SQLite schema identity
 
 The executable source of the complete SQLite layout is
 [`schema.py`](../../src/medre/core/storage/sqlite/schema.py). Initialization
@@ -7,11 +7,12 @@ before schema writes, then compares the complete catalog — constraints,
 indexes, views and triggers — after the database opens. Unexpected objects,
 including triggers, are refused. SQLite-managed objects are excluded.
 
-Schema version remains `1` while there is no supported database baseline.
-Unsupported development layouts require explicit backup and replacement.
-Once a baseline is supported, explicit forward-only additive migrations may be
-introduced without supporting abandoned prerelease layouts.
-See [storage policy](../spec/storage.md#10-pre-release-database-policy) for
+Schema version remains `1`; the tagged 0.1.0 catalog identifies the released
+baseline. Unsupported catalogs are refused without mutation. The exact
+allowlisted predecessors can migrate at a writable open. Future changes require
+compatibility review and tested migrations; abandoned unpublished development
+layouts need not be supported.
+See [storage policy](../spec/storage.md#10-database-compatibility-policy) for
 operator recovery and transactional initialization requirements.
 
 The deadline-cleanup ordering index is an approved additive predecessor:

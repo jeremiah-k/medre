@@ -17,7 +17,10 @@ medre adapters install matrix meshtastic
 
 Core 0.1.0 (the previous release) installed adapters from Git by default; if
 you still run it, install Git, or upgrade core to 0.1.1 for package-index
-defaults and the `sources` commands.
+defaults and the `sources` commands. Upgrading preserves existing saved
+requests and source catalogs, including Git sources. Git remains necessary
+for those requests until you explicitly [switch sources](package-management.md#switch-installed-package-sources)
+and update any catalog you intend to reapply.
 
 If `medre` is not found, run `uv tool update-shell` and open a new terminal.
 On Windows, run the extra installation command MEDRE prints after it exits.
