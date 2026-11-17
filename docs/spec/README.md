@@ -36,7 +36,7 @@ in a document under this tree.
 | [durable-ingress.md](durable-ingress.md)                               | Durable admission boundary, checkpoint ownership, drain handoff     |
 | [identity-addressing.md](identity-addressing.md)                       | Native identities, canonical actors, privacy boundaries             |
 | [metadata.md](metadata.md)                                             | Metadata namespaces, embedding modes, never-embed list              |
-| [compatibility-boundaries.md](compatibility-boundaries.md)             | External compatibility and prerelease rejection policy              |
+| [compatibility-boundaries.md](compatibility-boundaries.md)             | External compatibility and unsupported-layout rejection policy      |
 | [matrix-event-shape.md](matrix-event-shape.md)                         | Stable Matrix ingress/native metadata contract                      |
 | [configuration.md](configuration.md)                                   | YAML config, XDG paths, env overrides, config model                 |
 | [security-privacy.md](security-privacy.md)                             | Security model, credential handling, privacy boundaries             |
@@ -96,7 +96,7 @@ operator presentation boundary, not live delivery evidence.
 14. **Security & Privacy** (`security-privacy.md`) — credential handling,
     no-secret-leakage
 15. **Compatibility Boundaries** (`compatibility-boundaries.md`) — external
-    interoperability and prerelease rejection policy
+    interoperability and unsupported-layout rejection policy
 16. **Matrix Event Shape** (`matrix-event-shape.md`) — Matrix ingress/native
     metadata contract
 17. **Conformance** (`conformance.md`) — what it means to conform, test

@@ -117,15 +117,15 @@ side and no decision flips it: revalidation happens inside the write
 transaction against persisted state, so a decision constructed from a stale
 observation is refused even when the observation itself was genuine.
 
-## Audit shape and prerelease compatibility
+## Audit shape and storage compatibility
 
 The decision reuses the `operator_delivery_decisions` audit table and
 columns. The action CHECK widens to the frozen three-value vocabulary; the
 unique decision ID, observed-status and generation constraints are
 unchanged, and audit rows only ever record case 1, so `observed_status`
 remains constrained to `pending`/`retry_wait`. The widening is part of the
-**required** prerelease SQLite shape under the
-[prerelease storage compatibility rules](operator-exact-resolution.md#prerelease-storage-compatibility).
+**required** SQLite catalog under the
+[storage compatibility rules](operator-exact-resolution.md#storage-compatibility).
 The exact single-action predecessor layout is an allowlisted additive
 predecessor, not an unsupported catalog: a writable open rebuilds the table
 from the authoritative DDL inside the open transaction — guarded row copy,

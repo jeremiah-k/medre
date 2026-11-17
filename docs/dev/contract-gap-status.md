@@ -22,7 +22,7 @@ Statuses form a small closed set:
 | `partial`      | Some behavior has landed, but the contract is not fully met and no open change request currently advances it.                                                          |
 | `in flight`    | An open change request advances the gap, including when some behavior has already landed. This status takes precedence over `partial` while that request remains open. |
 | `deferred`     | Deliberately sequenced behind other work; not abandoned.                                                                                                               |
-| `out of scope` | Explicitly not a project goal at the current maturity.                                                                                                                 |
+| `out of scope` | Explicitly outside current project scope.                                                                                                                              |
 
 A row is `in flight` while a linked, open change request advances it, even
 when existing `main` behavior is partial. After the change merges, reassess

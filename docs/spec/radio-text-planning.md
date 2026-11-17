@@ -56,7 +56,7 @@ acceptance merely from a snapshot supplied by an untrusted caller.
 
 `StorageBackend` now provides atomic binding, submission, observation, recovery
 and read-only inspection for the pure progress model. The exact API, SQLite
-schema, ownership guards and prerelease database compatibility are specified in
+schema, ownership guards and database compatibility are specified in
 [storage.md §4.16](storage.md#416-radio_attempt_progress). Stored progress MUST
 use the existing core database; adapters MUST NOT create a second canonical
 outbox or fragment ledger. A new outbox row or generation MUST NOT bypass prior

@@ -44,7 +44,7 @@ proof.
 baseline. The current writable initializer recognizes only explicitly declared,
 structurally exact additive predecessors. Other incompatible development
 catalogs are refused with an operator recovery or reset decision. See the
-[storage policy](../spec/storage.md#10-pre-release-database-policy). Future
+[storage policy](../spec/storage.md#10-database-compatibility-policy). Future
 supported database changes require a deliberate migration or compatibility
 review, with tested failure/rollback behavior and clear support boundaries.
 There is no obligation to migrate abandoned, unpublished development shapes.

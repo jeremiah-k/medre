@@ -215,7 +215,7 @@ in-memory observations; they do not create or repair durable outbox work.
 
 `MedreApp.start()` MUST bring up subsystems in this order:
 
-1. Storage initialization (a prerelease schema mismatch fails startup).
+1. Storage initialization (an unsupported schema catalog fails startup).
 2. Conversation-projection rebuild/check — after storage facts exist and
    before any worker or adapter can consume stale pre-crash projection state.
 3. Pipeline runner (which fans target work out to `DeliveryCoordinator`).

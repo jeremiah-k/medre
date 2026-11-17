@@ -149,9 +149,9 @@ callback; the immutable envelope keeps its identity and ownership evidence.
 One envelope/content-reference contract and its validated stored
 representation are implemented in the v1 core SQLite authority boundary
 described by [content runtime authority](../spec/content-runtime-authority.md).
-Incompatible prerelease layouts are refused and replaced with fresh
-development state; existing databases accept only explicitly allowlisted
-additive catalog additions, and no alternate legacy read paths exist.
+Unsupported catalogs are refused without mutation. Existing databases accept
+only explicitly allowlisted additive predecessors; no alternate legacy read
+paths exist. Recovery or reset is an operator decision.
 
 Consumers receive content plus availability metadata, or a typed retained,
 unavailable or denied result. Reply enrichment can then choose, in order: an

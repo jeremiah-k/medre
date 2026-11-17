@@ -1,4 +1,4 @@
-# Canonical body identity — current prerelease contract
+# Canonical body identity
 
 For each newly admitted canonical event, core commits exactly one
 `event_body_identity` row with `(event_id, version=1, present_at_admission,
@@ -14,7 +14,7 @@ is explicitly **not** current retention, availability, a read grant, or
 permission to send. It cannot change when future content expires.
 
 This body-identity contract introduces no general migration or compatibility
-reader. The [storage policy](storage.md#10-pre-release-database-policy)
+reader. The [storage policy](storage.md#10-database-compatibility-policy)
 defines the guarded additive predecessors and refusal of unsupported SQLite
 shapes. Event bodies, reply excerpts,
 rendering evidence, packet plans, attachments and provider-owned copies must

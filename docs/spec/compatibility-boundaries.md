@@ -25,9 +25,9 @@ tests together. There is no canonical-event shape-conversion registry.
 There is no general automatic SQLite schema migration framework. The guarded
 writable initializer
 recognizes only structurally exact additive predecessors explicitly listed in
-[storage](storage.md#10-pre-release-database-policy); these can migrate
+[storage](storage.md#10-database-compatibility-policy); these can migrate
 transactionally without discarding their data. Every other incompatible
-pre-release database is refused with an actionable error and requires an
+database is refused with an actionable error and requires an
 explicit operator recovery or reset decision. A read-only inspection never
 performs the additive migration itself.
 

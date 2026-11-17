@@ -1,4 +1,4 @@
-# Admission-to-handoff content authority (prerelease implementation)
+# Admission-to-handoff content authority
 
 This page describes the **implemented** v1 core SQLite authority boundary. It is
 not a retention policy, automatic collection, a plugin permission system, or a
@@ -301,6 +301,7 @@ against the actual collector, WAL and backups.
 No automatic deletion or physical erasure beyond that opt-in boundary is
 enabled.
 
-No storage migrations are provided for superseded, unsupported prerelease
-schemas. SQLite schema version remains 1. A later declared supported baseline
-may introduce deliberately tested forward-only additive migrations.
+No storage migrations are provided for unsupported catalogs outside the
+[allowlist](storage.md#10-database-compatibility-policy). SQLite schema version
+remains 1; the tagged 0.1.0 catalog is the released baseline. Future changes
+to published state require compatibility review and tested migrations.

@@ -80,7 +80,7 @@ older layouts and use fresh state. Initialization applies only explicitly
 allowlisted, structurally exact additive catalog changes in one SQLite write
 transaction after validating the predecessor catalog exactly; the allowlist
 is specified in
-[storage](../spec/storage.md#10-pre-release-database-policy). Renames,
+[storage](../spec/storage.md#10-database-compatibility-policy). Renames,
 constraint narrowing, data backfills, version bumps and general legacy schema
 transformations stay refused; allowlisted constraint widenings follow the
 guarded additive policy.
