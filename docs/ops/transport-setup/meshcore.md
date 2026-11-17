@@ -190,9 +190,10 @@ BLE connections are sensitive to distance and interference. Try these steps:
 ##### `bleak` import error
 
 The pinned `meshcore` SDK depends on `bleak`; it installs with the provider
-distribution. If the import still fails, the provider is not installed in the
-active environment — see [installation](../install.md) for same-environment
-requirements.
+distribution. Check the interpreter in the
+[MEDRE environment](../install.md#run-provider-sdk-tools-in-the-same-environment)
+first. If the import fails there, check whether the provider and its native SDK
+are installed correctly; an unrelated shell interpreter proves nothing.
 
 ##### `bluetoothctl scan on` does not show the node
 
@@ -215,12 +216,20 @@ sudo systemctl restart bluetooth
 
 The provider distribution pins its MeshCore SDK directly in its package
 metadata; the installed adapter's declared pin is the version authority.
-Verify the installed SDK surface:
+Verify the installed SDK surface in the environment containing MEDRE:
 
 ```bash
+# Activated deployment project:
 python -c "import meshcore; print(meshcore.__all__)"
-# Should output: ['BinaryReqType', 'BLEConnection', 'ConnectionManager', 'EventType', 'MeshCore', 'SerialConnection', 'TCPConnection', 'logger']
+# Persistent uv tool (POSIX):
+"$(uv tool dir)/medre/bin/python" -c "import meshcore; print(meshcore.__all__)"
 ```
+
+For the equivalent Windows PowerShell invocation see
+[installation](../install.md#run-provider-sdk-tools-in-the-same-environment).
+The SDK should expose `MeshCore`, `BLEConnection`, `SerialConnection`,
+`TCPConnection`, `ConnectionManager`, `EventType` and `BinaryReqType`. Run
+the optional TCP connectivity probe above with the same interpreter.
 
 ## Connection Modes
 

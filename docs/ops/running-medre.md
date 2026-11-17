@@ -1,6 +1,6 @@
 # Running MEDRE
 
-Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker/Podman deployment, and delivery semantics.
+Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker deployment, and delivery semantics.
 
 ## Starting MEDRE
 
@@ -538,7 +538,7 @@ SQLite and the local filesystem only — no replication, remote backup, or
 distributed coordination; operators own backup, log rotation, and disk
 monitoring.
 
-## Docker / Podman Deployment
+## Docker Deployment
 
 Container deployment has one authoritative guide: [Docker](docker.md). It
 covers the committed image and Compose deployment, source-selected builds,
@@ -546,7 +546,8 @@ published and development image tags, persistent state on the `/data` volume,
 the separately mounted host config file, serial and Bluetooth hardware access,
 and update and backup procedures. The deployment runs as a non-root user with
 a read-only container filesystem; keep secrets in the host config file or a
-local Compose override, never in image build arguments.
+local Compose override, never in image build arguments. Podman and Kubernetes
+are not qualified by the committed Docker workflow.
 
 ## Explicit Non-Guarantees
 

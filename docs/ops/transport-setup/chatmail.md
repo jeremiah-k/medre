@@ -64,7 +64,8 @@ medre run --config bridge.yaml
 
 The adapter preserves text and source attribution. Replies send a native quote
 when the durable destination binding resolves a usable parent and fall back to
-readable text otherwise; threads use readable text fallbacks. Native sender
+readable text otherwise, subject to destination text budgets and normal
+delivery authority; threads use readable text fallbacks. Native sender
 display attribution is enabled by default. Attachments, native mutations,
 reactions, read receipts, typing, and puppeting are unsupported.
 

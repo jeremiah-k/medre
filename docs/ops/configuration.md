@@ -143,13 +143,13 @@ are complementary: `config check` answers "is this config well-formed?",
 
 Docker bridge configs (`examples/configs/docker-matrix-bridge.yaml`,
 `examples/configs/docker-meshtastic-bridge.yaml`) use `${MEDRE_HOMESERVER}`,
-`${MEDRE_ACCESS_TOKEN}`, and similar placeholders. These are resolved by
-Docker Compose from an `env_file`, not by the MEDRE config loader. The
-loader treats `{...}` as a [path placeholder](#path-placeholders) and
-rejects `${VAR}` as an invalid placeholder, so these configs cannot be
-loaded by `medre config check` or `medre run` directly. Use `medre smoke`,
-the [Docker deployment guide](docker.md), or pre-resolve the placeholders
-before validation.
+`${MEDRE_ACCESS_TOKEN}`, and similar placeholders. Neither MEDRE nor Compose substitutes variables
+in the bind-mounted YAML. An `env_file` only supplies process environment
+variables. The loader treats `{...}` as a [path placeholder](#path-placeholders)
+and rejects `${VAR}` as invalid, before applying environment overrides.
+Follow the [Docker example configuration procedure](docker.md#prepare-a-docker-bridge-example)
+to make a private copy with concrete values before validation. Use the
+programmatic integration fixtures for the original Docker validation campaigns.
 
 ## YAML Schema Reference
 
@@ -1580,97 +1580,25 @@ medre support bundle [--config PATH] [--output PATH]
 
 ## Environment Variable `.env` Files
 
-`.env` files are a deployment convenience for container runtimes. MEDRE reads environment variables from the process environment, not from `.env` files directly. The container runtime loads the file into the process environment before starting MEDRE.
+MEDRE reads process environment variables, not `.env` files directly. Docker
+Compose can supply variables through a local `env_file` or `environment`
+override; Compose's own `.env` project file is for Compose interpolation and
+is not automatically injected into the container. Use the supported
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` overrides and keep credentials private.
+For the committed Compose deployment, see the [Docker guide](docker.md).
 
-With Docker Compose or Podman:
+## Docker Deployment
 
-```bash
-# .env file
-MEDRE_HOME=/opt/medre
-MEDRE_LOG_LEVEL=DEBUG
-MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com
-MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com
-MEDRE_ADAPTER__MAIN__ACCESS_TOKEN=<matrix-access-token>
-MEDRE_ADAPTER__MAIN__ENABLED=true
-```
+The [Docker guide](docker.md) is the authoritative procedure for the current
+image, Compose configuration, UID/GID, persistent `/data` volume, serial and
+Bluetooth devices, and read-only root filesystem. Podman and Kubernetes
+deployments are not qualified by the committed Docker workflow. In another
+container runtime, preserve the same ownership, secret-handling and persistence
+boundaries; verify that runtime separately.
 
-```yaml
-# docker-compose.yaml
-services:
-  medre:
-    image: medre:latest
-    env_file: .env
-    volumes:
-      - medre-data:/opt/medre
-    devices:
-      - /dev/ttyACM0:/dev/ttyACM0
-```
-
-## Docker / Kubernetes Usage
-
-### Recommended Docker Pattern
-
-Prepare a `wheelhouse/` build context containing MEDRE, the selected adapter
-wheels, and their locked Python dependencies for the container's Python version,
-OS, and architecture. Build adapters from reviewed Git revisions or local
-checkouts before assembling the image; this also works before index publication.
-See [adapter installation](adapter-installation.md) for dependency ownership
-and deployment locking. The example installs the plaintext Matrix and Meshtastic
-providers used by the Docker example configs.
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY wheelhouse/ /wheels/
-RUN python -m pip install --no-index --find-links=/wheels \
-    medre medre-adapter-matrix medre-adapter-meshtastic
-ENV MEDRE_HOME=/opt/medre
-ENTRYPOINT ["medre"]
-CMD ["run"]
-```
-
-```bash
-# Build
-docker build -t medre .
-
-# Run with config file in volume
-docker run -d \
-  --name medre \
-  -v /srv/medre:/opt/medre \
-  medre run
-
-# Run with env vars instead of config file
-docker run -d \
-  --name medre \
-  -e MEDRE_HOME=/opt/medre \
-  -e MEDRE_ADAPTER__MAIN__HOMESERVER=https://matrix.example.com \
-  -e MEDRE_ADAPTER__MAIN__USER_ID=@bot:example.com \
-  -e MEDRE_ADAPTER__MAIN__ACCESS_TOKEN="<matrix-access-token>" \
-  -e MEDRE_ADAPTER__MAIN__ENABLED=true \
-  -v medre-state:/opt/medre \
-  medre run
-```
-
-### Serial Passthrough
-
-For Meshtastic and MeshCore adapters using serial connections:
-
-```bash
-docker run -d \
-  --device /dev/ttyACM0:/dev/ttyACM0 \
-  -v /srv/medre:/opt/medre \
-  medre run
-```
-
-The container user needs read/write access to the device. On most Linux distributions the device is owned by the `dialout` group. Options: run as user in `dialout` group, use `--group-add dialout`, or set udev rules on the host.
-
-### Matrix E2EE Store Persistence
-
-The Matrix crypto store is derived automatically under the resolved state directory (`{state}/adapters/{adapter_id}/matrix/store`). It persists across container restarts when the state volume is mounted. With `MEDRE_HOME=/opt/medre`, the store resolves to `/opt/medre/state/adapters/main/matrix/store` for an adapter with `adapter_id="main"`. Ensure the volume is persistent.
-
-### Kubernetes
-
-Use a PersistentVolumeClaim mounted at `MEDRE_HOME`. Inject secrets via Kubernetes Secrets as environment variables.
+The Matrix E2EE store is derived under the resolved state directory
+(`{state}/adapters/{adapter_id}/matrix/store`). Persist it together with the
+rest of the MEDRE state and native provider profiles.
 
 ## Library Usage vs Runtime Usage
 

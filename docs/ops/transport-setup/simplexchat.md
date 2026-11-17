@@ -88,7 +88,8 @@ reservation requires inspection rather than blind resubmission.
 Text attribution, native quote replies, and thread text fallbacks are
 supported: a reply uses a native quote when the retained parent is verified in
 the active profile, and falls back to readable inline text when no usable
-parent exists. Attachments, edits, deletions, reactions, typing, and puppeting
+parent exists, subject to destination text budgets and normal delivery
+authority. Attachments, edits, deletions, reactions, typing, and puppeting
 are unsupported. Local health does not establish peer reachability. Independent
 group receipts have separate qualification from direct-contact and
 worker-death recovery.

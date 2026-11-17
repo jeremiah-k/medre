@@ -22,20 +22,28 @@ services through the same adapter, routing, and evidence contracts.
 > catalog and explicitly allowlisted additive predecessors, refuses other stale
 > prerelease layouts without modifying them, and recovery from a rejected
 > database is a manual backup and reset
-> ([storage policy](docs/spec/storage.md)).
+> ([WAL-safe backup and reset procedure](docs/ops/operator-workflows.md#step-by-step-reset-procedure)).
 
 ## Install MEDRE
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/). The
-steps below use the published 0.1.0 core, whose adapter installation defaults
-to Git, so install uv and Git. Main already defaults new adapter requests to
-package indexes; a pure index installation without Git becomes available with
-the first published core release containing source switching.
-
-**1. Install the CLI and example providers.**
+steps below work with the published 0.1.0 core, whose adapter installation
+defaults to Git, so have uv and Git installed for that path. Core 0.1.1
+introduces package-index defaults and the `sources` commands. Even with core
+0.1.0, index-only installation is possible when the needed provider packages
+are published, using native uv:
 
 ```bash
-uv tool install medre
+uv tool install --python 3.12 --with medre-adapter-matrix --with medre-adapter-meshtastic medre==0.1.0
+```
+
+Alternatively, install core and add the example providers using MEDRE:
+
+**1. Install the CLI and example providers.** Matrix requires Python 3.12 or
+newer; select a compatible interpreter when creating the tool environment.
+
+```bash
+uv tool install --python 3.12 medre
 medre adapters install matrix meshtastic
 medre adapters
 ```

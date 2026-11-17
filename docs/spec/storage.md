@@ -2078,13 +2078,19 @@ this section does not enable automatic migration today.
 When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
 
 1. **Identify the database path.** `medre storage status --storage-path <path>` reports the resolved database path and current schema state. Alternatively, `medre paths` prints the resolved state directory containing `medre.sqlite`.
-2. **Back up the old database.** Copy `medre.sqlite` to a safe location if the data has any investigative value.
-3. **Delete the database file.** Remove `{state}/medre.sqlite` (and its WAL/SHM companions if present).
+2. **Stop all database users and preserve state if it matters.** Make and verify a SQLite-aware backup in a private location, or preserve the complete matching main database and WAL/SHM file set with all users stopped. Do not copy only the main file: committed transactions may still reside in the WAL. See the [operator reset procedure](../ops/operator-workflows.md#step-by-step-reset-procedure).
+3. **Reset deliberately.** Only after verifying the backup or explicitly choosing to discard all state, run the reset command against the resolved path with all database users stopped.
 4. **Rerun MEDRE.** The next startup creates a fresh database with the current schema shape.
 
 No data from the old database is carried forward. The reset is total.
 
-`medre storage reset --storage-path <path> --backup --yes` automates steps 2 and 3: it backs up the existing database file (with a `.bak-<timestamp>.db` suffix), deletes the database and any WAL/SHM sidecar files, and reports success. It does not start the runtime or create a new database (that happens on the next `medre run` or `medre smoke`).
+`medre storage reset --storage-path <path> --yes` resets the stopped store.
+Adding `--backup` retains a timestamped file-level copy (with a
+`.bak-<timestamp>.db` suffix) including any existing WAL/SHM sidecars before
+deleting the original file set. This copy is not a verified SQLite snapshot
+and does not replace the independent backup in step 2. The command does not
+start the runtime or create a new database (that happens on the next
+`medre run` or `medre smoke`).
 
 ## 11. Durability Guarantees
 

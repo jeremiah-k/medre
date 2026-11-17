@@ -43,18 +43,23 @@ invoke the project's `.venv/bin/medre` (Windows: `.venv\Scripts\medre.exe`)
 with the same `MEDRE_HOME` and environment variables used during setup.
 
 If you prefer a globally available **isolated CLI** rather than a deployment
-project, install core once, then add providers to the **same tool environment**:
+project, install core once, then add providers to the **same tool environment**. Select Python 3.12 or later for Matrix:
 
 ```bash
-uv tool install medre
+uv tool install --python 3.12 medre
 medre adapters install matrix
 medre version
 medre adapters
 ```
 
 The published 0.1.0 CLI uses Git adapter defaults; install Git as well as uv.
-The `sources` commands below exist on main, and no published core release
-includes them yet (see the [package management guide](package-management.md)).
+Core 0.1.1 introduces the `sources` commands and index defaults; use a build
+containing that feature (see the [package management guide](package-management.md)).
+Index-only installs are already possible through native uv `--with` when all
+selected packages are available from an index. The provider's Python requirement
+applies to the entire tool environment; for an existing Python 3.11 MEDRE tool,
+reinstall through native uv with `--python 3.12` and retain the complete request
+(including other providers, extras and sources).
 
 Use `medre sources show` to distinguish installed sources from catalog choices,
 `medre sources switch` to select releases, Git revisions or local checkouts,
@@ -70,6 +75,29 @@ index versions for repeatability. `uv tool install` does **not** create a deploy
 `uv.lock`, and its environment is separate from your project's `.venv`. Use
 `uv tool list` to inspect installed tools. If `medre` is not on your `PATH`,
 follow uv's `uv tool update-shell` guidance.
+
+### Run provider SDK tools in the same environment
+
+For an activated deployment project, use its `python` and dependency
+executables directly. For a persistent uv tool installation, locate the
+installed MEDRE environment with `uv tool dir`. Dependency executables are
+not normally exposed on the global `PATH`. Invoke them or the interpreter
+inside that environment instead of using an unrelated shell interpreter:
+
+```bash
+"$(uv tool dir)/medre/bin/python" -c "import meshcore; print(meshcore.__all__)"
+"$(uv tool dir)/medre/bin/meshtastic" --help
+```
+
+On Windows PowerShell, use the corresponding Scripts directory:
+
+```powershell
+& (Join-Path (uv tool dir) 'medre/Scripts/python.exe') -c "import meshcore; print(meshcore.__all__)"
+& (Join-Path (uv tool dir) 'medre/Scripts/meshtastic.exe') --help
+```
+
+These examples require the corresponding provider installed alongside MEDRE.
+Do not use `uvx` to inspect an installed SDK: it can resolve another environment.
 
 `uvx --from 'git+https://github.com/jeremiah-k/medre.git@main'
 medre version` is fine for one-off commands, but a temporary uvx environment
@@ -97,7 +125,7 @@ installed providers. See [development environment](../dev/environment.md).
 Standard pip remains supported in a standalone virtualenv:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 python -m pip install -e ".[dev]"

@@ -28,7 +28,7 @@ def test_persistent_cli_install_includes_the_provider_in_the_same_tool() -> None
     end = install.index("```", start + 7)
     command = install[start:end]
     assert "medre adapters install matrix" in command
-    assert "uv tool install medre" in command
+    assert "uv tool install --python 3.12 medre" in command
     assert "medre version" in command
     assert "uv.lock" in install
     assert "same tool environment" in install
@@ -85,7 +85,55 @@ def test_new_source_commands_are_not_documented_as_available_in_010() -> None:
     ):
         assert "0.1.0" in guide and "does not recognize" in guide
         assert (
-            "uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'"
+            "uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'"
             in guide
         )
         assert "uv tool install 'medre==0.1.0'" not in guide
+
+
+def test_matrix_tool_examples_select_a_compatible_python() -> None:
+    for path in ("getting-started.md", "install.md", "package-management.md"):
+        assert "uv tool install --python 3.12" in _doc(path)
+    assert "--with medre-adapter-matrix" in (_ROOT / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_container_templates_have_explicit_resolution_procedure() -> None:
+    guide = _doc("docker.md")
+    config = _doc("configuration.md")
+    assert "docker.md#prepare-a-docker-bridge-example" in config
+    assert "Neither MEDRE nor Compose substitutes variables" in config
+    for name in (
+        "MEDRE_HOMESERVER",
+        "MEDRE_USER_ID",
+        "MEDRE_ACCESS_TOKEN",
+        "MEDRE_ROOM_ID",
+        "MESHTASTIC_HOST",
+    ):
+        assert f"${{{name}}}" in guide
+    assert "make check" in guide
+    assert "FROM python:3.11-slim" not in config
+
+
+def test_operator_sdk_commands_use_the_installed_tool_environment() -> None:
+    install = _doc("install.md")
+    assert '"$(uv tool dir)/medre/bin/python"' in install
+    assert '"$(uv tool dir)/medre/bin/meshtastic"' in install
+    assert "medre/Scripts/python.exe" in install
+    assert "medre/Scripts/meshtastic.exe" in install
+    assert '"$(uv tool dir)/medre/bin/python"' in _doc("transport-setup/meshcore.md")
+    assert '"$(uv tool dir)/medre/bin/meshtastic"' in _doc(
+        "transport-setup/meshtastic.md"
+    )
+
+
+def test_rejected_store_reset_points_to_wal_safe_backup() -> None:
+    spec = (_ROOT / "docs/spec/storage.md").read_text(encoding="utf-8")
+    reset = spec.split("### 10.5 Pre-Release Stale Database Reset", 1)[1].split(
+        "## 11.", 1
+    )[0]
+    assert "Do not copy only the main file" in reset
+    assert "WAL/SHM" in reset
+    assert "operator-workflows.md#step-by-step-reset-procedure" in reset
+    assert "not a verified SQLite snapshot" in reset

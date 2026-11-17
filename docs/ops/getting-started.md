@@ -10,17 +10,19 @@ and chats first. Before updating a bridge, stop it and
 
 ## 1. Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git,
-then run:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
+The Matrix provider requires Python 3.12 or later; explicitly choose it when
+installing the isolated tool:
 
 ```bash
-uv tool install medre
+uv tool install --python 3.12 medre
 medre adapters install matrix meshtastic
 ```
 
 The published 0.1.0 CLI installs adapters from Git by default, which is why the
-steps above include Git. Main already defaults new adapter requests to package
-indexes and adds the `sources` commands; no published release includes them yet.
+steps above include Git. Core 0.1.1 introduces package-index defaults and
+the `sources` commands; see [installation](install.md) for native uv index-only
+installation even with 0.1.0.
 
 If `medre` is not found, run `uv tool update-shell` and open a new terminal.
 On Windows, run the extra installation command MEDRE prints after it exits.

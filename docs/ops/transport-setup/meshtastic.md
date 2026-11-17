@@ -27,18 +27,30 @@ Fake mode is the default and recommended path for all development and testing. R
 Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Default port: 4403.
 
 1. Power on the node and connect it to your network.
-2. Find the node's IP address (check DHCP table, or use `meshtastic --info`).
-3. Verify TCP connectivity:
+1. Find the node's IP address (check the DHCP table).
+1. Verify TCP connectivity:
 
-```bash
-nc -zv meshtastic.local 4403
-```
+   ```bash
+   nc -zv meshtastic.local 4403
+   ```
 
-4. Optionally verify with the Meshtastic CLI (installed with the provider):
+1. Optionally verify with the Meshtastic CLI supplied by the provider. Use
+   the appropriate environment (stop any MEDRE process owning the radio first):
 
-```bash
-meshtastic --host meshtastic.local --info
-```
+   ```bash
+   # Activated deployment project:
+   meshtastic --host meshtastic.local --info
+   # Persistent uv tool (POSIX):
+   "$(uv tool dir)/medre/bin/meshtastic" --host meshtastic.local --info
+   ```
+
+   On Windows PowerShell:
+
+   ```powershell
+   & (Join-Path (uv tool dir) 'medre/Scripts/meshtastic.exe') --host meshtastic.local --info
+   ```
+
+   See [the same-environment SDK instructions](../install.md#run-provider-sdk-tools-in-the-same-environment).
 
 ### Serial Connectivity
 
@@ -262,8 +274,14 @@ relay-classified packets without a usable `rxTime` right after a reconnect:
 they cannot prove they are not queue backlog. Provably fresh traffic relays
 immediately, a rapid reconnect retires any remaining initial drain, and
 `startup_packet_drain_seconds: 0` disables both the initial drain and the
-reconnect window. See [configuration](../configuration.md) for the field
-reference and the [transport profile](../../spec/transport-profiles/meshtastic.md)
+reconnect window. The timestamp cutoff still applies after either drain
+expires (or is disabled): a radio clock trailing the host by more than the
+configured `startup_backlog_suppress_seconds` tolerance can drop fresh
+messages. Check clock synchronization and the `startup_backlog_packets_suppressed`
+diagnostic before adjusting the tolerance. A zero tolerance setting disables
+the timestamp cutoff; future timestamps are accepted, and unknown-age packets
+are accepted after the reconnect window, subject to ordinary admission. See
+[configuration](../configuration.md) for the field reference and the [transport profile](../../spec/transport-profiles/meshtastic.md)
 for the normative contract.
 
 ## Health States
