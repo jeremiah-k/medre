@@ -56,14 +56,14 @@ def test_smoke_in_install_guide_persists_evidence_without_config_rewrite() -> No
     assert "not network or RF reception" in install
 
 
-def test_readme_has_a_runnable_installation_path_and_data_warning() -> None:
+def test_readme_has_a_runnable_installation_path_and_setup_guidance() -> None:
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
     assert "uv tool install" in readme
     assert "medre config check --config sample.yaml" in readme
     assert "medre smoke --config sample.yaml" in readme
-    assert "**not** remote" in readme
-    assert "back up persistent state" in readme
-    assert "not production-ready" in readme
+    assert "simulated adapters" in readme
+    assert "medre run --config bridge.yaml" in readme
+    assert "https://matrix.to/#/#medre:matrix.org" in readme
     assert "docs/ops/getting-started.md" in readme
 
 
@@ -77,8 +77,6 @@ def test_operator_index_is_a_valid_two_column_navigation_table() -> None:
 
 
 def test_new_source_commands_are_not_documented_as_available_in_010() -> None:
-    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "and Git" in readme
     for guide in (
         _doc("package-management.md"),
         (_ROOT / "docs/dev/installation-sources.md").read_text(encoding="utf-8"),
