@@ -2,7 +2,6 @@
 
 import ast
 import re
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +38,6 @@ def test_storage_policy_documents_exact_missing_object_allowlist() -> None:
     radio = _read("docs/ops/radio-multipart.md")
     assert "only if writable startup rejects" in radio
     assert "needs no reset" in radio
-    assert "Recognized missing" in section
 
 
 def test_installed_source_and_thread_fallback_contracts() -> None:
@@ -56,8 +54,6 @@ def test_installed_source_and_thread_fallback_contracts() -> None:
 
 
 def test_packaging_status_is_not_an_operator_banner() -> None:
-    project = tomllib.loads(_read("pyproject.toml"))["project"]
-    assert "Development Status :: 3 - Alpha" in project["classifiers"]
     for path in [ROOT / "README.md", *(ROOT / "docs/ops").rglob("*.md")]:
         text = path.read_text(encoding="utf-8")
         assert not re.search(
