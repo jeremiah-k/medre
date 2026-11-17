@@ -77,11 +77,15 @@ def test_operator_index_is_a_valid_two_column_navigation_table() -> None:
 
 
 def test_new_source_commands_are_not_documented_as_available_in_010() -> None:
-    for guide in (
-        _doc("package-management.md"),
-        (_ROOT / "docs/dev/installation-sources.md").read_text(encoding="utf-8"),
-    ):
-        assert "0.1.0" in guide and "does not recognize" in guide
+    package_management = _doc("package-management.md")
+    assert "0.1.0" in package_management
+    assert "Core 0.1.0 predates them" in package_management
+    installation_sources = (_ROOT / "docs/dev/installation-sources.md").read_text(
+        encoding="utf-8"
+    )
+    assert "0.1.0" in installation_sources
+    assert "does not recognize" in installation_sources
+    for guide in (package_management, installation_sources):
         assert (
             "uv tool install --python 3.12 'git+https://github.com/jeremiah-k/medre.git@main'"
             in guide

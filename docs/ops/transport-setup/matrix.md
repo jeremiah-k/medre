@@ -5,7 +5,7 @@ Install the provider in the same environment as MEDRE using the
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
 The provider supplies both its SDK-free fake and its native SDK dependencies.
 
-Setting up and running the MEDRE Matrix adapter against a real homeserver. Pre-release — no stable public API.
+Setting up and running the MEDRE Matrix adapter against a real homeserver.
 
 For an ordinary bridge, use a dedicated account on a homeserver you already
 have access to. You do not need homeserver administrator access. Server setup

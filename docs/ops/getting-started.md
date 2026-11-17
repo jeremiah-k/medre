@@ -15,10 +15,9 @@ uv tool install --python 3.12 medre
 medre adapters install matrix meshtastic
 ```
 
-The published 0.1.0 CLI installs adapters from Git by default, which is why the
-steps above include Git. Core 0.1.1 introduces package-index defaults and
-the `sources` commands; see [installation](install.md) for native uv index-only
-installation even with 0.1.0.
+Core 0.1.0 (the previous release) installed adapters from Git by default; if
+you still run it, install Git, or upgrade core to 0.1.1 for package-index
+defaults and the `sources` commands.
 
 If `medre` is not found, run `uv tool update-shell` and open a new terminal.
 On Windows, run the extra installation command MEDRE prints after it exits.

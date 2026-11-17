@@ -5,7 +5,7 @@ Install the provider in the same environment as MEDRE using the
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
 The provider supplies both its SDK-free fake and its native SDK dependencies.
 
-Setting up and running the MEDRE LXMF adapter against a real Reticulum network. Pre-release — no stable public API.
+Setting up and running the MEDRE LXMF adapter against a real Reticulum network.
 
 ## Prerequisites
 

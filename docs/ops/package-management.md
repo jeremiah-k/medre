@@ -1,12 +1,9 @@
 # Manage MEDRE and adapter packages
 
-This guide describes the source-switching CLI included on main. The published
-0.1.0 core has Git adapter defaults and does not recognize `sources` or inline
-adapter version constraints. Core 0.1.1 introduces these commands.
-Install uv and Git for the examples below that use a main Git revision, or
-use a published release containing source switching when available. For core
-0.1.0, follow [Getting Started](getting-started.md) and use native uv
-commands for source changes.
+The published 0.1.1 core includes the `sources` commands and package-index
+defaults, so the examples below need only uv. Core 0.1.0 predates them:
+follow [Getting Started](getting-started.md) and use native uv commands for
+source changes.
 
 Install one persistent command, then select the adapters you need. Matrix
 requires Python 3.12 or later:
@@ -317,7 +314,7 @@ checkout, edits deployment locks, restarts services, or changes bridge YAML.
 
 Tool installations do not provide a deployment uv.lock. For reproducible live
 bridges, prefer the [locked deployment workflow](adapter-installation.md).
-Back up persistent state before updating; MEDRE's pre-release schemas can change.
+Back up persistent state before updating.
 
 ## Custom uv installations
 
