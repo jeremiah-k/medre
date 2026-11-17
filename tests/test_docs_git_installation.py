@@ -92,9 +92,10 @@ def test_new_source_commands_are_not_documented_as_available_in_010() -> None:
 def test_matrix_tool_examples_select_a_compatible_python() -> None:
     for path in ("getting-started.md", "install.md", "package-management.md"):
         assert "uv tool install --python 3.12" in _doc(path)
-    assert "--with medre-adapter-matrix" in (_ROOT / "README.md").read_text(
-        encoding="utf-8"
-    )
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Python 3.12" in readme
+    assert "```bash\nuv tool install medre\n```" in readme
+    assert "medre adapters install matrix meshtastic" in readme
 
 
 def test_container_templates_have_explicit_resolution_procedure() -> None:
