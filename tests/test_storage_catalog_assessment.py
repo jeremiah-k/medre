@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.core.storage.sqlite import catalog_assessment
 from medre.core.storage.sqlite._prerelease_migrate import (
     known_outage_gap_table_forms,
     outage_gap_token_rebuild_applies,
@@ -32,6 +33,7 @@ from medre.core.storage.sqlite.schema import (
     _PRESSURE_OUTAGE_GAPS_DDL,
     _SCHEMA,
 )
+from medre.core.storage.sqlite.schema_validation import validate_schema_definition
 
 _GAP_TOKEN_COLUMN = (
     "    gap_token TEXT NOT NULL UNIQUE CHECK (length(gap_token) = 32),\n"
@@ -65,6 +67,21 @@ def test_current_catalog_classifies_current(tmp_path: Path) -> None:
     assert assessment.stored_version == "1"
     assert assessment.detail is None
 
+
+
+@pytest.mark.parametrize("stamp", [b"1", "01", " 1 "])
+def test_current_stamp_parsing_agrees_with_startup(tmp_path: Path, stamp: str | bytes) -> None:
+    """Display serialization must not change the validator's version semantics."""
+    path = _build_current(tmp_path / "stamp.sqlite")
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute(
+            "UPDATE _medre_schema_meta SET value=? WHERE key='schema_version'",
+            (stamp,),
+        )
+        assert validate_schema_definition(db, str(path))
+    assessment = assess_storage_catalog(str(path))
+    assert assessment.classification is CatalogCompatibility.CURRENT
+    assert assessment.stored_version == str(stamp)
 
 def test_changed_default_is_unsupported(tmp_path: Path) -> None:
     assert _SCHEMA.count(_LINEAGE_DEFAULT) == 1
@@ -323,6 +340,37 @@ def test_assessment_reads_one_consistent_snapshot(tmp_path: Path) -> None:
     finally:
         writer.close()
 
+
+
+def test_public_assessment_owns_one_snapshot(tmp_path: Path, monkeypatch) -> None:
+    """Commit between the first catalog read and subsequent metadata reads."""
+    path = _build_current(tmp_path / "public-snapshot.sqlite")
+    original = catalog_assessment._definitions
+    with closing(sqlite3.connect(path)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        committed = False
+
+        def definitions_then_commit(db: sqlite3.Connection):
+            nonlocal committed
+            definitions = original(db)
+            if not committed:
+                committed = True
+                writer.execute("DROP INDEX idx_outbox_active_adapter")
+                writer.execute(
+                    "UPDATE _medre_schema_meta SET value='99'"
+                    " WHERE key='schema_version'"
+                )
+                writer.commit()
+            return definitions
+
+        monkeypatch.setattr(catalog_assessment, "_definitions", definitions_then_commit)
+        pinned = assess_storage_catalog(str(path))
+        assert committed
+        assert pinned.classification is CatalogCompatibility.CURRENT
+        assert pinned.stored_version == "1"
+        fresh = assess_storage_catalog(str(path))
+        assert fresh.classification is CatalogCompatibility.UNSUPPORTED
+        assert fresh.stored_version == "99"
 
 def test_committed_live_wal_state_is_visible_without_writes(tmp_path: Path) -> None:
     """Committed WAL frames are readable and never rewritten or checkpointed.

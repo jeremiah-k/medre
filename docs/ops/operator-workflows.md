@@ -75,7 +75,10 @@ access — permissions, concurrent locks, or later file changes can still
 prevent a successful open — nor database integrity, remote availability, or
 any behavior under concurrent changes. `unavailable` is a distinct verdict
 from `unsupported` and carries no compatibility conclusion. Assessing a
-database never writes schema or data, migrates, or checkpoints.
+database never writes application schema or data, migrates, or requests a
+checkpoint. SQLite may create or update WAL bookkeeping sidecars (`-wal`,
+`-shm`), even when the bridge is stopped. The read-only opener intentionally
+observes committed WAL state rather than assuming the file is immutable.
 
 If inspection refuses a recognized additive predecessor (including the older
 operator-decision CHECK), **do not reset the database on that message**. Stop

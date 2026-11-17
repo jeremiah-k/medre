@@ -9,8 +9,9 @@ read-only open accepts.  No independent fingerprint inventory exists here.
 
 The assessment is read-only: it opens with the same strict read-only opener
 the inspection commands use, reads everything inside one consistent
-snapshot, and never creates files, applies DDL, migrates, checkpoints, or
-touches native state.  A verdict describes catalog compatibility only.
+snapshot, and never writes application data or schema, migrates, requests a
+checkpoint, or touches native state. SQLite may create or update WAL
+bookkeeping sidecars. A verdict describes catalog compatibility only.
 """
 
 from __future__ import annotations
@@ -182,8 +183,8 @@ def assess_catalog(db: sqlite3.Connection, *, path: str) -> CatalogAssessment:
             return _unsupported(None, "schema_version stamp is missing")
         stored_version = str(row[0])
         try:
-            stored = int(stored_version)
-        except ValueError:
+            stored = int(row[0])
+        except (TypeError, ValueError):
             return _unsupported(
                 stored_version,
                 f"schema_version is not an integer: {stored_version!r}",
@@ -221,8 +222,9 @@ def assess_catalog(db: sqlite3.Connection, *, path: str) -> CatalogAssessment:
 def assess_storage_catalog(path: str) -> CatalogAssessment:
     """Assess the catalog of the database at *path* over one read snapshot.
 
-    Opens the database with the startup read-only opener (no file creation,
-    no schema writes, bounded busy timeout, never ``immutable=1``), pins one
+    Opens an existing database with the read-only inspection opener (no schema
+    or application-data writes, bounded busy timeout, never ``immutable=1``).
+    SQLite may create or update WAL bookkeeping sidecars. Pins one
     deferred read transaction so the verdict describes a single consistent
     snapshot, and closes the connection.  Committed WAL state is visible
     like any other read.  Opening failures propagate to the caller as

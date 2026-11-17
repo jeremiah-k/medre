@@ -1526,7 +1526,8 @@ medre resolve --storage-path PATH --event ID --plan-id PLAN --target-adapter ADA
 medre storage status [--storage-path PATH]
     Storage management (read-only). Reports a catalog compatibility
     assessment: current, supported upgrade, unsupported, empty/new, or
-    unavailable. Never writes, migrates, or checkpoints.
+    unavailable. Never writes application data or schema, migrates, or
+    requests a checkpoint; SQLite may create or update WAL bookkeeping sidecars.
 
 medre storage collect [--storage-path PATH] [--mode retain|relay-only] [--limit N] [--after EVENT] [--apply] [--yes]
     Storage management (opt-in content collection). Defaults to retain with

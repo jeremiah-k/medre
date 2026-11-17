@@ -164,7 +164,8 @@ async def _storage_status(storage_path: str) -> None:
     A completed assessment describes catalog compatibility only. It does
     not prove writable access, database integrity, remote availability, or
     any behavior under concurrent changes; ``unavailable`` means the
-    assessment itself could not read the database. No files are written.
+    assessment itself could not read the database. No schema or application
+    data is written; SQLite may create or update WAL bookkeeping sidecars.
     """
     from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
 
