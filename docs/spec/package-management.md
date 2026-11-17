@@ -147,8 +147,8 @@ record was found, `source` means core distribution metadata is absent, `git`
 shows an abbreviated recorded commit, `editable` shows a recorded local
 directory, and `url` shows a direct source location. Recognized non-Git VCS
 revisions MAY be displayed. Invalid, inconsistent or unsupported metadata
-MUST yield `unknown source`; an unreadable or invalid version MUST yield `?`
-independently. The source-tree core version fallback is not an installed version.
+MUST yield `unknown source`; a missing, unreadable or unsafe-to-display version
+MUST yield `?` independently. The source-tree core version fallback is not an installed version.
 These labels establish neither index identity, source-tree cleanliness, exact
 installed bytes, nor qualification. URL userinfo, query values and fragments
 MUST NOT appear in the startup summary, including for non-HTTP schemes. Paths

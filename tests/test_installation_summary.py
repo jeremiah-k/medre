@@ -210,8 +210,14 @@ def test_direct_source_redaction_all_schemes(scheme: str):
             "url": "https://example.invalid/repo",
             "vcs_info": {"vcs": "git", "commit_id": "fixture-secret"},
         },
-        {"url": "https://user:fixture pass@example.invalid/pkg.whl", "archive_info": {}},
+        {
+            "url": "https://user:fixture pass@example.invalid/pkg.whl",
+            "archive_info": {},
+        },
         {"url": "https://[invalid", "archive_info": {}},
+        {"url": "relative/pkg.whl", "archive_info": {}},
+        {"url": "https:///pkg.whl", "archive_info": {}},
+        {"url": "https://example.invalid/repo", "vcs_info": {"vcs": "git"}},
     ],
 )
 def test_invalid_direct_metadata_is_not_reported_as_provenance(direct):
@@ -294,3 +300,76 @@ def test_missing_or_invalid_versions_do_not_hide_provenance(monkeypatch):
     assert installation_summary.installation_lines()[2:] == [
         "  Adapter: radio ? (index) [community-radio]"
     ]
+
+
+def test_version_read_exception_preserves_provenance(monkeypatch):
+    class UnreadableVersion(_FakeDist):
+        @property
+        def version(self) -> str:
+            raise OSError("fixture-secret")
+
+    dist = UnreadableVersion("community-radio", "1.0")
+    _install_environment(monkeypatch, [_entry(dist, "radio")])
+    assert installation_summary.installation_lines()[2:] == [
+        "  Adapter: radio ? (index) [community-radio]"
+    ]
+
+
+def test_core_source_lookup_exception_preserves_version(monkeypatch):
+    _install_environment(monkeypatch, [])
+
+    def failed(name):
+        raise OSError("fixture-secret")
+
+    monkeypatch.setattr(installation_summary.importlib.metadata, "distribution", failed)
+    assert installation_summary.installation_lines()[0] == (
+        "  Core:    medre 0.1.1 (unknown source)"
+    )
+
+
+def test_missing_entry_identity_marks_inventory_incomplete(monkeypatch):
+    missing = _FakeDist("community-radio", "1.0")
+    missing.metadata = {}
+    _install_environment(
+        monkeypatch,
+        [
+            SimpleNamespace(name="missing", dist=None),
+            _entry(missing, "missing-name"),
+            _entry(_FakeDist("invalid name", "1.0"), "bad-name"),
+            _entry(INDEX_MESHTASTIC, "meshtastic"),
+        ],
+    )
+    assert installation_summary.installation_lines()[2:] == [
+        "  Adapter: meshtastic 0.1.1 (index)",
+        "  Adapter inventory incomplete (metadata unavailable)",
+    ]
+
+
+def test_platform_and_discovery_failure_never_leak_exception_details(monkeypatch):
+    _install_environment(monkeypatch, [])
+
+    def failed():
+        raise OSError("fixture-secret")
+
+    monkeypatch.setattr(installation_summary.platform, "machine", failed)
+    monkeypatch.setattr(installation_summary, "_provider_lines", failed)
+    assert installation_summary.installation_lines()[1:] == [
+        "  Python:  unknown",
+        "  Adapter inventory incomplete (metadata unavailable)",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "commit", "expected"),
+    [("hg", "a" * 40, "hg aaaaaaaa"), ("svn", "12345", "svn 12345")],
+)
+def test_recognized_non_git_vcs_labels(kind, commit, expected):
+    dist = _FakeDist(
+        "community",
+        "1.0",
+        {
+            "url": "https://example.invalid/repo",
+            "vcs_info": {"vcs": kind, "commit_id": commit},
+        },
+    )
+    assert installation_summary._source_label(dist) == expected

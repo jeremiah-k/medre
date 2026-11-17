@@ -71,8 +71,6 @@ def _source_label(dist: importlib.metadata.Distribution) -> str:
             return "unknown source"
         if "vcs_info" in direct:
             vcs = direct["vcs_info"]
-            if not isinstance(vcs, dict):
-                return "unknown source"
             kind, commit = vcs.get("vcs"), vcs.get("commit_id")
             if isinstance(commit, str):
                 if kind in ("git", "hg") and re.fullmatch(
@@ -83,7 +81,9 @@ def _source_label(dist: importlib.metadata.Distribution) -> str:
                     return f"svn {commit}"
             return "unknown source"
         directory = direct.get("dir_info", {})
-        if "dir_info" in direct and not url.startswith("file://"):
+        if "dir_info" in direct and (
+            not url.startswith("file://") or not urlsplit(url).path.startswith("/")
+        ):
             return "unknown source"
         if not isinstance(directory.get("editable", False), bool):
             return "unknown source"
