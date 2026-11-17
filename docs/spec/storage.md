@@ -860,62 +860,18 @@ structured `metadata` JSON column stays inline and content-classified.
 
 ### 4.5 delivery_status View
 
+The [authoritative view DDL](../../src/medre/core/storage/sqlite/schema.py)
+defines the projection alongside the table catalog. Query it directly for
+current receipt authority:
+
 ```sql
-DROP VIEW IF EXISTS delivery_status;
-CREATE VIEW delivery_status AS
-WITH authoritative_receipts AS (
-    SELECT dr.*, NULL AS committed_attempt
-    FROM delivery_receipts dr
-    WHERE dr.outbox_id IS NULL
-    UNION ALL
-    SELECT dr.*, o.attempt_number AS committed_attempt
-    FROM delivery_receipts dr
-    JOIN delivery_outbox o
-      ON o.outbox_id = dr.outbox_id
-     AND o.receipt_id = dr.receipt_id
-),
-ranked AS (
-    SELECT dr.*,
-           CASE
-               WHEN outbox_id IS NULL THEN
-                   ROW_NUMBER() OVER (
-                       PARTITION BY event_id, delivery_plan_id, target_adapter,
-                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
-                       ORDER BY sequence DESC
-                   )
-               ELSE
-                   ROW_NUMBER() OVER (
-                       PARTITION BY event_id, delivery_plan_id, target_adapter,
-                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
-                       ORDER BY committed_attempt DESC, sequence DESC
-                   )
-           END AS class_rank
-    FROM authoritative_receipts dr
-),
-candidates AS (
-    SELECT * FROM ranked WHERE class_rank = 1
-),
-current_rows AS (
-    SELECT c.*,
-           ROW_NUMBER() OVER (
-               PARTITION BY event_id, delivery_plan_id, target_adapter,
-                            COALESCE(target_channel, '')
-               ORDER BY sequence DESC
-           ) AS authority_rank
-    FROM candidates c
-)
-SELECT sequence, receipt_id, event_id, delivery_plan_id,
-       target_adapter, target_channel, route_id, status,
-       receipt_kind, error, failure_kind,
-       capability_level, capability_field, capability_reason, delivery_strategy,
-       adapter_message_id, next_retry_at, attempt_number,
-       parent_receipt_id, source, replay_run_id,
-       retry_max_attempts, retry_backoff_base,
-       retry_max_delay, retry_jitter, rendering_evidence,
-       outbox_id, confirmation_level, created_at
-FROM current_rows
-WHERE authority_rank = 1;
+SELECT event_id, target_adapter, status, confirmation_level
+FROM delivery_status;
 ```
+
+Diagnostic text is stored separately in `delivery_evidence_diagnostics` and
+resolved by storage read methods. The view does not expose inline `error`,
+`capability_reason` or `rendering_evidence` columns.
 
 The view is created from the authoritative DDL for a fresh database. A
 guarded migration that changes its definition rebuilds it transactionally.

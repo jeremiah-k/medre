@@ -67,11 +67,13 @@ runtime's epoch-bounded collection worker (disabled by default; a
 declared `retain` policy never collects; the activation boundary and
 worker behavior are specified in
 [content retention](../spec/content-retention.md)). Broader timed
-profiles remain unimplemented. Development schema
-changes use fresh development state, and existing databases accept only the
-explicitly allowlisted additive catalog additions, without alternate readers
-or data transformations for earlier layouts. Recent context
-is a proposed default once implemented and qualified. An unbounded
+profiles remain unimplemented. Database compatibility follows the
+[storage policy](../spec/storage.md#10-database-compatibility-policy).
+Allowlisted predecessor migrations can rebuild tables and transform existing
+rows: the outage-gap migration assigns `gap_token` values while preserving
+every row. Unrecognized layouts have no alternate reader or generic
+transformation path. Recent context is a proposed default once implemented
+and qualified. An unbounded
 archive is not a requirement for reliable bridging.
 
 Advanced controls need separate limits for full bodies, excerpts, attachments,

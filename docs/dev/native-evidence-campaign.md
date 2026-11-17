@@ -27,7 +27,7 @@ Two properties are in scope for every transport:
 
 Evidence tiers follow [transport-realism.md](../spec/appendices/transport-realism.md):
 `fake_pipeline`, `sdk_contract`, `local_integration`, `docker` (a
-container-backed local service), `live` (an external service), and
+container-backed local service), `live` (an external service or remote peer), and
 `hardware`. A lower tier never stands in for a higher one; a local
 integration using an in-process endpoint remains conformance evidence,
 while a container-backed local service is `docker` evidence. Native
@@ -58,7 +58,7 @@ per-transport evidence inventory; nothing on it changes meaning.
 | `sdk_contract`      | The exact pinned SDK installed and its surface frozen by contract tests.                                                      |
 | `local_integration` | MEDRE plus the exact SDK against a deterministic local endpoint or an in-process peer.                                        |
 | `docker`            | A containerized local service tier executed by `tests/integration/` and the Docker integration workflow.                      |
-| `live`              | An external service or an independent recipient/peer; operator-run by design.                                                 |
+| `live`              | An external service or remote peer; an independent local recipient alone does not establish this tier.                        |
 | `hardware`          | Physical radios and devices; operator-run evidence, opt-in only.                                                              |
 
 CI-automatable today means the harness runs in the default gate or the
@@ -216,12 +216,15 @@ Pinned provider: `medre-adapter-simplexchat`; SDK package
 `simplex-chat` (its native library is prefetched by the adapter contract
 job in CI).
 
-| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                           | Automation                                                                                                               |
-| ---------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                                | SDK contract tier runs in CI; a two-profile local tier on one host is not built yet and would be the next reachable step |
-| SimpleX replies (G05, and register G08)  | `live`                     | Provider PR #40 retains SDK 7.1.3 independent recipient quote captures, restart/uncertain-handoff traces and an ordinary routed probe at recorded source pairs; replies now advertise `native`. | Operator-run (independent peer profile)                                                                                  |
+| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                 | Automation                                                                                                               |
+| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                      | SDK contract tier runs in CI; a two-profile local tier on one host is not built yet and would be the next reachable step |
+| SimpleX replies (G05, and register G08)  | Not classified             | Provider PR #40 retains independent recipient quote captures, restart/uncertain-handoff traces and an ordinary routed probe at recorded source pairs; replies now advertise `native`. | Operator-run (independent peer profile)                                                                                  |
 
 The provider campaign used separate native profiles and processes on one host.
+The retained campaign metadata does not identify whether relay services were
+local or external, so this inventory leaves its network tier unclassified.
+An independent recipient establishes receipt observation, not the network tier.
 Its retained observations establish the recorded reply cases, not qualification
 of every current core/provider pair or every deployment. Consult the provider
 qualification records and re-run changed-pair campaigns as needed.

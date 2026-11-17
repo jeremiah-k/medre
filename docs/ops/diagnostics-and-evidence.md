@@ -494,17 +494,13 @@ medre diagnostics --refresh-health --config examples/configs/fake-multi-adapter.
 
 ### Storage Path in Diagnostics
 
-The diagnostics snapshot includes the resolved storage path. Use `medre storage status` to check the database path and schema compatibility directly, or check `storage_path` in any evidence bundle:
+Use `medre paths` to inspect resolved locations and `medre storage status` to
+check a database path and schema compatibility. Storage-only CLI evidence does
+not populate the config-backed `config_summary` section.
 
 ```bash
-# Quick path check
 medre paths
-
-# Storage state check
-medre storage status
-
-# In an evidence bundle
-medre evidence --storage-path /path/to/medre.db --json | jq '.sections.config_summary.storage_path'
+medre storage status --storage-path /path/to/medre.db
 ```
 
 The storage path is derived from `MedrePaths.database_path` (see [storage spec](../spec/storage.md) Section 2.3). In XDG mode, it resolves to `~/.local/state/medre/medre.sqlite`. In `MEDRE_HOME` mode, it resolves to `$MEDRE_HOME/state/medre.sqlite`. When diagnosing schema mismatches between core builds, stop the runtime and preserve
