@@ -494,8 +494,8 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
     )
     if totals.get("unrecognized"):
         print(f"  Unrecognized states: {totals['unrecognized']} (fail-closed bucket)")
-    for key in ("connectivity", "owner_liveness", "recipient_delivery"):
-        print(f"  {key.replace('_', ' ').capitalize()}: {report.limits[key]}")
+    for key, limit in report.limits.items():
+        print(f"  {key.replace('_', ' ').capitalize()}: {limit}")
     if not report.adapters:
         print("  Adapters: none within scope")
     else:
@@ -508,7 +508,8 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
         f"{uncertainty.reserved_without_generation_receipt} reserved without "
         f"attempt evidence, {uncertainty.lease_missing_or_expired} missing or "
         f"expired leases, {uncertainty.stale_queue_reclaimable} stale queue "
-        "admissions"
+        f"admissions, {uncertainty.queue_staleness_unknown} queued with "
+        "unknown staleness"
     )
     raw = ", ".join(
         f"{status} {count}"
