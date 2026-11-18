@@ -674,7 +674,9 @@ class _SQLiteStorageBase:
         """
         db = self._require_db()
         try:
-            return await self._run_in_thread(sync_read_batch, db, self._lock, statements)
+            return await self._run_in_thread(
+                sync_read_batch, db, self._lock, statements
+            )
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 

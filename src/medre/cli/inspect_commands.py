@@ -371,9 +371,7 @@ async def _inspect_content(*, storage_path: str, event_id: str | None = None) ->
         await storage.close()
 
 
-def _work_status_next_inspection(
-    event_id: str, *, storage_path: str
-) -> str:
+def _work_status_next_inspection(event_id: str, *, storage_path: str) -> str:
     """The read-only exact inspection for one outstanding identity."""
     return shlex.join(
         [
@@ -392,16 +390,18 @@ def _describe_age(oldest: WorkStatusOldest) -> str:
     anchor = oldest.anchor or "unknown time"
     if oldest.origin == "retry_due":
         if oldest.age_seconds is not None and oldest.age_seconds < 0:
-            return (
-                f"retry due at {anchor} (due in {-oldest.age_seconds}s)"
-            )
-        overdue = "" if oldest.age_seconds is None else f" ({oldest.age_seconds}s overdue)"
+            return f"retry due at {anchor} (due in {-oldest.age_seconds}s)"
+        overdue = (
+            "" if oldest.age_seconds is None else f" ({oldest.age_seconds}s overdue)"
+        )
         return f"retry scheduled at {anchor}{overdue}"
     if oldest.origin == "claim":
         held = "" if oldest.age_seconds is None else f" — held {oldest.age_seconds}s"
         return f"claimed at {anchor}{held}"
     if oldest.origin == "queue_admission":
-        waiting = "" if oldest.age_seconds is None else f" — queued {oldest.age_seconds}s"
+        waiting = (
+            "" if oldest.age_seconds is None else f" — queued {oldest.age_seconds}s"
+        )
         return f"admitted to adapter queue at {anchor}{waiting}"
     waiting = "" if oldest.age_seconds is None else f" — waiting {oldest.age_seconds}s"
     return f"admitted at {anchor}{waiting}"
@@ -498,7 +498,8 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
         "admissions"
     )
     raw = ", ".join(
-        f"{status} {count}" for status, count in sorted(report.raw_outbox_states.items())
+        f"{status} {count}"
+        for status, count in sorted(report.raw_outbox_states.items())
     )
     print(f"  Raw outbox states (all retained rows): {raw or 'none'}")
     history = report.retained_history
@@ -512,7 +513,9 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
         f"{history.get('receipts_total', 0)} receipts"
         + (f" ({receipt_summary})" if receipts else "")
     )
-    print("  This view reads local storage only; it starts no adapter and sends nothing.")
+    print(
+        "  This view reads local storage only; it starts no adapter and sends nothing."
+    )
 
 
 async def _inspect_work_status(

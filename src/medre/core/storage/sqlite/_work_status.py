@@ -70,7 +70,7 @@ WITH ranked AS (
 current_gen AS (
     SELECT * FROM ranked WHERE identity_rank = 1
 )
-"""
+"""  # nosec B608 - closed module constants and bound parameters only
 
 _CATEGORY_CASE = """
 CASE
@@ -109,9 +109,7 @@ END
 
 _OUTSTANDING_PREDICATE = "status IN ('pending', 'retry_wait', 'in_progress', 'queued')"
 
-_SELECT_ADAPTER_SUMMARY = (
-    _CURRENT_GENERATIONS
-    + f"""
+_SELECT_ADAPTER_SUMMARY = _CURRENT_GENERATIONS + f"""
 SELECT target_adapter,
        COUNT(*) AS current_generations,
        SUM(CASE WHEN ({_CATEGORY_CASE}) = 'unstarted_eligible'
@@ -143,12 +141,9 @@ SELECT target_adapter,
 FROM current_gen
 GROUP BY target_adapter
 ORDER BY target_adapter
-"""
-)
+"""  # nosec B608 - closed module constants and bound parameters only
 
-_SELECT_OLDEST_OUTSTANDING = (
-    _CURRENT_GENERATIONS
-    + f""",
+_SELECT_OLDEST_OUTSTANDING = _CURRENT_GENERATIONS + f""",
 classified AS (
     SELECT outbox_id, event_id, delivery_plan_id, target_adapter,
            target_channel, status, attempt_number, active_attempt,
@@ -174,8 +169,7 @@ SELECT target_adapter, outbox_id, event_id, delivery_plan_id,
 FROM oldest
 WHERE oldest_rank = 1
 ORDER BY target_adapter
-"""
-)
+"""  # nosec B608 - closed module constants and bound parameters only
 
 
 def _select_raw_status(adapter: str | None) -> str:
@@ -184,18 +178,15 @@ def _select_raw_status(adapter: str | None) -> str:
     return f"""
 SELECT status, COUNT(*) AS rows FROM delivery_outbox {filter_sql}
 GROUP BY status ORDER BY status
-""".strip()
+""".strip()  # nosec B608 - closed module constants and bound parameters only
 
 
 def _select_current_total(adapter: str | None) -> str:
     """Count current generations, optionally scoped to one adapter."""
     filter_sql = _ADAPTER_FILTER if adapter else ""
-    return (
-        _CURRENT_GENERATIONS.format(filter=filter_sql)
-        + """
+    return _CURRENT_GENERATIONS.format(filter=filter_sql) + """
 SELECT COUNT(*) AS current_generations FROM current_gen
 """.strip()
-    )
 
 
 def _select_receipts_by_status(adapter: str | None) -> str:
@@ -204,7 +195,7 @@ def _select_receipts_by_status(adapter: str | None) -> str:
     return f"""
 SELECT status, COUNT(*) AS receipts FROM delivery_receipts {filter_sql}
 GROUP BY status ORDER BY status
-""".strip()
+""".strip()  # nosec B608 - closed module constants and bound parameters only
 
 
 class _WorkStatusMixin:

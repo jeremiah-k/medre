@@ -47,7 +47,9 @@ def test_category_classification_table(
     status: str, next_attempt_at: str | None, expected: str
 ) -> None:
     assert (
-        work_status_category(status, next_attempt_at=next_attempt_at, sampled_at=_SAMPLED)
+        work_status_category(
+            status, next_attempt_at=next_attempt_at, sampled_at=_SAMPLED
+        )
         == expected
     )
 
@@ -57,15 +59,18 @@ def test_every_stored_outbox_status_classifies() -> None:
     for status in OUTBOX_STATUSES:
         if status == "retry_wait":
             continue
-        assert work_status_category(
-            status, next_attempt_at=None, sampled_at=_SAMPLED
-        ) != "unrecognized"
-    assert work_status_category(
-        "retry_wait", next_attempt_at=_PAST, sampled_at=_SAMPLED
-    ) != "unrecognized"
-    assert work_status_category(
-        "retry_wait", next_attempt_at=_FUTURE, sampled_at=_SAMPLED
-    ) != "unrecognized"
+        assert (
+            work_status_category(status, next_attempt_at=None, sampled_at=_SAMPLED)
+            != "unrecognized"
+        )
+    assert (
+        work_status_category("retry_wait", next_attempt_at=_PAST, sampled_at=_SAMPLED)
+        != "unrecognized"
+    )
+    assert (
+        work_status_category("retry_wait", next_attempt_at=_FUTURE, sampled_at=_SAMPLED)
+        != "unrecognized"
+    )
 
 
 def test_category_partition_is_closed_and_outstanding_subset_is_defined() -> None:

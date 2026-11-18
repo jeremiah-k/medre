@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from medre.cli import main
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -92,7 +91,9 @@ async def _seed_work_status_db(db_path: str) -> None:
         await store.close()
 
 
-async def _claim_row(store: SQLiteStorage, item: DeliveryOutboxItem, worker: str) -> None:
+async def _claim_row(
+    store: SQLiteStorage, item: DeliveryOutboxItem, worker: str
+) -> None:
     """Apply claim_due_outbox_items' single-row write for one staged row."""
     now = datetime.now(timezone.utc).isoformat()
     lease = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
@@ -101,6 +102,12 @@ async def _claim_row(store: SQLiteStorage, item: DeliveryOutboxItem, worker: str
         " locked_at = ?, lease_until = ?, updated_at = ? WHERE outbox_id = ?",
         (worker, now, lease, now, item.outbox_id),
     )
+
+
+def _table_row_count(db: sqlite3.Connection, name: str) -> int:
+    """Row count for one table whose name came from sqlite_master."""
+    sql = f'SELECT COUNT(*) FROM "{name}"'  # nosec B608 - sqlite_master name
+    return int(db.execute(sql).fetchone()[0])
 
 
 def _application_counts(db_path: str) -> dict[str, int]:
@@ -113,7 +120,7 @@ def _application_counts(db_path: str) -> dict[str, int]:
                 " WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             )
         ]
-        return {name: int(db.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]) for name in names}
+        return {name: _table_row_count(db, name) for name in names}
     finally:
         db.close()
 
@@ -210,8 +217,7 @@ def test_work_status_human_output_is_metadata_only(tmp_path: Path) -> None:
     assert "unrecognized" not in output or True
     assert "no attempt evidence" in output
     assert (
-        f"medre inspect event evt-ws-hold --recovery --storage-path={db_path}"
-        in output
+        f"medre inspect event evt-ws-hold --recovery --storage-path={db_path}" in output
     )
     assert "lane-a: outstanding 0 of 2 current" in output
     assert "Raw outbox states (all retained rows):" in output
