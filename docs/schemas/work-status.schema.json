@@ -26,7 +26,7 @@
       "const": 1
     },
     "sampled_at": {
-      "description": "ISO-8601 UTC instant used as the comparison time for every due and lease comparison in the report.",
+      "description": "ISO-8601 UTC comparison instant; live reads capture it just after pinning the database snapshot. Explicit comparison times do not describe historical database state.",
       "type": "string",
       "minLength": 1
     },
@@ -56,7 +56,7 @@
       ],
       "properties": {
         "unstarted_eligible": {
-          "description": "Pending generations, plus retry_wait generations whose due time has passed: claimable by a worker at the sampled time.",
+          "description": "Recorded pending generations, plus retry_wait generations whose deadline is absent, unusable or at or before sampled_at. This category does not guarantee worker claimability.",
           "type": "integer",
           "minimum": 0
         },
@@ -156,7 +156,7 @@
             "$ref": "#/$defs/uncertainty"
           },
           "oldest_outstanding": {
-            "description": "The longest-waiting outstanding generation for this adapter, or null when the adapter holds no outstanding work. The age anchor carries a precise origin label.",
+            "description": "The outstanding generation with the earliest usable anchor, or a deterministic unknown-age item if none has a usable anchor. Null only when the adapter holds no outstanding work.",
             "type": ["object", "null"],
             "additionalProperties": false,
             "required": [
@@ -210,11 +210,11 @@
                 "enum": ["admission", "retry_due", "claim", "queue_admission"]
               },
               "anchor": {
-                "description": "The anchor timestamp exactly as persisted, or null when the row carries no usable timestamp.",
+                "description": "The selected anchor as persisted, or null when absent. Unparseable or offset-free values have unknown age.",
                 "type": ["string", "null"]
               },
               "age_seconds": {
-                "description": "Whole seconds from the anchor to sampled_at; negative when the anchor is in the future. Null when no usable anchor exists: unknown is not zero.",
+                "description": "Elapsed seconds rounded down from the anchor to sampled_at; negative even for a subsecond future anchor. Null when no usable anchor exists: unknown is not zero.",
                 "type": ["integer", "null"]
               }
             }
@@ -294,17 +294,17 @@
       ],
       "properties": {
         "reserved_without_generation_receipt": {
-          "description": "Reserved generations whose attempt generation carries no receipt evidence at all: whether a native send occurred is unknown.",
+          "description": "Reserved generations with an active attempt but without a matching attempt receipt for the same delivery identity, outbox and attempt. Whether a native send occurred is unknown.",
           "type": "integer",
           "minimum": 0
         },
         "lease_missing_or_expired": {
-          "description": "Reserved generations whose recorded lease is missing or expired at the sampled time: the recorded owner's liveness is unknown and the work becomes reclaimable.",
+          "description": "Reserved generations whose recorded lease is missing, unusable or at or before sampled_at. This does not establish owner liveness or claimability.",
           "type": "integer",
           "minimum": 0
         },
         "stale_queue_reclaimable": {
-          "description": "Queued generations whose last update is older than the storage reclaim grace: adapter-local queue admission may be stale.",
+          "description": "Queued generations whose known last update is at or before the reclaim grace cutoff. This is a recorded age condition, not proof of claimability.",
           "type": "integer",
           "minimum": 0
         }

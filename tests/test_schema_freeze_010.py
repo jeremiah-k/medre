@@ -18,7 +18,7 @@ FROZEN = json.loads((SCHEMA_DIR / "v0.1.0.freeze.json").read_text(encoding="utf-
 #: silent content drift of a listed file still fails below.
 POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
     "work-status.schema.json": (
-        "4a5458aa62c5b71087203717b9d8be08aa361472ee2fcdc4819ff5ffe01a74a9"
+        "0d3a455d0650101ed9e882c84d1c2e2b3a618b0e4e5ef452f1f053999752eb96"
     ),
 }
 

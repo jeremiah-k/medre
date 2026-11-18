@@ -152,7 +152,7 @@ def test_assembly_sums_the_partition_and_flags_uncertainty() -> None:
             {
                 "target_adapter": "lane",
                 "current_generations": 1,
-                "retry_scheduled": 1,
+                "native_queue": 1,
                 "stale_queue_reclaimable": 1,
             },
         ],
@@ -169,10 +169,24 @@ def test_assembly_sums_the_partition_and_flags_uncertainty() -> None:
                 "active_attempt": 1,
                 "age_origin": "claim",
                 "age_anchor": _PAST,
-            }
+            },
+            {
+                "target_adapter": "lane",
+                "event_id": "event-q",
+                "delivery_plan_id": "plan-q",
+                "target_channel": None,
+                "outbox_id": "ob-q",
+                "category": "native_queue",
+                "status": "queued",
+                "attempt_number": 1,
+                "active_attempt": None,
+                "age_origin": "queue_admission",
+                "age_anchor": _PAST,
+            },
         ],
         raw_status_rows=[
-            {"status": "sent", "rows": 2},
+            {"status": "sent", "rows": 1},
+            {"status": "queued", "rows": 1},
             {"status": "in_progress", "rows": 1},
             {"status": "pending", "rows": 1},
         ],
@@ -195,7 +209,8 @@ def test_assembly_sums_the_partition_and_flags_uncertainty() -> None:
     assert document["raw_outbox_states"] == {
         "in_progress": 1,
         "pending": 1,
-        "sent": 2,
+        "sent": 1,
+        "queued": 1,
     }
     assert document["retained_history"]["outbox_rows_total"] == 4
     assert document["retained_history"]["superseded_generations"] == 0
@@ -210,6 +225,16 @@ def test_assembly_sums_the_partition_and_flags_uncertainty() -> None:
     assert document["limits"]["recipient_delivery"].startswith("unknown")
     assert document["limits"]["connectivity"].startswith("unknown")
     assert document["limits"]["owner_liveness"].startswith("unknown")
+    with pytest.raises(TypeError):
+        report.adapters[0].categories["unstarted_eligible"] = 0  # type: ignore[index]
+    with pytest.raises(TypeError):
+        report.totals["outstanding"] = 0  # type: ignore[index]
+    with pytest.raises(TypeError):
+        report.retained_history["receipts_by_status"]["sent"] = 0
+    document["adapters"][0]["categories"]["unstarted_eligible"] = 0
+    document["retained_history"]["receipts_by_status"]["sent"] = 0
+    assert report.to_dict()["retained_history"]["receipts_by_status"] == {"sent": 2}
+    assert report.adapters[0].outstanding == 2
 
 
 def test_future_retry_anchor_reports_a_negative_age() -> None:
@@ -283,8 +308,24 @@ def test_missing_anchor_age_is_none_not_zero() -> None:
     assert oldest.age_seconds is None
 
 
+def _oldest_pending(adapter: str = "a") -> dict:
+    return {
+        "target_adapter": adapter,
+        "event_id": "e",
+        "delivery_plan_id": "p",
+        "target_channel": None,
+        "outbox_id": "o",
+        "category": "unstarted_eligible",
+        "status": "pending",
+        "attempt_number": 0,
+        "active_attempt": None,
+        "age_origin": "admission",
+        "age_anchor": _PAST,
+    }
+
+
 def test_assembly_rejects_a_broken_category_partition() -> None:
-    with pytest.raises(ValueError, match="accounting invariant"):
+    with pytest.raises(ValueError, match="category sum"):
         assemble_work_status_report(
             sampled_at=_SAMPLED,
             adapter_filter=None,
@@ -295,15 +336,15 @@ def test_assembly_rejects_a_broken_category_partition() -> None:
                     "unstarted_eligible": 1,
                 }
             ],
-            oldest_rows=[],
-            raw_status_rows=[],
+            oldest_rows=[_oldest_pending()],
+            raw_status_rows=[{"status": "pending", "rows": 5}],
             current_generations_total=5,
             receipts_by_status={},
         )
 
 
 def test_assembly_rejects_cross_statement_total_mismatch() -> None:
-    with pytest.raises(ValueError, match="accounting invariant"):
+    with pytest.raises(ValueError, match="per-adapter current generation sum"):
         assemble_work_status_report(
             sampled_at=_SAMPLED,
             adapter_filter=None,
@@ -314,8 +355,8 @@ def test_assembly_rejects_cross_statement_total_mismatch() -> None:
                     "unstarted_eligible": 2,
                 }
             ],
-            oldest_rows=[],
-            raw_status_rows=[],
+            oldest_rows=[_oldest_pending()],
+            raw_status_rows=[{"status": "pending", "rows": 3}],
             current_generations_total=3,
             receipts_by_status={},
         )
@@ -333,7 +374,7 @@ def test_assembly_rejects_retained_history_smaller_than_current() -> None:
                     "unstarted_eligible": 2,
                 }
             ],
-            oldest_rows=[],
+            oldest_rows=[_oldest_pending()],
             raw_status_rows=[{"status": "pending", "rows": 1}],
             current_generations_total=2,
             receipts_by_status={},
@@ -341,7 +382,7 @@ def test_assembly_rejects_retained_history_smaller_than_current() -> None:
 
 
 def test_assembly_rejects_a_terminal_oldest_row() -> None:
-    with pytest.raises(ValueError, match="not outstanding"):
+    with pytest.raises(ValueError, match="oldest-outstanding"):
         assemble_work_status_report(
             sampled_at=_SAMPLED,
             adapter_filter=None,
@@ -384,7 +425,7 @@ def test_adapter_filter_scope_is_stated_not_zero_filled() -> None:
                 "unstarted_eligible": 1,
             }
         ],
-        oldest_rows=[],
+        oldest_rows=[_oldest_pending("only")],
         raw_status_rows=[{"status": "pending", "rows": 1}],
         current_generations_total=1,
         receipts_by_status={},
@@ -421,3 +462,58 @@ def test_adapter_outstanding_excludes_settled_categories() -> None:
         oldest_outstanding=None,
     )
     assert adapter.outstanding == 5
+
+
+@pytest.mark.parametrize(
+    ("anchor", "expected"),
+    [
+        ("2026-01-02T00:00:00.000001Z", -1),
+        ("2026-01-01T23:00:00-01:00", 0),
+        ("2026-01-01T23:59:59.999999Z", 0),
+        ("2026-01-01T00:00:00", None),
+        ("0001-01-01T00:00:00+01:00", None),
+        ("bad", None),
+    ],
+)
+def test_age_preserves_sign_and_unknown_offset(anchor, expected):
+    from medre.core.observability.work_status import _age_seconds
+
+    assert _age_seconds(anchor, _SAMPLED) == expected
+
+
+@pytest.mark.parametrize(
+    ("deadline", "category"),
+    [
+        ("2026-01-02T00:00:00Z", "unstarted_eligible"),
+        ("2026-01-02T02:00:00.000001+02:00", "retry_scheduled"),
+        ("2026-01-02T01:00:00+02:00", "unstarted_eligible"),
+        ("2026-01-02T00:00:00", "unstarted_eligible"),
+        ("", "unstarted_eligible"),
+    ],
+)
+def test_retry_classifier_compares_instants(deadline, category):
+    assert (
+        work_status_category(
+            "retry_wait", next_attempt_at=deadline, sampled_at=_SAMPLED
+        )
+        == category
+    )
+
+
+def test_missing_oldest_is_rejected_even_with_valid_accounting():
+    with pytest.raises(ValueError, match="oldest-outstanding presence"):
+        assemble_work_status_report(
+            sampled_at=_SAMPLED,
+            adapter_filter=None,
+            adapter_rows=[
+                {
+                    "target_adapter": "a",
+                    "current_generations": 1,
+                    "unstarted_eligible": 1,
+                }
+            ],
+            oldest_rows=[],
+            raw_status_rows=[{"status": "pending", "rows": 1}],
+            current_generations_total=1,
+            receipts_by_status={},
+        )

@@ -73,6 +73,7 @@ from medre.core.storage.sqlite._relation import _RelationMixin
 from medre.core.storage.sqlite._retention import _RetentionMixin
 from medre.core.storage.sqlite._work_status import _WorkStatusMixin
 from medre.core.storage.sqlite.connection import (
+    ReadBatch,
     sync_close,
     sync_find_schema_shape_mismatch,
     sync_open,
@@ -664,9 +665,7 @@ class _SQLiteStorageBase:
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
-    async def _read_batch(
-        self, statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]]
-    ) -> list[list[dict[str, Any]]]:
+    async def _read_batch(self, statements: ReadBatch) -> list[list[dict[str, Any]]]:
         """Execute read-only statements inside one deferred read transaction.
 
         Every listed statement observes the same WAL snapshot, so a
