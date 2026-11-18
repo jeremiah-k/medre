@@ -26,18 +26,16 @@ conformance tests.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from medre.core.observability.work_status import timestamp_microseconds
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 
 if TYPE_CHECKING:
-    import threading
-    from collections.abc import Callable
-    from typing import ParamSpec, TypeVar
+    import sqlite3
 
-    _P = ParamSpec("_P")
-    _T = TypeVar("_T")
+    from medre.core.storage.sqlite.connection import ReadBatch, ReadStatements
 
 #: Effective generation with the shared ``or`` semantics: a stored zero
 #: finalized counter (never-dispatched work) is not a generation rank.
@@ -79,8 +77,8 @@ CASE
     WHEN status = 'abandoned' THEN 'uncertain_outcome'
     WHEN status IN ('sent', 'dead_lettered', 'cancelled')
         THEN 'terminal_outcome'
-    WHEN status = 'retry_wait' AND next_attempt_at IS NOT NULL
-         AND next_attempt_at > :sampled_at
+    WHEN status = 'retry_wait'
+         AND work_status_instant(next_attempt_at) > :sampled_us
         THEN 'retry_scheduled'
     WHEN status IN ('pending', 'retry_wait') THEN 'unstarted_eligible'
     ELSE 'unrecognized'
@@ -89,20 +87,20 @@ END
 
 _ANCHOR_CASE = """
 CASE
-    WHEN status = 'retry_wait' AND next_attempt_at IS NOT NULL
+    WHEN status = 'retry_wait' AND NULLIF(next_attempt_at, '') IS NOT NULL
         THEN next_attempt_at
-    WHEN status = 'queued' THEN COALESCE(updated_at, created_at)
-    WHEN status = 'in_progress' AND locked_at IS NOT NULL THEN locked_at
-    ELSE COALESCE(created_at, updated_at)
+    WHEN status = 'queued' THEN COALESCE(NULLIF(updated_at, ''), created_at)
+    WHEN status = 'in_progress' AND NULLIF(locked_at, '') IS NOT NULL THEN locked_at
+    ELSE COALESCE(NULLIF(created_at, ''), updated_at)
 END
 """
 
 _ORIGIN_CASE = """
 CASE
-    WHEN status = 'retry_wait' AND next_attempt_at IS NOT NULL
+    WHEN status = 'retry_wait' AND NULLIF(next_attempt_at, '') IS NOT NULL
         THEN 'retry_due'
     WHEN status = 'queued' THEN 'queue_admission'
-    WHEN status = 'in_progress' AND locked_at IS NOT NULL THEN 'claim'
+    WHEN status = 'in_progress' AND NULLIF(locked_at, '') IS NOT NULL THEN 'claim'
     ELSE 'admission'
 END
 """
@@ -131,12 +129,20 @@ SELECT target_adapter,
                     SELECT 1 FROM delivery_receipts r
                     WHERE r.outbox_id = current_gen.outbox_id
                       AND r.attempt_number = current_gen.active_attempt
+                      AND r.receipt_kind = 'attempt'
+                      AND r.event_id = current_gen.event_id
+                      AND r.delivery_plan_id = current_gen.delivery_plan_id
+                      AND r.target_adapter = current_gen.target_adapter
+                      AND COALESCE(r.target_channel, '') =
+                          COALESCE(current_gen.target_channel, '')
                 )
                 THEN 1 ELSE 0 END) AS reserved_without_generation_receipt,
        SUM(CASE WHEN status = 'in_progress'
-                AND (lease_until IS NULL OR lease_until <= :sampled_at)
+                AND (work_status_instant(lease_until) IS NULL
+                     OR work_status_instant(lease_until) <= :sampled_us)
                 THEN 1 ELSE 0 END) AS lease_missing_or_expired,
-       SUM(CASE WHEN status = 'queued' AND updated_at <= :stale_cutoff
+       SUM(CASE WHEN status = 'queued'
+                AND work_status_instant(updated_at) <= :stale_us
                 THEN 1 ELSE 0 END) AS stale_queue_reclaimable
 FROM current_gen
 GROUP BY target_adapter
@@ -159,7 +165,8 @@ outstanding AS (
 oldest AS (
     SELECT *, ROW_NUMBER() OVER (
         PARTITION BY target_adapter
-        ORDER BY age_anchor ASC, outbox_id ASC
+        ORDER BY work_status_instant(age_anchor) IS NULL,
+                 work_status_instant(age_anchor) ASC, outbox_id ASC
     ) AS oldest_rank
     FROM outstanding
 )
@@ -174,7 +181,7 @@ ORDER BY target_adapter
 
 def _select_raw_status(adapter: str | None) -> str:
     """All retained outbox rows grouped by status, optionally scoped."""
-    filter_sql = "WHERE target_adapter = :adapter" if adapter else ""
+    filter_sql = "WHERE target_adapter = :adapter" if adapter is not None else ""
     return f"""
 SELECT status, COUNT(*) AS rows FROM delivery_outbox {filter_sql}
 GROUP BY status ORDER BY status
@@ -183,7 +190,7 @@ GROUP BY status ORDER BY status
 
 def _select_current_total(adapter: str | None) -> str:
     """Count current generations, optionally scoped to one adapter."""
-    filter_sql = _ADAPTER_FILTER if adapter else ""
+    filter_sql = _ADAPTER_FILTER if adapter is not None else ""
     return _CURRENT_GENERATIONS.format(filter=filter_sql) + """
 SELECT COUNT(*) AS current_generations FROM current_gen
 """.strip()
@@ -191,7 +198,7 @@ SELECT COUNT(*) AS current_generations FROM current_gen
 
 def _select_receipts_by_status(adapter: str | None) -> str:
     """Receipt counts by status over retained receipts, optionally scoped."""
-    filter_sql = "WHERE target_adapter = :adapter" if adapter else ""
+    filter_sql = "WHERE target_adapter = :adapter" if adapter is not None else ""
     return f"""
 SELECT status, COUNT(*) AS receipts FROM delivery_receipts {filter_sql}
 GROUP BY status ORDER BY status
@@ -206,20 +213,14 @@ class _WorkStatusMixin:
 
     if TYPE_CHECKING:
 
-        _lock: threading.Lock
-
-        async def _run_in_thread(
-            self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
-        ) -> _T: ...
-
         async def _read_batch(
-            self, statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]]
+            self, statements: ReadBatch
         ) -> list[list[dict[str, Any]]]: ...
 
     async def query_work_status_summary(
         self,
         *,
-        sampled_at: str,
+        sampled_at: str | None = None,
         adapter: str | None = None,
     ) -> dict[str, Any]:
         """Aggregate the work-status projection over one read snapshot.
@@ -231,39 +232,58 @@ class _WorkStatusMixin:
         :func:`medre.core.observability.work_status.
         assemble_work_status_report`.
 
-        ``sampled_at`` is the caller's ISO-8601 UTC instant; all due-time
-        and lease comparisons compare stored ISO strings against it, so
-        the report's sampled time is exactly the comparison time.
+        A live comparison clock is captured just after the first read pins
+        the snapshot. An explicit offset-aware ``sampled_at`` overrides that
+        clock for deterministic diagnostics, not historical snapshot reads.
+        Every statement uses the same exact instant and grace cutoff.
         """
-        parsed = datetime.fromisoformat(sampled_at)
-        stale_cutoff = (
-            parsed - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
-        ).isoformat()
+        if adapter == "":
+            raise ValueError("adapter filter must not be empty")
+        comparison_time = sampled_at
 
-        cte_filter = _ADAPTER_FILTER if adapter else ""
-        base_params: dict[str, Any] = {
-            "sampled_at": sampled_at,
-            "stale_cutoff": stale_cutoff,
-        }
-        if adapter is not None:
-            base_params["adapter"] = adapter
+        def prepare(db: sqlite3.Connection) -> ReadStatements:
+            nonlocal comparison_time
+            if comparison_time is None:
+                comparison_time = datetime.now(timezone.utc).isoformat()
+            sampled_us = timestamp_microseconds(comparison_time)
+            if sampled_us is None:
+                raise ValueError("sampled_at must be an offset-aware ISO timestamp")
+            comparison_time = (
+                datetime.fromisoformat(comparison_time)
+                .astimezone(timezone.utc)
+                .isoformat()
+            )
+            db.create_function(
+                "work_status_instant", 1, timestamp_microseconds, deterministic=True
+            )
+            cte_filter = _ADAPTER_FILTER if adapter is not None else ""
+            base_params: dict[str, Any] = {
+                "sampled_us": sampled_us,
+                "stale_us": sampled_us - STALE_QUEUED_GRACE_SECONDS * 1_000_000,
+            }
+            if adapter is not None:
+                base_params["adapter"] = adapter
+            return [
+                (_SELECT_ADAPTER_SUMMARY.replace("{filter}", cte_filter), base_params),
+                (
+                    _SELECT_OLDEST_OUTSTANDING.replace("{filter}", cte_filter),
+                    base_params,
+                ),
+                (_select_raw_status(adapter), base_params),
+                (_select_current_total(adapter), base_params),
+                (_select_receipts_by_status(adapter), base_params),
+            ]
 
-        statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]] = [
-            (_SELECT_ADAPTER_SUMMARY.replace("{filter}", cte_filter), base_params),
-            (_SELECT_OLDEST_OUTSTANDING.replace("{filter}", cte_filter), base_params),
-            (_select_raw_status(adapter), base_params),
-            (_select_current_total(adapter), base_params),
-            (_select_receipts_by_status(adapter), base_params),
-        ]
         (
             adapter_rows,
             oldest_rows,
             raw_status_rows,
             current_total_rows,
             receipt_rows,
-        ) = await self._read_batch(statements)
+        ) = await self._read_batch(prepare)
 
         return {
+            "sampled_at": comparison_time,
             "adapter_rows": adapter_rows,
             "oldest_rows": oldest_rows,
             "raw_status_rows": raw_status_rows,

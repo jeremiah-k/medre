@@ -38,8 +38,10 @@ pure functions here by conformance tests.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, Literal
 
 __all__ = [
@@ -119,6 +121,26 @@ WORK_STATUS_DEFINITION = (
 )
 
 
+def timestamp_microseconds(value: str | None) -> int | None:
+    """Represent an offset-aware ISO timestamp exactly, or report it unknown.
+
+    Integer microseconds avoid floating-point precision loss at the retry
+    and lease equality boundaries. No timezone is inferred for legacy rows.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.utcoffset() is None:
+            return None
+        elapsed = parsed.astimezone(timezone.utc) - datetime(
+            1970, 1, 1, tzinfo=timezone.utc
+        )
+    except (ValueError, OverflowError):
+        return None
+    return (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+
+
 def work_status_category(
     status: str,
     *,
@@ -128,10 +150,10 @@ def work_status_category(
     """Classify one current outbox generation into the closed vocabulary.
 
     Pure function and the conformance oracle for the SQL ``CASE`` in the
-    storage projection: both compare ISO-8601 timestamps as strings, in the
-    same branch order, over the same inputs. ``retry_wait`` rows split by
-    their due time against ``sampled_at`` — a due or deadline-less retry is
-    eligible work, a future retry stays scheduled.
+    storage projection: both compare offset-aware instants at microsecond
+    precision. A known future retry stays scheduled; other retry_wait rows
+    enter the unstarted bucket. This is a state summary, not a claim check;
+    an unusable deadline is not evidence of dispatch eligibility.
     """
     if status == "in_progress":
         return "reserved_active"
@@ -141,10 +163,11 @@ def work_status_category(
         return "uncertain_outcome"
     if status in _TERMINAL_OUTCOME_STATUSES:
         return "terminal_outcome"
-    if status == "retry_wait" and (
-        next_attempt_at is not None and next_attempt_at > sampled_at
-    ):
-        return "retry_scheduled"
+    if status == "retry_wait":
+        due = timestamp_microseconds(next_attempt_at)
+        sample = timestamp_microseconds(sampled_at)
+        if due is not None and sample is not None and due > sample:
+            return "retry_scheduled"
     if status in _UNSTARTED_STATUSES:
         return "unstarted_eligible"
     return _UNRECOGNIZED
@@ -167,15 +190,11 @@ def outstanding_age_origin(
     """
     if status == "retry_wait" and next_attempt_at:
         return "retry_due", next_attempt_at
-    if status == "pending":
-        return "admission", created_at
-    if status == "in_progress":
-        if locked_at:
-            return "claim", locked_at
-        return "admission", created_at
+    if status == "in_progress" and locked_at:
+        return "claim", locked_at
     if status == "queued":
-        return "queue_admission", updated_at
-    return "admission", created_at
+        return "queue_admission", updated_at or created_at
+    return "admission", created_at or updated_at
 
 
 def _age_seconds(anchor: str | None, sampled_at: str) -> int | None:
@@ -184,14 +203,11 @@ def _age_seconds(anchor: str | None, sampled_at: str) -> int | None:
     Negative values mean the anchor is in the future (a not-yet-due
     retry). Parsing failures return ``None`` instead of inventing an age.
     """
-    if not anchor:
+    anchor_us = timestamp_microseconds(anchor)
+    sampled_us = timestamp_microseconds(sampled_at)
+    if anchor_us is None or sampled_us is None:
         return None
-    try:
-        parsed_anchor = datetime.fromisoformat(anchor)
-        parsed_sampled = datetime.fromisoformat(sampled_at)
-    except ValueError:
-        return None
-    return int((parsed_sampled - parsed_anchor).total_seconds())
+    return (sampled_us - anchor_us) // 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,12 +219,12 @@ class WorkStatusUncertainty:
     excludes a live native send.
     """
 
-    #: Reserved generations whose attempt generation carries no receipt
-    #: evidence at all: whether a native send occurred is unknown.
+    #: Reserved generations with an active attempt but no matching attempt
+    #: receipt for their delivery identity: native send is unknown.
     reserved_without_generation_receipt: int = 0
     #: Reserved generations whose recorded lease is missing or expired at
-    #: the sampled time: the recorded owner's liveness is unknown and the
-    #: work becomes reclaimable.
+    #: the sampled time: recorded-owner liveness is unknown. This is not
+    #: a claimability check.
     lease_missing_or_expired: int = 0
     #: Queued generations whose last update is older than the storage
     #: reclaim grace: adapter-local queue admission may be stale.
@@ -271,11 +287,14 @@ class AdapterWorkStatus:
 
     target_adapter: str
     current_generations: int
-    categories: dict[str, int]
+    categories: Mapping[str, int]
     uncertainty: WorkStatusUncertainty
     #: The longest-waiting outstanding generation, or ``None`` when the
     #: adapter holds no outstanding work.
     oldest_outstanding: WorkStatusOldest | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "categories", MappingProxyType(dict(self.categories)))
 
     @property
     def outstanding(self) -> int:
@@ -324,7 +343,9 @@ def _work_status_limits() -> dict[str, str]:
         ),
         "scope": (
             "partial: the projection covers the delivery outbox and receipt "
-            "history in this database at the sampled time only"
+            "history in one database read snapshot; sampled_at is the comparison "
+            "clock, not a historical database query. Categories and grace flags "
+            "do not establish worker claimability"
         ),
     }
 
@@ -335,15 +356,24 @@ class WorkStatusReport:
 
     sampled_at: str
     adapter_filter: str | None
-    totals: dict[str, int]
+    totals: Mapping[str, int]
     adapters: tuple[AdapterWorkStatus, ...]
     #: Recorded uncertainty summed across the reported adapters.
     uncertainty: WorkStatusUncertainty
     #: Raw stored outbox status counts over every retained row, including
     #: superseded generations. A separate dimension, never a category sum.
-    raw_outbox_states: dict[str, int]
-    retained_history: dict[str, Any]
-    limits: dict[str, str] = field(default_factory=_work_status_limits)
+    raw_outbox_states: Mapping[str, int]
+    retained_history: Mapping[str, Any]
+    limits: Mapping[str, str] = field(default_factory=_work_status_limits)
+
+    def __post_init__(self) -> None:
+        history = dict(self.retained_history)
+        history["receipts_by_status"] = MappingProxyType(
+            dict(history.get("receipts_by_status", {}))
+        )
+        object.__setattr__(self, "retained_history", MappingProxyType(history))
+        for name in ("totals", "raw_outbox_states", "limits"):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-safe report document matching the published schema."""
@@ -357,7 +387,10 @@ class WorkStatusReport:
             "adapters": [adapter.to_dict() for adapter in self.adapters],
             "uncertainty": self.uncertainty.to_dict(),
             "raw_outbox_states": dict(self.raw_outbox_states),
-            "retained_history": dict(self.retained_history),
+            "retained_history": {
+                **self.retained_history,
+                "receipts_by_status": dict(self.retained_history["receipts_by_status"]),
+            },
             "limits": dict(self.limits),
         }
 
@@ -380,10 +413,20 @@ def assemble_work_status_report(
     status counts. The assembly fails closed with :class:`ValueError`
     rather than presenting inconsistent accounting.
     """
+    if adapter_filter == "":
+        raise ValueError("adapter filter must not be empty")
     adapters: list[AdapterWorkStatus] = []
     oldest_by_adapter = {str(row["target_adapter"]): row for row in oldest_rows}
+    if len(oldest_by_adapter) != len(oldest_rows):
+        raise ValueError("duplicate oldest-outstanding adapter")
+    seen: set[str] = set()
     for row in adapter_rows:
         adapter = str(row["target_adapter"])
+        if adapter in seen or (
+            adapter_filter is not None and adapter != adapter_filter
+        ):
+            raise ValueError("duplicate or out-of-scope work-status adapter")
+        seen.add(adapter)
         categories: dict[str, int] = {
             category: int(row.get(category, 0) or 0)
             for category in WORK_STATUS_CATEGORIES
@@ -395,10 +438,19 @@ def assemble_work_status_report(
                 f"category sum {sum(categories.values())} != "
                 f"current generations {generations}"
             )
-        oldest_row = oldest_by_adapter.get(adapter)
+        oldest_row = oldest_by_adapter.pop(adapter, None)
+        outstanding = sum(categories[key] for key in OUTSTANDING_CATEGORIES)
+        if bool(outstanding) != (oldest_row is not None):
+            raise ValueError(
+                f"oldest-outstanding presence contradicts counts for {adapter!r}"
+            )
         oldest = None
         if oldest_row is not None:
-            if oldest_row["category"] not in OUTSTANDING_CATEGORIES:
+            if oldest_row[
+                "category"
+            ] not in OUTSTANDING_CATEGORIES or not categories.get(
+                oldest_row["category"]
+            ):
                 raise ValueError(
                     f"oldest-outstanding row for {adapter!r} is not "
                     f"outstanding: {oldest_row['category']!r}"
@@ -437,6 +489,8 @@ def assemble_work_status_report(
             )
         )
 
+    if oldest_by_adapter:
+        raise ValueError("oldest-outstanding row has no matching adapter")
     totals = _report_totals(adapters, current_generations_total, adapter_filter)
     raw_outbox_states = {
         str(row["status"]): int(row["rows"]) for row in raw_status_rows

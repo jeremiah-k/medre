@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -604,24 +605,32 @@ def sync_read_all(
         return [dict(r) for r in db.execute(sql, params).fetchall()]
 
 
+ReadStatements = list[tuple[str, tuple[Any, ...] | dict[str, Any]]]
+ReadBatch = ReadStatements | Callable[[sqlite3.Connection], ReadStatements]
+
+
 def sync_read_batch(
     db: sqlite3.Connection,
     lock: threading.Lock,
-    statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]],
+    statements: ReadBatch,
 ) -> list[list[dict[str, Any]]]:
     """Execute read-only statements inside one deferred read transaction.
 
-    One ``BEGIN`` (deferred) pins a single WAL snapshot for every listed
-    statement, so a multi-statement read model describes exactly one
-    point in time even while other processes commit. The transaction is
-    ended with ``rollback`` because it never wrote anything; committed WAL
-    state stays visible exactly like any other read, and ``immutable=1``
-    is never involved. Read-only by contract: any statement that writes
-    violates the caller's obligation and the rollback discards it.
+    The first read after deferred ``BEGIN`` pins the WAL snapshot. A
+    statement factory, when supplied, runs after that pin, allowing a
+    comparison clock and connection-local functions to be prepared for
+    the same batch. Refuse an existing transaction without touching it.
+    Only this function's own transaction is rolled back at exit. The
+    caller must provide read-only statements.
     """
     with lock:
+        if db.in_transaction:
+            raise sqlite3.OperationalError("read batch requires an idle connection")
+        db.execute("BEGIN")
         try:
-            db.execute("BEGIN")
+            if callable(statements):
+                db.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall()
+                statements = statements(db)
             results = [
                 [dict(row) for row in db.execute(sql, params).fetchall()]
                 for sql, params in statements
