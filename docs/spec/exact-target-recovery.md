@@ -423,8 +423,9 @@ quiet window, and a monitor sibling never widens.
 The negative control, against the same reopened storage and a fresh
 provider lifetime, refuses an unbound selection (`ambiguous`), a drifted
 channel no plan names (`No delivery plans matched
-exact_target_selections filter`), and a superseded observation whose
-identity has become contested (`ambiguous` under expectations), staging
+exact_target_selections filter`), and a contested selection (`ambiguous`). The separate preview with the
+superseded fingerprint and generation also refuses; the replay request
+contains only the selection identity and refuses on its fresh durable read, staging
 no native work, recording zero new native sends and no sibling change.
 Positive peer controls bracket the refusal window so witness liveness is
 proven, and absence is a bounded wait timeout, never a fixed sleep.
@@ -483,3 +484,8 @@ delivery, or proof of non-submission after interruption. This Docker suite
 qualifies the SDK/transport invocation path only. The native acceptance leg
 remains open pending a separate provider/recipient observer. No uncertain
 handoff is automatically reauthorized by this test.
+
+Prosody verdict JSON files are run diagnostics, not standalone native-qualification
+records. CI verifies the selected editable provider and installed SDK before the
+scenario. Local runs without `MEDRE_XMPP_PROVIDER_ROOT` do not establish that
+source-pair provenance; do not use them to promote compatibility pins.

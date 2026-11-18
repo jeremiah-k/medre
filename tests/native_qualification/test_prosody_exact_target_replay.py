@@ -92,7 +92,7 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
-from scripts.ci.native_qualification import qualification_rows
+from scripts.ci.native_qualification import provider_provenance, qualification_rows
 from tests.helpers.async_utils import wait_until
 from tests.integration.conftest import (
     _RUN_ARTIFACT_DIR,
@@ -136,9 +136,7 @@ def _c2s_endpoint() -> tuple[str, int]:
 
 def _tls_context(env: ProsodyEnvironment) -> ssl.SSLContext:
     """Trust only the fixture's own throwaway CA for the local Prosody."""
-    context = ssl.create_default_context()
-    context.load_verify_locations(cafile=str(env.ca_path))
-    return context
+    return ssl.create_default_context(cafile=str(env.ca_path))
 
 
 class _Recipient:
@@ -243,6 +241,11 @@ class _Recipient:
         except Exception:
             logger.warning("Prosody recipient teardown left its client running")
             self.client.abort()
+        finally:
+            worker = self.client._run_out_filters
+            if worker is not None:
+                worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
 
 
 class _RecordingConnection(SlixConnection):
@@ -251,42 +254,46 @@ class _RecordingConnection(SlixConnection):
     def __init__(self, config: XMPPConfig, receive: Any) -> None:
         super().__init__(config, receive)
         self.sends: list[dict[str, Any]] = []
+        self._recording_lock = asyncio.Lock()
 
     async def send(self, payload: Mapping[str, str]) -> str | None:
-        writes: list[str] = []
-        client_send_raw = self.client.send_raw
+        async with self._recording_lock:
+            writes: list[dict[str, Any]] = []
+            client_send_raw = self.client.send_raw
+            had_override = "send_raw" in vars(self.client)
 
-        def capture_raw(data: Any) -> None:
-            if isinstance(data, bytes):
-                writes.append(data.decode("utf-8", "replace"))
-            elif isinstance(data, str):
-                writes.append(data)
-            client_send_raw(data)
+            def capture_raw(data: Any) -> None:
+                client_send_raw(data)
+                raw = (
+                    data.decode("utf-8", "replace") if isinstance(data, bytes) else data
+                )
+                if not isinstance(raw, str) or "<message" not in raw:
+                    return
+                if not re.search(r"\btype=['\"]groupchat['\"]", raw):
+                    return
+                match = re.search(
+                    r"<[\w:.-]*origin-id[^>]*\bid=['\"]([^'\"]+)['\"]", raw
+                )
+                record = {
+                    "to": payload.get("to"),
+                    "body": payload.get("body"),
+                    "origin_id": match.group(1) if match else None,
+                    "native_id": None,
+                }
+                self.sends.append(record)
+                writes.append(record)
 
-        self.client.send_raw = capture_raw
-        try:
-            outcome = await super().send(payload)
-        finally:
-            del self.client.send_raw
-        origin_id = None
-        for raw in writes:
-            if "<message" not in raw or "origin-id" not in raw:
-                continue
-            # Slixmpp serializes with the stream's namespace context, so the
-            # standalone fragment can carry unbound prefixes; correlate the
-            # recorded outbound write by its XEP-0359 origin id attribute.
-            match = re.search(r"<[\w:.-]*origin-id[^>]*\bid=['\"]([^'\"]+)['\"]", raw)
-            if match:
-                origin_id = match.group(1)
-        self.sends.append(
-            {
-                "to": payload.get("to"),
-                "body": payload.get("body"),
-                "origin_id": origin_id,
-                "native_id": outcome,
-            }
-        )
-        return outcome
+            self.client.send_raw = capture_raw
+            try:
+                outcome = await super().send(payload)
+                if len(writes) == 1:
+                    writes[0]["native_id"] = outcome
+                return outcome
+            finally:
+                if had_override:
+                    self.client.send_raw = client_send_raw
+                else:
+                    del self.client.send_raw
 
 
 class _Case:
@@ -328,6 +335,7 @@ class _Case:
         self._adapter: XMPPAdapter | None = None
         self._monitor: FakeXMPPAdapter | None = None
         self._connections: list[_RecordingConnection] = []
+        self._lifetime_offsets: list[int] = []
         self._observers: list[_Recipient] = []
         self.observer_a: _Recipient | None = None
         self.observer_b: _Recipient | None = None
@@ -462,8 +470,8 @@ class _Case:
             ("observer-b", self.sibling_room, "observer-b", "b"),
         ):
             observer = _Recipient(self.env, localpart, "campaign-" + self.run)
-            await observer.join(room, nick)
             self._observers.append(observer)
+            await observer.join(room, nick)
             if slot == "a":
                 self.observer_a = observer
             else:
@@ -474,29 +482,17 @@ class _Case:
         # The adapter builds its own ssl.create_default_context(); OpenSSL
         # reads SSL_CERT_FILE when default verify paths are loaded.
         self.monkeypatch.setenv("SSL_CERT_FILE", str(self.env.ca_path))
+        self._lifetime_offsets.append(len(self._connections))
         storage = SQLiteStorage(str(self.path))
+        self._storage = storage
         await storage.initialize()
         adapter, monitor, runner = self._assemble(storage)
-        await runner.start()
-        try:
-            await adapter.start(self._context(_NATIVE, runner))
-        except BaseException:
-            await runner.stop()
-            await storage.close()
-            raise
-        try:
-            await monitor.start(self._context(_MONITOR, runner))
-        except BaseException:
-            try:
-                await adapter.stop()
-            finally:
-                await runner.stop()
-                await storage.close()
-            raise
-        self._storage = storage
         self._runner = runner
+        await runner.start()
         self._adapter = adapter
+        await adapter.start(self._context(_NATIVE, runner))
         self._monitor = monitor
+        await monitor.start(self._context(_MONITOR, runner))
 
     async def seed(self, *, event_id: str, body: str) -> None:
         """Seed one event through the normal runtime boundary.
@@ -507,7 +503,7 @@ class _Case:
         through ``deliver_to_targets(source="live")`` so its outbox
         generation completes with real native evidence; the selected target
         is staged as a never-dispatched ``pending`` generation through
-        ``storage.create_outbox_item`` carrying the runtime-produced
+        the runtime delivery coordinator carrying the runtime-produced
         dispatch snapshot. No replay path participates in seeding.
         """
         self.event_id = event_id
@@ -516,7 +512,7 @@ class _Case:
         runner = self.runner
         event = _make_event(event_id, body)
         await storage.append(event)
-        _, plan_pairs = await runner.route_event(event)
+        event, plan_pairs = await runner.route_event(event)
         assert len(plan_pairs) == 3, "one plan per route target is required"
         for route, plan in plan_pairs:
             assert route.id == self.route.id
@@ -541,33 +537,14 @@ class _Case:
         assert sibling_row is not None
         self.sibling_outbox_id = sibling_row.outbox_id
 
-        self.staged_outbox_id = "staged-" + self.run
-        created = await storage.create_outbox_item(
-            DeliveryOutboxItem(
-                outbox_id=self.staged_outbox_id,
-                event_id=event_id,
-                route_id=self.route.id,
-                delivery_plan_id=self._selected_plan.plan_id,
-                target_adapter=_NATIVE,
-                target_channel=self.selected_room,
-                status="pending",
-                attempt_number=0,
-            ),
-            dispatch_snapshot=OutboxDispatchSnapshotWrite(
-                kind="staged",
-                context=msgspec.to_builtins(
-                    OutboxDispatchContext(
-                        route=self.route,
-                        plan=self._selected_plan,
-                        routing=RoutingMetadata(
-                            matched_routes=(self.route.id,),
-                            route_trace=(self.route.id,),
-                        ),
-                    )
-                ),
-            ),
+        staged = await runner._delivery_coordinator.enqueue_many(
+            event, [(self.route, self._selected_plan)]
         )
-        assert created.outbox_id == self.staged_outbox_id
+        assert len(staged) == 1 and staged[0].status == "queued"
+        selected_row = await self._find_outbox_row(storage, self._selected_plan.plan_id)
+        assert selected_row is not None and selected_row.status == "pending"
+        assert selected_row.attempt_number == 0 and selected_row.active_attempt is None
+        self.staged_outbox_id = selected_row.outbox_id
 
     async def _find_outbox_row(
         self, storage: SQLiteStorage, delivery_plan_id: str
@@ -622,7 +599,7 @@ class _Case:
 
     def sends_since_lifetime(self, lifetime: int) -> list[dict[str, Any]]:
         """Native transport writes recorded from the given lifetime onward."""
-        connections_before = lifetime - 1
+        connections_before = self._lifetime_offsets[lifetime - 1]
         return [
             send
             for connection in self._connections[connections_before:]
@@ -670,12 +647,14 @@ class _Case:
         ), f"recipient unexpectedly observed {observer.stanzas!r}"
 
     async def aclose(self) -> None:
-        await self._stop_lifetime()
-        if self._storage is not None:
-            await self._storage.close()
-            self._storage = None
-        for observer in self._observers:
-            await observer.close()
+        from contextlib import AsyncExitStack
+
+        async with AsyncExitStack() as stack:
+            for observer in self._observers:
+                stack.push_async_callback(observer.close)
+            if self._storage is not None:
+                stack.push_async_callback(self._storage.close)
+            await self._stop_lifetime()
 
 
 @asynccontextmanager
@@ -687,6 +666,14 @@ async def _case(
 ) -> AsyncIterator[_Case]:
     case = _Case(env, path, monkeypatch=monkeypatch)
     try:
+        checkout = os.environ.get("MEDRE_XMPP_PROVIDER_ROOT")
+        if checkout:
+            provider_provenance(
+                Path(__file__).resolve().parents[2],
+                Path(checkout),
+                "xmpp",
+                candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS"),
+            )
         await case.arm()
         await case.start_lifetime()
         yield case
@@ -853,6 +840,21 @@ async def test_exact_target_replay_reaches_one_prosody_recipient(
             room=case.selected_room,
             since=window_start,
         )
+        remaining = max(0.0, window_start + _RECIPIENT_WINDOW - time.monotonic())
+        assert not await wait_until(
+            lambda: len(
+                case.observer_a.matches(body, case.selected_room, since=window_start)
+            )
+            > 1,
+            timeout=remaining,
+        ), "duplicate selected-room stanza"
+        observed = [
+            record
+            for record in case.observer_a.matches(
+                body, case.selected_room, since=window_start
+            )
+            if record["arrival"] <= window_start + _RECIPIENT_WINDOW
+        ]
         assert len(observed) == 1, "exactly one nonce-correlated stanza is allowed"
         record = observed[0]
         assert record["from"] == f"{case.selected_room}/{_NICKNAME}"
@@ -1011,9 +1013,17 @@ async def test_refused_and_superseded_selections_stay_unsent(
         ]
         assert len(sibling_receipt_ids_before) == 1
 
+        async def durable_state(event_id: str):
+            return (
+                await case.storage.list_outbox_items_for_event(event_id),
+                await case.storage.list_receipts_for_event(event_id),
+            )
+
         deliver_results: dict[str, ReplayResult] = {}
         for name, probe in probes.items():
+            durable_before = await durable_state(probe.selection.event_id)
             results = await case.replay(probe.selection)
+            assert await durable_state(probe.selection.event_id) == durable_before
             deliver_results[name] = _single_deliver_result(
                 probe.selection.event_id, results
             )
@@ -1071,7 +1081,9 @@ async def test_refused_and_superseded_selections_stay_unsent(
         assert superseded.category == "ambiguous", superseded.category
         fresh = await preview_exact_target(case.storage, selection)
         assert fresh.category == "ambiguous"
+        contested_before = await durable_state(event_id)
         results = await case.replay(selection)
+        assert await durable_state(event_id) == contested_before
         superseded_deliver = _single_deliver_result(event_id, results)
         assert superseded_deliver.status == "skipped"
         assert superseded_deliver.error is not None
@@ -1081,10 +1093,9 @@ async def test_refused_and_superseded_selections_stay_unsent(
 
         # Zero new native sends and no staged work for refused identities.
         sends = case.sends_since_lifetime(2)
-        assert [send["to"] for send in sends] == [
-            case.selected_room,
-            case.sibling_room,
-        ], sends
+        assert sorted(send["to"] for send in sends) == sorted(
+            [case.selected_room, case.sibling_room]
+        ), sends
         assert {send["body"] for send in sends} == {control_before_body}
         assert not await case.storage.list_receipts_for_event(unbound_event)
         assert await case.storage.list_outbox_items_for_event(unbound_event) == []
@@ -1142,6 +1153,13 @@ async def test_refused_and_superseded_selections_stay_unsent(
             for probe in probes.values():
                 assert observer.matches(probe.body, room, since=window_start) == []
 
+        all_sends = case.sends_since_lifetime(2)
+        assert sorted((send["to"], send["body"]) for send in all_sends) == sorted(
+            (room, body)
+            for room in (case.selected_room, case.sibling_room)
+            for body in (control_before_body, control_after_body)
+        )
+        assert await durable_state(event_id) == contested_before
         if _RUN_ARTIFACT_DIR is not None:
             _write_artifact_json(
                 "prosody-exact-target-refusals.json",
