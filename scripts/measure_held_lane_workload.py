@@ -323,11 +323,10 @@ async def _work_status_probe(db_path: str, *, samples: int = 10) -> dict[str, An
     readonly = await SQLiteStorage.open_readonly(db_path)
     try:
         for _ in range(samples):
-            sampled_at = datetime.now(timezone.utc).isoformat()
             started = time.perf_counter()
-            summary = await readonly.query_work_status_summary(sampled_at=sampled_at)
+            summary = await readonly.query_work_status_summary()
             assemble_work_status_report(
-                sampled_at=sampled_at,
+                sampled_at=summary["sampled_at"],
                 adapter_filter=None,
                 adapter_rows=summary["adapter_rows"],
                 oldest_rows=summary["oldest_rows"],
@@ -616,8 +615,8 @@ async def _run_profile(
             description="worker bookkeeping did not settle to the held lane",
         )
         delivery_current_while_held = capacity.delivery_current
-        # Operator-view cost during a live hold: the dispatcher keeps
-        # committing while these read-only samples run.
+        # Operator-view cost during a settled hold, after healthy deliveries
+        # and the cooldown retry finish. Concurrent commits are not required.
         work_status_during_hold = await _work_status_probe(str(db_path))
         for name, adapter in healthy.items():
             expected_handoffs = profile.healthy_batches * profile.events_per_batch + 1
@@ -677,14 +676,14 @@ async def _run_profile(
         or capacity.delivery_current != 0
     ):
         raise AssertionError("synthetic dispatcher did not retire its held operation")
-    # Operator-view cost at rest over the fully retained history, with no
-    # writer running: the incident-forensics reading posture.
-    work_status_at_rest = await _work_status_probe(str(db_path))
+    # Capture writer-close footprint before a WAL reader can create sidecars.
     footprint_after_close = {
         path.name: path.stat().st_size
         for path in destination.glob(db_path.name + "*")
         if path.is_file()
     }
+    # Operator-view cost at rest over fully retained history; no writer runs.
+    work_status_at_rest = await _work_status_probe(str(db_path))
 
     return {
         "profile": profile.name,
