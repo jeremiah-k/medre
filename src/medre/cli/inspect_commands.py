@@ -9,9 +9,9 @@ start, no storage mutation.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
-from datetime import datetime, timezone
 from typing import Any
 
 import msgspec
@@ -371,30 +371,36 @@ async def _inspect_content(*, storage_path: str, event_id: str | None = None) ->
         await storage.close()
 
 
-def _work_status_next_inspection(event_id: str, *, storage_path: str) -> str:
-    """The read-only exact inspection for one outstanding identity."""
-    return shlex.join(
-        [
-            "medre",
-            "inspect",
-            "event",
-            event_id,
-            "--recovery",
-            f"--storage-path={storage_path}",
-        ]
-    )
+def _work_status_next_inspection(event_id: str, *, storage_path: str) -> list[str]:
+    """Read-only event-level inspection arguments, independent of shell."""
+    return [
+        "medre",
+        "inspect",
+        "event",
+        "--recovery",
+        f"--storage-path={storage_path}",
+        "--",
+        event_id,
+    ]
 
 
 def _describe_age(oldest: WorkStatusOldest) -> str:
     """Human age sentence carrying the anchor and its precise origin."""
     anchor = oldest.anchor or "unknown time"
     if oldest.origin == "retry_due":
-        if oldest.age_seconds is not None and oldest.age_seconds < 0:
-            return f"retry due at {anchor} (due in {-oldest.age_seconds}s)"
+        if oldest.category == "retry_scheduled":
+            due = (
+                "unknown interval"
+                if oldest.age_seconds is None
+                else f"due in at most {-oldest.age_seconds}s"
+            )
+            return f"retry scheduled at {anchor} ({due})"
         overdue = (
-            "" if oldest.age_seconds is None else f" ({oldest.age_seconds}s overdue)"
+            " (due time unknown)"
+            if oldest.age_seconds is None
+            else f" ({oldest.age_seconds}s overdue)"
         )
-        return f"retry scheduled at {anchor}{overdue}"
+        return f"retry due at {anchor}{overdue}"
     if oldest.origin == "claim":
         held = "" if oldest.age_seconds is None else f" — held {oldest.age_seconds}s"
         return f"claimed at {anchor}{held}"
@@ -425,11 +431,17 @@ def _print_adapter_work_status(
     if categories.get("unrecognized"):
         header += f", unrecognized {categories['unrecognized']}"
     print(header + ")")
+    if categories.get("uncertain_outcome"):
+        print("      abandoned outcomes remain uncertain; see the operator runbook")
     oldest = adapter.oldest_outstanding
     if oldest is None:
         print("      no outstanding work")
         return
     print(f"      oldest outstanding: {_describe_age(oldest)}")
+    print(
+        f"      delivery: event={oldest.event_id!r} plan={oldest.delivery_plan_id!r} "
+        f"channel={oldest.target_channel!r} outbox={oldest.outbox_id!r}"
+    )
     uncertainty = adapter.uncertainty
     flags: list[str] = []
     if uncertainty.reserved_without_generation_receipt:
@@ -441,7 +453,7 @@ def _print_adapter_work_status(
     if uncertainty.lease_missing_or_expired:
         flags.append(
             f"{uncertainty.lease_missing_or_expired} reserved generation(s) "
-            "have a missing or expired lease: recorded-owner liveness is "
+            "have a missing, unusable or expired lease: recorded-owner liveness is "
             "unknown"
         )
     if uncertainty.stale_queue_reclaimable:
@@ -451,10 +463,14 @@ def _print_adapter_work_status(
         )
     for flag in flags:
         print(f"      uncertainty: {flag}")
-    print(
-        "      next inspection: "
-        + _work_status_next_inspection(oldest.event_id, storage_path=storage_path)
-    )
+    args = _work_status_next_inspection(oldest.event_id, storage_path=storage_path)
+    if os.name == "nt":
+        print(
+            "      next inspection (event-level; argument list, not shell code): "
+            + json.dumps(args)
+        )
+    else:
+        print("      next inspection (event-level, POSIX shell): " + shlex.join(args))
 
 
 def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
@@ -535,12 +551,9 @@ async def _inspect_work_status(
     """
     storage = await _open_readonly_storage(storage_path)
     try:
-        sampled_at = datetime.now(timezone.utc).isoformat()
-        summary = await storage.query_work_status_summary(
-            sampled_at=sampled_at, adapter=adapter
-        )
+        summary = await storage.query_work_status_summary(adapter=adapter)
         report = assemble_work_status_report(
-            sampled_at=sampled_at,
+            sampled_at=summary["sampled_at"],
             adapter_filter=adapter,
             adapter_rows=summary["adapter_rows"],
             oldest_rows=summary["oldest_rows"],
