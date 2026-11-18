@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/work-status.schema.json",
+  "title": "Per-adapter delivery work status",
+  "description": "Read-only, metadata-only per-adapter work summary as reported by `medre inspect work-status`. One current outbox generation per delivery identity (event, delivery plan, target adapter, target channel) is selected by the shared current-delivery authority rule and classified into one closed category whose counts never overlap and sum to the current-generation total. Retained non-current generations and receipt history are separate dimensions and never count as outstanding work. The projection reads local durable storage only: it proves neither adapter connectivity, recorded-owner liveness, that a native send occurred, nor recipient delivery, and it never claims a `sent` state as independent recipient observation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "schema_version",
+    "sampled_at",
+    "adapter_filter",
+    "definition",
+    "totals",
+    "adapters",
+    "uncertainty",
+    "raw_outbox_states",
+    "retained_history",
+    "limits"
+  ],
+  "properties": {
+    "scope": {
+      "const": "work_status"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "sampled_at": {
+      "description": "ISO-8601 UTC instant used as the comparison time for every due and lease comparison in the report.",
+      "type": "string",
+      "minLength": 1
+    },
+    "adapter_filter": {
+      "description": "Target adapter every aggregate is scoped to, or null for all adapters. A filtered report states the scope instead of zero-filling the world.",
+      "type": ["string", "null"]
+    },
+    "definition": {
+      "description": "Fixed definition text shipped with the report so offline consumers can interpret the projection without the source module.",
+      "type": "string",
+      "minLength": 1
+    },
+    "totals": {
+      "description": "Category partition summed over the reported adapters. The seven categories are non-overlapping; their sum equals current_generations, and outstanding is the sum of the four non-terminal categories.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unstarted_eligible",
+        "retry_scheduled",
+        "reserved_active",
+        "native_queue",
+        "uncertain_outcome",
+        "terminal_outcome",
+        "unrecognized",
+        "current_generations",
+        "outstanding"
+      ],
+      "properties": {
+        "unstarted_eligible": {
+          "description": "Pending generations, plus retry_wait generations whose due time has passed: claimable by a worker at the sampled time.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry_scheduled": {
+          "description": "retry_wait generations whose due time is in the future at the sampled time.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "reserved_active": {
+          "description": "Generations claimed or reserved by a dispatch owner. Ownership is a recorded fact, not proof of owner liveness or of a native send.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "native_queue": {
+          "description": "Generations handed to an adapter-local queue: local acceptance evidence awaiting correlated feedback.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "uncertain_outcome": {
+          "description": "abandoned generations: terminal with native acceptance never settled.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal_outcome": {
+          "description": "Generations settled as sent, dead_lettered, or cancelled. sent records local acceptance only.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "unrecognized": {
+          "description": "Fail-closed bucket for a persisted status outside the stored vocabulary; the storage CHECK constraint prevents it in practice.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_generations": {
+          "description": "Total current generations within scope; equals the sum of the seven categories.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "outstanding": {
+          "description": "Sum of the four non-terminal categories: generations a worker, queue, or schedule may still act on.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "adapters": {
+      "description": "One summary per target adapter with current generations, ordered by adapter name.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_adapter",
+          "current_generations",
+          "outstanding",
+          "categories",
+          "uncertainty",
+          "oldest_outstanding"
+        ],
+        "properties": {
+          "target_adapter": {
+            "type": "string",
+            "minLength": 1
+          },
+          "current_generations": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outstanding": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "categories": {
+            "description": "The closed category partition for this adapter's current generations; sums to current_generations.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "unstarted_eligible",
+              "retry_scheduled",
+              "reserved_active",
+              "native_queue",
+              "uncertain_outcome",
+              "terminal_outcome",
+              "unrecognized"
+            ],
+            "properties": {
+              "unstarted_eligible": {"type": "integer", "minimum": 0},
+              "retry_scheduled": {"type": "integer", "minimum": 0},
+              "reserved_active": {"type": "integer", "minimum": 0},
+              "native_queue": {"type": "integer", "minimum": 0},
+              "uncertain_outcome": {"type": "integer", "minimum": 0},
+              "terminal_outcome": {"type": "integer", "minimum": 0},
+              "unrecognized": {"type": "integer", "minimum": 0}
+            }
+          },
+          "uncertainty": {
+            "$ref": "#/$defs/uncertainty"
+          },
+          "oldest_outstanding": {
+            "description": "The longest-waiting outstanding generation for this adapter, or null when the adapter holds no outstanding work. The age anchor carries a precise origin label.",
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": [
+              "event_id",
+              "delivery_plan_id",
+              "target_adapter",
+              "target_channel",
+              "outbox_id",
+              "category",
+              "status",
+              "attempt_number",
+              "active_attempt",
+              "origin",
+              "anchor",
+              "age_seconds"
+            ],
+            "properties": {
+              "event_id": {"type": "string", "minLength": 1},
+              "delivery_plan_id": {"type": "string", "minLength": 1},
+              "target_adapter": {"type": "string", "minLength": 1},
+              "target_channel": {
+                "description": "Persisted channel, or null for the deliberate no-channel identity.",
+                "type": ["string", "null"]
+              },
+              "outbox_id": {"type": "string", "minLength": 1},
+              "category": {
+                "enum": [
+                  "unstarted_eligible",
+                  "retry_scheduled",
+                  "reserved_active",
+                  "native_queue"
+                ]
+              },
+              "status": {
+                "description": "Persisted outbox status of the selected generation.",
+                "type": "string",
+                "minLength": 1
+              },
+              "attempt_number": {
+                "description": "Persisted finalized attempt counter, including zero for never-dispatched work.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "active_attempt": {
+                "description": "Persisted in-flight attempt reservation, or null.",
+                "type": ["integer", "null"],
+                "minimum": 1
+              },
+              "origin": {
+                "description": "Which recorded fact the age is measured from: admission (created), retry_due (scheduled due time), claim (recorded claim), or queue_admission (adapter queue handoff).",
+                "enum": ["admission", "retry_due", "claim", "queue_admission"]
+              },
+              "anchor": {
+                "description": "The anchor timestamp exactly as persisted, or null when the row carries no usable timestamp.",
+                "type": ["string", "null"]
+              },
+              "age_seconds": {
+                "description": "Whole seconds from the anchor to sampled_at; negative when the anchor is in the future. Null when no usable anchor exists: unknown is not zero.",
+                "type": ["integer", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "uncertainty": {
+      "description": "Recorded uncertainty summed across the reported adapters; a separate dimension, never part of the category partition.",
+      "$ref": "#/$defs/uncertainty"
+    },
+    "raw_outbox_states": {
+      "description": "Stored outbox status counts over every retained row in scope, including superseded generations. A raw separate dimension, never a category sum.",
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "retained_history": {
+      "description": "Retained history accounting: terminal outcomes and superseded generations stay visible here and never masquerade as outstanding work.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outbox_rows_total",
+        "superseded_generations",
+        "receipts_total",
+        "receipts_by_status"
+      ],
+      "properties": {
+        "outbox_rows_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "superseded_generations": {
+          "description": "Retained non-current outbox generations within scope.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipts_by_status": {
+          "description": "Retained receipt counts by status within scope.",
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "limits": {
+      "description": "Fixed honesty limits shipped with every report: what an offline read-only query cannot establish.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connectivity",
+        "owner_liveness",
+        "native_send",
+        "recipient_delivery",
+        "scope"
+      ],
+      "properties": {
+        "connectivity": {"type": "string", "minLength": 1},
+        "owner_liveness": {"type": "string", "minLength": 1},
+        "native_send": {"type": "string", "minLength": 1},
+        "recipient_delivery": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "uncertainty": {
+      "description": "Recorded-uncertainty observations about current generations; none establishes or excludes a live native send.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reserved_without_generation_receipt",
+        "lease_missing_or_expired",
+        "stale_queue_reclaimable"
+      ],
+      "properties": {
+        "reserved_without_generation_receipt": {
+          "description": "Reserved generations whose attempt generation carries no receipt evidence at all: whether a native send occurred is unknown.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "lease_missing_or_expired": {
+          "description": "Reserved generations whose recorded lease is missing or expired at the sampled time: the recorded owner's liveness is unknown and the work becomes reclaimable.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale_queue_reclaimable": {
+          "description": "Queued generations whose last update is older than the storage reclaim grace: adapter-local queue admission may be stale.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -734,6 +734,34 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
     inspect_rpl.add_argument("run_id", help="Replay run ID to inspect")
 
+    # inspect work-status [--adapter NAME]
+    inspect_work = inspect_sub.add_parser(
+        "work-status",
+        help=(
+            "Summarize current delivery work per destination: what is "
+            "outstanding, why, how old, what is known, and which exact "
+            "inspection applies (read-only)"
+        ),
+    )
+    inspect_work.add_argument(
+        "--storage-path",
+        required=True,
+        metavar="PATH",
+        help="Path to SQLite database (read-only)",
+    )
+    inspect_work.add_argument(
+        "--adapter",
+        default=None,
+        metavar="NAME",
+        help="Scope every aggregate to one target adapter (the scope is stated in the output)",
+    )
+    inspect_work.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output the machine-readable work-status document",
+    )
+
     # trace (with sub-subcommands)
     trace_p = sub.add_parser(
         "trace",
@@ -1339,6 +1367,7 @@ def main(argv: list[str] | None = None) -> None:
             _inspect_radio_attempt,
             _inspect_receipts,
             _inspect_replay,
+            _inspect_work_status,
         )
 
         if args.inspect_command == "decisions":
@@ -1398,6 +1427,14 @@ def main(argv: list[str] | None = None) -> None:
                 _inspect_replay(
                     args.run_id,
                     storage_path=args.storage_path,
+                )
+            )
+        elif args.inspect_command == "work-status":
+            asyncio.run(
+                _inspect_work_status(
+                    storage_path=args.storage_path,
+                    adapter=args.adapter,
+                    json_output=args.json,
                 )
             )
     elif args.command == "evidence":
