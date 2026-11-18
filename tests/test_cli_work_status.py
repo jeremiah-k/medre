@@ -216,8 +216,22 @@ def test_work_status_human_output_is_metadata_only(tmp_path: Path) -> None:
     assert "held: outstanding 2 of 2 current" in output
     assert "unrecognized" not in output or True
     assert "no attempt evidence" in output
+    # The suggested command is shell-joined exactly as printed; on Windows
+    # the backslash path is quoted by the same join the CLI applies.
+    import shlex
+
     assert (
-        f"medre inspect event evt-ws-hold --recovery --storage-path={db_path}" in output
+        shlex.join(
+            [
+                "medre",
+                "inspect",
+                "event",
+                "evt-ws-hold",
+                "--recovery",
+                f"--storage-path={db_path}",
+            ]
+        )
+        in output
     )
     assert "lane-a: outstanding 0 of 2 current" in output
     assert "Raw outbox states (all retained rows):" in output
