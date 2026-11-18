@@ -12,6 +12,16 @@ import pytest
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "docs" / "schemas"
 FROZEN = json.loads((SCHEMA_DIR / "v0.1.0.freeze.json").read_text(encoding="utf-8"))
 
+#: Schemas exported after the 0.1.0 freeze. Each entry is a deliberate,
+#: reviewed addition (the work-status report shipped with the read-only
+#: operator view); the 0.1.0 manifest itself never changes. Removal or
+#: silent content drift of a listed file still fails below.
+POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
+    "work-status.schema.json": (
+        "4a5458aa62c5b71087203717b9d8be08aa361472ee2fcdc4819ff5ffe01a74a9"
+    ),
+}
+
 
 def test_first_release_schema_file_set_is_frozen() -> None:
     """Adding/removing an exported schema needs deliberate release review."""
@@ -20,7 +30,18 @@ def test_first_release_schema_file_set_is_frozen() -> None:
         for p in SCHEMA_DIR.iterdir()
         if p.name.endswith((".schema.json", ".schema.yaml", ".schema.sql"))
     }
-    assert actual == set(FROZEN["schema_files_sha256"])
+    assert actual == set(FROZEN["schema_files_sha256"]) | set(POST_RELEASE_SCHEMA_FILES)
+
+
+@pytest.mark.parametrize("name,sha256", sorted(POST_RELEASE_SCHEMA_FILES.items()))
+def test_post_release_schema_content_is_pinned(name: str, sha256: str) -> None:
+    """Post-freeze exports are pinned and valid exactly like the frozen set."""
+    from jsonschema import Draft202012Validator
+
+    assert hashlib.sha256((SCHEMA_DIR / name).read_bytes()).hexdigest() == sha256
+    Draft202012Validator.check_schema(
+        json.loads((SCHEMA_DIR / name).read_text(encoding="utf-8"))
+    )
 
 
 @pytest.mark.parametrize("name,sha256", sorted(FROZEN["schema_files_sha256"].items()))
