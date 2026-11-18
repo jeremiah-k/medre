@@ -280,7 +280,11 @@ class AdapterWorkStatus:
     @property
     def outstanding(self) -> int:
         """Generations a worker, queue, or schedule may still act on."""
-        return sum(count for key, count in self.categories.items() if key in OUTSTANDING_CATEGORIES)
+        return sum(
+            count
+            for key, count in self.categories.items()
+            if key in OUTSTANDING_CATEGORIES
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-safe record including the derived outstanding total."""
@@ -356,7 +360,6 @@ class WorkStatusReport:
             "retained_history": dict(self.retained_history),
             "limits": dict(self.limits),
         }
-
 
 
 def assemble_work_status_report(

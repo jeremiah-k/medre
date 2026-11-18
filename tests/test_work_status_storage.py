@@ -14,8 +14,6 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     delivery_identity,
@@ -29,12 +27,12 @@ from medre.core.observability.work_status import (
     work_status_category,
 )
 from medre.core.storage.backend import DeliveryOutboxItem
-from medre.core.storage.sqlite.connection import sync_read_batch
-from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.storage.sqlite._work_status import (
     _SELECT_OLDEST_OUTSTANDING,
     _WorkStatusMixin,
 )
+from medre.core.storage.sqlite.connection import sync_read_batch
+from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event
 
 _FUTURE = "2030-01-01T00:00:00+00:00"
@@ -80,9 +78,7 @@ async def _add_row(
         status=status,
         replay_run_id=_next_id("run") if replay else None,
     )
-    return await store.create_outbox_item(
-        item, allocate_new_generation=replay
-    )
+    return await store.create_outbox_item(item, allocate_new_generation=replay)
 
 
 async def _claim_row(
@@ -96,9 +92,7 @@ async def _claim_row(
     is exercised by the held-lane campaign.
     """
     now = datetime.now(timezone.utc).isoformat()
-    lease_until = (
-        datetime.now(timezone.utc) + timedelta(seconds=300)
-    ).isoformat()
+    lease_until = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
     await store._write(
         "UPDATE delivery_outbox SET status = 'in_progress', worker_id = ?,"
         " locked_at = ?, lease_until = ?, updated_at = ?"
@@ -144,16 +138,14 @@ async def test_summary_partitions_current_generations(tmp_path: Path) -> None:
         assert await store.mark_outbox_abandoned(abandoned.outbox_id)
 
         summary = await store.query_work_status_summary(sampled_at=_sampled_at())
-        by_adapter = {
-            row["target_adapter"]: row for row in summary["adapter_rows"]
-        }
+        by_adapter = {row["target_adapter"]: row for row in summary["adapter_rows"]}
         assert by_adapter["target-a"]["unstarted_eligible"] == 1
         assert by_adapter["held"]["reserved_active"] == 1
         assert by_adapter["queued-a"]["native_queue"] == 1
         assert by_adapter["lane"]["retry_scheduled"] == 1
         assert by_adapter["lane"]["terminal_outcome"] == 1
         assert by_adapter["lost"]["uncertain_outcome"] == 1
-        for adapter, row in by_adapter.items():
+        for _adapter, row in by_adapter.items():
             expected = {
                 "unstarted_eligible",
                 "retry_scheduled",
@@ -166,7 +158,6 @@ async def test_summary_partitions_current_generations(tmp_path: Path) -> None:
             assert set(expected) <= set(row)
             assert sum(row[name] for name in expected) == row["current_generations"]
         assert summary["current_generations_total"] == 6
-
 
         # The SQL projection agrees with the pure oracle over the same rows.
         rows = await store.list_all_outbox_items()
@@ -284,9 +275,7 @@ async def test_lease_and_queue_staleness_flags(tmp_path: Path) -> None:
         assert await store.mark_outbox_queued(fresh.outbox_id)
 
         summary = await store.query_work_status_summary(sampled_at=_sampled_at())
-        by_adapter = {
-            row["target_adapter"]: row for row in summary["adapter_rows"]
-        }
+        by_adapter = {row["target_adapter"]: row for row in summary["adapter_rows"]}
         assert by_adapter["expired"]["lease_missing_or_expired"] == 1
         assert by_adapter["stale-q"]["stale_queue_reclaimable"] == 1
         assert by_adapter["fresh-q"]["stale_queue_reclaimable"] == 0
@@ -405,9 +394,7 @@ async def test_summary_aggregates_assemble_into_a_valid_report(
 
         # Appended attempt evidence enters the retained-history dimension.
         await store.append_receipt(
-            _make_receipt(
-                store, sent, attempt_number=1, status="sent"
-            )
+            _make_receipt(store, sent, attempt_number=1, status="sent")
         )
         summary_after = await store.query_work_status_summary(sampled_at=sampled_at)
         assert summary_after["receipts_by_status"] == {"sent": 1}
@@ -451,7 +438,9 @@ async def test_summary_is_read_only_over_application_state(
             ).fetchall()
             tables = {}
             for name in names:
-                rows = db.execute(f'SELECT * FROM "{name}"').fetchall()  # nosec B608 - table names come from sqlite_master
+                rows = db.execute(
+                    f'SELECT * FROM "{name}"'  # nosec B608 - table names come from sqlite_master
+                ).fetchall()
                 tables[name] = sorted(tuple(r) for r in rows)
             return {"objects": sorted(tuple(o) for o in objects), "tables": tables}
 
@@ -494,9 +483,7 @@ async def test_view_reads_one_snapshot_while_a_writer_is_uncommitted(
             )
             # WAL readers proceed on the last committed snapshot while the
             # writer transaction holds the write lock.
-            summary = await store.query_work_status_summary(
-                sampled_at=_sampled_at()
-            )
+            summary = await store.query_work_status_summary(sampled_at=_sampled_at())
             assert summary["adapter_rows"] == [
                 {
                     "target_adapter": "a",
