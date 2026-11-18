@@ -185,24 +185,41 @@ class _QueryProbe:
         self.claim_nonempty_ms: list[float] = []
         self.claim_empty_ms: list[float] = []
         self.count_ms: list[float] = []
+        self.reader_epoch = 0
+        self.overlap_ms: dict[str, list[float]] = {
+            "claim_nonempty": [],
+            "claim_empty": [],
+            "count": [],
+        }
 
     def install(self) -> None:
         probe = self
 
         async def timed_claim(*args: Any, **kwargs: Any) -> list[Any]:
+            epoch = probe.reader_epoch
             started = time.perf_counter()
             batch = await probe._original_claim(*args, **kwargs)
             duration = (time.perf_counter() - started) * 1000
-            if batch:
+            if epoch % 2 or epoch != probe.reader_epoch:
+                probe.overlap_ms["claim_nonempty" if batch else "claim_empty"].append(
+                    duration
+                )
+            elif batch:
                 probe.claim_nonempty_ms.append(duration)
             else:
                 probe.claim_empty_ms.append(duration)
             return batch
 
         async def timed_count() -> dict[str, int]:
+            epoch = probe.reader_epoch
             started = time.perf_counter()
             counts = await probe._original_count()
-            probe.count_ms.append((time.perf_counter() - started) * 1000)
+            samples = (
+                probe.overlap_ms["count"]
+                if epoch % 2 or epoch != probe.reader_epoch
+                else probe.count_ms
+            )
+            samples.append((time.perf_counter() - started) * 1000)
             return counts
 
         self._store.claim_due_outbox_items = timed_claim  # type: ignore[method-assign]
@@ -617,7 +634,11 @@ async def _run_profile(
         delivery_current_while_held = capacity.delivery_current
         # Operator-view cost during a settled hold, after healthy deliveries
         # and the cooldown retry finish. Concurrent commits are not required.
-        work_status_during_hold = await _work_status_probe(str(db_path))
+        probe.reader_epoch += 1
+        try:
+            work_status_during_hold = await _work_status_probe(str(db_path))
+        finally:
+            probe.reader_epoch += 1
         for name, adapter in healthy.items():
             expected_handoffs = profile.healthy_batches * profile.events_per_batch + 1
             if len(adapter.delivered_payloads) != expected_handoffs:
@@ -761,6 +782,10 @@ async def _run_profile(
                 **_timings(final_count_ms),
                 "sample_count": len(final_count_ms),
             },
+        },
+        "dispatcher_query_timings_overlapping_work_status_probe": {
+            kind: {**_timings(samples), "sample_count": len(samples)}
+            for kind, samples in probe.overlap_ms.items()
         },
         "work_status_query_timings": {
             "during_hold": work_status_during_hold,
