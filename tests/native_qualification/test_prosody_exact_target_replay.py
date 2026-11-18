@@ -94,9 +94,9 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from scripts.ci.native_qualification import provider_provenance, qualification_rows
 from tests.helpers.async_utils import wait_until
+from tests.helpers.prosody import ProsodyEnvironment
 from tests.integration.conftest import (
     _RUN_ARTIFACT_DIR,
-    ProsodyEnvironment,
     _write_artifact_json,
     _write_run_metadata,
 )
@@ -127,13 +127,6 @@ _SID = "{urn:xmpp:sid:0}"
 _CLIENT = "{jabber:client}"
 
 
-def _c2s_endpoint() -> tuple[str, int]:
-    """The fixture binds the mapped c2s port on loopback."""
-    from tests.integration.conftest import _PROSODY_PORT
-
-    return "localhost", _PROSODY_PORT
-
-
 def _tls_context(env: ProsodyEnvironment) -> ssl.SSLContext:
     """Trust only the fixture's own throwaway CA for the local Prosody."""
     return ssl.create_default_context(cafile=str(env.ca_path))
@@ -152,6 +145,7 @@ class _Recipient:
     def __init__(self, env: ProsodyEnvironment, localpart: str, resource: str) -> None:
         from slixmpp import ClientXMPP
 
+        self._endpoint = (env.host, env.port)
         self.account = env.jid(localpart)
         self.client = ClientXMPP(f"{self.account}/{resource}", env.password(localpart))
         self.client.ssl_context = _tls_context(env)
@@ -162,8 +156,7 @@ class _Recipient:
         self.client.add_event_handler("message", self._on_message)
 
     async def join(self, room: str, nick: str) -> None:
-        host, port = _c2s_endpoint()
-        await self.client.connect(host, port)
+        await self.client.connect(*self._endpoint)
         await asyncio.wait_for(self.client.wait_until("session_start"), _JOIN_TIMEOUT)
         self.client.send_presence()
         # Slixmpp's muc plugin consumes occupant presence after the join, so
@@ -395,8 +388,8 @@ class _Case:
             password=self.env.password("medre-bot"),
             rooms=(self.selected_room, self.sibling_room),
             nickname=_NICKNAME,
-            host="localhost",
-            port=_c2s_endpoint()[1],
+            host=self.env.host,
+            port=self.env.port,
             relay_prefix="",
         ).validate()
 
