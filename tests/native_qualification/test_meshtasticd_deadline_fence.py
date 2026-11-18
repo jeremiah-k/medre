@@ -47,7 +47,7 @@ from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext
+from medre.core.contracts.adapter import AdapterContext, AdapterPermanentError
 from medre.core.contracts.delivery import DeferredHandoffCompleted
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
@@ -593,6 +593,23 @@ async def test_radio_packet_boundary_preserves_accepted_prefix_across_reopen(
     outbox_id: str | None = None
     event_id: str | None = None
     accepted_parts: list[Any] = []
+    deadline_refusals: list[tuple[int, datetime | None, datetime]] = []
+    begin = radio_delivery_module._Submission.begin
+
+    async def observe_packet_start(grant: radio_delivery_module._Submission) -> None:
+        try:
+            await begin(grant)
+        except AdapterPermanentError as exc:
+            if str(exc) == "radio delivery deadline exceeded before native submission":
+                assert grant.submitting is None
+                deadline_refusals.append(
+                    (grant.ordinal, grant.deadline, _Clock.current)
+                )
+            raise
+
+    monkeypatch.setattr(
+        radio_delivery_module._Submission, "begin", observe_packet_start
+    )
     async with _case(
         meshtasticd_env,
         path,
@@ -616,6 +633,10 @@ async def test_radio_packet_boundary_preserves_accepted_prefix_across_reopen(
                 expected_outbox_worker_id="radio-owner",
             )
         assert caught.value.evidence.failure_kind is not None
+        # The attempt-wide outcome retains the partial handoff. Observe the
+        # deadline refusal at the actual packet grant before the adapter
+        # converts the queued failure into its terminal attempt result.
+        assert caught.value.evidence.failure_kind.value == "adapter_permanent"
         # Exactly the pre-bound prefix entered the SDK; the refused packet
         # never did.
         assert len(case.sdk_calls) == 1
@@ -624,6 +645,7 @@ async def test_radio_packet_boundary_preserves_accepted_prefix_across_reopen(
         assert checkpoint is not None
         parts = checkpoint.progress.parts
         assert len(parts) >= 2
+        assert deadline_refusals == [(parts[1].ordinal, deadline, deadline)]
         assert parts[0].state == "accepted"
         assert parts[0].handoff_id is not None
         assert all(part.state == "unsent" for part in parts[1:])
@@ -653,6 +675,9 @@ async def test_radio_packet_boundary_preserves_accepted_prefix_across_reopen(
             "radio_prefix_boundary",
             {
                 "sdk_invocations": len(case.sdk_calls),
+                "deadline_refused_packet_ordinals": [
+                    ordinal for ordinal, _, _ in deadline_refusals
+                ],
                 "accepted_parts": sum(
                     part.state == "accepted" for part in accepted_parts
                 ),
