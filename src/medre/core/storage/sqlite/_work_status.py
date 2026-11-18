@@ -124,11 +124,14 @@ SELECT target_adapter,
                 THEN 1 ELSE 0 END) AS terminal_outcome,
        SUM(CASE WHEN ({_CATEGORY_CASE}) = 'unrecognized'
                 THEN 1 ELSE 0 END) AS unrecognized,
-       SUM(CASE WHEN status = 'in_progress' AND active_attempt IS NOT NULL
+       SUM(CASE WHEN status = 'in_progress'
                 AND NOT EXISTS (
                     SELECT 1 FROM delivery_receipts r
                     WHERE r.outbox_id = current_gen.outbox_id
-                      AND r.attempt_number = current_gen.active_attempt
+                      AND r.attempt_number = COALESCE(
+                          current_gen.active_attempt,
+                          current_gen.attempt_number + 1
+                      )
                       AND r.receipt_kind = 'attempt'
                       AND r.event_id = current_gen.event_id
                       AND r.delivery_plan_id = current_gen.delivery_plan_id
