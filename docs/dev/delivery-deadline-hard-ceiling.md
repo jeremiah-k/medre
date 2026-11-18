@@ -23,8 +23,12 @@ adapter invocation site. Each sweep examines at most
 `max(25, limit)` candidates and retires at most `limit` generations, preserving
 keyset progress across invocations and restart in the same transaction.
 The retry worker runs the sweep behind the default-off `retry.deadline_sweep`
-policy. Writer-latency measurements and per-transport refusal qualification
-remain outstanding.
+policy. A first sweep-impact profile is recorded in
+[deadline-sweep-measurement-2026-11-18](deadline-sweep-measurement-2026-11-18.md),
+and the refusal boundary is qualified through the pinned Meshtastic SDK
+against meshtasticd (`tests/native_qualification/test_meshtasticd_deadline_fence.py`);
+physical-hardware refusal qualification and sustained-pressure retention
+measurement remain outstanding.
 
 ## Current state
 
@@ -47,8 +51,9 @@ for narrower attempt windows; production planning does not yet supply it.
 
 The producer and storage-boundary enforcement are implemented. The cleanup
 sweep bounds candidate examination and preserves progress across invocations.
-Runtime wiring is opt-in through `retry.deadline_sweep`; writer-latency
-measurements and native/hardware refusal qualification remain outstanding.
+Runtime wiring is opt-in through `retry.deadline_sweep`; one held-lane
+sweep-impact measurement and the daemon-native refusal qualification are
+recorded, while physical-hardware refusal qualification remains outstanding.
 
 ## Enforcement points
 
