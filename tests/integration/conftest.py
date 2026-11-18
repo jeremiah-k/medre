@@ -1442,112 +1442,139 @@ def prosody_env() -> Generator[ProsodyEnvironment, None, None]:
         pytest.skip("Docker daemon is not running")
         return
 
-    container = f"{_SESSION_PREFIX}-prosody"
-    volume = f"{_SESSION_PREFIX}-prosody-data"
-    config_dir = _ARTIFACT_DIR / "prosody"
-
-    if _container_exists(container):
-        _docker_run(["rm", "-f", container], timeout=30)
-
-    if config_dir.exists():
-        shutil.rmtree(config_dir, ignore_errors=True)
-    config_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        ca_path = _generate_prosody_certs(config_dir)
-    except (subprocess.SubprocessError, OSError) as exc:
-        shutil.rmtree(config_dir, ignore_errors=True)
-        pytest.fail(f"Prosody fixture certificate generation failed: {exc}")
-        return
-
-    (config_dir / "prosody.cfg.lua").write_text("""admins = { "admin@xmpp.lab.test" }
-certificates = "/certs"
-modules_enabled = { "roster"; "saslauth"; "tls"; "disco"; "ping"; "version"; "uptime"; "carbons"; "smacks"; "mam"; }
-authentication = "internal_hashed"
-c2s_require_encryption = true
-allow_registration = false
-c2s_ports = {5222}
-s2s_ports = {}
-pidfile = "/var/run/prosody/prosody.pid"
-log = { {levels = {min = "info"}, to = "console"}; }
-VirtualHost "xmpp.lab.test"
-  ssl = { key = "/certs/server.key"; certificate = "/certs/server.crt"; }
-Component "rooms.xmpp.lab.test" "muc"
-  restrict_room_creation = false
-  modules_enabled = { "muc_mam"; }
-""")
+    container = f"{_SESSION_PREFIX}-prosody-{secrets.token_hex(5)}"
+    volume = f"{container}-data"
+    import tempfile
 
     _ensure_image(_PROSODY_IMAGE)
-
-    subprocess.run(["docker", "volume", "rm", volume], capture_output=True, timeout=30)
-
-    env = ProsodyEnvironment(
-        container_name=container,
-        host="localhost",
-        port=_PROSODY_PORT,
-        config_dir=config_dir,
-        ca_path=ca_path,
-        image=_PROSODY_IMAGE,
-    )
+    config_dir = Path(tempfile.mkdtemp(prefix="medre-prosody-"))
 
     try:
-        _docker_run(
-            [
-                "run",
-                "-d",
-                "--name",
-                container,
-                "-p",
-                f"127.0.0.1:{_PROSODY_PORT}:5222",
-                "-v",
-                f"{volume}:/var/lib/prosody",
-                "-v",
-                f"{config_dir}:/etc/prosody:ro",
-                "-v",
-                f"{config_dir}:/certs:ro",
-                _PROSODY_IMAGE,
-            ],
-            timeout=60,
-        )
-        if not _wait_for_tcp(env.host, env.port, timeout=_READY_TIMEOUT):
-            pytest.fail(f"Prosody did not become ready within {_READY_TIMEOUT}s")
+        try:
+            ca_path = _generate_prosody_certs(config_dir)
+        except (subprocess.SubprocessError, OSError) as exc:
+            pytest.fail(f"Prosody fixture certificate generation failed: {exc}")
+            return
 
-        for localpart in _PROSODY_ACCOUNTS:
-            password = secrets.token_urlsafe(16)
+        (config_dir / "prosody.cfg.lua").write_text(
+            """admins = { "admin@xmpp.lab.test" }
+    certificates = "/certs"
+    modules_enabled = { "roster"; "saslauth"; "tls"; "disco"; "ping"; "version"; "uptime"; "carbons"; "smacks"; "mam"; }
+    authentication = "internal_hashed"
+    c2s_require_encryption = true
+    allow_registration = false
+    c2s_ports = {5222}
+    s2s_ports = {}
+    pidfile = "/var/run/prosody/prosody.pid"
+    log = { {levels = {min = "info"}, to = "console"}; }
+    VirtualHost "xmpp.lab.test"
+      ssl = { key = "/certs/server.key"; certificate = "/certs/server.crt"; }
+    Component "rooms.xmpp.lab.test" "muc"
+      restrict_room_creation = false
+      modules_enabled = { "muc_mam"; }
+    """
+        )
+
+        # Bind only the server files; the CA signing key never enters Docker.
+        env = ProsodyEnvironment(
+            container_name=container,
+            host="localhost",
+            port=_PROSODY_PORT,
+            config_dir=config_dir,
+            ca_path=ca_path,
+            image=_PROSODY_IMAGE,
+        )
+
+        try:
             _docker_run(
                 [
-                    "exec",
+                    "run",
+                    "-d",
+                    "--name",
                     container,
-                    "prosodyctl",
-                    "register",
-                    localpart,
-                    _PROSODY_DOMAIN,
-                    password,
+                    "-p",
+                    f"127.0.0.1:{_PROSODY_PORT}:5222",
+                    "-v",
+                    f"{volume}:/var/lib/prosody",
+                    "-v",
+                    f"{config_dir / 'prosody.cfg.lua'}:/etc/prosody/prosody.cfg.lua:ro",
+                    "-v",
+                    f"{config_dir / 'server.key'}:/certs/server.key:ro",
+                    "-v",
+                    f"{config_dir / 'server.crt'}:/certs/server.crt:ro",
+                    _PROSODY_IMAGE,
                 ],
-                timeout=30,
+                timeout=60,
             )
-            env.register_account(localpart, password)
+            if not _wait_for_tcp(env.host, env.port, timeout=_READY_TIMEOUT):
+                pytest.fail(f"Prosody did not become ready within {_READY_TIMEOUT}s")
 
-        logger.info(
-            "Prosody ready on %s:%s (domain %s)",
-            env.host,
-            env.port,
-            env.domain,
-        )
-        yield env
-    finally:
-        if _RUN_ARTIFACT_DIR is not None:
-            _capture_container_logs(container, "prosody.log")
-            _write_run_metadata(
-                scenario="prosody_exact_target_replay",
-                containers={"prosody": container},
-                extras={"prosody_domain": env.domain},
+            for localpart in _PROSODY_ACCOUNTS:
+                password = secrets.token_urlsafe(16)
+                try:
+                    registered = subprocess.run(
+                        [
+                            "docker",
+                            "exec",
+                            container,
+                            "prosodyctl",
+                            "register",
+                            localpart,
+                            _PROSODY_DOMAIN,
+                            password,
+                        ],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    raise RuntimeError(
+                        f"Prosody registration failed for {localpart}"
+                    ) from None
+                if registered.returncode:
+                    raise RuntimeError(
+                        f"Prosody registration failed for {localpart}: exit {registered.returncode}"
+                    )
+                env.register_account(localpart, password)
+
+            logger.info(
+                "Prosody ready on %s:%s (domain %s)",
+                env.host,
+                env.port,
+                env.domain,
             )
-        logger.info("Stopping Prosody container %s", container)
-        subprocess.run(
-            ["docker", "rm", "-f", container], capture_output=True, timeout=30
-        )
-        subprocess.run(
-            ["docker", "volume", "rm", volume], capture_output=True, timeout=30
-        )
-        shutil.rmtree(config_dir, ignore_errors=True)
+            yield env
+        finally:
+            try:
+                if _RUN_ARTIFACT_DIR is not None:
+                    _capture_container_logs(container, "prosody.log")
+                    _write_run_metadata(
+                        scenario="prosody_exact_target_replay",
+                        containers={"prosody": container},
+                        extras={
+                            "prosody_domain": env.domain,
+                            "images": {
+                                "synapse": _SYNAPSE_IMAGE,
+                                "meshtasticd": _MESHTASTICD_IMAGE,
+                                "prosody": env.image,
+                            },
+                            "ports": {
+                                "synapse": _SYNAPSE_PORT,
+                                "meshtasticd": _MESHTASTICD_PORT,
+                                "prosody": env.port,
+                            },
+                        },
+                    )
+            finally:
+                try:
+                    if _docker_run(
+                        ["ps", "-aq", "--filter", f"name=^/{container}$"], timeout=30
+                    ).stdout.strip():
+                        _docker_run(["rm", "-f", container], timeout=30)
+                finally:
+                    if _docker_run(
+                        ["volume", "ls", "-q", "--filter", f"name=^{volume}$"],
+                        timeout=30,
+                    ).stdout.strip():
+                        _docker_run(["volume", "rm", volume], timeout=30)
+    finally:
+        shutil.rmtree(config_dir)
