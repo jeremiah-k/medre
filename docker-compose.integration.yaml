@@ -4,12 +4,21 @@
 # NOT intended for production use.
 #
 # Usage:
+#   mkdir -p data/synapse
+#   docker compose -f docker-compose.integration.yaml run --rm synapse generate
 #   docker compose -f docker-compose.integration.yaml up -d
 #   pytest tests/integration/ -m docker -v
 #   docker compose -f docker-compose.integration.yaml down -v
 #
+# Containers run as explicit unprivileged identities: Synapse writes only
+# into the host-owned data/synapse bind target and meshtasticd uses a tmpfs
+# state directory. On a host whose UID differs from the defaults, export
+# MEDRE_SYNAPSE_UID/MEDRE_SYNAPSE_GID with your own identity first.
+#
 # Environment variables (see conftest.py for defaults):
 #   MEDRE_SYNAPSE_PORT       — Synapse HTTP port (default: 8008)
+#   MEDRE_SYNAPSE_UID        — Synapse container UID (default: 1000)
+#   MEDRE_SYNAPSE_GID        — Synapse container GID (default: 1000)
 #   MEDRE_MESHTASTICD_PORT   — meshtasticd TCP port (default: 4403)
 #   MEDRE_MESHTASTICD_HWID   — meshtasticd hardware ID (default: 11)
 
@@ -18,10 +27,14 @@ services:
   synapse:
     image: matrixdotorg/synapse:v1.165.0@sha256:673b4223c81a7634fd07d832b939a58f97081cfdaae7cdd2d1664cdcf7611b62
     container_name: medre-integration-synapse
+    # The image's start.py only demotes when /data is already writable by the
+    # runtime identity, so the bind target is created host-side and owned by
+    # this explicit UID/GID instead of a root-mode chown step.
+    user: "${MEDRE_SYNAPSE_UID:-1000}:${MEDRE_SYNAPSE_GID:-1000}"
     ports:
       - "${MEDRE_SYNAPSE_PORT:-8008}:8008"
     volumes:
-      - synapse-data:/data
+      - ./data/synapse:/data
     environment:
       SYNAPSE_SERVER_NAME: localhost
       SYNAPSE_REPORT_STATS: "no"
@@ -41,12 +54,14 @@ services:
     image: meshtastic/meshtasticd:2.7.26@sha256:23e92b1331a3a471eaef0c63cbca4365ca40b3111a9781cfdbe5a5114e5773d4
     container_name: medre-integration-meshtasticd
     network_mode: host
+    # Simulated-node state is disposable; the tmpfs is created with the
+    # container's own identity so the unprivileged process can write it.
+    user: "1000:1000"
+    tmpfs:
+      - /var/lib/meshtasticd-medre:uid=1000,gid=1000,mode=0755
     command: >
       meshtasticd
       -s
       --fsdir=/var/lib/meshtasticd-medre
       -p ${MEDRE_MESHTASTICD_PORT:-4403}
       -h ${MEDRE_MESHTASTICD_HWID:-11}
-
-volumes:
-  synapse-data:
