@@ -604,6 +604,38 @@ def sync_read_all(
         return [dict(r) for r in db.execute(sql, params).fetchall()]
 
 
+def sync_read_batch(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]],
+) -> list[list[dict[str, Any]]]:
+    """Execute read-only statements inside one deferred read transaction.
+
+    One ``BEGIN`` (deferred) pins a single WAL snapshot for every listed
+    statement, so a multi-statement read model describes exactly one
+    point in time even while other processes commit. The transaction is
+    ended with ``rollback`` because it never wrote anything; committed WAL
+    state stays visible exactly like any other read, and ``immutable=1``
+    is never involved. Read-only by contract: any statement that writes
+    violates the caller's obligation and the rollback discards it.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN")
+            results = [
+                [dict(row) for row in db.execute(sql, params).fetchall()]
+                for sql, params in statements
+            ]
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+        db.rollback()
+    return results
+
+
 def sync_admit_ingress(
     db: sqlite3.Connection,
     lock: threading.Lock,

@@ -71,12 +71,14 @@ from medre.core.storage.sqlite._receipt import _ReceiptMixin
 from medre.core.storage.sqlite._recovery_query import _RecoveryQueryMixin
 from medre.core.storage.sqlite._relation import _RelationMixin
 from medre.core.storage.sqlite._retention import _RetentionMixin
+from medre.core.storage.sqlite._work_status import _WorkStatusMixin
 from medre.core.storage.sqlite.connection import (
     sync_close,
     sync_find_schema_shape_mismatch,
     sync_open,
     sync_open_readonly,
     sync_read_all,
+    sync_read_batch,
     sync_read_one,
     sync_write,
     sync_write_batch,
@@ -662,6 +664,20 @@ class _SQLiteStorageBase:
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
+    async def _read_batch(
+        self, statements: list[tuple[str, tuple[Any, ...] | dict[str, Any]]]
+    ) -> list[list[dict[str, Any]]]:
+        """Execute read-only statements inside one deferred read transaction.
+
+        Every listed statement observes the same WAL snapshot, so a
+        multi-statement read model describes one consistent point in time.
+        """
+        db = self._require_db()
+        try:
+            return await self._run_in_thread(sync_read_batch, db, self._lock, statements)
+        except sqlite3.Error as exc:
+            raise StorageError(f"Database read failed: {exc}") from exc
+
 
 # ---------------------------------------------------------------------------
 # SQLiteStorage — public class composing all mixins.
@@ -688,6 +704,7 @@ class SQLiteStorage(
     _PressureMixin,
     _DeliveryFinalizationMixin,
     _RecoveryQueryMixin,
+    _WorkStatusMixin,
     _CountMixin,
     _SQLiteStorageBase,
 ):
