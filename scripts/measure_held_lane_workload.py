@@ -309,6 +309,41 @@ async def _poll_until(condition: Any, *, timeout: float, description: str) -> No
         await asyncio.sleep(_POLL_SECONDS)
 
 
+async def _work_status_probe(db_path: str, *, samples: int = 10) -> dict[str, Any]:
+    """Time full read-only work-status samples over the retained history.
+
+    Each sample is one complete operator-view read: the storage summary
+    over one consistent read snapshot plus assembly of the report document,
+    exactly as ``medre inspect work-status`` performs it. Observations at
+    reproducible history sizes, not machine-speed assertions.
+    """
+    from medre.core.observability.work_status import assemble_work_status_report
+
+    query_ms: list[float] = []
+    readonly = await SQLiteStorage.open_readonly(db_path)
+    try:
+        for _ in range(samples):
+            sampled_at = datetime.now(timezone.utc).isoformat()
+            started = time.perf_counter()
+            summary = await readonly.query_work_status_summary(sampled_at=sampled_at)
+            assemble_work_status_report(
+                sampled_at=sampled_at,
+                adapter_filter=None,
+                adapter_rows=summary["adapter_rows"],
+                oldest_rows=summary["oldest_rows"],
+                raw_status_rows=summary["raw_status_rows"],
+                current_generations_total=summary["current_generations_total"],
+                receipts_by_status=summary["receipts_by_status"],
+            )
+            query_ms.append((time.perf_counter() - started) * 1000)
+    finally:
+        await readonly.close()
+    return {
+        "summary_and_assembly_ms": _timings(query_ms),
+        "sample_count": len(query_ms),
+    }
+
+
 async def _stage(
     store: SQLiteStorage, runner: PipelineRunner, event_id: str, channel: str
 ) -> None:
@@ -581,6 +616,9 @@ async def _run_profile(
             description="worker bookkeeping did not settle to the held lane",
         )
         delivery_current_while_held = capacity.delivery_current
+        # Operator-view cost during a live hold: the dispatcher keeps
+        # committing while these read-only samples run.
+        work_status_during_hold = await _work_status_probe(str(db_path))
         for name, adapter in healthy.items():
             expected_handoffs = profile.healthy_batches * profile.events_per_batch + 1
             if len(adapter.delivered_payloads) != expected_handoffs:
@@ -639,6 +677,9 @@ async def _run_profile(
         or capacity.delivery_current != 0
     ):
         raise AssertionError("synthetic dispatcher did not retire its held operation")
+    # Operator-view cost at rest over the fully retained history, with no
+    # writer running: the incident-forensics reading posture.
+    work_status_at_rest = await _work_status_probe(str(db_path))
     footprint_after_close = {
         path.name: path.stat().st_size
         for path in destination.glob(db_path.name + "*")
@@ -721,6 +762,10 @@ async def _run_profile(
                 **_timings(final_count_ms),
                 "sample_count": len(final_count_ms),
             },
+        },
+        "work_status_query_timings": {
+            "during_hold": work_status_during_hold,
+            "at_rest": work_status_at_rest,
         },
         "worker_state": worker_state,
         "capacity_snapshot_while_held": {
