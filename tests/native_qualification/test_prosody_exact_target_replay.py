@@ -41,7 +41,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import ssl
 import time
 import uuid
@@ -94,7 +93,7 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from scripts.ci.native_qualification import provider_provenance, qualification_rows
 from tests.helpers.async_utils import wait_until
-from tests.helpers.prosody import ProsodyEnvironment
+from tests.helpers.prosody import ProsodyEnvironment, groupchat_write
 from tests.integration.conftest import (
     _RUN_ARTIFACT_DIR,
     _write_artifact_json,
@@ -152,6 +151,7 @@ class _Recipient:
         self.client.register_plugin("xep_0030")
         self.client.register_plugin("xep_0045")
         self.stanzas: list[dict[str, Any]] = []
+        self._observation_overflow = False
         self.occupants: dict[str, str] = {}
         self.client.add_event_handler("message", self._on_message)
 
@@ -200,6 +200,7 @@ class _Recipient:
             }
         )
         if len(self.stanzas) > 1000:
+            self._observation_overflow = True
             del self.stanzas[:-1000]
 
     def _on_muc_presence(self, presence: Any) -> None:
@@ -216,6 +217,7 @@ class _Recipient:
         since: float,
     ) -> list[dict[str, Any]]:
         """Groupchat stanzas with exactly this body, room, and arrival window."""
+        assert not self._observation_overflow, "recipient observation buffer overflowed"
         return [
             record
             for record in self.stanzas
@@ -257,22 +259,9 @@ class _RecordingConnection(SlixConnection):
 
             def capture_raw(data: Any) -> None:
                 client_send_raw(data)
-                raw = (
-                    data.decode("utf-8", "replace") if isinstance(data, bytes) else data
-                )
-                if not isinstance(raw, str) or "<message" not in raw:
+                record = groupchat_write(data)
+                if record is None:
                     return
-                if not re.search(r"\btype=['\"]groupchat['\"]", raw):
-                    return
-                match = re.search(
-                    r"<[\w:.-]*origin-id[^>]*\bid=['\"]([^'\"]+)['\"]", raw
-                )
-                record = {
-                    "to": payload.get("to"),
-                    "body": payload.get("body"),
-                    "origin_id": match.group(1) if match else None,
-                    "native_id": None,
-                }
                 self.sends.append(record)
                 writes.append(record)
 
@@ -317,6 +306,7 @@ class _Case:
                 RouteTarget(adapter=_MONITOR, channel=self.monitor_room),
             ],
         )
+        self.provider: dict[str, Any] | None = None
         self.event_id = ""
         self.body = ""
         self._selected_plan: DeliveryPlan | None = None
@@ -661,7 +651,7 @@ async def _case(
     try:
         checkout = os.environ.get("MEDRE_XMPP_PROVIDER_ROOT")
         if checkout:
-            provider_provenance(
+            case.provider = provider_provenance(
                 Path(__file__).resolve().parents[2],
                 Path(checkout),
                 "xmpp",
@@ -883,6 +873,7 @@ async def test_exact_target_replay_reaches_one_prosody_recipient(
         await case.assert_quiet(
             case.observer_b, body=body, room=case.sibling_room, since=window_start
         )
+        assert case.sends_since_lifetime(2) == sends
         sibling_after = await case.storage.get_outbox_item(case.sibling_outbox_id)
         assert sibling_after is not None
         assert sibling_after.status == "sent"
@@ -913,6 +904,7 @@ async def test_exact_target_replay_reaches_one_prosody_recipient(
                 {
                     "scenario": "prosody_exact_target_positive_replay",
                     "transport": "xmpp",
+                    "provider_provenance": case.provider,
                     "evidence_level": "docker_independent_recipient",
                     "event_id": event_id,
                     "replay_run_id": receipt.replay_run_id,
@@ -1153,12 +1145,15 @@ async def test_refused_and_superseded_selections_stay_unsent(
             for body in (control_before_body, control_after_body)
         )
         assert await durable_state(event_id) == contested_before
+        assert await durable_state(unbound_event) == ([], [])
+        assert len(case.monitor.delivered_payloads) == 0
         if _RUN_ARTIFACT_DIR is not None:
             _write_artifact_json(
                 "prosody-exact-target-refusals.json",
                 {
                     "scenario": "prosody_exact_target_refusal_probes",
                     "transport": "xmpp",
+                    "provider_provenance": case.provider,
                     "evidence_level": "docker_refusal_with_live_witness",
                     "refusals": {
                         name: {
