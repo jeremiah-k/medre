@@ -14,6 +14,8 @@ from .sources import write_json
 
 
 def configure(directory: Path, images: dict[str, str], project: str, mas: dict) -> None:
+    if os.getuid() == 0:
+        raise ValueError("campaign host identity must be unprivileged")
     config = directory / "config"
     # Synapse keeps its state under the private lab directory instead of a
     # named volume: this host identity creates and owns the bind target before

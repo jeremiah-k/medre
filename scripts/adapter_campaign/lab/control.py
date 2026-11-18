@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -64,6 +65,8 @@ def compose(directory: Path, *args: str) -> list[str]:
 
 
 def prepare(args: argparse.Namespace) -> None:
+    if os.getuid() == 0:
+        raise LabError("prepare the campaign as an unprivileged host user")
     if args.profile is None or args.mmrelay is None:
         raise LabError("prepare requires --profile and --mmrelay")
     sources = selected_sources(args.project, args.profile, args.mmrelay)
