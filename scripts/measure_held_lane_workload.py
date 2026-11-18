@@ -743,6 +743,8 @@ async def _run_profile(
                 timeout=30.0,
                 description="deadline sweep did not retire all parked rows",
             )
+        if dispatcher.state.deadline_sweep_errors:
+            raise AssertionError("deadline sweep encountered errors during measurement")
         retired_expired = sweep_probe.retired_total
         if profile.deadline_sweep_enabled:
             if retired_expired != profile.expired_rows:
