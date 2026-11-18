@@ -250,3 +250,6 @@ coverage-*.xml
 /config.yaml
 /compose.override.yaml
 /docker/sources.local.yaml
+
+# Docker integration compose bind targets (created by the operator).
+/data/
