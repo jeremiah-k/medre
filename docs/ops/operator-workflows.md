@@ -238,6 +238,60 @@ predecessor can be migrated at a normal writable open; a compatible database
 needs no reset. Storage changes follow the
 [versioning policy](../dev/versioning-policy.md).
 
+## Inspect Outstanding Delivery Work
+
+When delivery seems stuck, start with the read-only work-status summary
+before touching any recovery command:
+
+```bash
+medre inspect work-status --storage-path /path/to/medre.sqlite
+medre inspect work-status --adapter matrix --storage-path /path/to/medre.sqlite
+medre inspect work-status --json --storage-path /path/to/medre.sqlite
+```
+
+The command reads one consistent snapshot of durable storage and reports,
+per destination, how many current delivery generations are outstanding and
+why: eligible but unstarted, scheduled for a future retry, reserved by an
+active attempt, or admitted to a native queue. Each destination shows the
+oldest outstanding item with its precise age origin (admission, claim,
+queue admission, or retry-due time), recorded uncertainty, and the exact
+read-only `inspect event --recovery` command that shows that item's full
+delivery facts. Reading it starts no adapter, opens no native profile, and
+submits, replays, retires, or migrates nothing.
+
+**Normal operation** looks like pending work draining to terminal states
+between samples, with `outstanding` shrinking as deliveries complete:
+
+```text
+  Current generations: 9 — outstanding 2 (unstarted 1, scheduled 0,
+reserved/active 1, native queue 0), uncertain outcome 0, terminal 7
+```
+
+**Disconnected destination or backoff** shows scheduled retries whose age
+origin is the retry-due time, not the original admission, so a healthy
+cooldown is distinguishable from stuck work:
+
+```text
+    matrix: outstanding 1 of 1 current (unstarted 0, scheduled 1, ...)
+      oldest outstanding: retry scheduled at 2026-11-18T09:30:00+00:00 (due in 2400s)
+```
+
+**Uncertain outcomes** are labeled, never resolved into guesses. A reserved
+generation without attempt evidence, or with a missing or expired lease,
+reports both facts — the view cannot prove a live native send or owner
+liveness, and says so:
+
+```text
+    chatmail: outstanding 1 of 1 current (unstarted 0, scheduled 0, reserved/active 1, ...)
+      uncertainty: 1 reserved generation(s) carry no attempt evidence: whether a
+      native send occurred is unknown
+      next inspection: medre inspect event ... --recovery
+```
+
+Unknown is not zero: absent or unreadable facts stay visible as unknown,
+and `sent` means local terminal acceptance, never independent confirmation
+of recipient delivery.
+
 ## Preferred Product Path
 
 The recommended operator loop:
