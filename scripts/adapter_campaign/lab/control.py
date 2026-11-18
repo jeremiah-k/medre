@@ -94,8 +94,18 @@ def prepare(args: argparse.Namespace) -> None:
     shutil.copy2(Path(__file__).parent / "Dockerfile", directory / "build/Dockerfile")
     generated = directory / "config/mas-generated.yaml"
     with generated.open("wb") as output:
+        # The MAS image pins the distroless nonroot identity; keep it explicit.
         subprocess.run(
-            ["docker", "run", "--rm", images["mas"], "config", "generate"],
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--user",
+                "65532:65532",
+                images["mas"],
+                "config",
+                "generate",
+            ],
             stdout=output,
             stderr=subprocess.DEVNULL,
             timeout=60,
@@ -142,24 +152,8 @@ def operate(args: argparse.Namespace) -> None:
                     directory, "run", "--rm", "--no-deps", "runner", "certificates"
                 ),
             )
-        command(
-            directory,
-            "synapse-volume",
-            compose(
-                directory,
-                "run",
-                "--rm",
-                "--no-deps",
-                "--user",
-                "0:0",
-                "--entrypoint",
-                "chown",
-                "synapse",
-                "-R",
-                "991:991",
-                "/data",
-            ),
-        )
+        # No root-mode ownership step: the Synapse data directory is created
+        # and owned by this host identity before any container starts.
         command(
             directory,
             "services",
