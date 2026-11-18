@@ -419,7 +419,7 @@ requires-dist = [
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = "==2.4.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "setuptools", marker = "extra == 'dev'", specifier = "==84.2.1" },
-    { name = "termaid", specifier = "==0.12.0" },
+    { name = "termaid", specifier = "==0.12.1" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = "==6.0.12.20261113" },
 ]
 provides-extras = ["dev"]
@@ -887,11 +887,11 @@ wheels = [
 
 [[package]]
 name = "termaid"
-version = "0.12.0"
+version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fd/5e/5f1a8e99de2cb3be31bed3768bd11a6ddc9f108cec17684a3d927f7eb61a/termaid-0.12.0.tar.gz", hash = "sha256:37a44eb453671888d793e2c126a89f2d5276ad71c6dced16e53a161be29c66bb", size = 565901, upload-time = "2026-11-06T12:07:38.232Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/fe/dd5d89c1d5ac2795e8f82fe0686dcadd370dacb6020f6b45c51ea547c0ab/termaid-0.12.1.tar.gz", hash = "sha256:4bbdac66ba795c26fe1d4028d65bea77beca41daebe4095f706ebd0ecf6b0482", size = 590626, upload-time = "2026-11-17T23:47:05.26Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/ab/31266d7e72e29d5358e4a6cb32d07871972eaf1cdecd4771ce93ff137520/termaid-0.12.0-py3-none-any.whl", hash = "sha256:1e2fbbb9a81f82b68113802ec8cde6683fab5d6d102a8a83fe29d5cd15702dc6", size = 200555, upload-time = "2026-11-06T12:07:36.858Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/b4/11bc66300719e79c8d4d4411b28eda32e25cca1a7464775199e064e76047/termaid-0.12.1-py3-none-any.whl", hash = "sha256:749485a785cb93b61f964b63a9038e10661091e0a2f2f4cfe2f7701e82014180", size = 201736, upload-time = "2026-11-17T23:47:03.783Z" },
 ]
 
 [[package]]
