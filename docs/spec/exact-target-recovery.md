@@ -389,24 +389,74 @@ execution and source/SDK drift. Successful records follow
 [native qualification](../dev/native-qualification.md); CI execution at the
 merged pair remains the qualification gate for `main`.
 
+### Prosody core-authorized exact-target replay
+
+`tests/native_qualification/test_prosody_exact_target_replay.py` runs the
+pinned Slixmpp provider through core replay against a disposable Docker
+Prosody 13.0 server at the adapter campaign lab's pinned image selection.
+One adapter instance owns two MUC channel targets on the same native
+session, and each room carries an independent raw-SDK recipient account
+that joins with `maxstanzas=0` before any send, so the recipient verdict
+is never MEDRE reading back its own receipts and a pass cannot come from
+adapter-only filtering. Rooms are provisioned persistent, open and
+non-anonymous, so occupant presence carries the originating account.
+
+The scenario seeds through the normal runtime boundary — canonical
+admission, `route_event` planning, a live `deliver_to_targets` sibling
+delivery that genuinely completes, and a never-dispatched `pending`
+generation staged for the selected target with the runtime-produced
+dispatch snapshot — then closes and reopens durable storage and retires
+and restarts the provider lifetime before replay. The authorized
+`ReplayRequest` uses `ReplayMode.BEST_EFFORT` with
+`exact_target_selections`.
+
+The positive control requires the selected recipient to observe exactly
+one nonce-correlated groupchat stanza over a declared window, bound by the
+exact room address, the originating XMPP account, the recorded XEP-0359
+origin id, and the room stanza id the provider returned through its echo,
+and the observation binds `current`/`exact` to the durable native-evidence
+ledger. Per the replay attempt identity rule the send is a fresh
+generation; the staged obligation stays pending. The completed excluded
+sibling retains its identity with no matching new stanza in its own
+quiet window, and a monitor sibling never widens.
+
+The negative control, against the same reopened storage and a fresh
+provider lifetime, refuses an unbound selection (`ambiguous`), a drifted
+channel no plan names (`No delivery plans matched
+exact_target_selections filter`), and a superseded observation whose
+identity has become contested (`ambiguous` under expectations), staging
+no native work, recording zero new native sends and no sibling change.
+Positive peer controls bracket the refusal window so witness liveness is
+proven, and absence is a bounded wait timeout, never a fixed sleep.
+
+The required Docker Integration workflow step checks out the pinned
+provider through the checkout installer, runs the two cases at the pinned
+Prosody image, and enforces the junit report with
+`enforce_test_execution.py` (exact expected tests, no skips, per-run
+verdict artifacts required), so a job that collects or skips everything
+fails. The observation ceiling is local-Prosody groupchat reception over
+TLS-protected loopback transport within the declared windows: no E2EE,
+federation, external network, or hardware claim follows, and no uncertain
+native handoff is resolved or reauthorized by these cases.
+
 ### Remaining native legs
 
 This LXMF scenario does not qualify other transports; the Matrix
-Docker/Synapse acceptance scenario is a separate transport leg. Chatmail
-and XMPP are recorded `local_integration: false` in
-the adapter compatibility manifest, and neither provider suite at its pin
-defines a Docker or local-integration tier: both carry only opt-in
-live-marked tests that require private credentials outside the repository
-(a two-profile Chatmail fixture, respectively a two-account XMPP
-configuration with server host, port, JIDs, and MUC domain). A second
-native leg therefore needs, precisely: a CI-executable service tier —
-either a Chatmail or XMPP server in the integration compose with the
-provider harness promoted to a deterministic local-integration scenario,
-or repository-secret-backed private fixtures — and a provider-owned
-scenario at its pin that observes delivery through an independent second
-account, so the exact-target verdict is never MEDRE reading back its own
-receipts. Other transports' native legs and the hardware rungs remain
-outstanding for the full qualification of this property.
+Docker/Synapse acceptance scenario is a separate transport leg, and the
+Prosody leg above is the XMPP service tier at the committed provider pin.
+Chatmail is recorded `local_integration: false` in the adapter
+compatibility manifest, and its provider suite at its pin defines no
+Docker or local-integration tier: it carries only opt-in live-marked
+tests that require private credentials outside the repository (a
+two-profile Chatmail fixture). Its second native leg therefore needs,
+precisely: a CI-executable service tier — a Chatmail server in the
+integration compose with the provider harness promoted to a deterministic
+local-integration scenario, or repository-secret-backed private fixtures —
+and a provider-owned scenario at its pin that observes delivery through
+an independent second account, so the exact-target verdict is never MEDRE
+reading back its own receipts. Other transports' native legs and the
+hardware rungs remain outstanding for the full qualification of this
+property.
 
 ## Schema and stability
 
