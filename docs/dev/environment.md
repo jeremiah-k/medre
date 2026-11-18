@@ -248,14 +248,19 @@ python -m pip download --no-deps \
     -d ~/.cache/medre-review-venvs/slice3-d/artifacts medre==0.1.0
 python -m pip download --no-deps \
     -d ~/.cache/medre-review-venvs/slice3-d/artifacts medre-adapter-meshtastic==0.1.1
-python scripts/verify_released_artifact_continuity.py
+python scripts/verify_released_artifact_continuity.py --require-artifacts
 ```
 
 `pytest tests/test_released_artifact_continuity.py` runs the same scenarios and
 skips cleanly while the cache is absent; a populated cache makes every run a
 real qualification, and a cached file whose digest differs from the pinned
 published artifact fails instead of passing. Throwaway installs need network
-access; no credentials or radio state participate.
+access; no credentials or radio state participate. The report records the
+candidate Git revision and dirty-worktree flag (not a digest of unpublished
+changes), plus the built wheel digest. D-0 compares persisted state and
+catalog stamps; it does not instrument migration-function invocation. D-1
+installs the two released wheels together and runs `pip check` before probing
+the installed package.
 
 ## Existing pip Environments
 

@@ -251,13 +251,36 @@ def _adapter_declared_core_floor(wheel: Path) -> str:
     return match.group(1)
 
 
+def _candidate_source_identity() -> dict[str, Any]:
+    """Identify the source tree, including whether the worktree is modified."""
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.strip()
+
+    return {
+        "revision": git("rev-parse", "HEAD"),
+        "dirty": bool(git("status", "--porcelain")),
+    }
+
+
 def _build_candidate_wheel(sandbox: Path) -> dict[str, Any]:
     """Build the current wheel with the checkout's pinned build backend."""
+    source = _candidate_source_identity()
     _name, version, build_requires, _data = _proof._load_project_metadata()
     _proof._verify_build_requirements(build_requires)
     wheel_dir = sandbox / "wheel"
     wheel_dir.mkdir(parents=True, exist_ok=True)
     wheel = _proof._resolve_wheel(None, wheel_dir, version, build_requires)
+    _require(
+        _candidate_source_identity() == source,
+        "source identity changed while building wheel",
+    )
     command = [sys.executable, "-m", "build", "--wheel", "--no-isolation"]
     return {
         "path": str(wheel),
@@ -266,6 +289,7 @@ def _build_candidate_wheel(sandbox: Path) -> dict[str, Any]:
         "build_command": command,
         "build_interpreter": sys.executable,
         "build_requires": build_requires,
+        "source": source,
     }
 
 
@@ -301,11 +325,11 @@ def _require_ok(proc: subprocess.CompletedProcess[str], label: str) -> None:
 
 
 def _venv_python(venv: Path) -> Path:
-    return venv / "bin" / "python"
+    return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def _venv_console(venv: Path) -> Path:
-    return venv / "bin" / "medre"
+    return venv / ("Scripts/medre.exe" if os.name == "nt" else "bin/medre")
 
 
 def _make_venv(sandbox: Path, name: str) -> Path:
@@ -567,7 +591,9 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
         o["schema_version_stamp"] != before["schema_version_stamp"] for o in opens
     )
     _require(not stamp_changed, "schema version stamp changed during reopen")
-    migration_executed = stamp_changed or any(not o["state_equal"] for o in opens)
+    persisted_changes_detected = stamp_changed or any(
+        not o["state_equal"] for o in opens
+    )
 
     proc = _console(
         consumer, work, env, "storage", "status", "--storage-path", str(copy_path)
@@ -658,7 +684,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "table_count": len(before["rows"]),
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
-            "migration_executed": migration_executed,
+            "persisted_changes_detected": persisted_changes_detected,
             "migration_evidence_scope": "persisted state and schema stamp comparison; no internal migration instrumentation",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,
             "consumer_cli_healthy": "Status: HEALTHY" in consumer_status,
@@ -739,8 +765,16 @@ def _scenario_d1(sandbox: Path, cache: Path) -> dict[str, Any]:
     env = _proof._child_env(home, tmp, xdg)
 
     venv = _make_venv(sandbox, "floor-pair-venv")
-    _pip_install(venv, work, env, core_wheel["path"])
-    _pip_install(venv, work, env, adapter_wheel["path"])
+    _pip_install(venv, work, env, core_wheel["path"], adapter_wheel["path"])
+    _require_ok(
+        _run(
+            [str(_venv_python(venv)), "-m", "pip", "check"],
+            cwd=work,
+            env=env,
+            timeout=_INSTALL_TIMEOUT_S,
+        ),
+        "floor-pair dependency consistency",
+    )
 
     versions = _metadata_readback(venv, work, env)
     _require(
