@@ -384,7 +384,7 @@ def assemble_work_status_report(
     oldest_by_adapter = {str(row["target_adapter"]): row for row in oldest_rows}
     for row in adapter_rows:
         adapter = str(row["target_adapter"])
-        categories = {
+        categories: dict[str, int] = {
             category: int(row.get(category, 0) or 0)
             for category in WORK_STATUS_CATEGORIES
         }
@@ -494,7 +494,7 @@ def _report_totals(
     filtered and unfiltered scopes.
     """
     del adapter_filter
-    totals = {
+    totals: dict[str, int] = {
         category: sum(adapter.categories.get(category, 0) for adapter in adapters)
         for category in WORK_STATUS_CATEGORIES
     }
