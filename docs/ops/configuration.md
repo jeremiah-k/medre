@@ -1465,6 +1465,11 @@ medre inspect receipts --storage-path PATH
 medre inspect native-ref --storage-path PATH
     Read-only native transport reference inspection.
 
+medre inspect work-status --storage-path PATH
+    Read-only per-adapter delivery work summary: outstanding obligations by
+    category, oldest age with its origin, recorded uncertainty, and the exact
+    next inspection. Optional --adapter and --json.
+
 medre inspect content --storage-path PATH
 medre inspect pressure --storage-path PATH
     Read-only pre-admission pressure aggregates: per-window counters of
