@@ -15,6 +15,7 @@ and uncertain handoff must keep their distinct recovery behaviors.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,10 @@ from medre.core.contracts.adapter import AdapterHandoffResult, AdapterSendError
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, NativeRef
 from medre.core.ingress import DurableIngressWorker
+from medre.core.observability.work_status import (
+    WORK_STATUS_CATEGORIES,
+    assemble_work_status_report,
+)
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -780,3 +785,288 @@ async def test_held_destination_isolation_and_restart_recovery(
         assert recovery.state.succeeded == 1
         assert recovery.state.failed == 1
         assert recovery.state.processed == 2
+
+
+# ---------------------------------------------------------------------------
+# Read-only work-status view across the held-lane campaign
+# ---------------------------------------------------------------------------
+
+_STATUS_WORK_CATEGORIES: tuple[str, ...] = tuple(WORK_STATUS_CATEGORIES)
+
+
+def _application_state(db: sqlite3.Connection) -> dict[str, list[tuple]]:
+    """Row-level application state for mutation-freedom comparison."""
+    names = [
+        str(row[0])
+        for row in db.execute(
+            "SELECT name FROM sqlite_master"
+            " WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            " ORDER BY name"
+        )
+    ]
+    return {
+        name: sorted(
+            tuple(row)
+            for row in db.execute(
+                f'SELECT * FROM "{name}"'  # nosec B608 - table names come from sqlite_master
+            ).fetchall()
+        )
+        for name in names
+    }
+
+
+def _assert_view_consistent(summary: dict) -> None:
+    """The category partition must sum exactly, on every single sample."""
+    total = sum(int(row["current_generations"]) for row in summary["adapter_rows"])
+    assert total == summary["current_generations_total"]
+    for row in summary["adapter_rows"]:
+        assert (
+            sum(int(row[category]) for category in _STATUS_WORK_CATEGORIES)
+            == row["current_generations"]
+        )
+
+
+def _by_adapter(summary: dict) -> dict[str, dict]:
+    """Key rows by adapter for either shape: raw storage aggregates
+    (``adapter_rows``, categories flat) or the assembled document
+    (``adapters``, categories nested under ``categories``/``uncertainty``)."""
+    rows = summary.get("adapter_rows") or summary.get("adapters") or []
+    return {row["target_adapter"]: row for row in rows}
+
+
+async def _sample_work_status(path: str) -> tuple[dict, dict]:
+    """One read-only work-status sample over a fully separate connection.
+
+    Returns the raw storage aggregates and the assembled operator document;
+    assembly itself fails closed on any broken accounting invariant.
+    """
+    readonly = await SQLiteStorage.open_readonly(path)
+    try:
+        sampled_at = datetime.now(timezone.utc).isoformat()
+        summary = await readonly.query_work_status_summary(sampled_at=sampled_at)
+        report = assemble_work_status_report(
+            sampled_at=sampled_at,
+            adapter_filter=None,
+            adapter_rows=summary["adapter_rows"],
+            oldest_rows=summary["oldest_rows"],
+            raw_status_rows=summary["raw_status_rows"],
+            current_generations_total=summary["current_generations_total"],
+            receipts_by_status=summary["receipts_by_status"],
+        )
+        return summary, report.to_dict()
+    finally:
+        await readonly.close()
+
+
+async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> None:
+    """The read-only work-status view stays honest across the held-lane campaign.
+
+    While the production dispatcher runs with one operation parked at the
+    adapter boundary, every sample classifies the held generation as
+    reserved/active without claiming a live native send, tracks healthy
+    sibling progress and fresh admitted work, reports the long-cooldown
+    refusal as a scheduled retry with its due-time origin, and stays
+    internally consistent across repeated delayed reads. After generation
+    A stops with the uncertain handoff in flight, reopening storage shows
+    the reserved generation without attempt evidence, the recorded lease
+    expiry at a sampled time past the lease, completed siblings as
+    terminal history that never masquerades as outstanding work, and no
+    application-data mutation from the reads themselves.
+    """
+    path = str(tmp_path / "held-status.sqlite")
+    store = SQLiteStorage(path)
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(store.close)
+        await store.initialize()
+        tracker = _LaneTracker()
+        held_entered, held_release = asyncio.Event(), asyncio.Event()
+        lanes_up = asyncio.Event()
+        held = _HeldDestinationAdapter("held", tracker, held_entered, held_release)
+        healthy = {
+            name: _RendezvousDestinationAdapter(name, tracker, lanes_up)
+            for name in _FANOUT_ADAPTERS[1:]
+        }
+        # A multi-hour cooldown keeps the refused obligation scheduled
+        # (never due) for the whole generation-A run, so the scheduled-retry
+        # sample is deterministic under the running dispatcher.
+        refuser = _BeforeStartRefusalAdapter(
+            _REFUSER_ADAPTER, tracker, retry_after_seconds=3600.0
+        )
+        adapters = {"held": held, **healthy, _REFUSER_ADAPTER: refuser}
+
+        runner = _held_lane_pipeline(store, adapters)
+        capacity = CapacityController(
+            RuntimeLimits(
+                max_inflight_deliveries=_HELD_DELIVERY_LIMIT,
+                delivery_acquire_timeout_seconds=0.05,
+            )
+        )
+        runner.set_capacity_controller(capacity)
+        resources.push_async_callback(runner.stop)
+        await runner.start()
+
+        dispatcher = RetryWorker(
+            store,
+            runner,
+            capacity,
+            initial_dispatch=True,
+            enabled=True,
+            interval_seconds=_FAST_POLL_SECONDS,
+            batch_size=8,
+            max_attempts=4,
+            stop_timeout_seconds=0.5,
+        )
+        dispatcher.set_available_target_adapters(adapters.keys())
+        resources.push_async_callback(dispatcher.stop)
+        await dispatcher.start()
+
+        held_event, _ = await _stage_event(store, runner, "status-held", "room")
+        assert await wait_until(held_entered.is_set, timeout=5.0)
+        assert await wait_until(
+            lambda: tracker.current >= _EXPECTED_CONCURRENT_LANES, timeout=5.0
+        )
+        lanes_up.set()
+
+        # Held send in flight: the view reports a reserved generation with
+        # no attempt evidence and never claims a live native send or a
+        # healthy completion for it.
+        held_summary, held_document = await _sample_work_status(path)
+        _assert_view_consistent(held_summary)
+        held_counts = _by_adapter(held_document)["held"]
+        assert held_counts["categories"]["reserved_active"] == 1
+        assert held_counts["uncertainty"]["reserved_without_generation_receipt"] == 1
+        assert held_counts["uncertainty"]["lease_missing_or_expired"] == 0
+        assert held_counts["categories"]["terminal_outcome"] == 0
+        # Unrelated adapters are visible with their own honest tallies.
+        assert all(
+            _by_adapter(held_summary)[name]["current_generations"] == 1
+            for name in healthy
+        )
+
+        # Healthy siblings complete during the hold; only the held lane
+        # stays reserved.
+        await _wait_row_statuses(
+            store, held_event.event_id, {name: "sent" for name in healthy}
+        )
+        siblings_summary, siblings_document = await _sample_work_status(path)
+        _assert_view_consistent(siblings_summary)
+        for name in healthy:
+            counts = _by_adapter(siblings_document)[name]
+            assert counts["categories"]["terminal_outcome"] == 1
+            assert counts["outstanding"] == 0
+        assert _by_adapter(siblings_document)["held"]["outstanding"] == 1
+
+        # Fresh work admitted during the hold is eligible unstarted work on
+        # the held adapter and completes on healthy destinations.
+        fresh_event, _ = await _stage_event(store, runner, "status-fresh", "room")
+        await _wait_row_statuses(
+            store, fresh_event.event_id, {name: "sent" for name in healthy}
+        )
+        fresh_summary, fresh_document = await _sample_work_status(path)
+        _assert_view_consistent(fresh_summary)
+        held_fresh = _by_adapter(fresh_document)["held"]
+        assert held_fresh["outstanding"] == 2
+        assert held_fresh["categories"]["unstarted_eligible"] == 1
+        assert held_fresh["categories"]["reserved_active"] == 1
+        oldest_held = next(
+            row
+            for row in fresh_summary["oldest_rows"]
+            if row["target_adapter"] == "held"
+        )
+        assert oldest_held["category"] in {"unstarted_eligible", "reserved_active"}
+        assert oldest_held["age_origin"] in {"admission", "claim"}
+        for name in healthy:
+            assert _by_adapter(fresh_summary)[name]["terminal_outcome"] == 2
+
+        # A before-start refusal recovers into a scheduled retry whose age
+        # anchor is the due time, not the admission time.
+        cooldown_event, _ = await _stage_event(store, runner, "status-cooldown", "solo")
+        await _wait_row_statuses(
+            store, cooldown_event.event_id, {_REFUSER_ADAPTER: "retry_wait"}
+        )
+        cooldown_summary, cooldown_document = await _sample_work_status(path)
+        _assert_view_consistent(cooldown_summary)
+        refuser_counts = _by_adapter(cooldown_document)[_REFUSER_ADAPTER]
+        assert refuser_counts["categories"]["retry_scheduled"] == 1
+        refuser_oldest = next(
+            row
+            for row in cooldown_summary["oldest_rows"]
+            if row["target_adapter"] == _REFUSER_ADAPTER
+        )
+        assert refuser_oldest["age_origin"] == "retry_due"
+        assert refuser_oldest["category"] == "retry_scheduled"
+        assert refuser_oldest["age_anchor"] is not None
+
+        # Repeated delayed reads while the dispatcher commits: every sample
+        # is one internally consistent projection.
+        for _ in range(4):
+            loop_summary, _loop_document = await _sample_work_status(path)
+            _assert_view_consistent(loop_summary)
+
+    # Generation A stopped with the uncertain handoff in flight. The
+    # writable reopen only stages deterministic state for the assertions.
+    reopened = SQLiteStorage(path)
+    try:
+        await reopened.initialize()
+        rows_after_stop = await reopened.list_outbox_items_for_event(
+            held_event.event_id
+        )
+        held_after = next(r for r in rows_after_stop if r.target_adapter == "held")
+        assert held_after.status == "in_progress"
+        assert held_after.active_attempt == 1
+        assert held_after.lease_until is not None
+        lease_ready = datetime.fromisoformat(held_after.lease_until) + timedelta(
+            seconds=1
+        )
+    finally:
+        await reopened.close()
+
+    # Stale-observation honesty at a deterministic sampled time: the
+    # recorded lease has expired and the reserved generation still carries
+    # no attempt evidence, so owner liveness and the native handoff outcome
+    # are both unknown.
+    readonly = await SQLiteStorage.open_readonly(path)
+    try:
+        stale_summary = await readonly.query_work_status_summary(
+            sampled_at=lease_ready.isoformat()
+        )
+    finally:
+        await readonly.close()
+    _assert_view_consistent(stale_summary)
+    stale_report = assemble_work_status_report(
+        sampled_at=lease_ready.isoformat(),
+        adapter_filter=None,
+        adapter_rows=stale_summary["adapter_rows"],
+        oldest_rows=stale_summary["oldest_rows"],
+        raw_status_rows=stale_summary["raw_status_rows"],
+        current_generations_total=stale_summary["current_generations_total"],
+        receipts_by_status=stale_summary["receipts_by_status"],
+    ).to_dict()
+    stale_counts = _by_adapter(stale_report)["held"]
+    assert stale_counts["categories"]["reserved_active"] == 1
+    assert stale_counts["uncertainty"]["reserved_without_generation_receipt"] == 1
+    assert stale_counts["uncertainty"]["lease_missing_or_expired"] == 1
+    # Completed siblings stay terminal history and never masquerade as
+    # outstanding work; fresh admitted work stays unstarted.
+    for name in healthy:
+        counts = _by_adapter(stale_report)[name]
+        assert counts["categories"]["terminal_outcome"] == 2
+        assert counts["outstanding"] == 0
+    assert _by_adapter(stale_report)["held"]["categories"]["unstarted_eligible"] == 1
+    assert (
+        _by_adapter(stale_report)[_REFUSER_ADAPTER]["categories"]["retry_scheduled"]
+        == 1
+    )
+
+    # The reads mutate no application data while nothing else runs.
+    writable = SQLiteStorage(path)
+    try:
+        await writable.initialize()
+        before = _application_state(writable._require_db())
+        for _ in range(3):
+            _summary, document = await _sample_work_status(path)
+            _assert_view_consistent(_summary)
+            assert document["totals"]["outstanding"] == 3
+        assert _application_state(writable._require_db()) == before
+    finally:
+        await writable.close()
