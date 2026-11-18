@@ -794,8 +794,9 @@ async def test_projection_compares_instants_and_orders_anchors(
             assert summary["oldest_rows"][0]["age_origin"] == (
                 "retry_due" if stamp else "admission"
             )
-        earlier = await _add_row(store, event.event_id, adapter="order")
         later = await _add_row(store, event.event_id, adapter="order")
+        earlier = await _add_row(store, event.event_id, adapter="order")
+        assert later.outbox_id < earlier.outbox_id
         for row, stamp in (
             (earlier, "2026-01-02T00:00:00Z"),
             (later, "2026-01-02T00:00:00.000001+00:00"),
