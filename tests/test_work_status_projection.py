@@ -94,9 +94,9 @@ def test_category_partition_is_closed_and_outstanding_subset_is_defined() -> Non
 @pytest.mark.parametrize(
     ("status", "expected_origin", "expected_anchor"),
     [
-        ("pending", "admission", "created"),
+        ("pending", "admission", _PAST),
         ("retry_wait", "retry_due", _PAST),
-        ("queued", "queue_admission", "updated"),
+        ("queued", "queue_admission", _FUTURE),
     ],
 )
 def test_age_origin_names_the_exact_fact(
@@ -105,9 +105,9 @@ def test_age_origin_names_the_exact_fact(
     origin, anchor = outstanding_age_origin(
         status,
         next_attempt_at=_PAST,
-        created_at="created",
-        locked_at="locked",
-        updated_at="updated",
+        created_at=_PAST,
+        locked_at=_SAMPLED,
+        updated_at=_FUTURE,
     )
     assert (origin, anchor) == (expected_origin, expected_anchor)
 
@@ -116,22 +116,22 @@ def test_claim_origin_prefers_the_recorded_claim() -> None:
     origin, anchor = outstanding_age_origin(
         "in_progress",
         next_attempt_at=None,
-        created_at="created",
-        locked_at="locked",
-        updated_at="updated",
+        created_at=_PAST,
+        locked_at=_SAMPLED,
+        updated_at=_FUTURE,
     )
-    assert (origin, anchor) == ("claim", "locked")
+    assert (origin, anchor) == ("claim", _SAMPLED)
 
 
 def test_claim_origin_falls_back_to_admission_without_a_claim() -> None:
     origin, anchor = outstanding_age_origin(
         "in_progress",
         next_attempt_at=None,
-        created_at="created",
+        created_at=_PAST,
         locked_at=None,
-        updated_at="updated",
+        updated_at=_FUTURE,
     )
-    assert (origin, anchor) == ("admission", "created")
+    assert (origin, anchor) == ("admission", _PAST)
 
 
 def test_assembly_sums_the_partition_and_flags_uncertainty() -> None:
@@ -382,14 +382,15 @@ def test_assembly_rejects_retained_history_smaller_than_current() -> None:
 
 
 def test_assembly_rejects_a_terminal_oldest_row() -> None:
-    with pytest.raises(ValueError, match="oldest-outstanding"):
+    with pytest.raises(ValueError, match="is not outstanding"):
         assemble_work_status_report(
             sampled_at=_SAMPLED,
             adapter_filter=None,
             adapter_rows=[
                 {
                     "target_adapter": "a",
-                    "current_generations": 1,
+                    "current_generations": 2,
+                    "unstarted_eligible": 1,
                     "terminal_outcome": 1,
                 }
             ],
@@ -408,8 +409,11 @@ def test_assembly_rejects_a_terminal_oldest_row() -> None:
                     "age_anchor": _PAST,
                 }
             ],
-            raw_status_rows=[{"status": "sent", "rows": 1}],
-            current_generations_total=1,
+            raw_status_rows=[
+                {"status": "sent", "rows": 1},
+                {"status": "pending", "rows": 1},
+            ],
+            current_generations_total=2,
             receipts_by_status={},
         )
 
@@ -442,6 +446,7 @@ def test_uncertainty_defaults_are_zero_flags_not_unknown() -> None:
         "reserved_without_generation_receipt": 0,
         "lease_missing_or_expired": 0,
         "stale_queue_reclaimable": 0,
+        "queue_staleness_unknown": 0,
     }
 
 

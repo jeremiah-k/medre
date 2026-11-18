@@ -189,12 +189,22 @@ def outstanding_age_origin(
     retry-due age or the reverse.
     """
     if status == "retry_wait" and next_attempt_at:
-        return "retry_due", next_attempt_at
+        return "retry_due", (
+            next_attempt_at
+            if timestamp_microseconds(next_attempt_at) is not None
+            else None
+        )
     if status == "in_progress" and locked_at:
-        return "claim", locked_at
+        return "claim", (
+            locked_at if timestamp_microseconds(locked_at) is not None else None
+        )
     if status == "queued":
-        return "queue_admission", updated_at or created_at
-    return "admission", created_at or updated_at
+        return "queue_admission", (
+            updated_at if timestamp_microseconds(updated_at) is not None else None
+        )
+    return "admission", (
+        created_at if timestamp_microseconds(created_at) is not None else None
+    )
 
 
 def _age_seconds(anchor: str | None, sampled_at: str) -> int | None:
@@ -229,6 +239,8 @@ class WorkStatusUncertainty:
     #: Queued generations whose last update is older than the storage
     #: reclaim grace: adapter-local queue admission may be stale.
     stale_queue_reclaimable: int = 0
+    #: Queued generations with no usable queue timestamp.
+    queue_staleness_unknown: int = 0
 
     def to_dict(self) -> dict[str, int]:
         """JSON-safe flag mapping."""
@@ -238,6 +250,7 @@ class WorkStatusUncertainty:
             ),
             "lease_missing_or_expired": self.lease_missing_or_expired,
             "stale_queue_reclaimable": self.stale_queue_reclaimable,
+            "queue_staleness_unknown": self.queue_staleness_unknown,
         }
 
 
@@ -481,6 +494,9 @@ def assemble_work_status_report(
                     lease_missing_or_expired=int(
                         row.get("lease_missing_or_expired", 0) or 0
                     ),
+                    queue_staleness_unknown=int(
+                        row.get("queue_staleness_unknown", 0) or 0
+                    ),
                     stale_queue_reclaimable=int(
                         row.get("stale_queue_reclaimable", 0) or 0
                     ),
@@ -515,6 +531,9 @@ def assemble_work_status_report(
         ),
         lease_missing_or_expired=sum(
             adapter.uncertainty.lease_missing_or_expired for adapter in adapters
+        ),
+        queue_staleness_unknown=sum(
+            adapter.uncertainty.queue_staleness_unknown for adapter in adapters
         ),
         stale_queue_reclaimable=sum(
             adapter.uncertainty.stale_queue_reclaimable for adapter in adapters

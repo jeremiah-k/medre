@@ -232,7 +232,7 @@
       "additionalProperties": {"type": "integer", "minimum": 1}
     },
     "retained_history": {
-      "description": "Retained history accounting: terminal outcomes and superseded generations stay visible here and never masquerade as outstanding work.",
+      "description": "Retained row accounting. See totals.terminal_outcome for current terminal generations and raw_outbox_states for retained statuses.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -290,7 +290,8 @@
       "required": [
         "reserved_without_generation_receipt",
         "lease_missing_or_expired",
-        "stale_queue_reclaimable"
+        "stale_queue_reclaimable",
+        "queue_staleness_unknown"
       ],
       "properties": {
         "reserved_without_generation_receipt": {
@@ -300,6 +301,11 @@
         },
         "lease_missing_or_expired": {
           "description": "Reserved generations whose recorded lease is missing, unusable or at or before sampled_at. This does not establish owner liveness or claimability.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "queue_staleness_unknown": {
+          "description": "Queued generations whose queue timestamp is unusable; their staleness is unknown.",
           "type": "integer",
           "minimum": 0
         },
