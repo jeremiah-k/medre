@@ -22,7 +22,7 @@ is needed. Run these commands from the core checkout:
 ```bash
 make build
 # Create a safe fake-route sample without overwriting an existing config:
-( umask 077; set -C; docker run --rm medre:local config sample > config.yaml )
+( umask 077; set -C; docker run --rm --user 1000:1000 medre:local config sample > config.yaml )
 make check
 make run
 make logs
