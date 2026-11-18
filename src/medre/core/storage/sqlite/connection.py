@@ -637,11 +637,12 @@ def sync_read_batch(
             ]
         except BaseException:
             try:
-                db.rollback()
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
             except Exception:
                 pass
             raise
-        db.rollback()
+        db.execute("ROLLBACK")
     return results
 
 
