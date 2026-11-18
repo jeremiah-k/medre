@@ -9,6 +9,16 @@ controller) twice on fresh disposable state:
 * ``constrained`` — one deliberately constrained profile where the global
   delivery limit leaves exactly one spare slot beside the held operation.
 
+``--sweep-comparison`` instead runs one fixed held-lane workload twice,
+differing only in the opt-in ``retry.deadline_sweep`` policy: the fixed
+workload carries parked pending obligations whose content ceiling elapses
+mid-run, created through the real producer boundary (admission installs the
+ceiling and adoption stages the obligation), unclaimable behind a future
+``next_attempt_at`` so no dispatcher races the sweep. The comparison records
+claim/sweep elapsed timings, durable-admission writer latency during active
+work, healthy-lane progress, rejected capacity starts, sweep retirement
+counts and DB/WAL footprints at matching phases.
+
 One destination handoff parks behind an explicit barrier at the fake adapter
 boundary for the whole measurement. Fresh healthy work admitted during the
 hold must complete; the held row must never reach a terminal state while the
@@ -32,12 +42,12 @@ import subprocess
 import time
 from contextlib import AsyncExitStack
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.config.model import RetryConfig, RuntimeLimits
+from medre.config.model import DeadlineSweepConfig, RetryConfig, RuntimeLimits
 from medre.core.contracts.adapter import AdapterHandoffResult, AdapterSendError
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
@@ -47,6 +57,7 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.retry import RetryWorker
@@ -63,6 +74,39 @@ _REFUSER_LANE = "refuser"
 _ROOM_CHANNEL = "room"
 _SEED_CHANNEL = "seed"
 _SOLO_CHANNEL = "solo"
+_EXPIRED_CHANNEL = "expired"
+_EXPIRED_LANE = "expired-pending"
+#: Expired obligations park one hour past the run so no claim path, which
+#: always requires ``next_attempt_at IS NULL OR <= now``, can race the sweep.
+_EXPIRED_PARK_SECONDS = 3600
+#: The parked obligations' content ceiling elapses this many seconds into the
+#: run, so the sweep observes a real durable expiry during active work.
+_EXPIRED_CEILING_SECONDS = 2
+_SWEEP_INTERVAL_SECONDS = 0.5
+_SWEEP_LIMIT = 50
+_SWEEP_EXPIRED_ROWS = 60
+
+
+class _SweepProbe:
+    """Times the storage deadline sweep the worker captured at construction."""
+
+    def __init__(self, store: SQLiteStorage) -> None:
+        self._store = store
+        self._original = store.retire_expired_unstarted_outbox
+        self.elapsed_ms: list[float] = []
+        self.retired_total = 0
+
+    def install(self) -> None:
+        probe = self
+
+        async def timed_sweep(*args: Any, **kwargs: Any) -> list[Any]:
+            started = time.perf_counter()
+            retired = await probe._original(*args, **kwargs)
+            probe.elapsed_ms.append((time.perf_counter() - started) * 1000)
+            probe.retired_total += len(retired)
+            return retired
+
+        self._store.retire_expired_unstarted_outbox = timed_sweep  # type: ignore[method-assign]
 
 
 def _percentile(samples: list[float], pct: int) -> float:
@@ -241,6 +285,8 @@ class _Profile:
     retries_enabled: bool
     healthy_batches: int
     events_per_batch: int
+    expired_rows: int = 0
+    deadline_sweep_enabled: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -361,16 +407,75 @@ async def _work_status_probe(db_path: str, *, samples: int = 10) -> dict[str, An
 
 
 async def _stage(
-    store: SQLiteStorage, runner: PipelineRunner, event_id: str, channel: str
+    store: SQLiteStorage,
+    runner: PipelineRunner,
+    event_id: str,
+    channel: str,
+    *,
+    admission_ms: list[float] | None = None,
 ) -> None:
     """Admit one event durably and stage its outbox obligations."""
     admitted = await runner.admit_ingress(_event(event_id, channel), "live")
     if not admitted.created or admitted.event_id != event_id:
         raise RuntimeError(f"{event_id}: expected a new durable admission")
     ingress = DurableIngressWorker(storage=store, pipeline=runner, batch_size=1)
+    started = time.perf_counter()
     processed = await ingress.run_once()
+    if admission_ms is not None:
+        admission_ms.append((time.perf_counter() - started) * 1000)
     if processed != 1:
         raise RuntimeError(f"{event_id}: expected one ingress item, got {processed}")
+
+
+async def _stage_expired_rows(
+    store: SQLiteStorage,
+    *,
+    rows: int,
+    admission_ms: list[float] | None = None,
+) -> datetime:
+    """Stage pending obligations whose ceiling elapses during the run.
+
+    Each row is created through the real producer boundary: admission installs
+    the immutable ceiling and the source hold a few seconds into the future
+    (an already-elapsed deadline is refused at admission, exactly as the
+    producer contract requires), adoption stages the obligation, and the
+    future ``next_attempt_at`` parks the pending row past every claim
+    predicate so no dispatcher cycle can race the sweep. The sweep observes
+    the durable expiry mid-run and is the only path that may settle them.
+    """
+    ceiling_at = datetime.now(timezone.utc) + timedelta(
+        seconds=_EXPIRED_CEILING_SECONDS
+    )
+    parked_until = datetime.now(timezone.utc) + timedelta(seconds=_EXPIRED_PARK_SECONDS)
+    for index in range(rows):
+        event_id = f"expired-{index:04d}"
+        started = time.perf_counter()
+        # History provenance suppresses the durable work marker so the
+        # ingress worker's FIFO queue only ever carries the measured events;
+        # the ceiling rows and source hold commit exactly as production
+        # writes them.
+        await store.admit_ingress(
+            _event(event_id, _EXPIRED_CHANNEL),
+            None,
+            "history",
+            content_deadline=ceiling_at,
+        )
+        await store.create_outbox_item(
+            DeliveryOutboxItem(
+                outbox_id=f"obox-{event_id}",
+                event_id=event_id,
+                delivery_plan_id="plan-expired-measure",
+                route_id="measure-expired",
+                target_adapter=_EXPIRED_LANE,
+                target_channel="out",
+                status="pending",
+                attempt_number=0,
+                next_attempt_at=parked_until.isoformat(),
+            )
+        )
+        if admission_ms is not None:
+            admission_ms.append((time.perf_counter() - started) * 1000)
+    return ceiling_at
 
 
 async def _seed_terminal_history(
@@ -472,6 +577,16 @@ async def _run_profile(
         probe = _QueryProbe(store)
         resources.callback(probe.restore)
         probe.install()
+        # The sweep probe must wrap the storage method before the worker is
+        # constructed: the poll cycle captures the sweep surface once.
+        sweep_probe = _SweepProbe(store)
+        sweep_probe.install()
+        # Expired obligations exist before the first poll cycle so the sweep
+        # sees them from its first pass; each is parked unclaimable.
+        expired_admission_ms: list[float] = []
+        expired_at = await _stage_expired_rows(
+            store, rows=profile.expired_rows, admission_ms=expired_admission_ms
+        )
         dispatcher = RetryWorker(
             store,
             runner,
@@ -482,6 +597,13 @@ async def _run_profile(
             batch_size=profile.batch_size,
             max_attempts=4,
             stop_timeout_seconds=0.5,
+            retry_config=RetryConfig(
+                deadline_sweep=DeadlineSweepConfig(
+                    enabled=profile.deadline_sweep_enabled,
+                    limit=_SWEEP_LIMIT,
+                    interval_seconds=_SWEEP_INTERVAL_SECONDS,
+                )
+            ),
         )
         dispatcher.set_available_target_adapters(adapters.keys())
         resources.push_async_callback(dispatcher.stop)
@@ -490,10 +612,11 @@ async def _run_profile(
         round_metrics: list[dict[str, Any]] = []
         healthy_rows_completed = 0
         healthy_observed_latency_ms: list[float] = []
+        admission_ms: list[float] = []
         expected_total_rows = 0
         # Stage the held event before admitting fresh fanout work: one lane parks
         # behind the barrier while its healthy fanout completes immediately.
-        await _stage(store, runner, "held-1", _ROOM_CHANNEL)
+        await _stage(store, runner, "held-1", _ROOM_CHANNEL, admission_ms=admission_ms)
         await _poll_until(
             held_entered.is_set,
             timeout=10.0,
@@ -516,7 +639,9 @@ async def _run_profile(
             for event_index in range(profile.events_per_batch):
                 event_id = f"fresh-{round_index:02d}-{event_index:02d}"
                 admission_started[event_id] = time.perf_counter()
-                await _stage(store, runner, event_id, _ROOM_CHANNEL)
+                await _stage(
+                    store, runner, event_id, _ROOM_CHANNEL, admission_ms=admission_ms
+                )
                 rows = await store.list_outbox_items_for_event(
                     event_id, metadata_only=True
                 )
@@ -577,7 +702,9 @@ async def _run_profile(
         # One cooldown refusal through the background dispatcher while the
         # held lane stays parked: a retry_wait row must recover to sent.
         calls_before = refuser.deliver_calls
-        await _stage(store, runner, "cooldown-solo", _SOLO_CHANNEL)
+        await _stage(
+            store, runner, "cooldown-solo", _SOLO_CHANNEL, admission_ms=admission_ms
+        )
 
         async def cooldown_row_sent() -> bool:
             rows = await store.list_outbox_items_for_event(
@@ -596,20 +723,52 @@ async def _run_profile(
                 f"handoff calls (expected a refusal plus a re-dispatch)"
             )
 
+        # Sweep accounting: the enabled policy retires every expired parked
+        # obligation; the disabled policy leaves all of them pending. The
+        # probe wraps the exact surface the worker captured, so its counts
+        # and the worker's own sweep counters must agree.
+        retired_expired = sweep_probe.retired_total
+        if profile.deadline_sweep_enabled:
+            if retired_expired != profile.expired_rows:
+                raise AssertionError(
+                    f"sweep retired {retired_expired} of "
+                    f"{profile.expired_rows} expired obligations"
+                )
+            if dispatcher.state.deadline_retired != retired_expired:
+                raise AssertionError(
+                    "worker sweep counters disagree with the timed surface: "
+                    f"{dispatcher.state.deadline_retired} != {retired_expired}"
+                )
+            if not sweep_probe.elapsed_ms:
+                raise AssertionError("enabled sweep never ran")
+        else:
+            if retired_expired or dispatcher.state.deadline_retired:
+                raise AssertionError(
+                    "disabled policy invoked the deadline sweep surface"
+                )
+
         # Logical accounting: healthy lanes terminal exactly once, the held
         # row never terminal behind the barrier, and lane exclusivity intact.
         counts_now = await probe._original_count()
         # Terminal accounting: seeded history + round rows + the held event's
-        # healthy fanout + the recovered cooldown row.
+        # healthy fanout + the recovered cooldown row. Retired expired
+        # obligations settle as abandoned; unretired ones stay parked pending.
         expected_sent = seeded + expected_total_rows + len(healthy) + 1
-        if counts_now != {
+        expected_counts: dict[str, int] = {
             "sent": expected_sent,
             "in_progress": 1,
-            "pending": profile.healthy_batches * profile.events_per_batch,
-        }:
+            "pending": (
+                profile.healthy_batches * profile.events_per_batch
+                + profile.expired_rows
+                - retired_expired
+            ),
+        }
+        if retired_expired:
+            expected_counts["abandoned"] = retired_expired
+        if counts_now != expected_counts:
             raise AssertionError(
                 f"unexpected terminal/active accounting: {counts_now}; "
-                f"expected {expected_sent} sent rows"
+                f"expected {expected_counts}"
             )
         if healthy_rows_completed != expected_total_rows:
             raise AssertionError(
@@ -728,6 +887,8 @@ async def _run_profile(
             "healthy_batches": profile.healthy_batches,
             "events_per_batch": profile.events_per_batch,
             "history_rows_seeded": history_rows,
+            "expired_rows_staged": profile.expired_rows,
+            "deadline_sweep_enabled": profile.deadline_sweep_enabled,
             **profile.extra,
         },
         "terminal_history_retained": {
@@ -744,6 +905,39 @@ async def _run_profile(
             "held_row_status": held_row.status,
             "held_row_reserved_attempt": held_row.active_attempt,
             "cooldown_refusals_recovered": refuser.deliver_calls - calls_before - 1,
+        },
+        "writer_wait": {
+            "note": (
+                "durable admission latency (runner ingress plus staging commit) "
+                "sampled per staged event during active work, including the "
+                "expired-obligation staging writes"
+            ),
+            "fresh_admission_ms": {
+                **_timings(admission_ms),
+                "sample_count": len(admission_ms),
+            },
+            "expired_staging_ms": {
+                **_timings(expired_admission_ms),
+                "sample_count": len(expired_admission_ms),
+            },
+        },
+        "deadline_sweep": {
+            "enabled": profile.deadline_sweep_enabled,
+            "interval_seconds": _SWEEP_INTERVAL_SECONDS,
+            "limit": _SWEEP_LIMIT,
+            "expired_rows_staged": profile.expired_rows,
+            "expired_ceiling_at": expired_at.isoformat(),
+            "observed_sweep_invocations": len(sweep_probe.elapsed_ms),
+            "retired_total": retired_expired,
+            "sweep_elapsed_ms": {
+                **_timings(sweep_probe.elapsed_ms),
+                "sample_count": len(sweep_probe.elapsed_ms),
+            },
+            "worker_state": {
+                "runs": dispatcher.state.deadline_sweep_runs,
+                "errors": dispatcher.state.deadline_sweep_errors,
+                "retired": dispatcher.state.deadline_retired,
+            },
         },
         "healthy_lane_completion": {
             "observed_completion_latency_ms": _timings(healthy_observed_latency_ms),
@@ -795,6 +989,7 @@ async def _run_profile(
         "capacity_snapshot_while_held": {
             "delivery_limit": capacity.delivery_limit,
             "delivery_current": delivery_current_while_held,
+            "rejected_delivery_starts": capacity.snapshot()["delivery_rejections"],
             "max_concurrent_handoffs": tracker.max_concurrent,
             "max_concurrent_by_adapter": dict(sorted(tracker.max_by_adapter.items())),
         },
@@ -847,40 +1042,81 @@ async def measure_held_lane_workload(
     destination: Path,
     *,
     history_rows: int = 120,
+    sweep_comparison: bool = False,
 ) -> dict[str, Any]:
-    """Run the default-cadence and constrained retry-enabled profiles."""
+    """Run the default-cadence and constrained retry-enabled profiles.
+
+    With ``sweep_comparison`` the script instead runs one fixed held-lane
+    workload twice — the deadline sweep policy disabled and then enabled —
+    so every recorded field compares like for like.
+    """
     if type(history_rows) is not int or not 0 <= history_rows <= _MAX_HISTORY_ROWS:
         raise ValueError(f"history-rows must be in [0, {_MAX_HISTORY_ROWS}]")
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    profiles = [
-        _Profile(
-            name="retry_enabled_default_cadence",
-            delivery_limit=RuntimeLimits().max_inflight_deliveries,
-            batch_size=RetryConfig().batch_size,
-            interval_seconds=None,
-            retries_enabled=True,
-            healthy_batches=2,
-            events_per_batch=3,
-            extra={
-                "note": (
-                    "default capacity and cadence; retries and timeouts overridden"
-                ),
-            },
-        ),
-        _Profile(
-            name="constrained",
-            delivery_limit=2,
-            batch_size=2,
-            interval_seconds=0.2,
-            retries_enabled=True,
-            healthy_batches=2,
-            events_per_batch=2,
-            extra={
-                "note": "the only configured spare slot serves all healthy lanes",
-            },
-        ),
-    ]
+    if sweep_comparison:
+        common: dict[str, Any] = {
+            "delivery_limit": RuntimeLimits().max_inflight_deliveries,
+            "batch_size": RetryConfig().batch_size,
+            "interval_seconds": _SWEEP_INTERVAL_SECONDS,
+            "retries_enabled": True,
+            "healthy_batches": 2,
+            "events_per_batch": 3,
+            "expired_rows": _SWEEP_EXPIRED_ROWS,
+        }
+        profiles = [
+            _Profile(
+                name="deadline_sweep_disabled",
+                **common,
+                extra={
+                    "note": (
+                        "fixed held-lane workload with the opt-in deadline "
+                        "sweep policy disabled; expired obligations stay "
+                        "parked pending"
+                    ),
+                },
+            ),
+            _Profile(
+                name="deadline_sweep_enabled",
+                **common,
+                deadline_sweep_enabled=True,
+                extra={
+                    "note": (
+                        "the same fixed held-lane workload with the opt-in "
+                        "deadline sweep policy enabled at the same cadence"
+                    ),
+                },
+            ),
+        ]
+    else:
+        profiles = [
+            _Profile(
+                name="retry_enabled_default_cadence",
+                delivery_limit=RuntimeLimits().max_inflight_deliveries,
+                batch_size=RetryConfig().batch_size,
+                interval_seconds=None,
+                retries_enabled=True,
+                healthy_batches=2,
+                events_per_batch=3,
+                extra={
+                    "note": (
+                        "default capacity and cadence; retries and timeouts overridden"
+                    ),
+                },
+            ),
+            _Profile(
+                name="constrained",
+                delivery_limit=2,
+                batch_size=2,
+                interval_seconds=0.2,
+                retries_enabled=True,
+                healthy_batches=2,
+                events_per_batch=2,
+                extra={
+                    "note": "the only configured spare slot serves all healthy lanes",
+                },
+            ),
+        ]
     results = {}
     for profile in profiles:
         results[profile.name] = await _run_profile(
@@ -888,6 +1124,11 @@ async def measure_held_lane_workload(
         )
     return {
         "qualification": "synthetic_held_lane_dispatch_no_native_io",
+        "mode": (
+            "deadline_sweep_off_on_comparison"
+            if sweep_comparison
+            else "dispatch_profiles"
+        ),
         "source_identity": _source_identity(),
         "history_rows": history_rows,
         "profiles": results,
@@ -902,6 +1143,11 @@ async def measure_held_lane_workload(
             "first observed progress is not an exact claim timestamp or loop lag",
             "terminal history uses real initial dispatch with synthetic handoffs; "
             "seed timings and seed handoffs are excluded from the measured lane sample",
+            "expired obligations are synthetic pending rows created through the "
+            "real admission and adoption boundary, parked past every claim "
+            "predicate with a ceiling that elapses mid-run; the sweep observes "
+            "the same producer-installed ceiling rows production would, but no "
+            "transport attempted them",
             "timings are measurement data only; no performance pass/fail "
             "verdict and no machine-speed gate",
             "restart recovery semantics are characterized by the four-way "
@@ -914,6 +1160,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--history-rows", type=int, default=120)
+    parser.add_argument(
+        "--sweep-comparison",
+        action="store_true",
+        help=(
+            "run one fixed held-lane workload twice, differing only in the "
+            "opt-in retry.deadline_sweep policy"
+        ),
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -921,6 +1175,7 @@ def main() -> int:
                 measure_held_lane_workload(
                     args.destination,
                     history_rows=args.history_rows,
+                    sweep_comparison=args.sweep_comparison,
                 )
             ),
             indent=2,

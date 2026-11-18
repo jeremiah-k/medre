@@ -149,6 +149,64 @@ async def test_stage_rejects_unexpected_ingress_count(monkeypatch):
         await subject._stage(None, Runner(), "sample", "room")
 
 
+async def test_sweep_policy_drives_expired_obligation_accounting(tmp_path):
+    """The sweep comparison differs only in retirement, never in healthy work.
+
+    The parked obligations are created through the real admission and
+    adoption boundary with a ceiling that elapses mid-run; the enabled
+    policy retires every one through the worker's captured sweep surface,
+    and the disabled policy leaves all of them pending with zero sweep
+    invocations. Healthy lanes complete identically under both policies.
+    """
+    common = {
+        "delivery_limit": 2,
+        "batch_size": 2,
+        "interval_seconds": 0.2,
+        "retries_enabled": True,
+        "healthy_batches": 1,
+        "events_per_batch": 2,
+        "expired_rows": 3,
+    }
+    (tmp_path / "off").mkdir()
+    (tmp_path / "on").mkdir()
+    disabled = await subject._run_profile(
+        tmp_path / "off", subject._Profile(name="off", **common), history_rows=0
+    )
+    enabled = await subject._run_profile(
+        tmp_path / "on",
+        subject._Profile(name="on", **common, deadline_sweep_enabled=True),
+        history_rows=0,
+    )
+    assert disabled["deadline_sweep"]["observed_sweep_invocations"] == 0
+    assert disabled["deadline_sweep"]["retired_total"] == 0
+    assert disabled["deadline_sweep"]["worker_state"] == {
+        "runs": 0,
+        "errors": 0,
+        "retired": 0,
+    }
+    counts_off = disabled["terminal_history_retained"]["outbox_counts_after_run"]
+    assert counts_off["pending"] == common["events_per_batch"] + common["expired_rows"]
+    assert "abandoned" not in counts_off
+    assert enabled["deadline_sweep"]["observed_sweep_invocations"] > 0
+    assert enabled["deadline_sweep"]["retired_total"] == common["expired_rows"]
+    assert (
+        enabled["deadline_sweep"]["worker_state"]["retired"] == common["expired_rows"]
+    )
+    assert enabled["deadline_sweep"]["worker_state"]["errors"] == 0
+    assert enabled["deadline_sweep"]["sweep_elapsed_ms"]["sample_count"] > 0
+    counts_on = enabled["terminal_history_retained"]["outbox_counts_after_run"]
+    assert counts_on["pending"] == common["events_per_batch"]
+    assert counts_on["abandoned"] == common["expired_rows"]
+    assert (
+        disabled["healthy_vs_held"]["healthy_rows_completed"]
+        == enabled["healthy_vs_held"]["healthy_rows_completed"]
+        == common["healthy_batches"] * common["events_per_batch"] * 3
+    )
+    for result in (disabled, enabled):
+        assert result["capacity_snapshot_while_held"]["rejected_delivery_starts"] == 0
+        assert result["healthy_vs_held"]["held_rows_completed_during_hold"] == 0
+
+
 def test_optimized_python_stages_history(tmp_path: Path):
     """Execute the real bounded profile with assertions disabled in the child."""
     program = """
