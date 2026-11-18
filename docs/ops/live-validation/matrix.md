@@ -159,8 +159,10 @@ windows independently of a homeserver: admission is atomic, pending work and the
 committed cursor survive restart, stale leases are reclaimable, and native replay
 resolves to the original canonical identity.
 
-For Docker/live follow-up, verify a runtime-managed Matrix adapter reports
-`checkpoint_owned_by_medre=true`. During forced downtime, continuity-recovered events
+For Docker/live follow-up, the SDK owns the upstream cursor:
+`checkpoint_owned_by_medre=false`. Verify the `nio_durable` application
+checkpoint independently in core storage; `committed_checkpoint_present`
+reports application evidence, not SDK capture. During forced downtime, continuity-recovered events
 must increment `recovered_event_count`; initial cold history may increment
 `history_event_count` but must remain durably suppressed. Any unrecoverable room gap
 must increment `recovery_abandoned_room_count` and leave secret-free abandonment
