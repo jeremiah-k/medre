@@ -4,7 +4,7 @@
 # NOT intended for production use.
 #
 # Usage:
-#   mkdir -p data/synapse
+#   mkdir -m 700 -p data/synapse
 #   docker compose -f docker-compose.integration.yaml run --rm synapse generate
 #   docker compose -f docker-compose.integration.yaml up -d
 #   pytest tests/integration/ -m docker -v
@@ -32,7 +32,7 @@ services:
     # this explicit UID/GID instead of a root-mode chown step.
     user: "${MEDRE_SYNAPSE_UID:-1000}:${MEDRE_SYNAPSE_GID:-1000}"
     ports:
-      - "${MEDRE_SYNAPSE_PORT:-8008}:8008"
+      - "127.0.0.1:${MEDRE_SYNAPSE_PORT:-8008}:8008"
     volumes:
       - ./data/synapse:/data
     environment:

@@ -68,7 +68,9 @@ def test_snapshot_rejects_tracked_symlinks(tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX lab UID/GID ownership")
-def test_stack_does_not_publish_services_or_grant_host_privilege(tmp_path):
+def test_stack_does_not_publish_services_or_grant_host_privilege(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+    monkeypatch.setattr(os, "getgid", lambda: 1000)
     (tmp_path / "config").mkdir()
     write_json(tmp_path / "hardware.json", {})
     images = json.loads((Path(control.__file__).parent / "images.json").read_text())
@@ -438,8 +440,10 @@ def test_lab_account_password_can_begin_with_an_option_prefix(tmp_path, monkeypa
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Linux BlueZ system bus")
-def test_meshtastic_ble_role_maps_only_the_runner_system_bus(tmp_path):
+def test_meshtastic_ble_role_maps_only_the_runner_system_bus(tmp_path, monkeypatch):
     """An explicitly selected BLE peer gets the same scoped access as MeshCore."""
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+    monkeypatch.setattr(os, "getgid", lambda: 1000)
     (tmp_path / "config").mkdir()
     write_json(
         tmp_path / "hardware.json",
@@ -497,3 +501,11 @@ def test_generated_lab_ca_allows_strict_server_verification(tmp_path, monkeypatc
         timeout=15,
     )
     assert verification.returncode == 0, verification.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX lab UID/GID ownership")
+def test_stack_refuses_root_host_identity(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, "getuid", lambda: 0)
+    with pytest.raises(ValueError, match="unprivileged"):
+        configure(tmp_path, {}, "medre-lab-fixture", {})
+    assert not (tmp_path / "compose.json").exists()
