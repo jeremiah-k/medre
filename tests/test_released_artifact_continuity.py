@@ -60,6 +60,7 @@ def _run_driver(tmp_path: Path, scenario: str) -> tuple[int, dict[str, object]]:
             str(_SCRIPT),
             "--scenario",
             scenario,
+            "--require-artifacts",
             "--sandbox",
             str(tmp_path / "sandbox"),
             "--summary-json",
@@ -235,7 +236,7 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
         assert opened["identities_equal"] is True
         assert opened["foreign_keys_clean"] is True
         assert opened["schema_version_stamp"] == "1"
-    assert reopen["migration_executed"] is False
+    assert reopen["persisted_changes_detected"] is False
     assert reopen["consumer_cli_catalog_current"] is True
     assert reopen["consumer_cli_healthy"] is True
 
@@ -321,3 +322,30 @@ def test_required_cache_absence_is_nonzero(tmp_path):
         )
         == 1
     )
+
+
+def test_candidate_source_records_revision_and_dirty_flag(tmp_path, monkeypatch):
+    driver = _load_driver()
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    monkeypatch.setattr(driver, "_REPO_ROOT", tmp_path)
+    clean = driver._candidate_source_identity()
+    assert len(clean["revision"]) == 40
+    assert clean["dirty"] is False
+    (tmp_path / "untracked").touch()
+    assert driver._candidate_source_identity() == {**clean, "dirty": True}
