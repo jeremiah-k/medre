@@ -15,6 +15,7 @@ and uncertain handoff must keep their distinct recovery behaviors.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sqlite3
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
@@ -834,7 +835,9 @@ def _by_adapter(summary: dict) -> dict[str, dict]:
     return {row["target_adapter"]: row for row in rows}
 
 
-async def _sample_work_status(path: str) -> tuple[dict, dict]:
+async def _sample_work_status(
+    path: str, *, sampled_at: str | None = None
+) -> tuple[dict, dict]:
     """One read-only work-status sample over a fully separate connection.
 
     Returns the raw storage aggregates and the assembled operator document;
@@ -842,10 +845,9 @@ async def _sample_work_status(path: str) -> tuple[dict, dict]:
     """
     readonly = await SQLiteStorage.open_readonly(path)
     try:
-        sampled_at = datetime.now(timezone.utc).isoformat()
         summary = await readonly.query_work_status_summary(sampled_at=sampled_at)
         report = assemble_work_status_report(
-            sampled_at=sampled_at,
+            sampled_at=summary["sampled_at"],
             adapter_filter=None,
             adapter_rows=summary["adapter_rows"],
             oldest_rows=summary["oldest_rows"],
@@ -973,17 +975,21 @@ async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> Non
             for row in fresh_summary["oldest_rows"]
             if row["target_adapter"] == "held"
         )
-        assert oldest_held["category"] in {"unstarted_eligible", "reserved_active"}
-        assert oldest_held["age_origin"] in {"admission", "claim"}
+        assert (oldest_held["category"], oldest_held["age_origin"]) in {
+            ("unstarted_eligible", "admission"),
+            ("reserved_active", "claim"),
+        }
         for name in healthy:
             assert _by_adapter(fresh_summary)[name]["terminal_outcome"] == 2
 
         # A before-start refusal recovers into a scheduled retry whose age
         # anchor is the due time, not the admission time.
         cooldown_event, _ = await _stage_event(store, runner, "status-cooldown", "solo")
-        await _wait_row_statuses(
+        retry_rows = await _wait_row_statuses(
             store, cooldown_event.event_id, {_REFUSER_ADAPTER: "retry_wait"}
         )
+        retry_due = retry_rows[_REFUSER_ADAPTER].next_attempt_at
+        assert retry_due is not None
         cooldown_summary, cooldown_document = await _sample_work_status(path)
         _assert_view_consistent(cooldown_summary)
         refuser_counts = _by_adapter(cooldown_document)[_REFUSER_ADAPTER]
@@ -995,10 +1001,10 @@ async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> Non
         )
         assert refuser_oldest["age_origin"] == "retry_due"
         assert refuser_oldest["category"] == "retry_scheduled"
-        assert refuser_oldest["age_anchor"] is not None
+        assert refuser_oldest["age_anchor"] == retry_due
 
-        # Repeated delayed reads while the dispatcher commits: every sample
-        # is one internally consistent projection.
+        # Repeated reads during a settled hold. The deterministic between-
+        # statement commit is tested directly in test_work_status_storage.
         for _ in range(4):
             loop_summary, _loop_document = await _sample_work_status(path)
             _assert_view_consistent(loop_summary)
@@ -1025,23 +1031,13 @@ async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> Non
     # recorded lease has expired and the reserved generation still carries
     # no attempt evidence, so owner liveness and the native handoff outcome
     # are both unknown.
-    readonly = await SQLiteStorage.open_readonly(path)
-    try:
-        stale_summary = await readonly.query_work_status_summary(
-            sampled_at=lease_ready.isoformat()
+    with contextlib.closing(sqlite3.connect(path)) as snapshot_db:
+        before_stale = _application_state(snapshot_db)
+        stale_summary, stale_report = await _sample_work_status(
+            path, sampled_at=lease_ready.isoformat()
         )
-    finally:
-        await readonly.close()
+        assert _application_state(snapshot_db) == before_stale
     _assert_view_consistent(stale_summary)
-    stale_report = assemble_work_status_report(
-        sampled_at=lease_ready.isoformat(),
-        adapter_filter=None,
-        adapter_rows=stale_summary["adapter_rows"],
-        oldest_rows=stale_summary["oldest_rows"],
-        raw_status_rows=stale_summary["raw_status_rows"],
-        current_generations_total=stale_summary["current_generations_total"],
-        receipts_by_status=stale_summary["receipts_by_status"],
-    ).to_dict()
     stale_counts = _by_adapter(stale_report)["held"]
     assert stale_counts["categories"]["reserved_active"] == 1
     assert stale_counts["uncertainty"]["reserved_without_generation_receipt"] == 1
@@ -1053,9 +1049,13 @@ async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> Non
         assert counts["categories"]["terminal_outcome"] == 2
         assert counts["outstanding"] == 0
     assert _by_adapter(stale_report)["held"]["categories"]["unstarted_eligible"] == 1
+    retry_category = (
+        "retry_scheduled"
+        if datetime.fromisoformat(retry_due) > lease_ready
+        else "unstarted_eligible"
+    )
     assert (
-        _by_adapter(stale_report)[_REFUSER_ADAPTER]["categories"]["retry_scheduled"]
-        == 1
+        _by_adapter(stale_report)[_REFUSER_ADAPTER]["categories"][retry_category] == 1
     )
 
     # The reads mutate no application data while nothing else runs.
