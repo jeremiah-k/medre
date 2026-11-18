@@ -62,6 +62,7 @@ from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem, OutboxDispatchSnapshotWrite
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from scripts.ci.native_qualification import provider_provenance
 from tests.helpers.async_utils import wait_until
 from tests.integration.conftest import MeshtasticdEnvironment
 from tests.integration.conftest import meshtasticd_env as meshtasticd_env
@@ -124,8 +125,20 @@ def _record_evidence(scenario: str, payload: dict[str, Any]) -> None:
     root = os.environ.get("MEDRE_DEADLINE_EVIDENCE_DIR")
     if not root:
         return
+    checkout = os.environ.get("MEDRE_DEADLINE_PROVIDER_ROOT")
+    provider = (
+        provider_provenance(
+            Path(__file__).resolve().parents[2],
+            Path(checkout),
+            "meshtastic",
+            candidate_refs=os.environ.get("MEDRE_CI_CANDIDATE_REFS"),
+        )
+        if checkout
+        else None
+    )
     document = {
         "scenario": scenario,
+        "provider_provenance": provider,
         "mtjk_version": version("mtjk"),
         "adapter_module": MeshtasticAdapter.__module__,
         **payload,

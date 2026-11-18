@@ -223,6 +223,8 @@ jobs:
       # case failed, or when the SDK-invocation evidence artifact the
       # positive-control lane writes is missing.
       - name: Qualify Meshtastic native deadline enforcement
+        env:
+          MEDRE_DEADLINE_PROVIDER_ROOT: .adapters/medre-adapter-meshtastic
         run: |
           mkdir -p ci-artifacts/meshtasticd-deadline-fence
           MEDRE_DEADLINE_EVIDENCE_DIR=ci-artifacts/meshtasticd-deadline-fence \
@@ -233,12 +235,17 @@ jobs:
 
       - name: Enforce Meshtastic deadline enforcement execution
         if: always()
+        env:
+          MEDRE_DEADLINE_EXPECTED_REVISION: ${{ fromJSON(steps.adapters.outputs.by_transport).meshtastic.ref }}
         run: |
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
             --junit ci-artifacts/meshtasticd-deadline-fence/junit.xml \
             --expect-tests 4 \
             --require-artifact \
             'ci-artifacts/meshtasticd-deadline-fence/deadline-fence-sdk-evidence.json'
+          uv run --no-sync python scripts/ci/check_deadline_evidence.py \
+            ci-artifacts/meshtasticd-deadline-fence/deadline-fence-sdk-evidence.json \
+            --expected-revision "${MEDRE_DEADLINE_EXPECTED_REVISION}"
 
       - name: Upload Meshtastic deadline enforcement result
         if: success()
@@ -248,6 +255,15 @@ jobs:
           path: ci-artifacts/meshtasticd-deadline-fence/
           if-no-files-found: error
           retention-days: 90
+
+      - name: Upload Meshtastic deadline diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meshtasticd-deadline-fence-diagnostics
+          path: ci-artifacts/meshtasticd-deadline-fence/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Qualify Meshtastic core-authorized replay
         run: |
