@@ -233,6 +233,30 @@ separate temporary environment. Keeping that consumer path independent of uv
 checks that the package works outside its checkout and that optional SDKs do not
 leak into a core install. The proof requires network access.
 
+### Qualify released-artifact continuity
+
+`scripts/verify_released_artifact_continuity.py` qualifies released artifacts
+against the current build: an actual medre 0.1.0-created stopped database is
+reopened by a clean candidate wheel with stable event, reference, receipt and
+delivery identities, and the published Meshtastic 0.1.1 provider wheel is
+bridged at the core floor read from its own wheel metadata. It consumes
+sha256-pinned published wheels from a local cache:
+
+```bash
+mkdir -p ~/.cache/medre-review-venvs/slice3-d/artifacts
+python -m pip download --no-deps \
+    -d ~/.cache/medre-review-venvs/slice3-d/artifacts medre==0.1.0
+python -m pip download --no-deps \
+    -d ~/.cache/medre-review-venvs/slice3-d/artifacts medre-adapter-meshtastic==0.1.1
+python scripts/verify_released_artifact_continuity.py
+```
+
+`pytest tests/test_released_artifact_continuity.py` runs the same scenarios and
+skips cleanly while the cache is absent; a populated cache makes every run a
+real qualification, and a cached file whose digest differs from the pinned
+published artifact fails instead of passing. Throwaway installs need network
+access; no credentials or radio state participate.
+
 ## Existing pip Environments
 
 An activated pip virtual environment can continue to use:
