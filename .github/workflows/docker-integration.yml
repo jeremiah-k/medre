@@ -73,6 +73,13 @@ jobs:
           ref: ${{ fromJSON(steps.adapters.outputs.by_transport).meshtastic.ref }}
           path: .adapters/medre-adapter-meshtastic
           persist-credentials: false
+      - name: Checkout xmpp adapter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ fromJSON(steps.adapters.outputs.by_transport).xmpp.repository }}
+          ref: ${{ fromJSON(steps.adapters.outputs.by_transport).xmpp.ref }}
+          path: .adapters/medre-adapter-xmpp
+          persist-credentials: false
 
       # --- Docker image caching ---
       # Caches the Synapse image tar to avoid re-pulling on every run.
@@ -131,6 +138,7 @@ jobs:
           uv sync --locked --extra dev
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-matrix
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-meshtastic
+          uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-xmpp
 
       # --- Run tests ---
 
@@ -159,6 +167,40 @@ jobs:
         with:
           name: meshtasticd-core-replay-sdk-boundary
           path: ci-artifacts/meshtasticd-core-replay/junit.xml
+          if-no-files-found: error
+          retention-days: 90
+
+      # Prosody core-authorized exact-target replay: the same pinned-image
+      # selection as the adapter campaign lab
+      # (scripts/adapter_campaign/lab/images.json). The independent XMPP
+      # recipients and the bounded observation windows live in the test
+      # module; per-run verdict records are required as qualification
+      # artifacts so a partial upload cannot silently lose them.
+      - name: Qualify Prosody core-authorized replay
+        env:
+          MEDRE_PROSODY_IMAGE: prosodyim/prosody:13.0@sha256:0d4efc7c11018dfd863c9a25495efe706027de357a58a18ef02f8c484fb264ed
+          MEDRE_DOCKER_ARTIFACT_RUN_DIR: ${{ github.workspace }}/.ci-artifacts/prosody-core-replay
+        run: |
+          mkdir -p .ci-artifacts/prosody-core-replay
+          uv run --no-sync python -m pytest \
+            tests/native_qualification/test_prosody_exact_target_replay.py \
+            -m docker --timeout=300 -q \
+            --junitxml=.ci-artifacts/prosody-core-replay/junit.xml
+
+      - name: Enforce Prosody replay execution
+        if: always()
+        run: |
+          uv run --no-sync python scripts/ci/enforce_test_execution.py \
+            --junit .ci-artifacts/prosody-core-replay/junit.xml \
+            --expect-tests 2 \
+            --require-artifact ".ci-artifacts/prosody-core-replay/prosody-exact-target-*.json"
+
+      - name: Upload Prosody independently observed replay result
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prosody-core-replay-independent-recipients
+          path: .ci-artifacts/prosody-core-replay/
           if-no-files-found: error
           retention-days: 90
 
