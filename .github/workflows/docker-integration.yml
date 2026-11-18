@@ -212,8 +212,42 @@ jobs:
         with:
           name: prosody-core-replay-failure-diagnostics
           path: .ci-artifacts/prosody-core-replay/
-          if-no-files-found: warn
-          retention-days: 14
+        if-no-files-found: warn
+        retention-days: 14
+
+      # Native deadline enforcement through the same pinned SDK and daemon.
+      # The tier's outcome is the recorded SDK invocation and local queue
+      # feedback, not an RF observation: the daemon fixture has no
+      # independent radio reception and cannot cancel an earlier native
+      # send. The enforcement step fails when the lane was skipped, when a
+      # case failed, or when the SDK-invocation evidence artifact the
+      # positive-control lane writes is missing.
+      - name: Qualify Meshtastic native deadline enforcement
+        run: |
+          mkdir -p ci-artifacts/meshtasticd-deadline-fence
+          MEDRE_DEADLINE_EVIDENCE_DIR=ci-artifacts/meshtasticd-deadline-fence \
+            uv run --no-sync python -m pytest \
+            tests/native_qualification/test_meshtasticd_deadline_fence.py \
+            -m docker --timeout=300 -q \
+            --junitxml=ci-artifacts/meshtasticd-deadline-fence/junit.xml
+
+      - name: Enforce Meshtastic deadline enforcement execution
+        if: always()
+        run: |
+          uv run --no-sync python scripts/ci/enforce_test_execution.py \
+            --junit ci-artifacts/meshtasticd-deadline-fence/junit.xml \
+            --expect-tests 4 \
+            --require-artifact \
+            'ci-artifacts/meshtasticd-deadline-fence/deadline-fence-sdk-evidence.json'
+
+      - name: Upload Meshtastic deadline enforcement result
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meshtasticd-deadline-fence-sdk-boundary
+          path: ci-artifacts/meshtasticd-deadline-fence/
+          if-no-files-found: error
+          retention-days: 90
 
       # --- Post-run: save image caches ---
 
