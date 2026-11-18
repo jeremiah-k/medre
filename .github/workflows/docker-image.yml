@@ -42,6 +42,8 @@ jobs:
         run: python3 scripts/ci/validate_release_version.py --tag "$RELEASE_TAG"
       - name: Build all providers at committed compatibility revisions
         run: python3 scripts/docker/build.py --tag medre:ci --platform linux/amd64
+      - name: Verify default image runtime identity
+        run: test "$(docker image inspect --format '{{.Config.User}}' medre:ci)" = "1000:1000"
       - name: Verify installed providers and offline native initialization
         run: |
           docker run --rm --network none --read-only --tmpfs /tmp --entrypoint python medre:ci /opt/verify-image.py > installed.json
