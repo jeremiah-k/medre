@@ -15,6 +15,12 @@ from .sources import write_json
 
 def configure(directory: Path, images: dict[str, str], project: str, mas: dict) -> None:
     config = directory / "config"
+    # Synapse keeps its state under the private lab directory instead of a
+    # named volume: this host identity creates and owns the bind target before
+    # any container starts, so the homeserver runs unprivileged and no
+    # root-mode ownership step inside Docker is ever needed.
+    synapse_data = directory / "data" / "synapse"
+    synapse_data.mkdir(parents=True, mode=0o700)
     password = secrets.token_urlsafe(32)
     shared = secrets.token_hex(32)
     write_json(
@@ -124,6 +130,10 @@ Component "rooms.xmpp.lab.test" "muc"
   modules_enabled = { "muc_mam"; }
 """)
     services: dict = {
+        # Policy exception: the official entrypoint chowns the data directory
+        # as root and then demotes to its own postgres user (UID 70 on this
+        # alpine image); the data path is a named volume, so no root-owned
+        # path ever reaches a host bind mount.
         "postgres": {
             "image": images["postgres"],
             "environment": {
@@ -139,19 +149,30 @@ Component "rooms.xmpp.lab.test" "muc"
                 "retries": 30,
             },
         },
+        # The MAS image pins the distroless nonroot identity (UID/GID 65532).
         "mas": {
             "image": images["mas"],
+            "user": "65532:65532",
             "command": ["server", "--config", "/config/mas.yaml"],
             "depends_on": {"postgres": {"condition": "service_healthy"}},
             "volumes": [f"{config}:/config:ro"],
         },
+        # The image's start.py only demotes with a pre-owned data directory:
+        # the bind target above is created host-side, so the homeserver runs
+        # as this host identity exactly like the runner service.
         "synapse": {
             "image": images["synapse"],
+            "user": f"{os.getuid()}:{os.getgid()}",
             "environment": {"SYNAPSE_CONFIG_PATH": "/config/synapse.yaml"},
-            "volumes": [f"{config}:/config:ro", "synapse:/data"],
+            "volumes": [f"{config}:/config:ro", f"{synapse_data}:/data"],
         },
+        # The Caddy image ships no non-root user; UID/GID 1000 with the
+        # ambient NET_BIND_SERVICE capability serves the TLS listener while
+        # the config bind stays read-only and storage remains container-local.
         "proxy": {
             "image": images["caddy"],
+            "user": "1000:1000",
+            "cap_add": ["NET_BIND_SERVICE"],
             "volumes": [f"{config}:/config:ro"],
             "command": [
                 "caddy",
@@ -163,6 +184,10 @@ Component "rooms.xmpp.lab.test" "muc"
             ],
             "networks": {"default": {"aliases": ["matrix.lab.test", "auth.lab.test"]}},
         },
+        # Policy exception: the entrypoint aligns the prosody user with the
+        # data directory owner and demotes via runuser; the config and
+        # certificate binds are read-only and the database is a named volume,
+        # so no root-owned path reaches the host.
         "xmpp": {
             "image": images["xmpp"],
             "volumes": [
@@ -174,12 +199,19 @@ Component "rooms.xmpp.lab.test" "muc"
                 "default": {"aliases": ["xmpp.lab.test", "rooms.xmpp.lab.test"]}
             },
         },
+        # The image pins the greenmail identity (UID/GID 999); no volumes.
         "mail": {
             "image": images["mail"],
+            "user": "999:999",
             "environment": {
                 "GREENMAIL_OPTS": f"-Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=bot:{password}@chatmail.test,peer:{password}@chatmail.test"
             },
         },
+        # Policy exception: this image's entrypoint performs no demotion and
+        # initializes its state under root-owned named volumes; it bind-mounts
+        # nothing, so no root-owned path reaches the host filesystem. There is
+        # no unprivileged setup path that would not require a root-mode
+        # provisioning container of our own.
         "smp": {
             "image": images["smp"],
             "environment": {"ADDR": "smp.lab.test", "WEB_MANUAL": "1"},
@@ -242,8 +274,7 @@ Component "rooms.xmpp.lab.test" "muc"
             "services": services,
             "networks": {"default": {"internal": True}},
             "volumes": {
-                key: {}
-                for key in ("postgres", "synapse", "xmpp", "smp-config", "smp-state")
+                key: {} for key in ("postgres", "xmpp", "smp-config", "smp-state")
             },
         },
     )
