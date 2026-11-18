@@ -415,11 +415,11 @@ async def _stage(
     admission_ms: list[float] | None = None,
 ) -> None:
     """Admit one event durably and stage its outbox obligations."""
+    started = time.perf_counter()
     admitted = await runner.admit_ingress(_event(event_id, channel), "live")
     if not admitted.created or admitted.event_id != event_id:
         raise RuntimeError(f"{event_id}: expected a new durable admission")
     ingress = DurableIngressWorker(storage=store, pipeline=runner, batch_size=1)
-    started = time.perf_counter()
     processed = await ingress.run_once()
     if admission_ms is not None:
         admission_ms.append((time.perf_counter() - started) * 1000)
@@ -443,23 +443,26 @@ async def _stage_expired_rows(
     predicate so no dispatcher cycle can race the sweep. The sweep observes
     the durable expiry mid-run and is the only path that may settle them.
     """
-    ceiling_at = datetime.now(timezone.utc) + timedelta(
-        seconds=_EXPIRED_CEILING_SECONDS
-    )
+    ceiling_at = datetime.now(timezone.utc)
     parked_until = datetime.now(timezone.utc) + timedelta(seconds=_EXPIRED_PARK_SECONDS)
     for index in range(rows):
         event_id = f"expired-{index:04d}"
         started = time.perf_counter()
+        ceiling_at = datetime.now(timezone.utc) + timedelta(
+            seconds=_EXPIRED_CEILING_SECONDS
+        )
         # History provenance suppresses the durable work marker so the
         # ingress worker's FIFO queue only ever carries the measured events;
         # the ceiling rows and source hold commit exactly as production
         # writes them.
-        await store.admit_ingress(
+        admitted = await store.admit_ingress(
             _event(event_id, _EXPIRED_CHANNEL),
             None,
             "history",
             content_deadline=ceiling_at,
         )
+        if not admitted.created or admitted.event_id != event_id:
+            raise RuntimeError(f"{event_id}: expected new ceiling-bearing admission")
         await store.create_outbox_item(
             DeliveryOutboxItem(
                 outbox_id=f"obox-{event_id}",
@@ -581,12 +584,6 @@ async def _run_profile(
         # constructed: the poll cycle captures the sweep surface once.
         sweep_probe = _SweepProbe(store)
         sweep_probe.install()
-        # Expired obligations exist before the first poll cycle so the sweep
-        # sees them from its first pass; each is parked unclaimable.
-        expired_admission_ms: list[float] = []
-        expired_at = await _stage_expired_rows(
-            store, rows=profile.expired_rows, admission_ms=expired_admission_ms
-        )
         dispatcher = RetryWorker(
             store,
             runner,
@@ -631,6 +628,13 @@ async def _run_profile(
                 f"held row state unexpected: {held_row.status}/"
                 f"{held_row.active_attempt}"
             )
+
+        # Stage while the real dispatcher is active, with a fresh producer
+        # ceiling per row; slow staging cannot exhaust a shared setup clock.
+        expired_admission_ms: list[float] = []
+        expired_at = await _stage_expired_rows(
+            store, rows=profile.expired_rows, admission_ms=expired_admission_ms
+        )
 
         for round_index in range(profile.healthy_batches):
             staged_at = time.perf_counter()
@@ -727,6 +731,18 @@ async def _run_profile(
         # obligation; the disabled policy leaves all of them pending. The
         # probe wraps the exact surface the worker captured, so its counts
         # and the worker's own sweep counters must agree.
+        await _poll_until(
+            lambda: datetime.now(timezone.utc) >= expired_at,
+            timeout=_EXPIRED_CEILING_SECONDS + 10,
+            description="last parked ceiling did not elapse",
+        )
+        if profile.deadline_sweep_enabled:
+            await _poll_until(
+                lambda: sweep_probe.retired_total == profile.expired_rows
+                and dispatcher.state.deadline_retired == profile.expired_rows,
+                timeout=30.0,
+                description="deadline sweep did not retire all parked rows",
+            )
         retired_expired = sweep_probe.retired_total
         if profile.deadline_sweep_enabled:
             if retired_expired != profile.expired_rows:
@@ -909,8 +925,8 @@ async def _run_profile(
         "writer_wait": {
             "note": (
                 "durable admission latency (runner ingress plus staging commit) "
-                "sampled per staged event during active work, including the "
-                "expired-obligation staging writes"
+                "sampled per fresh event during active work; parked ceiling "
+                "staging is reported separately"
             ),
             "fresh_admission_ms": {
                 **_timings(admission_ms),

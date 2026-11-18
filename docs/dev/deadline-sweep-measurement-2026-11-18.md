@@ -55,11 +55,12 @@ invocations and 18/18 healthy rows, matching the recorded run below.
 
 Under this profile the sweep is cheap and bounded: eleven invocations
 retiring 60 rows cost at most about 22 ms per invocation while parked in the
-worker's poll cycle, and no recorded writer, claim, count, healthy-lane or
-footprint field regressed beyond run-to-run noise (healthy completion
-latency rides the 0.5 s poll cadence in both runs; its 1082 ms maximum in
-the enabled run is within the spread of the repeat runs). No hotspot was
-demonstrated, so no product correction is proposed from this measurement.
+worker's poll cycle, and the recorded healthy-lane maximum was 1082 ms. Only one run per
+condition has recorded timings; the observed latency differences cannot
+be attributed to sweep cost or dismissed as run-to-run noise. These
+historical timings predate the revised staging and retirement barriers;
+refresh them before comparing profiles. No product correction is justified
+by this measurement alone.
 
 ## Limits
 
