@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -1280,3 +1281,273 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
         )
     logger.info("Stopping meshtasticd container %s", container)
     _docker_run(["rm", "-f", container], timeout=30)
+
+
+# ---------------------------------------------------------------------------
+# Prosody fixtures
+# ---------------------------------------------------------------------------
+
+# Tag-only by design: this default fires only for local runs without
+# MEDRE_PROSODY_IMAGE set. CI pins the full image@digest (the adapter
+# campaign lab's Prosody selection). Keep the tag aligned with
+# scripts/adapter_campaign/lab/images.json when bumping versions.
+_PROSODY_IMAGE = os.environ.get("MEDRE_PROSODY_IMAGE", "prosodyim/prosody:13.0")
+_PROSODY_PORT = int(os.environ.get("MEDRE_PROSODY_PORT", "15222"))
+_PROSODY_DOMAIN = "xmpp.lab.test"
+_PROSODY_MUC_DOMAIN = "rooms.xmpp.lab.test"
+_PROSODY_ACCOUNTS = ("admin", "medre-bot", "observer-a", "observer-b")
+
+
+class ProsodyEnvironment:
+    """Holds connection details and per-run private accounts for Prosody.
+
+    Account passwords are generated per session with ``secrets`` and live
+    only in this object; they are never written to config snapshots,
+    artifacts, or logs.
+    """
+
+    def __init__(
+        self,
+        container_name: str,
+        host: str,
+        port: int,
+        config_dir: Path,
+        ca_path: Path,
+        image: str,
+    ) -> None:
+        self.container_name = container_name
+        self.host = host
+        self.port = port
+        self.config_dir = config_dir
+        self.ca_path = ca_path
+        self.image = image
+        self.domain = _PROSODY_DOMAIN
+        self.muc_domain = _PROSODY_MUC_DOMAIN
+        self._accounts: dict[str, str] = {}
+
+    def register_account(self, localpart: str, password: str) -> None:
+        """Record one account provisioned through prosodyctl."""
+        self._accounts[localpart] = password
+
+    def jid(self, localpart: str) -> str:
+        return f"{localpart}@{self.domain}"
+
+    def password(self, localpart: str) -> str:
+        return self._accounts[localpart]
+
+    def room_jid(self, room: str) -> str:
+        return f"{room}@{self.muc_domain}"
+
+
+def _generate_prosody_certs(config_dir: Path) -> Path:
+    """Create a throwaway CA and server certificate for the fixture."""
+    san = (
+        "subjectAltName=DNS:xmpp.lab.test,DNS:rooms.xmpp.lab.test,"
+        "DNS:localhost,IP:127.0.0.1"
+    )
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-sha256",
+            "-days",
+            "3",
+            "-nodes",
+            "-keyout",
+            str(config_dir / "ca.key"),
+            "-out",
+            str(config_dir / "ca.crt"),
+            "-subj",
+            "/CN=medre-prosody-fixture-ca",
+            # OpenSSL verification refuses a CA without an explicit key usage.
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-newkey",
+            "rsa:2048",
+            "-sha256",
+            "-nodes",
+            "-keyout",
+            str(config_dir / "server.key"),
+            "-out",
+            str(config_dir / "server.csr"),
+            "-subj",
+            "/CN=xmpp.lab.test",
+            "-addext",
+            san,
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    ext_file = config_dir / "server.ext"
+    ext_file.write_text(san + "\n")
+    subprocess.run(
+        [
+            "openssl",
+            "x509",
+            "-req",
+            "-in",
+            str(config_dir / "server.csr"),
+            "-CA",
+            str(config_dir / "ca.crt"),
+            "-CAkey",
+            str(config_dir / "ca.key"),
+            "-CAcreateserial",
+            "-days",
+            "3",
+            "-sha256",
+            "-out",
+            str(config_dir / "server.crt"),
+            "-extfile",
+            str(ext_file),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    # The container runs Prosody as its own unprivileged user; the key must
+    # be readable through the read-only bind mount. This is a per-run
+    # throwaway key that is deleted with the config directory.
+    config_dir.joinpath("server.key").chmod(0o644)
+    return config_dir / "ca.crt"
+
+
+@pytest.fixture(scope="session")
+def prosody_env() -> Generator[ProsodyEnvironment, None, None]:
+    """Start a disposable Prosody server and yield connection details.
+
+    The container, its named volume, and the generated private credential
+    material are removed on teardown. ``medre-lab-*`` containers created by
+    other campaigns are never touched.
+    """
+    if not _DOCKER_AVAILABLE or _SKIP_DOCKER:
+        pytest.skip("Docker not available or MEDRE_SKIP_DOCKER is set")
+        return
+
+    if not _docker_is_running():
+        pytest.skip("Docker daemon is not running")
+        return
+
+    container = f"{_SESSION_PREFIX}-prosody"
+    volume = f"{_SESSION_PREFIX}-prosody-data"
+    config_dir = _ARTIFACT_DIR / "prosody"
+
+    if _container_exists(container):
+        _docker_run(["rm", "-f", container], timeout=30)
+
+    if config_dir.exists():
+        shutil.rmtree(config_dir, ignore_errors=True)
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        ca_path = _generate_prosody_certs(config_dir)
+    except (subprocess.SubprocessError, OSError) as exc:
+        shutil.rmtree(config_dir, ignore_errors=True)
+        pytest.fail(f"Prosody fixture certificate generation failed: {exc}")
+        return
+
+    (config_dir / "prosody.cfg.lua").write_text("""admins = { "admin@xmpp.lab.test" }
+certificates = "/certs"
+modules_enabled = { "roster"; "saslauth"; "tls"; "disco"; "ping"; "version"; "uptime"; "carbons"; "smacks"; "mam"; }
+authentication = "internal_hashed"
+c2s_require_encryption = true
+allow_registration = false
+c2s_ports = {5222}
+s2s_ports = {}
+pidfile = "/var/run/prosody/prosody.pid"
+log = { {levels = {min = "info"}, to = "console"}; }
+VirtualHost "xmpp.lab.test"
+  ssl = { key = "/certs/server.key"; certificate = "/certs/server.crt"; }
+Component "rooms.xmpp.lab.test" "muc"
+  restrict_room_creation = false
+  modules_enabled = { "muc_mam"; }
+""")
+
+    _ensure_image(_PROSODY_IMAGE)
+
+    subprocess.run(["docker", "volume", "rm", volume], capture_output=True, timeout=30)
+
+    env = ProsodyEnvironment(
+        container_name=container,
+        host="localhost",
+        port=_PROSODY_PORT,
+        config_dir=config_dir,
+        ca_path=ca_path,
+        image=_PROSODY_IMAGE,
+    )
+
+    try:
+        _docker_run(
+            [
+                "run",
+                "-d",
+                "--name",
+                container,
+                "-p",
+                f"127.0.0.1:{_PROSODY_PORT}:5222",
+                "-v",
+                f"{volume}:/var/lib/prosody",
+                "-v",
+                f"{config_dir}:/etc/prosody:ro",
+                "-v",
+                f"{config_dir}:/certs:ro",
+                _PROSODY_IMAGE,
+            ],
+            timeout=60,
+        )
+        if not _wait_for_tcp(env.host, env.port, timeout=_READY_TIMEOUT):
+            pytest.fail(f"Prosody did not become ready within {_READY_TIMEOUT}s")
+
+        for localpart in _PROSODY_ACCOUNTS:
+            password = secrets.token_urlsafe(16)
+            _docker_run(
+                [
+                    "exec",
+                    container,
+                    "prosodyctl",
+                    "register",
+                    localpart,
+                    _PROSODY_DOMAIN,
+                    password,
+                ],
+                timeout=30,
+            )
+            env.register_account(localpart, password)
+
+        logger.info(
+            "Prosody ready on %s:%s (domain %s)",
+            env.host,
+            env.port,
+            env.domain,
+        )
+        yield env
+    finally:
+        if _RUN_ARTIFACT_DIR is not None:
+            _capture_container_logs(container, "prosody.log")
+            _write_run_metadata(
+                scenario="prosody_exact_target_replay",
+                containers={"prosody": container},
+                extras={"prosody_domain": env.domain},
+            )
+        logger.info("Stopping Prosody container %s", container)
+        subprocess.run(
+            ["docker", "rm", "-f", container], capture_output=True, timeout=30
+        )
+        subprocess.run(
+            ["docker", "volume", "rm", volume], capture_output=True, timeout=30
+        )
+        shutil.rmtree(config_dir, ignore_errors=True)
