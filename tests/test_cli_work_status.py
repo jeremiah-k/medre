@@ -104,13 +104,8 @@ async def _claim_row(
     )
 
 
-def _table_row_count(db: sqlite3.Connection, name: str) -> int:
-    """Row count for one table whose name came from sqlite_master."""
-    sql = f'SELECT COUNT(*) FROM "{name}"'  # nosec B608 - sqlite_master name
-    return int(db.execute(sql).fetchone()[0])
-
-
-def _application_counts(db_path: str) -> dict[str, int]:
+def _application_counts(db_path: str) -> dict[str, list[tuple]]:
+    """Full row contents and table inventory, not just row counts."""
     db = sqlite3.connect(str(db_path))
     try:
         names = [
@@ -120,7 +115,14 @@ def _application_counts(db_path: str) -> dict[str, int]:
                 " WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             )
         ]
-        return {name: _table_row_count(db, name) for name in names}
+        return {
+            name: sorted(
+                db.execute(
+                    f'SELECT * FROM "{name}"'  # nosec B608 - sqlite_master name
+                ).fetchall()
+            )
+            for name in names
+        }
     finally:
         db.close()
 
@@ -214,25 +216,32 @@ def test_work_status_human_output_is_metadata_only(tmp_path: Path) -> None:
     assert "uncertain outcome 1" in output
     assert "terminal 2" in output
     assert "held: outstanding 2 of 2 current" in output
-    assert "unrecognized" not in output or True
+    assert "Unrecognized states:" not in output
+    assert "unrecognized 0" not in output
     assert "no attempt evidence" in output
-    # The suggested command is shell-joined exactly as printed; on Windows
-    # the backslash path is quoted by the same join the CLI applies.
+    import os
     import shlex
 
-    assert (
-        shlex.join(
-            [
-                "medre",
-                "inspect",
-                "event",
-                "evt-ws-hold",
-                "--recovery",
-                f"--storage-path={db_path}",
-            ]
-        )
-        in output
-    )
+    line = next(line for line in output.splitlines() if "next inspection (" in line)
+    rendered = line.partition(": ")[2]
+    if os.name == "nt":
+        assert "argument list, not shell code" in line
+        args = json.loads(rendered)
+    else:
+        assert "POSIX shell" in line
+        args = shlex.split(rendered)
+    assert args == [
+        "medre",
+        "inspect",
+        "event",
+        "--recovery",
+        f"--storage-path={db_path}",
+        "--",
+        "evt-ws-hold",
+    ]
+    assert "plan=" in output and "channel=" in output
+    recovery = _run_cli(*args[1:])
+    assert "evt-ws-hold" in recovery
     assert "lane-a: outstanding 0 of 2 current" in output
     assert "Raw outbox states (all retained rows):" in output
     assert "Retained history:" in output
@@ -325,3 +334,28 @@ def test_work_status_reports_unavailable_storage_honestly(tmp_path: Path) -> Non
     assert code != 0
     assert "Work status" in stderr or "Storage error" in stderr
     assert stdout == ""
+
+
+def test_work_status_rejects_empty_adapter(tmp_path: Path) -> None:
+    stdout, stderr, code = _run_cli_raw(
+        "inspect",
+        "work-status",
+        "--storage-path",
+        str(tmp_path / "missing.sqlite"),
+        "--adapter=",
+        "--json",
+    )
+    assert code != 0 and not stdout
+    assert "adapter name must not be empty" in stderr
+
+
+def test_followup_arguments_preserve_dash_id_and_spaces(tmp_path: Path) -> None:
+    from medre.cli.inspect_commands import _work_status_next_inspection
+    from medre.cli.main import _build_parser
+
+    path = str(tmp_path / "Bridge Data" / "store.sqlite")
+    args = _work_status_next_inspection("-incident", storage_path=path)
+    parsed = _build_parser(include_adapter_cli=False).parse_args(args[1:])
+    assert parsed.event_id == "-incident"
+    assert parsed.storage_path == path
+    assert parsed.recovery

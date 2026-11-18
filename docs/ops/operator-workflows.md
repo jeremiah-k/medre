@@ -251,13 +251,24 @@ medre inspect work-status --json --storage-path /path/to/medre.sqlite
 
 The command reads one consistent snapshot of durable storage and reports,
 per destination, how many current delivery generations are outstanding and
-why: eligible but unstarted, scheduled for a future retry, reserved by an
-active attempt, or admitted to a native queue. Each destination shows the
-oldest outstanding item with its precise age origin (admission, claim,
-queue admission, or retry-due time), recorded uncertainty, and the exact
-read-only `inspect event --recovery` command that shows that item's full
-delivery facts. Reading it starts no adapter, opens no native profile, and
-submits, replays, retires, or migrates nothing.
+why: recorded unstarted work, scheduled future retry, reserved work, or
+native queue admission. These categories and grace flags are not worker
+claimability checks. Each destination shows the oldest known anchor (or an
+item with unknown age when none are usable), its precise age origin, the
+selected delivery identity, and a read-only event-level inspection of its
+recovery facts. Match the plan and channel in that inspection; an event
+may have multiple deliveries. POSIX shells receive a quoted command;
+Windows receives a JSON argument list (not shell code). Pass those arguments
+to `medre`, preserving each item, for example from a Python subprocess.
+The live comparison clock is sampled just after pinning the snapshot;
+an explicit comparison time does not reconstruct a historical database.
+Offset-aware timestamps are compared as instants. Missing or unusable
+anchors give unknown age; an unusable retry deadline does not prove it is due.
+The view does not normalize retained data or change scheduler eligibility.
+For noncanonical legacy timestamp spellings the current dispatch guards may
+compare differently; inspect the exact delivery before acting. Reading the
+view starts no adapter, opens no native profile, and submits, replays,
+retires, or migrates nothing.
 
 **Normal operation** looks like pending work draining to terminal states
 between samples, with `outstanding` shrinking as deliveries complete:
@@ -273,24 +284,30 @@ cooldown is distinguishable from stuck work:
 
 ```text
     matrix: outstanding 1 of 1 current (unstarted 0, scheduled 1, ...)
-      oldest outstanding: retry scheduled at 2026-11-18T09:30:00+00:00 (due in 2400s)
+      oldest outstanding: retry scheduled at 2026-11-18T09:30:00+00:00 (due in at most 2400s)
 ```
 
 **Uncertain outcomes** are labeled, never resolved into guesses. A reserved
-generation without attempt evidence, or with a missing or expired lease,
-reports both facts — the view cannot prove a live native send or owner
-liveness, and says so:
+generation can lack matching attempt evidence, have a missing, unusable
+or expired lease, or both. Each flag is reported independently — the
+view cannot prove a live native send or owner liveness, and says so:
 
 ```text
     chatmail: outstanding 1 of 1 current (unstarted 0, scheduled 0, reserved/active 1, ...)
       uncertainty: 1 reserved generation(s) carry no attempt evidence: whether a
       native send occurred is unknown
-      next inspection: medre inspect event ... --recovery
+      next inspection (event-level, POSIX shell): medre inspect event --recovery ... -- EVENT
 ```
 
-Unknown is not zero: absent or unreadable facts stay visible as unknown,
-and `sent` means local terminal acceptance, never independent confirmation
-of recipient delivery.
+An `abandoned` generation is a settled local uncertain outcome, not
+outstanding reserved work. A destination may show no outstanding work and
+still have abandoned outcomes. Use the read-only SQL inventory above
+(`status IN ('dead_lettered', 'abandoned')`) to locate affected event IDs,
+then inspect each event with `medre inspect event --recovery`.
+
+Unknown is not zero: it describes facts a readable snapshot cannot establish.
+An unavailable database produces a nonzero exit and no summary. `sent`
+means local terminal acceptance, never independent recipient confirmation.
 
 ## Preferred Product Path
 

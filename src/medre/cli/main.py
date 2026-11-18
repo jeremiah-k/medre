@@ -87,6 +87,12 @@ def _preview_repeat(value: str) -> int:
     return repeat
 
 
+def _nonempty_adapter_name(value: str) -> str:
+    if not value:
+        raise argparse.ArgumentTypeError("adapter name must not be empty")
+    return value
+
+
 def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParser:
     from medre.core.storage.backend import (
         DEFAULT_RECOVERY_PAGE_LIMIT,
@@ -751,6 +757,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     )
     inspect_work.add_argument(
         "--adapter",
+        type=_nonempty_adapter_name,
         default=None,
         metavar="NAME",
         help="Scope every aggregate to one target adapter (the scope is stated in the output)",
