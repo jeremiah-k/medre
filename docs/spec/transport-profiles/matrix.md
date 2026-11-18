@@ -467,8 +467,8 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `last_stale_sync_at`                       | `float \| None` | Monotonic time of last stale-progress detection        |
 | `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements          |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                       |
-| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint                 |
-| `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored    |
+| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the upstream Classic Sync cursor            |
+| `committed_checkpoint_present`             | `bool`          | Committed application or Classic migration evidence    |
 | `recovered_event_count`                    | `int`           | Recovered timeline events seen at admission            |
 | `history_event_count`                      | `int`           | Cold-history timeline events seen at admission         |
 | `recovery_abandoned_room_count`            | `int`           | Rooms with recorded unrecoverable history              |
