@@ -266,6 +266,38 @@ async def test_reserved_without_generation_receipt_flag(tmp_path: Path) -> None:
         await store.close()
 
 
+async def test_claim_window_row_carries_no_attempt_evidence(tmp_path: Path) -> None:
+    """A claim that never reached attempt reservation must fire the flag.
+
+    ``claim_due_outbox_items`` sets ``in_progress`` with a fresh lease
+    before ``reserve_outbox_attempt`` records the attempt number. A crash
+    inside that window leaves a reserved generation with no attempt
+    evidence at all; the view must report that uncertainty instead of a
+    clean reserved/active row, and the expected attempt for a matching
+    receipt is the next unreserved one.
+    """
+    store = SQLiteStorage(str(tmp_path / "claim-window.sqlite"))
+    try:
+        await store.initialize()
+        event = await _stage_event(store)
+        row = await _add_row(store, event.event_id)
+        await _claim_row(store, row)  # in_progress + live lease, no reservation
+        summary = await store.query_work_status_summary(sampled_at=_sampled_at())
+        flags = summary["adapter_rows"][0]
+        assert flags["reserved_active"] == 1
+        assert flags["reserved_without_generation_receipt"] == 1
+        assert flags["lease_missing_or_expired"] == 0
+
+        # The receipt that would clear the flag is the next attempt number,
+        # not the row's stored (pre-claim) attempt counter.
+        receipt = _make_receipt(store, row, attempt_number=1, status="queued")
+        await store.append_receipt(receipt)
+        summary = await store.query_work_status_summary(sampled_at=_sampled_at())
+        assert summary["adapter_rows"][0]["reserved_without_generation_receipt"] == 0
+    finally:
+        await store.close()
+
+
 async def test_lease_and_queue_staleness_flags(tmp_path: Path) -> None:
     store = SQLiteStorage(str(tmp_path / "work.sqlite"))
     try:

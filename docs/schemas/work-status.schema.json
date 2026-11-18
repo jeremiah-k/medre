@@ -295,7 +295,7 @@
       ],
       "properties": {
         "reserved_without_generation_receipt": {
-          "description": "Reserved generations with an active attempt but without a matching attempt receipt for the same delivery identity, outbox and attempt. Whether a native send occurred is unknown.",
+          "description": "Reserved generations without a matching attempt receipt for the same delivery identity, outbox and attempt — including claimed rows whose attempt is not yet reserved. Whether a native send occurred is unknown.",
           "type": "integer",
           "minimum": 0
         },

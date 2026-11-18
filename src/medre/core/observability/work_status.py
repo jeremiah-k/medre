@@ -229,8 +229,9 @@ class WorkStatusUncertainty:
     excludes a live native send.
     """
 
-    #: Reserved generations with an active attempt but no matching attempt
-    #: receipt for their delivery identity: native send is unknown.
+    #: Reserved generations without any matching attempt receipt for
+    #: their delivery identity — including claimed rows whose attempt is
+    #: not yet reserved: native send is unknown.
     reserved_without_generation_receipt: int = 0
     #: Reserved generations whose recorded lease is missing or expired at
     #: the sampled time: recorded-owner liveness is unknown. This is not
