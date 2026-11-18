@@ -509,3 +509,23 @@ def test_stack_refuses_root_host_identity(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="unprivileged"):
         configure(tmp_path, {}, "medre-lab-fixture", {})
     assert not (tmp_path / "compose.json").exists()
+
+
+def test_synapse_requires_existing_host_bind_and_loopback():
+    import yaml
+
+    compose = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1] / "docker-compose.integration.yaml"
+        ).read_text()
+    )
+    service = compose["services"]["synapse"]
+    assert service["volumes"] == [
+        {
+            "type": "bind",
+            "source": "./data/synapse",
+            "target": "/data",
+            "bind": {"create_host_path": False},
+        }
+    ]
+    assert service["ports"] == ["127.0.0.1:${MEDRE_SYNAPSE_PORT:-8008}:8008"]

@@ -34,7 +34,11 @@ services:
     ports:
       - "127.0.0.1:${MEDRE_SYNAPSE_PORT:-8008}:8008"
     volumes:
-      - ./data/synapse:/data
+      - type: bind
+        source: ./data/synapse
+        target: /data
+        bind:
+          create_host_path: false
     environment:
       SYNAPSE_SERVER_NAME: localhost
       SYNAPSE_REPORT_STATS: "no"

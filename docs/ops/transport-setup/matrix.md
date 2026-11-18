@@ -62,7 +62,7 @@ Run Synapse as your own unprivileged user; create its data directory first so
 the container never needs root:
 
 ```bash
-mkdir -p synapse-data
+mkdir -m 700 -p synapse-data
 # Generate the initial homeserver config into the host-owned directory.
 docker run --rm --user "$(id -u):$(id -g)" \
   -e SYNAPSE_SERVER_NAME=localhost \
@@ -70,7 +70,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
   -v "$PWD/synapse-data:/data" \
   matrixdotorg/synapse:latest generate
 
-docker run -d --name synapse -p 8008:8008 \
+docker run -d --name synapse -p 127.0.0.1:8008:8008 \
   --user "$(id -u):$(id -g)" \
   -e SYNAPSE_SERVER_NAME=localhost \
   -e SYNAPSE_REPORT_STATS=no \
