@@ -178,6 +178,7 @@ jobs:
       # artifacts so a partial upload cannot silently lose them.
       - name: Qualify Prosody core-authorized replay
         env:
+          MEDRE_XMPP_PROVIDER_ROOT: .adapters/medre-adapter-xmpp
           MEDRE_PROSODY_IMAGE: prosodyim/prosody:13.0@sha256:0d4efc7c11018dfd863c9a25495efe706027de357a58a18ef02f8c484fb264ed
           MEDRE_DOCKER_ARTIFACT_RUN_DIR: ${{ github.workspace }}/.ci-artifacts/prosody-core-replay
         run: |
@@ -193,7 +194,8 @@ jobs:
           uv run --no-sync python scripts/ci/enforce_test_execution.py \
             --junit .ci-artifacts/prosody-core-replay/junit.xml \
             --expect-tests 2 \
-            --require-artifact ".ci-artifacts/prosody-core-replay/prosody-exact-target-*.json"
+            --require-artifact .ci-artifacts/prosody-core-replay/prosody-exact-target-replay.json \
+            --require-artifact .ci-artifacts/prosody-core-replay/prosody-exact-target-refusals.json
 
       - name: Upload Prosody independently observed replay result
         if: success()
@@ -203,6 +205,15 @@ jobs:
           path: .ci-artifacts/prosody-core-replay/
           if-no-files-found: error
           retention-days: 90
+
+      - name: Upload Prosody failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prosody-core-replay-failure-diagnostics
+          path: .ci-artifacts/prosody-core-replay/
+          if-no-files-found: warn
+          retention-days: 14
 
       # --- Post-run: save image caches ---
 

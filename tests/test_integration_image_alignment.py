@@ -228,3 +228,12 @@ def test_run_script_comment_matches_compose(label: str, repo: str, env: str) -> 
     assert match.group(1) == tag, (
         f"script {label} tag drifted: compose is {tag}, " f"script is {match.group(1)}"
     )
+
+
+def test_prosody_workflow_pin_matches_campaign_lab():
+    import json
+
+    images = json.loads(
+        (_WORKFLOW.parents[2] / "scripts/adapter_campaign/lab/images.json").read_text()
+    )
+    assert f"MEDRE_PROSODY_IMAGE: {images['xmpp']}" in _read(_WORKFLOW)
