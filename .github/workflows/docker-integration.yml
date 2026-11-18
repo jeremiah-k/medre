@@ -212,8 +212,8 @@ jobs:
         with:
           name: prosody-core-replay-failure-diagnostics
           path: .ci-artifacts/prosody-core-replay/
-        if-no-files-found: warn
-        retention-days: 14
+          if-no-files-found: warn
+          retention-days: 14
 
       # Native deadline enforcement through the same pinned SDK and daemon.
       # The tier's outcome is the recorded SDK invocation and local queue
