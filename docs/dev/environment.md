@@ -297,3 +297,9 @@ refs cannot be combined with merged/local verification or pin promotion.
 Normal pull-request and push runs continue to qualify the committed pins.
 After coordinated changes land, promote their actual merged adapter commits
 and rerun qualification against those committed pins.
+
+For a qualification decision, pass `--require-artifacts` to the released-artifact
+continuity driver. Without it a missing local cache reports `skipped`, not a
+qualified result. The two scenarios use separate fresh child directories; do
+not reuse a populated sandbox. The reopen verdict compares persisted state
+and schema stamps, not an instrumented count of migration function calls.
