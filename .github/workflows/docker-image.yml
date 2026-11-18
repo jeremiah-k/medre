@@ -90,8 +90,11 @@ jobs:
           name = "medre-image-runtime"
           config = os.environ["RUNNER_TEMP"] + "/medre-image/config.yaml"
           snapshot_path = "/data/image-shutdown-" + uuid.uuid4().hex + ".json"
+          # Explicit unprivileged identity; the image pins USER 1000:1000 and
+          # initializes the named volume's ownership from its own /data.
           subprocess.run([
               "docker", "run", "--detach", "--name", name, "--read-only", "--tmpfs", "/tmp",
+              "--user", "1000:1000",
               "-v", "medre-image-ci:/data", "-v", config + ":/data/config.yaml:ro", "medre:ci", "run", "--snapshot-on-shutdown", snapshot_path
           ], check=True)
           try:
