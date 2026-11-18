@@ -354,7 +354,7 @@ def _metadata_readback(venv: Path, work: Path, env: dict[str, str]) -> dict[str,
 
 def _dump_state(path: Path) -> dict[str, Any]:
     """Full catalog + row dump, mirroring tests/test_released_storage_catalog.py."""
-    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as db:
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         catalog = [
             tuple(row)
             for row in db.execute(
@@ -659,6 +659,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
             "migration_executed": migration_executed,
+            "migration_evidence_scope": "persisted state and schema stamp comparison; no internal migration instrumentation",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,
             "consumer_cli_healthy": "Status: HEALTHY" in consumer_status,
         },
@@ -699,7 +700,7 @@ def _consumer_import_probe(
         entry
         for entry in data["sys_path"]
         if entry
-        and repo in (Path(entry).resolve().parents if Path(entry).exists() else [])
+        and (Path(entry).resolve() == repo or repo in Path(entry).resolve().parents)
     ]
     _require(not leaked, f"checkout leaked into consumer sys.path: {leaked}")
     return data
@@ -841,7 +842,7 @@ def _floor_pair_probe(
         entry
         for entry in data["sys_path"]
         if entry
-        and repo in (Path(entry).resolve().parents if Path(entry).exists() else [])
+        and (Path(entry).resolve() == repo or repo in Path(entry).resolve().parents)
     ]
     _require(not leaked, f"checkout leaked into floor-pair sys.path: {leaked}")
     _require(
@@ -880,6 +881,11 @@ def main(argv: list[str] | None = None) -> int:
             "directory holding the sha256-pinned published wheels "
             f"(default: ${_CACHE_ENV_VAR} or {_DEFAULT_CACHE})"
         ),
+    )
+    parser.add_argument(
+        "--require-artifacts",
+        action="store_true",
+        help="Fail if any required published wheel is absent (qualification mode)",
     )
     parser.add_argument(
         "--sandbox",
@@ -923,15 +929,28 @@ def main(argv: list[str] | None = None) -> int:
                         + f"; populate with pip download per the module docstring (cache: {cache})"
                     ),
                 }
+                if args.require_artifacts:
+                    exit_code = 1
                 continue
             try:
-                result = _SCENARIOS[scenario](sandbox, cache)
+                scenario_dir = sandbox / scenario
+                _require(
+                    not scenario_dir.exists(),
+                    f"scenario sandbox already exists: {scenario_dir}",
+                )
+                scenario_dir.mkdir()
+                result = _SCENARIOS[scenario](scenario_dir, cache)
                 summaries[scenario] = {
                     "scenario": scenario,
                     "status": "passed",
                     **result,
                 }
-            except ScenarioFailure as exc:
+            except (
+                ScenarioFailure,
+                OSError,
+                subprocess.SubprocessError,
+                ValueError,
+            ) as exc:
                 summaries[scenario] = {
                     "scenario": scenario,
                     "status": "failed",
@@ -939,13 +958,15 @@ def main(argv: list[str] | None = None) -> int:
                 }
                 exit_code = 1
     finally:
-        if args.summary_json is not None:
-            args.summary_json.parent.mkdir(parents=True, exist_ok=True)
-            args.summary_json.write_text(
-                json.dumps(summaries, indent=2, sort_keys=True), encoding="utf-8"
-            )
-        if owned_sandbox:
-            shutil.rmtree(sandbox, ignore_errors=True)
+        try:
+            if args.summary_json is not None:
+                args.summary_json.parent.mkdir(parents=True, exist_ok=True)
+                args.summary_json.write_text(
+                    json.dumps(summaries, indent=2, sort_keys=True), encoding="utf-8"
+                )
+        finally:
+            if owned_sandbox:
+                shutil.rmtree(sandbox)
 
     print(json.dumps(summaries, indent=2, sort_keys=True))
     return exit_code

@@ -139,8 +139,9 @@ def test_missing_cached_artifact_is_refused(tmp_path: Path) -> None:
         driver._verify_cached_artifacts(tmp_path, [_CORE_WHEEL])
 
 
-def test_empty_cache_reports_skipped_and_exits_zero(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("require_artifacts", [False, True])
+def test_missing_artifacts_follow_qualification_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], require_artifacts: bool
 ) -> None:
     driver = _load_driver()
     exit_code = driver.main(
@@ -151,15 +152,37 @@ def test_empty_cache_reports_skipped_and_exits_zero(
             str(tmp_path / "absent-cache"),
             "--summary-json",
             str(tmp_path / "summary.json"),
+            *(["--require-artifacts"] if require_artifacts else []),
         ]
     )
-    assert exit_code == 0
+    assert exit_code == int(require_artifacts)
     summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
     assert summary["d0"]["status"] == "skipped"
     assert _CORE_WHEEL in summary["d0"]["reason"]
     assert _ADAPTER_WHEEL in summary["d0"]["reason"]
     stdout = capsys.readouterr().out
     assert json.loads(stdout)["d0"]["status"] == "skipped"
+
+
+def test_all_scenarios_use_separate_work_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _load_driver()
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    for wheel in (_CORE_WHEEL, _ADAPTER_WHEEL):
+        (cache / wheel).touch()
+    seen = []
+
+    def scenario(directory: Path, artifact_cache: Path) -> dict[str, str]:
+        assert artifact_cache == cache
+        (directory / "work").mkdir()
+        seen.append(directory.name)
+        return {}
+
+    monkeypatch.setattr(driver, "_SCENARIOS", {"d0": scenario, "d1": scenario})
+    assert driver.main(["--artifact-cache", str(cache), "--require-artifacts"]) == 0
+    assert seen == ["d0", "d1"]
 
 
 # ---------------------------------------------------------------------------
@@ -261,3 +284,40 @@ def test_published_provider_floor_pair_bridge_smoke(tmp_path: Path) -> None:
     assert smoke["storage_backend"] == "sqlite"
     assert smoke["receipt_statuses"] == ["sent"]
     assert smoke["target_adapters"] == ["meshtastic_2"]
+
+
+def test_all_scenarios_use_distinct_fresh_workdirs(tmp_path, monkeypatch):
+    driver = _load_driver()
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    for name in driver._PINNED_ARTIFACTS:
+        (cache / name).touch()
+    seen = []
+
+    def scenario(sandbox, cache):
+        (sandbox / "work").mkdir()
+        seen.append(sandbox)
+        return {"ran": True}
+
+    monkeypatch.setattr(driver, "_SCENARIOS", {"d0": scenario, "d1": scenario})
+    args = [
+        "--artifact-cache",
+        str(cache),
+        "--sandbox",
+        str(tmp_path / "sandbox"),
+        "--require-artifacts",
+    ]
+    assert driver.main(args) == 0
+    assert [path.name for path in seen] == ["d0", "d1"]
+    assert driver.main(args) == 1
+    assert len(seen) == 2
+
+
+def test_required_cache_absence_is_nonzero(tmp_path):
+    driver = _load_driver()
+    assert (
+        driver.main(
+            ["--artifact-cache", str(tmp_path / "absent"), "--require-artifacts"]
+        )
+        == 1
+    )
