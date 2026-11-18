@@ -387,30 +387,21 @@ def _work_status_next_inspection(event_id: str, *, storage_path: str) -> list[st
 def _describe_age(oldest: WorkStatusOldest) -> str:
     """Human age sentence carrying the anchor and its precise origin."""
     anchor = oldest.anchor or "unknown time"
+    if oldest.age_seconds is None:
+        return f"{oldest.origin.replace('_', ' ')}: age unknown"
+    if oldest.age_seconds < 0 and oldest.origin != "retry_due":
+        return f"{oldest.origin.replace('_', ' ')}: recorded anchor {anchor} is after the comparison time"
     if oldest.origin == "retry_due":
         if oldest.category == "retry_scheduled":
-            due = (
-                "unknown interval"
-                if oldest.age_seconds is None
-                else f"due in at most {-oldest.age_seconds}s"
+            return (
+                f"retry scheduled at {anchor} (due in at most {-oldest.age_seconds}s)"
             )
-            return f"retry scheduled at {anchor} ({due})"
-        overdue = (
-            " (due time unknown)"
-            if oldest.age_seconds is None
-            else f" ({oldest.age_seconds}s overdue)"
-        )
-        return f"retry due at {anchor}{overdue}"
+        return f"retry due at {anchor} ({oldest.age_seconds}s overdue)"
     if oldest.origin == "claim":
-        held = "" if oldest.age_seconds is None else f" — held {oldest.age_seconds}s"
-        return f"claimed at {anchor}{held}"
+        return f"claimed at {anchor} — held {oldest.age_seconds}s"
     if oldest.origin == "queue_admission":
-        waiting = (
-            "" if oldest.age_seconds is None else f" — queued {oldest.age_seconds}s"
-        )
-        return f"admitted to adapter queue at {anchor}{waiting}"
-    waiting = "" if oldest.age_seconds is None else f" — waiting {oldest.age_seconds}s"
-    return f"admitted at {anchor}{waiting}"
+        return f"admitted to adapter queue at {anchor} — queued {oldest.age_seconds}s"
+    return f"admitted at {anchor} — waiting {oldest.age_seconds}s"
 
 
 def _print_adapter_work_status(
@@ -456,6 +447,10 @@ def _print_adapter_work_status(
             "have a missing, unusable or expired lease: recorded-owner liveness is "
             "unknown"
         )
+    if uncertainty.queue_staleness_unknown:
+        flags.append(
+            f"{uncertainty.queue_staleness_unknown} queued generation(s) have unknown queue staleness"
+        )
     if uncertainty.stale_queue_reclaimable:
         flags.append(
             f"{uncertainty.stale_queue_reclaimable} queued generation(s) are "
@@ -484,7 +479,9 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
     print("Work status — current delivery generations per destination (read-only)")
     print(f"  Storage: {storage_path} (read-only)")
     print(f"  Sampled at: {report.sampled_at}")
-    print(f"  Scope: {scope}; metadata only")
+    print(
+        f"  Scope: {scope}; outbox metadata only; work awaiting routing is not counted"
+    )
     print(
         f"  Current generations: {totals.get('current_generations', 0)} — "
         f"outstanding {totals.get('outstanding', 0)} "

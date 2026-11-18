@@ -975,10 +975,27 @@ async def test_work_status_view_across_held_lane_campaign(tmp_path: Path) -> Non
             for row in fresh_summary["oldest_rows"]
             if row["target_adapter"] == "held"
         )
-        assert (oldest_held["category"], oldest_held["age_origin"]) in {
-            ("unstarted_eligible", "admission"),
-            ("reserved_active", "claim"),
-        }
+        held_candidates = [
+            row
+            for event in (held_event, fresh_event)
+            for row in await store.list_outbox_items_for_event(event.event_id)
+            if row.target_adapter == "held"
+        ]
+
+        def anchor(row):
+            return row.locked_at if row.status == "in_progress" else row.created_at
+
+        expected = min(
+            held_candidates,
+            key=lambda row: (datetime.fromisoformat(anchor(row)), row.outbox_id),
+        )
+        assert oldest_held["outbox_id"] == expected.outbox_id
+        assert oldest_held["age_anchor"] == anchor(expected)
+        assert (oldest_held["category"], oldest_held["age_origin"]) == (
+            ("reserved_active", "claim")
+            if expected.status == "in_progress"
+            else ("unstarted_eligible", "admission")
+        )
         for name in healthy:
             assert _by_adapter(fresh_summary)[name]["terminal_outcome"] == 2
 

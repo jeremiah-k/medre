@@ -287,8 +287,12 @@ async def test_lease_and_queue_staleness_flags(tmp_path: Path) -> None:
         fresh = await _add_row(store, event.event_id, adapter="fresh-q", plan="plan-f")
         await _claim_row(store, fresh, worker="worker-f")
         assert await store.mark_outbox_queued(fresh.outbox_id)
+        await store._write(
+            "UPDATE delivery_outbox SET updated_at=? WHERE outbox_id=?",
+            (_FIXED_SAMPLE, fresh.outbox_id),
+        )
 
-        summary = await store.query_work_status_summary(sampled_at=_sampled_at())
+        summary = await store.query_work_status_summary(sampled_at=_FIXED_SAMPLE)
         by_adapter = {row["target_adapter"]: row for row in summary["adapter_rows"]}
         assert by_adapter["expired"]["lease_missing_or_expired"] == 1
         assert by_adapter["stale-q"]["stale_queue_reclaimable"] == 1
@@ -542,6 +546,7 @@ async def test_view_reads_one_snapshot_while_a_writer_is_uncommitted(
                     "reserved_without_generation_receipt": 0,
                     "lease_missing_or_expired": 0,
                     "stale_queue_reclaimable": 0,
+                    "queue_staleness_unknown": 0,
                 }
             ]
             assert summary["current_generations_total"] == 1
@@ -573,6 +578,19 @@ async def test_statement_batch_reports_one_consistent_snapshot(tmp_path: Path) -
                     " WHERE outbox_id=?",
                     (row.outbox_id,),
                 )
+                writer.execute(
+                    "INSERT INTO delivery_outbox (outbox_id,event_id,route_id,delivery_plan_id,target_adapter,attempt_number,status,created_at,updated_at,dispatch_source,metadata) VALUES ('ob-interleaved',?,'route','plan-interleaved','b',0,'pending',?,?,'live','{}')",
+                    (event.event_id, _FIXED_SAMPLE, _FIXED_SAMPLE),
+                )
+                writer.execute(
+                    "INSERT INTO delivery_receipts (receipt_id,event_id,delivery_plan_id,target_adapter,route_id,status,attempt_number,created_at,receipt_kind,source,outbox_id) VALUES ('receipt-interleaved',?,?,'a','route','sent',1,?,'attempt','live',?)",
+                    (
+                        event.event_id,
+                        row.delivery_plan_id,
+                        _FIXED_SAMPLE,
+                        row.outbox_id,
+                    ),
+                )
                 writer.commit()
             committed.append(True)
 
@@ -583,10 +601,14 @@ async def test_statement_batch_reports_one_consistent_snapshot(tmp_path: Path) -
             assert snapshot["adapter_rows"][0]["unstarted_eligible"] == 1
             assert snapshot["oldest_rows"][0]["outbox_id"] == row.outbox_id
             assert snapshot["raw_status_rows"] == [{"status": "pending", "rows": 1}]
+            assert snapshot["current_generations_total"] == 1
+            assert snapshot["receipts_by_status"] == {}
             reader._require_db().set_trace_callback(None)
             fresh = await reader.query_work_status_summary()
             assert fresh["adapter_rows"][0]["terminal_outcome"] == 1
-            assert fresh["oldest_rows"] == []
+            assert fresh["current_generations_total"] == 2
+            assert fresh["receipts_by_status"] == {"sent": 1}
+            assert fresh["oldest_rows"][0]["outbox_id"] == "ob-interleaved"
         finally:
             reader._require_db().set_trace_callback(None)
             await reader.close()
@@ -663,6 +685,31 @@ async def test_effective_generation_or_semantics_are_replicated(tmp_path: Path) 
         summary = await store.query_work_status_summary(sampled_at=_FIXED_SAMPLE)
         assert summary["adapter_rows"][0]["unstarted_eligible"] == 1
         assert summary["oldest_rows"][0]["outbox_id"] == "ob-zero"
+    finally:
+        await store.close()
+
+
+async def test_equal_generation_mixed_offsets_share_authority(tmp_path: Path) -> None:
+    store = SQLiteStorage(str(tmp_path / "work.sqlite"))
+    try:
+        await store.initialize()
+        event = await _stage_event(store)
+        for outbox_id, attempt, status, stamp in (
+            ("ob-later-instant", 1, "sent", "2026-01-02T09:30:00+00:00"),
+            ("ob-later-text", 0, "pending", "2026-01-02T10:00:00+02:00"),
+        ):
+            await store._write(
+                "INSERT INTO delivery_outbox (outbox_id,event_id,route_id,delivery_plan_id,"
+                "target_adapter,attempt_number,status,created_at,updated_at,dispatch_source,metadata)"
+                " VALUES (?,?, 'route','p','a',?,?,?,?, 'live','{}')",
+                (outbox_id, event.event_id, attempt, status, stamp, stamp),
+            )
+        winner = select_current_outbox(
+            await store.list_outbox_items_for_event(event.event_id)
+        )
+        assert winner is not None and winner.outbox_id == "ob-later-text"
+        summary = await store.query_work_status_summary(sampled_at=_FIXED_SAMPLE)
+        assert summary["oldest_rows"][0]["outbox_id"] == winner.outbox_id
     finally:
         await store.close()
 
@@ -763,3 +810,53 @@ async def test_projection_compares_instants_and_orders_anchors(
         assert summary["oldest_rows"][0]["outbox_id"] == earlier.outbox_id
     finally:
         await store.close()
+
+
+@pytest.mark.parametrize("invalid", ["2026-01-01T00:00:00", "not-a-date", ""])
+async def test_unknown_queue_timestamp_is_counted_even_with_known_oldest(
+    tmp_path, invalid
+):
+    store = SQLiteStorage(str(tmp_path / "work.sqlite"))
+    try:
+        await store.initialize()
+        event = await _stage_event(store)
+        known = await _add_row(store, event.event_id, adapter="a")
+        unknown = await _add_row(store, event.event_id, adapter="a")
+        for row, timestamp in ((known, _FIXED_SAMPLE), (unknown, invalid)):
+            await _claim_row(store, row)
+            assert await store.mark_outbox_queued(row.outbox_id)
+            await store._write(
+                "UPDATE delivery_outbox SET updated_at=? WHERE outbox_id=?",
+                (timestamp, row.outbox_id),
+            )
+        summary = await store.query_work_status_summary(sampled_at=_FIXED_SAMPLE)
+        assert summary["adapter_rows"][0]["queue_staleness_unknown"] == 1
+        assert summary["adapter_rows"][0]["stale_queue_reclaimable"] == 0
+        assert summary["oldest_rows"][0]["outbox_id"] == known.outbox_id
+        assert outstanding_age_origin(
+            "queued",
+            next_attempt_at=None,
+            locked_at=None,
+            updated_at=invalid,
+            created_at=_PAST,
+        ) == ("queue_admission", None)
+    finally:
+        await store.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(sqlite3, "LEGACY_TRANSACTION_CONTROL"),
+    reason="requires Python 3.12 autocommit API",
+)
+def test_explicit_read_batch_ends_transaction_in_autocommit_mode():
+    with closing(sqlite3.connect(":memory:", autocommit=True)) as db:
+        db.row_factory = sqlite3.Row
+        lock = threading.Lock()
+        assert sync_read_batch(db, lock, [("SELECT 1 AS n", ())]) == [[{"n": 1}]]
+        assert not db.in_transaction
+        with pytest.raises(sqlite3.OperationalError):
+            sync_read_batch(
+                db, lock, [("SELECT 1", ()), ("SELECT * FROM missing_table", ())]
+            )
+        assert not db.in_transaction
+        assert sync_read_batch(db, lock, [("SELECT 2 AS n", ())]) == [[{"n": 2}]]

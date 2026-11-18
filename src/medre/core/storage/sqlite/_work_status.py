@@ -89,9 +89,9 @@ _ANCHOR_CASE = """
 CASE
     WHEN status = 'retry_wait' AND NULLIF(next_attempt_at, '') IS NOT NULL
         THEN next_attempt_at
-    WHEN status = 'queued' THEN COALESCE(NULLIF(updated_at, ''), created_at)
+    WHEN status = 'queued' THEN updated_at
     WHEN status = 'in_progress' AND NULLIF(locked_at, '') IS NOT NULL THEN locked_at
-    ELSE COALESCE(NULLIF(created_at, ''), updated_at)
+    ELSE created_at
 END
 """
 
@@ -143,7 +143,9 @@ SELECT target_adapter,
                 THEN 1 ELSE 0 END) AS lease_missing_or_expired,
        SUM(CASE WHEN status = 'queued'
                 AND work_status_instant(updated_at) <= :stale_us
-                THEN 1 ELSE 0 END) AS stale_queue_reclaimable
+                THEN 1 ELSE 0 END) AS stale_queue_reclaimable,
+       SUM(CASE WHEN status = 'queued' AND work_status_instant(updated_at) IS NULL
+                THEN 1 ELSE 0 END) AS queue_staleness_unknown
 FROM current_gen
 GROUP BY target_adapter
 ORDER BY target_adapter
@@ -154,7 +156,7 @@ classified AS (
     SELECT outbox_id, event_id, delivery_plan_id, target_adapter,
            target_channel, status, attempt_number, active_attempt,
            ({_CATEGORY_CASE}) AS category,
-           ({_ANCHOR_CASE}) AS age_anchor,
+           CASE WHEN work_status_instant({_ANCHOR_CASE}) IS NOT NULL THEN ({_ANCHOR_CASE}) END AS age_anchor,
            ({_ORIGIN_CASE}) AS age_origin
     FROM current_gen
 ),

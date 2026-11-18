@@ -252,18 +252,22 @@ medre inspect work-status --json --storage-path /path/to/medre.sqlite
 The command reads one consistent snapshot of durable storage and reports,
 per destination, how many current delivery generations are outstanding and
 why: recorded unstarted work, scheduled future retry, reserved work, or
-native queue admission. These categories and grace flags are not worker
-claimability checks. Each destination shows the oldest known anchor (or an
+native queue admission. Unstarted includes pending work and retries not
+classified as scheduled, including previously attempted work. These categories
+and grace flags are not worker claimability checks. Each destination shows the oldest known anchor (or an
 item with unknown age when none are usable), its precise age origin, the
 selected delivery identity, and a read-only event-level inspection of its
-recovery facts. Match the plan and channel in that inspection; an event
-may have multiple deliveries. POSIX shells receive a quoted command;
+recovery facts. The follow-up reads current state, not this snapshot. Match the
+plan, channel and outbox ID; if the generation has changed, resample work
+status. An event may have multiple deliveries. POSIX shells receive a quoted command;
 Windows receives a JSON argument list (not shell code). Pass those arguments
 to `medre`, preserving each item, for example from a Python subprocess.
 The live comparison clock is sampled just after pinning the snapshot;
 an explicit comparison time does not reconstruct a historical database.
-Offset-aware timestamps are compared as instants. Missing or unusable
-anchors give unknown age; an unusable retry deadline does not prove it is due.
+Retry deadlines, lease expiry, queue grace and age anchors are compared as
+instants. Equal-generation authority retains its shared stored-text tie-break.
+Missing or unusable anchors give unknown age; an unusable retry deadline
+does not prove it is due.
 The view does not normalize retained data or change scheduler eligibility.
 For noncanonical legacy timestamp spellings the current dispatch guards may
 compare differently; inspect the exact delivery before acting. Reading the
@@ -290,7 +294,8 @@ cooldown is distinguishable from stuck work:
 **Uncertain outcomes** are labeled, never resolved into guesses. A reserved
 generation can lack matching attempt evidence, have a missing, unusable
 or expired lease, or both. Each flag is reported independently — the
-view cannot prove a live native send or owner liveness, and says so:
+view flags unusable queue timestamps separately from known stale queues. It
+cannot prove a live native send or owner liveness, and says so:
 
 ```text
     chatmail: outstanding 1 of 1 current (unstarted 0, scheduled 0, reserved/active 1, ...)
@@ -303,7 +308,23 @@ An `abandoned` generation is a settled local uncertain outcome, not
 outstanding reserved work. A destination may show no outstanding work and
 still have abandoned outcomes. Use the read-only SQL inventory above
 (`status IN ('dead_lettered', 'abandoned')`) to locate affected event IDs,
-then inspect each event with `medre inspect event --recovery`.
+then inspect each event with `medre inspect event --recovery`. The inventory
+is only a retained-row sample. For a complete scoped candidate search, use
+a read-only SQLite connection and page by outbox ID (bind the adapter, and
+use the last returned ID for the next page):
+
+```sql
+SELECT outbox_id, event_id, delivery_plan_id, target_channel
+FROM delivery_outbox
+WHERE status = 'abandoned' AND target_adapter = :adapter
+  AND outbox_id > :after
+ORDER BY outbox_id LIMIT 100;
+```
+
+Start with an empty `:after`; omit the adapter predicate for all adapters.
+Verify each candidate against the current event recovery runbook (including
+outbox ID); a retained abandoned generation may have been superseded.
+Resample if state changes.
 
 Unknown is not zero: it describes facts a readable snapshot cannot establish.
 An unavailable database produces a nonzero exit and no summary. `sent`

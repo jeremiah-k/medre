@@ -80,7 +80,7 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `tests/integration/test_synapse_e2ee_smoke.py`                            | `docker`     | E2EE encrypted room lifecycle                      |
 | `../medre-adapter-matrix/tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
 | `tests/test_live_matrix_radio_bridge.py`                                  | `live`       | Matrix↔radio bridge, loopback suppression, restart |
-| `../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
+| `../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | SDK cursor and host application checkpoint         |
 | `../medre-adapter-matrix/tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
 | `../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
 
@@ -153,7 +153,7 @@ pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.p
 ```
 
 With the Matrix provider installed in the test environment, the SDK-contract
-test verifies the pinned application-owned Classic Sync surfaces. The storage
+test verifies the pinned SDK-owned durable Classic Sync surfaces. The storage
 tests characterize the crash
 windows independently of a homeserver: admission is atomic, pending work and the
 committed cursor survive restart, stale leases are reclaimable, and native replay
@@ -162,7 +162,16 @@ resolves to the original canonical identity.
 For Docker/live follow-up, the SDK owns the upstream cursor:
 `checkpoint_owned_by_medre=false`. Verify the `nio_durable` application
 checkpoint independently in core storage; `committed_checkpoint_present`
-reports application evidence, not SDK capture. During forced downtime, continuity-recovered events
+reports application evidence. With a read-only SQLite connection to the core
+database, bind the adapter instance ID to `:adapter`:
+
+```sql
+SELECT COUNT(*) FROM adapter_checkpoints
+WHERE adapter_id = :adapter AND stream = 'nio_durable' AND cursor <> '';
+```
+
+Expect one row in the count. The session validates the cursor and metadata on
+reload. During forced downtime, continuity-recovered events
 must increment `recovered_event_count`; initial cold history may increment
 `history_event_count` but must remain durably suppressed. Any unrecoverable room gap
 must increment `recovery_abandoned_room_count` and leave secret-free abandonment
