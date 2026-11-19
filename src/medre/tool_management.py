@@ -117,14 +117,12 @@ def redact_source(value: str) -> str:
 
     # A malformed URL can contain spaces inside userinfo. Matching only to
     # the first space would leave the rest of its password in the display.
-    start = re.search(r"(?:git\+)?(?:https?|ssh|file)://", value, re.IGNORECASE)
+    start = re.search(r"[A-Za-z][A-Za-z0-9+.-]*://", value, re.IGNORECASE)
     if start is not None:
         source = re.split(r"\s+;\s*", value[start.start() :], maxsplit=1)[0]
         if any(char.isspace() for char in source):
             return value[: start.start()] + "(invalid source URL)"
-    return re.sub(
-        r"(?:git\+)?(?:https?|ssh|file)://\S+", replace, value, flags=re.IGNORECASE
-    )
+    return re.sub(r"[A-Za-z][A-Za-z0-9+.-]*://\S+", replace, value, flags=re.IGNORECASE)
 
 
 def sources_path() -> Path:

@@ -540,3 +540,15 @@ def test_hg_sha256_commit_is_abbreviated():
         )
         == "hg:eeeeeeee"
     )
+
+
+def test_gitlab_nested_repository_label():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "https://gitlab.com/team/subgroup/provider.git",
+                "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
+            }
+        )
+        == "gitlab:team/subgroup/provider@aaaaaaaa"
+    )

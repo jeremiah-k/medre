@@ -264,6 +264,29 @@ class TestE2EProductPathCLI:
 # ===================================================================
 
 
+def _run_python_m(*args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    return subprocess.run(
+        [sys.executable, "-m", "medre", *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+
+
+def test_version_reports_core_source_label() -> None:
+    """``python -m medre version`` includes one compact core source token."""
+    proc = _run_python_m("version")
+    assert proc.returncode == 0
+    lines = proc.stdout.strip().splitlines()
+    source_lines = [line for line in lines if line.startswith("Source")]
+    assert len(source_lines) == 1, f"Expected one Source line: {lines!r}"
+    label = source_lines[0].split(None, 1)[1].strip()
+    assert label and " " not in label, f"Label must be one token: {label!r}"
+
+
 class TestSubprocessPythonM:
     """Proves ``python -m medre`` works via subprocess with source checkout.
 
@@ -272,15 +295,7 @@ class TestSubprocessPythonM:
     """
 
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
-        return subprocess.run(
-            [sys.executable, "-m", "medre", *args],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
+        return _run_python_m(*args)
 
     def test_version(self) -> None:
         """``python -m medre version`` exits 0 with version info."""
@@ -301,16 +316,6 @@ class TestSubprocessPythonM:
         assert proc.returncode == 0
         first_line = proc.stdout.strip().splitlines()[0]
         assert first_line.startswith("medre "), f"Unexpected first line: {first_line!r}"
-
-    def test_version_reports_core_source_label(self) -> None:
-        """``python -m medre version`` includes one compact core source token."""
-        proc = self._run("version")
-        assert proc.returncode == 0
-        lines = proc.stdout.strip().splitlines()
-        source_lines = [line for line in lines if line.startswith("Source")]
-        assert len(source_lines) == 1, f"Expected one Source line: {lines!r}"
-        label = source_lines[0].split(None, 1)[1].strip()
-        assert label and " " not in label, f"Label must be one token: {label!r}"
 
     def test_no_optional_sdks_in_subprocess(self) -> None:
         """Subprocess ``python -m medre version`` does not import optional SDKs.

@@ -151,7 +151,7 @@ query an index, or change deployment state.
 The source label reflects installed metadata only, as one compact token per
 package: `pypi` means no direct URL record was found, `source` means core
 distribution metadata is absent, Git labels name the recorded repository and
-abbreviated commit (`github:owner/repo@`, `gitlab:group/repo@` or
+abbreviated commit (`github:owner/repo@`, `gitlab:group/subgroup/repo@` or
 `git:host/path@` for non-forge hosts), `hg:` and `svn:` show recorded
 non-Git revisions, `editable:` shows a recorded local directory, `local:`
 shows a recorded local snapshot, and `url:` shows a direct source location.
@@ -171,5 +171,12 @@ versioned evidence or snapshot schema.
 `medre adapters` MUST list the same installed identities (transport, version
 and provenance label) whenever adapter distributions are installed, alongside
 the transport/SDK availability catalog. `medre version` MUST include the core
-provenance label. All three surfaces share one label formatter; none of them
-MUST import provider implementations or contact an index to produce it.
+provenance label. `medre sources show` MUST use the same formatter, including
+`unknown` for installed distributions whose direct source metadata is invalid
+or unreadable. `--full` and `--json` MUST derive structured installed source
+fields from the same validation and redaction boundary: no userinfo, query
+values, fragments or unvalidated revisions, regardless of URL scheme. The
+structured installed source is null when it cannot be validated; the compact
+label remains `unknown`. An absent distribution retains a null label. All four
+surfaces MUST NOT import provider implementations or contact an index to
+produce these identities.

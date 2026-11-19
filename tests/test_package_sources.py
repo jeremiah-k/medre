@@ -251,7 +251,7 @@ def test_inventory_distinguishes_request_from_resolved_commit(
             read_text=lambda _: json.dumps(
                 {
                     "url": "https://user:secret@example.org/fork.git?token=hidden",
-                    "vcs_info": {"commit_id": "a" * 40},
+                    "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
                 }
             ),
         ),
@@ -605,7 +605,7 @@ def test_blank_direct_source_metadata_is_not_an_index_installation(
     report = ps.source_inventory(catalog)
     core = next(row for row in report["packages"] if row["package"] == "medre")
     assert core["source"] is None
-    assert core["source_label"] is None
+    assert core["source_label"] == "unknown"
     assert core["provenance_error"] == "Installed source metadata is unreadable."
 
 
@@ -733,3 +733,79 @@ def test_valid_url_markers_and_escaped_path_spaces_remain_supported():
     value = "medre @ file:///tmp/source%20tree ; python_version >= '3.11'"
     assert tm.package_name(value) == "medre"
     assert tm.redact_source(value) == value
+
+
+@pytest.mark.parametrize("scheme", ["ftp", "sftp", "https", "git+ssh"])
+def test_inventory_redacts_direct_url_on_every_surface(
+    installation, catalog, monkeypatch, scheme
+):
+    direct = {
+        "url": f"{scheme}://reader:secret@packages.example/pkg.whl?key=hidden#private",
+        "archive_info": {},
+    }
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(
+        ps.importlib.metadata,
+        "distribution",
+        lambda _: SimpleNamespace(
+            version="1.0", read_text=lambda _: json.dumps(direct)
+        ),
+    )
+    row = next(
+        r for r in ps.source_inventory(catalog)["packages"] if r["package"] == "medre"
+    )
+    assert row["source"]["url"] == f"{scheme}://packages.example/pkg.whl?redacted"
+    assert row["source_label"] == "url:" + row["source"]["url"]
+    assert all(
+        secret not in json.dumps(row)
+        for secret in ("reader", "secret", "hidden", "private")
+    )
+
+
+@pytest.mark.parametrize(
+    "direct",
+    [
+        {
+            "url": "https://example.org/pkg",
+            "vcs_info": {"vcs": "git", "commit_id": "secret\nforged"},
+        },
+        {"url": "https://user:two words@example.org/pkg", "archive_info": {}},
+        {"url": "https://example.org/pkg", "archive_info": {}, "dir_info": {}},
+    ],
+)
+def test_invalid_direct_record_is_not_printable(
+    installation, catalog, monkeypatch, direct
+):
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(
+        ps.importlib.metadata,
+        "distribution",
+        lambda _: SimpleNamespace(
+            version="1.0", read_text=lambda _: json.dumps(direct)
+        ),
+    )
+    row = next(
+        r for r in ps.source_inventory(catalog)["packages"] if r["package"] == "medre"
+    )
+    assert row["source"] is None and row["source_label"] == "unknown"
+    assert row["provenance_error"]
+
+
+def test_bad_version_does_not_hide_valid_provenance(installation, catalog, monkeypatch):
+    class BrokenVersion:
+        @property
+        def version(self):
+            raise RuntimeError("private exception details")
+
+        def read_text(self, name):
+            return None
+
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    monkeypatch.setattr(
+        ps.importlib.metadata, "distribution", lambda _: BrokenVersion()
+    )
+    row = next(
+        r for r in ps.source_inventory(catalog)["packages"] if r["package"] == "medre"
+    )
+    assert row["installed_version"] == "?"
+    assert row["source_label"] == "pypi"

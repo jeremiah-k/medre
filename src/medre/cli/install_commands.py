@@ -127,9 +127,14 @@ def _manage_installation(args: argparse.Namespace) -> None:
                         "Configured catalog choices and actual installed sources are separate."
                     )
                     for row in report["packages"]:
-                        print(
-                            f"{row['package']}: {row['installed_version'] or 'not installed'}"
-                        )
+                        version = row["installed_version"]
+                        if version is None:
+                            version = (
+                                "installation unknown"
+                                if row.get("provenance_error")
+                                else "not installed"
+                            )
+                        print(f"{row['package']}: {version}")
                         print(
                             f"  configured: {'; '.join(row['configured']) or '(none)'}"
                         )
