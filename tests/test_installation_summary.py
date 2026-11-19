@@ -552,3 +552,18 @@ def test_gitlab_nested_repository_label():
         )
         == "gitlab:team/subgroup/provider@aaaaaaaa"
     )
+
+
+@pytest.mark.parametrize(
+    "url", ["file:///srv/repo.git", "file://server/share/repo.git"]
+)
+def test_file_git_provenance_preserves_record(url):
+    from medre.runtime.installation_summary import describe_direct_source
+
+    commit = "a" * 40
+    direct = {"url": url, "vcs_info": {"vcs": "git", "commit_id": commit}}
+    label, record = describe_direct_source(direct)
+    assert label == f"git:{url}@aaaaaaaa"
+    assert record == {"kind": "git", "url": url, "commit": commit, "editable": False}
+    direct["vcs_info"]["commit_id"] = "invalid"
+    assert describe_direct_source(direct) == ("unknown", None)

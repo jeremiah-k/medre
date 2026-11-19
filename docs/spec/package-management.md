@@ -152,7 +152,7 @@ The source label reflects installed metadata only, as one compact token per
 package: `pypi` means no direct URL record was found, `source` means core
 distribution metadata is absent, Git labels name the recorded repository and
 abbreviated commit (`github:owner/repo@`, `gitlab:group/subgroup/repo@` or
-`git:host/path@` for non-forge hosts), `hg:` and `svn:` show recorded
+`git:host/path@` for non-forge hosts, `git:file:///path@` for local Git repositories), `hg:` and `svn:` show recorded
 non-Git revisions, `editable:` shows a recorded local directory, `local:`
 shows a recorded local snapshot, and `url:` shows a direct source location.
 Invalid, inconsistent or unsupported metadata

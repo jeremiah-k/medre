@@ -809,3 +809,35 @@ def test_bad_version_does_not_hide_valid_provenance(installation, catalog, monke
     )
     assert row["installed_version"] == "?"
     assert row["source_label"] == "pypi"
+
+
+def test_file_git_source_survives_all_cli_modes(
+    installation, tmp_path, monkeypatch, capsys
+):
+    direct = {
+        "url": "file:///srv/repo.git",
+        "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
+    }
+    dist = SimpleNamespace(version="1.0", read_text=lambda _: json.dumps(direct))
+    monkeypatch.setattr(ps.importlib.metadata, "distribution", lambda _: dist)
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    catalog_path = tmp_path / "sources.yaml"
+    catalog_path.write_text("core: medre\nadapters: {}\n")
+    args = ["sources", "show", "--sources", str(catalog_path)]
+    main(args)
+    assert (
+        "installed source: git:file:///srv/repo.git@aaaaaaaa" in capsys.readouterr().out
+    )
+    main([*args, "--full"])
+    assert (
+        "installed source: file:///srv/repo.git @ " + "a" * 40
+        in capsys.readouterr().out
+    )
+    main([*args, "--json"])
+    row = next(
+        row
+        for row in json.loads(capsys.readouterr().out)["packages"]
+        if row["package"] == "medre"
+    )
+    assert row["source"]["url"] == direct["url"]
+    assert row["source"]["commit"] == "a" * 40
