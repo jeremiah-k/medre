@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from textwrap import indent
 from typing import TYPE_CHECKING
 
 from medre.cli.json import to_json
@@ -12,7 +13,7 @@ from medre.core.startup_info import (
     CACHE_FILENAME,
     AdapterStartupInfo,
     read_cache_file,
-    render_startup_info_line,
+    render_startup_info_block,
 )
 
 from .exit_codes import EXIT_CONFIG
@@ -275,14 +276,14 @@ def _config_check(config_path: str | None) -> None:
 
 
 def _cached_startup_info(
-    paths: MedrePaths, adapter_id: str
+    paths: MedrePaths, adapter_id: str, transport: str
 ) -> AdapterStartupInfo | None:
     """Read one adapter's display-only last-known startup info, if any."""
     try:
         cache_path = paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
     except Exception:
         return None
-    return read_cache_file(cache_path)
+    return read_cache_file(cache_path, adapter_id=adapter_id, transport=transport)
 
 
 def _adapters(
@@ -385,12 +386,9 @@ def _adapters(
         for transport, adapter_id, rtc in configured:
             status = "enabled" if rtc.enabled else "disabled"
             kind = getattr(rtc, "adapter_kind", "real")
-            print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
-            info = _cached_startup_info(paths, adapter_id)
-            if info is not None:
-                line = render_startup_info_line(info)
-                if line:
-                    print(f"    {line}")
+            info = _cached_startup_info(paths, adapter_id, transport)
+            heading = f"{transport}.{adapter_id}: {status} (kind={kind})"
+            print(indent(render_startup_info_block(heading, info), "  "))
     except ConfigNotFoundError:
         if not TRANSPORTS:
             print("Install a provider before generating a sample or building a bridge.")
@@ -449,21 +447,9 @@ def _adapters_json(
                 "status": "enabled" if rtc.enabled else "disabled",
                 "kind": getattr(rtc, "adapter_kind", "real"),
             }
-            info = _cached_startup_info(paths, adapter_id)
+            info = _cached_startup_info(paths, adapter_id, transport)
             if info is not None:
-                configured_entry["startup_info"] = {
-                    "adapter_id": info.adapter_id,
-                    "transport": info.transport,
-                    "emitted_at": info.emitted_at,
-                    "fields": [
-                        {
-                            "name": field.name,
-                            "value": field.value,
-                            "cached": field.cached,
-                        }
-                        for field in info.fields
-                    ],
-                }
+                configured_entry["startup_info"] = info.to_dict(include_cached=True)
             configured_section.append(configured_entry)
     except ConfigNotFoundError:
         config_error = "no config found"

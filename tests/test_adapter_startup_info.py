@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ from medre.core.startup_info import (
     StartupInfoField,
     collect_startup_info,
     read_cache_file,
-    render_startup_info_line,
+    render_startup_info_block,
     startup_info_callable,
     write_cache_file,
 )
@@ -128,6 +129,54 @@ class TestCollectStartupInfo:
         assert info.adapter_id == "node"
         assert info.transport == "meshtastic"
 
+    async def test_provider_rows_keep_order_and_skip_invalid_facts(
+        self, tmp_path: Path
+    ) -> None:
+        class Provider:
+            def startup_info(self) -> dict[str, object]:
+                return {
+                    "rows": [
+                        [
+                            {"name": "node_name", "value": "Ridge Relay (RIDG)"},
+                            {"name": "node_id", "value": "!a4b3c2d1"},
+                            {"name": "public_key_token", "value": "not-a-public-key"},
+                            {"name": "unsafe\nname", "value": "bad"},
+                        ],
+                        [
+                            {"name": "board", "value": "RAK4631", "label": "\x1b[31m"},
+                            {
+                                "name": "firmware",
+                                "value": "2.7.15",
+                                "label": "firmware",
+                            },
+                            {"name": "radio_channel", "value": None},
+                        ],
+                        [{"name": "extra", "value": "outside the startup block"}],
+                    ]
+                }
+
+        info = await collect_startup_info(
+            "main", "meshtastic", Provider(), emitted_at="now"
+        )
+        assert info is not None
+        assert render_startup_info_block("meshtastic.main  ready", info) == (
+            "meshtastic.main  ready\n"
+            "  Ridge Relay (RIDG) · !a4b3c2d1\n"
+            "  RAK4631 · firmware 2.7.15"
+        )
+        assert [(field.name, field.row) for field in info.fields] == [
+            ("node_name", 0),
+            ("node_id", 0),
+            ("board", 1),
+            ("firmware", 1),
+        ]
+
+        cache = tmp_path / CACHE_FILENAME
+        write_cache_file(cache, info)
+        saved = read_cache_file(cache, adapter_id="main", transport="meshtastic")
+        assert saved == info.with_cached_flags(True)
+        assert read_cache_file(cache, adapter_id="main", transport="meshcore") is None
+
     async def test_absent_provider_yields_none(self) -> None:
         assert await collect_startup_info("a", "t", object(), emitted_at="now") is None
 
@@ -171,6 +220,16 @@ class TestCollectStartupInfo:
         class Provider:
             async def startup_info(self) -> dict[str, str]:
                 raise RuntimeError("provider bug")
+
+        assert (
+            await collect_startup_info("a", "t", Provider(), emitted_at="now") is None
+        )
+
+    async def test_provider_discovery_failure_yields_none(self) -> None:
+        class Provider:
+            @property
+            def startup_info(self) -> object:
+                raise RuntimeError("provider cannot expose startup facts")
 
         assert (
             await collect_startup_info("a", "t", Provider(), emitted_at="now") is None
@@ -298,12 +357,13 @@ class TestRenderBoundaryRedaction:
 
         info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
         assert info is not None
-        first = render_startup_info_line(info)
-        second = render_startup_info_line(info)
+        first = render_startup_info_block("t.a", info)
+        second = render_startup_info_block("t.a", info)
         assert first == second
         cached = info.with_cached_flags(True)
-        cached_line = render_startup_info_line(cached)
-        assert cached_line == first + " (cached)"
+        assert render_startup_info_block("t.a", cached) == first.replace(
+            "t.a\n", "t.a (cached)\n", 1
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +425,10 @@ class TestStartupInfoCache:
 
 
 class TestReadyTransitionEmission:
-    async def test_emitted_at_ready_and_persisted(self, tmp_paths: MedrePaths) -> None:
+    async def test_emitted_at_ready_and_persisted(
+        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="medre.runtime.app")
         app = _build_app(_config_with_one_fake_adapter(), tmp_paths)
         _install_startup_info(
             app, {"board": "FakeBoard", "firmware": "1.2.3", "identity_key": "k" * 64}
@@ -379,6 +442,10 @@ class TestReadyTransitionEmission:
                 "firmware": "1.2.3",
             }
             assert all(not f.cached for f in info.fields)
+            assert (
+                "matrix.fake_matrix  ready\n  board FakeBoard · firmware 1.2.3"
+                in caplog.messages
+            )
             cache = _cache_path(tmp_paths)
             stored = read_cache_file(cache)
             assert stored is not None
@@ -448,11 +515,15 @@ class TestReadyTransitionEmission:
 
 
 class TestRestartCachedMarker:
-    async def test_cached_until_fresh_replaces(self, tmp_paths: MedrePaths) -> None:
+    async def test_cached_until_fresh_replaces(
+        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO, logger="medre.runtime.app")
         first = _build_app(_config_with_one_fake_adapter(), tmp_paths)
         _install_startup_info(first, {"board": "OLD_BOARD"})
         await first.start()
         await first.stop()
+        caplog.clear()
 
         second = _build_app(_config_with_one_fake_adapter(), tmp_paths)
         original_start = second.adapters[FAKE_ADAPTER_ID].start
@@ -475,6 +546,7 @@ class TestRestartCachedMarker:
             cached = second._startup_info[FAKE_ADAPTER_ID]
             assert cached.fields[0].value == "OLD_BOARD"
             assert cached.fields[0].cached is True
+            assert "matrix.fake_matrix (cached)\n  board OLD_BOARD" in caplog.messages
             # Releasing the blocked start completes the ready transition;
             # the fresh emission replaces the cached record.
             release.set()
@@ -482,6 +554,7 @@ class TestRestartCachedMarker:
             fresh = second._startup_info[FAKE_ADAPTER_ID]
             assert fresh.fields[0].value == "NEW_BOARD"
             assert fresh.fields[0].cached is False
+            assert "matrix.fake_matrix  ready\n  board NEW_BOARD" in caplog.messages
             stored = read_cache_file(_cache_path(tmp_paths))
             assert stored is not None
             assert stored.fields[0].value == "NEW_BOARD"
@@ -528,8 +601,18 @@ def _plant_cli_state(
                     "transport": "matrix",
                     "emitted_at": "2026-11-19T00:00:00+00:00",
                     "fields": [
-                        {"name": "homeserver", "value": "https://matrix.example.org"},
-                        {"name": "board", "value": "HELTEC_V3"},
+                        {"name": "user_id", "value": "@bridge:example.org", "row": 0},
+                        {
+                            "name": "device_id",
+                            "value": "MEDREAB12CD",
+                            "row": 0,
+                            "label": "device",
+                        },
+                        {
+                            "name": "homeserver",
+                            "value": "https://matrix.example.org",
+                            "row": 1,
+                        },
                     ],
                 }
             )
@@ -547,10 +630,10 @@ class TestAdaptersCliRendering:
         _plant_cli_state(monkeypatch, tmp_path, with_cache=True)
         output = _run_cli("adapters")
         assert "Configured adapters:" in output
-        assert "  matrix.main: enabled (kind=fake)" in output
         assert (
-            "    startup: homeserver=https://matrix.example.org board=HELTEC_V3 (cached)"
-            in output
+            "  matrix.main: enabled (kind=fake) (cached)\n"
+            "    @bridge:example.org · device MEDREAB12CD\n"
+            "    https://matrix.example.org" in output
         )
 
     def test_without_info_no_startup_line(
@@ -561,7 +644,8 @@ class TestAdaptersCliRendering:
         _plant_cli_state(monkeypatch, tmp_path, with_cache=False)
         output = _run_cli("adapters")
         assert "Configured adapters:" in output
-        assert "startup:" not in output
+        assert "  matrix.main: enabled (kind=fake)" in output
+        assert "MEDREAB12CD" not in output
         assert "(cached)" not in output
 
     def test_json_carries_structured_record(
@@ -581,7 +665,10 @@ class TestAdaptersCliRendering:
         assert record["emitted_at"] == "2026-11-19T00:00:00+00:00"
         fields = record["fields"]
         assert {f["name"]: f["value"] for f in fields} == {
+            "user_id": "@bridge:example.org",
+            "device_id": "MEDREAB12CD",
             "homeserver": "https://matrix.example.org",
-            "board": "HELTEC_V3",
         }
+        assert [field["row"] for field in fields] == [0, 0, 1]
+        assert fields[1]["label"] == "device"
         assert all(f["cached"] is True for f in fields)

@@ -42,7 +42,7 @@ from medre.core.startup_info import (
     AdapterStartupInfo,
     collect_startup_info,
     read_cache_file,
-    startup_info_callable,
+    render_startup_info_block,
     write_cache_file,
 )
 from medre.core.storage.sqlite._pressure import SQLITE_MAX_PRESSURE_COUNT
@@ -1998,20 +1998,25 @@ class MedreApp:
         means nothing to render.
         """
         self._startup_info.clear()
-        for _transport, adapter_id, rtc in self.config.adapters.all_configs():
+        for transport, adapter_id, rtc in self.config.adapters.all_configs():
             if not rtc.enabled:
                 continue
             try:
                 cache_path = self.paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
             except Exception:
                 continue
-            info = read_cache_file(cache_path)
+            info = read_cache_file(
+                cache_path, adapter_id=adapter_id, transport=transport
+            )
             if info is not None:
                 self._startup_info[adapter_id] = info
+                _logger.info(
+                    "%s", render_startup_info_block(f"{transport}.{adapter_id}", info)
+                )
 
     async def _collect_adapter_startup_info(
-        self, adapter_id: str, adapter: AdapterContract
-    ) -> None:
+        self, adapter_id: str, transport: str, adapter: AdapterContract
+    ) -> AdapterStartupInfo | None:
         """Emit and persist startup info at the adapter's ready transition.
 
         The adapter object is duck-typed: an optional ``startup_info()``
@@ -2020,17 +2025,15 @@ class MedreApp:
         timeout or failure yields no info and never fails the adapter.
         The durable cache write is equally best-effort.
         """
-        if startup_info_callable(adapter) is None:
-            return
         info = await collect_startup_info(
             adapter_id,
-            getattr(adapter, "platform", "unknown"),
+            transport,
             adapter,
             timeout_seconds=_STARTUP_INFO_TIMEOUT_SECONDS,
             emitted_at=_utc_now().isoformat(),
         )
         if info is None:
-            return
+            return None
         self._startup_info[adapter_id] = info
         try:
             cache_path = self.paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
@@ -2041,6 +2044,7 @@ class MedreApp:
                 adapter_id,
                 type(exc).__name__,
             )
+        return info
 
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.
@@ -2121,16 +2125,28 @@ class MedreApp:
             # Startup-info emission rides the ready transition: a bounded,
             # best-effort duck-typed read that never fails the adapter and
             # never blocks startup beyond its own timeout.
-            await self._collect_adapter_startup_info(adapter_id, adapter)
+            info = await self._collect_adapter_startup_info(
+                adapter_id, transport, adapter
+            )
             if initial_health != "healthy":
                 self._set_adapter_state(adapter_id, AdapterState.DEGRADED)
-            _logger.info(
-                "Adapter %s.%s started in %.0fms (health=%s)",
-                transport,
-                adapter_id,
-                elapsed,
-                initial_health,
-            )
+            if info is None:
+                _logger.info(
+                    "Adapter %s.%s started in %.0fms (health=%s)",
+                    transport,
+                    adapter_id,
+                    elapsed,
+                    initial_health,
+                )
+            else:
+                state = self._adapter_states[adapter_id].value
+                _logger.info(
+                    "%s",
+                    render_startup_info_block(
+                        f"{transport}.{adapter_id}  {state}", info
+                    ),
+                    extra={"startup_duration_ms": round(elapsed)},
+                )
             self._emit_event(
                 RuntimeEventType.ADAPTER_STARTED,
                 {"adapter_id": adapter_id, "platform": transport},

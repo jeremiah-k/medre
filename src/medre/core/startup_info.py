@@ -21,10 +21,9 @@ homeserver and user id).  The seam is deliberately narrow:
   display-only: it is never an authority for routing or delivery
   decisions.  Values read back from the cache render with a ``cached``
   marker until a fresh emission replaces them.
-* **Redaction at the core render boundary.**  Identity keys and pairing
-  material are never rendered; public keys and addresses render as
-  prefixes only.  Core enforces this regardless of what an adapter
-  returns.
+* **Shared presentation.** Providers supply ordered facts. Core renders
+  compact rows, labels cached facts, and filters credentials before
+  persisting or displaying any field.
 
 The record shape is explicitly **not schema-frozen**: nothing under
 ``docs/schemas`` describes it, and the durable payload may change
@@ -41,7 +40,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -59,7 +58,7 @@ __all__ = [
     "StartupInfoField",
     "collect_startup_info",
     "read_cache_file",
-    "render_startup_info_line",
+    "render_startup_info_block",
     "startup_info_callable",
     "write_cache_file",
 ]
@@ -81,9 +80,8 @@ The payload shape is not schema-frozen and may change between releases;
 readers must tolerate unknown keys and missing fields.
 """
 
-# Prefix length for key-like and address-like rendered values.  Matches
-# Generic display cap for any single rendered value, keeping CLI lines
-# bounded even when a provider returns oversized free-text facts.
+# Keep each adapter block compact even with oversized provider values.
+_MAX_ROWS = 2
 _MAX_VALUE_CHARS: int = 64
 
 _TRUNCATION_SUFFIX = "…"
@@ -92,9 +90,7 @@ _TRUNCATION_SUFFIX = "…"
 # canonical sanitization token set.
 _PAIRING_TOKENS: frozenset[str] = frozenset({"pairing", "psk"})
 
-# Name tokens that explicitly mark a *public* key.  Such names are the
-# one sanctioned exception to the secret-name omission rule: the design
-# keeps public keys renderable as prefixes only.
+# Explicit public-key names keep published identifiers legible.
 _PUBLIC_KEY_NAME_TOKENS: frozenset[str] = frozenset({"public", "pub"})
 
 # Device identifiers are operator-visible platform facts on the same
@@ -105,9 +101,10 @@ _PUBLIC_KEY_NAME_TOKENS: frozenset[str] = frozenset({"public", "pub"})
 _DEVICE_ID_NAMES: frozenset[str] = frozenset({"device_id", "deviceid"})
 
 _NAME_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+_FACT_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
 
 # Value shapes that are never rendered in full.
-# Credential-bearing URLs are omitted outright; plain endpoints render.# Credential-bearing URLs are omitted outright; plain endpoints render.
+# Credential-bearing URLs are omitted outright.
 _URL_USERINFO_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/@]+@[^\s]+")
 
 # Terminal-display boundary: reject control characters in rendered
@@ -132,6 +129,8 @@ class StartupInfoField:
     name: str
     value: str
     cached: bool = False
+    row: int = 0
+    label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,29 +146,29 @@ class AdapterStartupInfo:
         """Return a copy with every field's ``cached`` flag set."""
         if all(field.cached == cached for field in self.fields):
             return self
-        return AdapterStartupInfo(
-            adapter_id=self.adapter_id,
-            transport=self.transport,
-            fields=tuple(
-                StartupInfoField(name=f.name, value=f.value, cached=cached)
-                for f in self.fields
-            ),
-            emitted_at=self.emitted_at,
+        return replace(
+            self, fields=tuple(replace(field, cached=cached) for field in self.fields)
         )
 
-    def to_cache_dict(self) -> dict[str, object]:
-        """Return the durable payload (without display-only flags).
-
-        The shape is not schema-frozen; writers and readers must both
-        tolerate evolution.
-        """
+    def to_dict(self, *, include_cached: bool = False) -> dict[str, object]:
+        """Serialize ordered facts for the cache or the JSON listing."""
+        fields = []
+        for field in self.fields:
+            entry: dict[str, object] = {
+                "name": field.name,
+                "value": field.value,
+                "row": field.row,
+            }
+            if field.label is not None:
+                entry["label"] = field.label
+            if include_cached:
+                entry["cached"] = field.cached
+            fields.append(entry)
         return {
             "adapter_id": self.adapter_id,
             "transport": self.transport,
             "emitted_at": self.emitted_at,
-            "fields": [
-                {"name": field.name, "value": field.value} for field in self.fields
-            ],
+            "fields": fields,
         }
 
     @classmethod
@@ -194,13 +193,18 @@ class AdapterStartupInfo:
         for raw_field in raw_fields:
             if not isinstance(raw_field, Mapping):
                 continue
-            name = raw_field.get("name")
-            value = raw_field.get("value")
-            if not (isinstance(name, str) and isinstance(value, str)):
+            row = raw_field.get("row", 0)
+            if type(row) is not int or not 0 <= row < _MAX_ROWS:
                 continue
-            redacted = _redact_value(name, value)
-            if redacted is not None:
-                fields.append(StartupInfoField(name=name, value=redacted, cached=True))
+            field = _startup_fact(
+                raw_field.get("name"),
+                raw_field.get("value"),
+                raw_field.get("label"),
+                row=row,
+                cached=True,
+            )
+            if field is not None:
+                fields.append(field)
         if not fields:
             return None
         return cls(
@@ -241,21 +245,18 @@ def _field_name_is_secret(name: str) -> bool:
     Combines the canonical anchor-regex patterns from the shared
     sanitization module with a tokenized check so plural forms and
     compound names (``pairing_token``, ``identity_keys``) also match.
-    Public-key names (``public_key``, ``pubkey``) are the sanctioned
-    exception: they are retained for prefix-only rendering.  Device
-    identifiers (``device_id``) are platform facts, not secrets.
+    Device identifiers and explicit public keys can be operator facts.
     """
     lowered = name.lower()
     if lowered in _DEVICE_ID_NAMES:
         return False
     if any(pattern.search(lowered) for pattern in SECRET_KEY_PATTERNS):
         return True
+    tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
+    secret_tokens = SECRET_FIELD_TOKENS | _PAIRING_TOKENS | {"private"}
     if _is_public_key_name(lowered):
-        return False
-    return bool(
-        frozenset(_NAME_TOKEN_SPLIT.split(lowered))
-        & (SECRET_FIELD_TOKENS | _PAIRING_TOKENS)
-    )
+        secret_tokens = secret_tokens - {"key", "keys"}
+    return bool(tokens & secret_tokens)
 
 
 def _is_public_key_name(lowered: str) -> bool:
@@ -294,9 +295,9 @@ def _redact_value(name: str, value: object) -> str | None:
     The transformation is idempotent so core can re-apply it at every
     render boundary without changing already-rendered records.
     """
-    if _field_name_is_secret(name):
+    if not _FACT_NAME_RE.fullmatch(name) or _field_name_is_secret(name):
         return None
-    if value is None or isinstance(value, (bool, int, float)):
+    if isinstance(value, (bool, int, float)):
         rendered = str(value)
     elif isinstance(value, str):
         rendered = value
@@ -321,18 +322,48 @@ def _redact_value(name: str, value: object) -> str | None:
     return rendered
 
 
-def _redacted_fields(
-    raw: Mapping[str, object], *, cached: bool
-) -> tuple[StartupInfoField, ...]:
-    """Redact a raw mapping into renderable startup-info fields."""
+def _startup_fact(
+    name: object, value: object, label: object, *, row: int, cached: bool = False
+) -> StartupInfoField | None:
+    if not isinstance(name, str):
+        return None
+    rendered = _redact_value(name, value)
+    if rendered is None:
+        return None
+    return StartupInfoField(
+        name=name,
+        value=rendered,
+        cached=cached,
+        row=row,
+        label=_redact_value("label", label) if isinstance(label, str) else None,
+    )
+
+
+def _redacted_fields(raw: Mapping[str, object]) -> tuple[StartupInfoField, ...]:
+    """Read adapter-owned ordered rows, or accept a flat mapping of facts."""
     fields: list[StartupInfoField] = []
-    for raw_name, raw_value in raw.items():
-        if not isinstance(raw_name, str):
+    if "rows" not in raw:
+        for name, value in raw.items():
+            label = name.replace("_", " ") if isinstance(name, str) else None
+            field = _startup_fact(name, value, label, row=0)
+            if field is not None:
+                fields.append(field)
+        return tuple(fields)
+
+    rows = raw["rows"]
+    if not isinstance(rows, (list, tuple)):
+        return ()
+    for index, row in enumerate(rows[:_MAX_ROWS]):
+        if not isinstance(row, (list, tuple)):
             continue
-        value = _redact_value(raw_name, raw_value)
-        if value is None:
-            continue
-        fields.append(StartupInfoField(name=raw_name, value=value, cached=cached))
+        for fact in row:
+            if not isinstance(fact, Mapping):
+                continue
+            field = _startup_fact(
+                fact.get("name"), fact.get("value"), fact.get("label"), row=index
+            )
+            if field is not None:
+                fields.append(field)
     return tuple(fields)
 
 
@@ -357,15 +388,18 @@ async def collect_startup_info(
     itself are swallowed, so runtime startup remains owner of its own
     task cancellation.
     """
-    provider_callable = startup_info_callable(provider)
-    if provider_callable is None:
-        return None
     deadline = asyncio.timeout(timeout_seconds)
     try:
+        provider_callable = startup_info_callable(provider)
+        if provider_callable is None:
+            return None
         async with deadline:
             raw = provider_callable()
             if inspect.isawaitable(raw):
                 raw = await raw
+        if deadline.expired() or not isinstance(raw, Mapping):
+            return None
+        fields = _redacted_fields(raw)
     except TimeoutError:
         # The bounded deadline expired: no info, and startup proceeds.
         # Caller cancellation is NOT caught — CancelledError derives from
@@ -379,9 +413,6 @@ async def collect_startup_info(
             type(exc).__name__,
         )
         return None
-    if not isinstance(raw, Mapping):
-        return None
-    fields = _redacted_fields(raw, cached=False)
     if not fields:
         return None
     return AdapterStartupInfo(
@@ -404,7 +435,7 @@ def write_cache_file(path: Path, info: AdapterStartupInfo) -> None:
     the cache as best-effort and must not let a write failure affect
     startup or delivery.
     """
-    payload = info.to_cache_dict()
+    payload = info.to_dict()
     encoded = json.dumps(payload, sort_keys=True, indent=2) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
@@ -412,7 +443,9 @@ def write_cache_file(path: Path, info: AdapterStartupInfo) -> None:
     os.replace(tmp_path, path)
 
 
-def read_cache_file(path: Path) -> AdapterStartupInfo | None:
+def read_cache_file(
+    path: Path, *, adapter_id: str | None = None, transport: str | None = None
+) -> AdapterStartupInfo | None:
     """Load one adapter's last-known startup info, if any.
 
     Every field of a cache read is marked ``cached``: values persisted
@@ -428,9 +461,12 @@ def read_cache_file(path: Path) -> AdapterStartupInfo | None:
     if not isinstance(raw, Mapping):
         return None
     info = AdapterStartupInfo.from_cache_dict(raw)
-    if info is None:
+    if info is None or (
+        (adapter_id is not None and info.adapter_id != adapter_id)
+        or (transport is not None and info.transport != transport)
+    ):
         return None
-    return info.with_cached_flags(True)
+    return info
 
 
 # ---------------------------------------------------------------------------
@@ -438,24 +474,27 @@ def read_cache_file(path: Path) -> AdapterStartupInfo | None:
 # ---------------------------------------------------------------------------
 
 
-def render_startup_info_line(info: AdapterStartupInfo) -> str:
-    """Render the per-adapter startup-info line for human CLI surfaces.
-
-    Follows the CLI provenance grammar: values render as ``key=value``
-    pairs and a cached record carries the ``(cached)`` marker as a
-    parenthesized provenance suffix.  Values are re-redacted here so the
-    boundary holds even for records that never passed through this
-    module's emission path.
-    """
-    parts: list[str] = []
+def render_startup_info_block(heading: str, info: AdapterStartupInfo | None) -> str:
+    """Render the same compact block for live startup and adapter listings."""
+    if info is None:
+        return heading
+    rows: list[list[str]] = [[] for _ in range(_MAX_ROWS)]
+    cached = True
     for field in info.fields:
-        value = _redact_value(field.name, field.value)
-        if value is None:
+        if not 0 <= field.row < _MAX_ROWS:
             continue
-        parts.append(f"{field.name}={value}")
-    if not parts:
-        return ""
-    line = "startup: " + " ".join(parts)
-    if all(field.cached for field in info.fields):
-        line += " (cached)"
-    return line
+        fact = _startup_fact(
+            field.name, field.value, field.label, row=field.row, cached=field.cached
+        )
+        if fact is None:
+            continue
+        rows[fact.row].append(
+            f"{fact.label} {fact.value}" if fact.label else fact.value
+        )
+        cached = cached and fact.cached
+    lines = ["  " + " · ".join(row) for row in rows if row]
+    if not lines:
+        return heading
+    if cached:
+        heading += " (cached)"
+    return "\n".join([heading, *lines])

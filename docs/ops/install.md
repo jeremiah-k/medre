@@ -68,12 +68,11 @@ Add `--dry-run` to preview a package change. See
 [package management](package-management.md) for private/local sources, extras,
 and environment detection.
 
-`medre adapters` also renders each configured adapter's last-known startup
-info when the adapter reports it, marked `(cached)` because the listing reads
-the durable display-only cache instead of starting adapters; `--json` carries
-the structured record. Adapters without startup info are listed as before.
-The contract is specified in
-[adapter startup info](../spec/adapter-startup-info.md).
+At startup, adapters that supply startup facts display their account or node
+identity and any useful hardware details under the current lifecycle state.
+`medre adapters` shows the last-known facts with a `(cached)` marker. Its
+`--json` output includes the structured record.
+See [adapter startup info](../spec/adapter-startup-info.md).
 
 Git branches are convenient for trials; use reviewed commit SHAs or exact
 index versions for repeatability. `uv tool install` does **not** create a deployment
