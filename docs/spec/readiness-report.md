@@ -152,3 +152,24 @@ configuration outcome, per-adapter blocked reasons, the route-plan
 outcome, the boundary statement, and ordered next-step guidance. The
 guidance is actionable (which command or document to consult next) and
 always ends with the boundary statement.
+
+## Provenance labels: configured, not installed
+
+Each provider line renders the snapshot's configured source pin
+(`repository` plus `ref`) through the same compact provenance label
+grammar the startup summary, `medre adapters`, `medre version`, and
+`medre sources show` apply to installed metadata (`github:owner/repo@short8`,
+`gitlab:group/subgroup/repo@short8`, `git:host/path@short8`, `hg:`, `svn:`,
+`editable:`, `local:`, `pypi`; invalid shapes yield `unknown`). The label
+form converges; the facts it describes stay distinct:
+
+- Readiness labels describe **configured** sources: the compatibility
+  snapshot's pins for this build.
+- The startup/adapter/source surfaces describe **installed** sources:
+  `direct_url.json` metadata of the distributions actually present.
+
+The two facts MUST NOT be conflated, and neither surface MUST be derived
+from or corrected by the other. A mismatch between the configured pin and
+the installed label is the installation-drift signal the readiness report
+exists to expose; converging only the label grammar keeps that signal
+readable while keeping both facts honest.

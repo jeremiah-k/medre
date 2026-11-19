@@ -12,6 +12,8 @@ import argparse
 import sys
 from typing import Any
 
+from medre.runtime.installation_summary import configured_git_label
+
 from .exit_codes import EXIT_FAILED
 from .json import to_json
 
@@ -19,10 +21,14 @@ from .json import to_json
 def _provider_line(provider: dict[str, Any]) -> str:
     transport = str(provider["transport"])
     distribution = str(provider["distribution"])
-    ref = provider.get("ref")
-    revision = str(ref)[:8] if isinstance(ref, str) else "unknown"
+    # Configured-source label: the compatibility snapshot's repository pin
+    # rendered in the shared provenance grammar. This describes what is
+    # configured, not what is installed; a mismatch with the installed
+    # labels on the adapters/sources surfaces is the drift readiness exists
+    # to expose.
+    source = configured_git_label(provider.get("repository"), provider.get("ref"))
     parts = [
-        f"  {transport:<14} {distribution} @ {revision}",
+        f"  {transport:<14} {distribution} ({source})",
         str(provider.get("distribution_status", "unknown")),
     ]
     registration = provider.get("registration")

@@ -180,3 +180,11 @@ structured installed source is null when it cannot be validated; the compact
 label remains `unknown`. An absent distribution retains a null label. All four
 surfaces MUST NOT import provider implementations or contact an index to
 produce these identities.
+
+`medre readiness` renders the compatibility snapshot's configured repository
+pins through the same label grammar. The grammar is shared; the facts are
+not: readiness labels describe the configured pin for this build, while the
+surfaces above describe installed direct-source metadata. A mismatch between
+the configured label and the installed label is the drift signal readiness
+exists to surface, so neither surface MUST be derived from or corrected by
+the other.
