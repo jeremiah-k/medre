@@ -239,6 +239,17 @@ class TestRenderBoundaryRedaction:
         assert values["mac"].endswith("…")
         assert ":" not in values["mac"][12:]
 
+    async def test_shared_secrets_drop_even_under_unlisted_names(self) -> None:
+        class Provider:
+            async def startup_info(self) -> dict[str, str]:
+                return {"channel_psk": "a" * 64}
+
+        # Every field dropping yields no record at all rather than an
+        # empty one: a provider whose only startup fact is a secret
+        # reports nothing.
+        info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
+        assert info is None
+
     async def test_device_identifiers_render_in_full(self) -> None:
         class Provider:
             async def startup_info(self) -> dict[str, object]:
