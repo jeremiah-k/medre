@@ -24,7 +24,7 @@ lint:
     - actionlint@1.7.12 # renovate: datasource=github-releases depName=rhysd/actionlint
     - bandit@1.9.4 # renovate: datasource=pypi depName=bandit
     - black@26.10.1 # renovate: datasource=pypi depName=black
-    - checkov@3.4.5 # renovate: datasource=pypi depName=checkov
+    - checkov@3.4.6 # renovate: datasource=pypi depName=checkov
     - isort@9.0.2 # renovate: datasource=pypi depName=isort
     - renovate@44.243.1 # renovate: datasource=npm depName=renovate
     - ruff@0.17.5 # renovate: datasource=pypi depName=ruff
