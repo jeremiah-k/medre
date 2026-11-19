@@ -91,6 +91,16 @@ _READY_TIMEOUT = int(os.environ.get("MEDRE_DOCKER_READY_TIMEOUT", "120"))
 
 _SESSION_PREFIX = f"medre-ci-{os.getpid()}"
 
+# Host identity handed to the Synapse containers (``--user`` on generate
+# and run) so every file under the bind-mounted data dir is owned by the
+# invoking user.  The pinned image's start.py only demotes via gosu in run
+# mode and never chowns /data there, so a host-owned bind target is what
+# keeps the whole fixture free of root-mode containers.  POSIX only: the
+# docker integration tier is Linux-only and the fallback never fires in CI.
+_SYNAPSE_CONTAINER_USER: str = (
+    f"{os.getuid()}:{os.getgid()}" if os.name == "posix" else "991:991"
+)
+
 _ARTIFACT_DIR = Path(
     os.environ.get(
         "MEDRE_CI_ARTIFACT_DIR",
@@ -554,44 +564,34 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
     if _container_exists(container):
         _docker_run(["rm", "-f", container], timeout=30)
 
-    # Pull image early — needed for permission fixup below when stale
-    # artifacts are owned by the Synapse container UID (991).
+    # Pull the image up front via the retry helper so generate and start
+    # below fail with clear registry errors instead of a lazy pull buried
+    # inside ``docker run``.
     _ensure_image(_SYNAPSE_IMAGE)
 
-    # Wipe stale artifacts from a previous run.  The Synapse container
-    # creates files as UID 991, so the host user may be unable to remove
-    # them directly.  Fall back to a Docker-based removal when that happens.
+    # Wipe stale artifacts from a previous run.  Both the generate step and
+    # the server itself run under the invoking host user (see ``--user``
+    # below), so every file under ``data_dir`` is host-owned and a plain
+    # host-side removal always succeeds.  A PermissionError here is the
+    # regression signal the retired root-mode cleanup container used to
+    # paper over — stale root-owned leftovers need operator action.
     if data_dir.exists():
-        try:
-            shutil.rmtree(data_dir)
-        except PermissionError:
-            _docker_run(
-                [
-                    "run",
-                    "--rm",
-                    "--user",
-                    "root",
-                    "--entrypoint",
-                    "",
-                    "-v",
-                    f"{data_dir}:/data",
-                    _SYNAPSE_IMAGE,
-                    "find",
-                    "/data",
-                    "-mindepth",
-                    "1",
-                    "-delete",
-                ],
-                timeout=30,
-            )
+        shutil.rmtree(data_dir)
 
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate Synapse config.
+    # Generate Synapse config.  ``--user`` mirrors
+    # docker-compose.integration.yaml: the bind target already exists
+    # host-owned, so start.py runs the generator directly as the given
+    # identity (non-root, no gosu demotion or chown) and the produced
+    # config is owned and writable by the host process — no root-mode
+    # chmod step needed.
     _docker_run(
         [
             "run",
             "--rm",
+            "--user",
+            _SYNAPSE_CONTAINER_USER,
             "-e",
             f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
             "-e",
@@ -602,29 +602,6 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
             "generate",
         ],
         timeout=60,
-    )
-
-    # Fix permissions on generated files so the host process (which runs the
-    # test suite) can read *and write* them.  The Synapse container creates
-    # files as UID 991; ``chmod a+rw`` is applied via the same image running
-    # as root so it works regardless of host UID.
-    _docker_run(
-        [
-            "run",
-            "--rm",
-            "--user",
-            "root",
-            "--entrypoint",
-            "",
-            "-v",
-            f"{data_dir}:/data",
-            _SYNAPSE_IMAGE,
-            "chmod",
-            "-R",
-            "a+rw",
-            "/data",
-        ],
-        timeout=30,
     )
 
     # Append CI-friendly config.
@@ -644,13 +621,18 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
                 "  address:\n    per_second: 5\n    burst_count: 100\n"
             )
 
-    # Start Synapse.
+    # Start Synapse.  Same ``--user`` pin as generate: the server process
+    # (demoted by start.py's gosu path or run directly when non-root) writes
+    # media, SQLite state, and logs into the bind mount as the host user, so
+    # teardown's ``shutil.rmtree`` never needs container-side help.
     _docker_run(
         [
             "run",
             "-d",
             "--name",
             container,
+            "--user",
+            _SYNAPSE_CONTAINER_USER,
             "-e",
             f"SYNAPSE_SERVER_NAME={_SYNAPSE_SERVER_NAME}",
             "-e",
