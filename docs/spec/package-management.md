@@ -119,6 +119,9 @@ MUST NOT be described as persisted-state rollback.
 and installed versions/direct-source metadata without importing providers or
 contacting an index. The human-readable inventory MUST render each installed
 source with the same compact provenance label as the startup summary; the
+`--full` view MUST instead print the complete recorded source URL with the
+full commit revision and editable marker, for hosts and layouts the compact
+label abbreviates; the
 `--json` inventory MUST retain the structured direct-source record for
 scripts. `sources show` MUST remain usable outside an owned tool environment
 and explain unavailable receipt evidence. An index installation without direct

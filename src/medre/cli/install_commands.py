@@ -36,6 +36,11 @@ def register_source_commands(
     show_sources.add_argument(
         "--json", action="store_true", help="Print machine-readable source inventory"
     )
+    show_sources.add_argument(
+        "--full",
+        action="store_true",
+        help="Print the complete recorded source URLs instead of compact labels",
+    )
     switch_sources = source_actions.add_parser(
         "switch", help="Switch installed core or adapter sources through uv"
     )
@@ -131,7 +136,17 @@ def _manage_installation(args: argparse.Namespace) -> None:
                         print(
                             f"  requested: {row['requested'] or '(no managed receipt)'}"
                         )
-                        if row.get("source_label"):
+                        full_url = (row.get("source") or {}).get("url")
+                        if args.full and full_url:
+                            commit = (row.get("source") or {}).get("commit")
+                            editable = (
+                                " (editable)"
+                                if (row.get("source") or {}).get("editable")
+                                else ""
+                            )
+                            revision = f" @ {commit}" if commit else ""
+                            print(f"  installed source: {full_url}{revision}{editable}")
+                        elif row.get("source_label"):
                             print(f"  installed source: {row['source_label']}")
                         if row.get("provenance_error"):
                             print(f"  {row['provenance_error']}")
