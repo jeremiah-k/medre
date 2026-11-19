@@ -326,6 +326,7 @@ class PipelineRunner:
             route_stats=self._route_stats,
             runtime_accounting=self._runtime_accounting,
         )
+        self._delivery_coordinator.set_adapter_health_gate(config.adapter_health_gate)
         self._conversation_projection_repair_failed: bool = False
         self._running: bool = False
 
@@ -457,6 +458,11 @@ class PipelineRunner:
                 "Populated rendering pipeline platform registry: %s", platforms
             )
 
+    @property
+    def target_adapter_ids(self) -> tuple[str, ...]:
+        """Configured provider IDs for health-aware claim exclusion."""
+        return tuple(self._config.adapters)
+
     def set_adapter_health_gate(
         self, adapter_health_gate: AdapterHealthGate | None
     ) -> None:
@@ -467,6 +473,7 @@ class PipelineRunner:
         :class:`~medre.core.engine.pipeline.adapter_health.AdapterHealthGate`.
         """
         self._target_delivery.set_adapter_health_gate(adapter_health_gate)
+        self._delivery_coordinator.set_adapter_health_gate(adapter_health_gate)
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.

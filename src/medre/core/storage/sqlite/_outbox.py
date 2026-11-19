@@ -935,6 +935,83 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         )
         return [_row_to_outbox_item(r) for r in final_rows]
 
+    async def defer_unsubmitted_outbox_attempt(
+        self,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        next_attempt_at: str,
+    ) -> bool:
+        """Release a reservation that the live owner has not exposed to a provider.
+
+        The caller MUST know that no native submission or provider callback has
+        been authorized for this attempt. Never use this for crash recovery.
+        A mismatched owner, generation or existing attempt evidence refuses
+        release. Prior finalized attempt and receipt evidence are unchanged.
+        """
+        if not worker_id or attempt_number < 1:
+            return False
+        return (
+            await self._write_rowcount(
+                """UPDATE delivery_outbox
+               SET status='retry_wait', active_attempt=NULL, worker_id=NULL,
+                   locked_at=NULL, lease_until=NULL, next_attempt_at=?, updated_at=?
+               WHERE outbox_id=? AND status='in_progress' AND worker_id=?
+                 AND active_attempt=? AND active_attempt=attempt_number+1
+                 AND NOT EXISTS (
+                     SELECT 1 FROM delivery_receipts r
+                     WHERE r.outbox_id=delivery_outbox.outbox_id
+                       AND r.attempt_number=delivery_outbox.active_attempt)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM delivery_observations o
+                     WHERE o.outbox_id=delivery_outbox.outbox_id
+                       AND o.attempt_number=delivery_outbox.active_attempt)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM radio_attempt_progress p
+                     WHERE p.outbox_id=delivery_outbox.outbox_id
+                       AND p.attempt_number=delivery_outbox.active_attempt)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM delivery_outbox sibling
+                     WHERE sibling.outbox_id<>delivery_outbox.outbox_id
+                       AND sibling.event_id=delivery_outbox.event_id
+                       AND sibling.delivery_plan_id=delivery_outbox.delivery_plan_id
+                       AND sibling.target_adapter=delivery_outbox.target_adapter
+                       AND COALESCE(sibling.target_channel,'')=COALESCE(delivery_outbox.target_channel,'')
+                       AND COALESCE(sibling.active_attempt,sibling.attempt_number)>=delivery_outbox.active_attempt)""",
+                (next_attempt_at, _now_iso(), outbox_id, worker_id, attempt_number),
+            )
+            == 1
+        )
+
+    async def health_backlog_adapters(
+        self, candidates: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Probe each unhealthy lane for current nonterminal work using its index."""
+        if not candidates:
+            return ()
+        values = ",".join("(?)" for _ in candidates)
+        rows = await self._read_all(
+            f"""WITH candidates(target_adapter) AS (VALUES {values})
+               SELECT DISTINCT candidates.target_adapter FROM candidates
+               WHERE EXISTS (
+                 SELECT 1 FROM delivery_outbox
+                 WHERE delivery_outbox.target_adapter=candidates.target_adapter
+                   AND status IN ('pending','retry_wait','in_progress')
+                   AND NOT EXISTS (
+                       SELECT 1 FROM delivery_outbox sibling
+                       WHERE sibling.outbox_id<>delivery_outbox.outbox_id
+                         AND sibling.event_id=delivery_outbox.event_id
+                         AND sibling.delivery_plan_id=delivery_outbox.delivery_plan_id
+                         AND sibling.target_adapter=delivery_outbox.target_adapter
+                         AND COALESCE(sibling.target_channel,'')=COALESCE(delivery_outbox.target_channel,'')
+                         AND COALESCE(sibling.active_attempt,sibling.attempt_number)>=
+                             COALESCE(delivery_outbox.active_attempt,delivery_outbox.attempt_number))
+               )""",  # nosec B608 - values contains only parameter placeholders
+            candidates,
+        )
+        return tuple(sorted(row["target_adapter"] for row in rows))
+
     async def reserve_outbox_attempt(
         self,
         outbox_id: str,

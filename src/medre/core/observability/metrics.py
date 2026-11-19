@@ -21,6 +21,8 @@ Public symbols
 
 from __future__ import annotations
 
+import logging
+
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -206,7 +208,9 @@ class Diagnostician:
             Human-readable deferral reason (health state and fate).
         """
         self.deferrals[adapter] += 1
-        diagnostic_event(event_id, "delivery_deferred", reason, adapter=adapter)
+        diagnostic_event(
+            event_id, "delivery_deferred", reason, level=logging.INFO, adapter=adapter
+        )
 
     def record_replay_skip(self, event_id: str, reason: str) -> None:
         """Record a replay event that was skipped.

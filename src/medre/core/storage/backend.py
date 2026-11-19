@@ -1802,6 +1802,12 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def health_backlog_adapters(
+        self, candidates: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Return adapters with current nonterminal outbox work."""
+        ...
+
     async def claim_due_outbox_items(
         self,
         now: str,
@@ -1958,6 +1964,23 @@ class StorageBackend(Protocol):
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.  Return ``True`` only when this call committed the
         transition.
+        """
+        ...
+
+    async def defer_unsubmitted_outbox_attempt(
+        self,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        next_attempt_at: str,
+    ) -> bool:
+        """Release a reservation that the live owner has not exposed to a provider.
+
+        The caller MUST know that no native submission or provider callback has
+        been authorized for this attempt. Never use this for crash recovery.
+        A mismatched owner, generation or existing attempt evidence refuses
+        release. Prior finalized attempt and receipt evidence are unchanged.
         """
         ...
 

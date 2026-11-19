@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from medre.runtime.events import EventBuffer
 
 from medre.config.model import RetryConfig
+from medre.core.contracts.adapter import AdapterSendError
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.engine.pipeline.delivery_lifecycle import (
@@ -58,7 +59,10 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
-from medre.core.engine.pipeline.target_delivery import _DeliveryDeferred
+from medre.core.engine.pipeline.target_delivery import (
+    _AdapterDeliveryError,
+    _DeliveryDeferred,
+)
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
@@ -89,6 +93,12 @@ class RetryWorkerStorage(Protocol):
     the concrete backend to :class:`DeliveryLifecycleService`, which owns all
     retry outbox state transitions.
     """
+
+    async def health_backlog_adapters(
+        self, candidates: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Return adapters with current nonterminal outbox work."""
+        ...
 
     async def claim_due_outbox_items(
         self,
@@ -362,16 +372,16 @@ class RetryWorker:
         ``healthy`` clears that adapter's deferral state and wakes the
         dispatch loop so held obligations are redispatched immediately
         (bounded by their pushed ``next_attempt_at``). A non-healthy
-        observation starts the safety-net horizon clock if one is not
-        already running.
+        observation does not start a horizon until work is held.
         """
         if self._health_gate is not None:
             self._health_gate.observe(adapter_id, health)
         if health is None or health == "healthy":
+            self._next_retry_scan = None
             if self._task is not None and self.state.running:
                 self._dispatch_wake.set()
 
-    def _health_excluded_adapters(self, now: datetime) -> tuple[str, ...]:
+    async def _health_excluded_adapters(self, now: datetime) -> tuple[str, ...]:
         """Return adapters whose obligations must not be claimed now.
 
         An adapter with a current non-healthy observation is excluded so its
@@ -387,11 +397,15 @@ class RetryWorker:
         universe = (
             self._available_target_adapters
             if self._available_target_adapters is not None
+            else self._pipeline.target_adapter_ids
+        )
+        candidates = self._health_gate.unhealthy_adapters(universe)
+        held = (
+            await self._storage.health_backlog_adapters(candidates)
+            if candidates
             else ()
         )
-        if not universe:
-            return ()
-        return self._health_gate.excluded_adapters(universe, now=now)
+        return self._health_gate.excluded_adapters(universe, held=held, now=now)
 
     @property
     def outbox_counts(self) -> dict[str, int] | None:
@@ -1084,7 +1098,7 @@ class RetryWorker:
                 excluded_adapters=(
                     *self._active,
                     *self._adapter_deferred_until,
-                    *self._health_excluded_adapters(now),
+                    *await self._health_excluded_adapters(now),
                 ),
                 one_per_adapter=group is not None,
                 initial_only=self._initial_dispatch and not retry_scan,
@@ -1522,6 +1536,19 @@ class RetryWorker:
                 return
             capacity_acquired = True
 
+        def emit_retry_attempted(attempt_number: int) -> None:
+            self._emit(
+                "retry_attempted",
+                {
+                    "receipt_id": item.receipt_id or item.outbox_id,
+                    "parent_receipt_id": item.parent_receipt_id,
+                    "retry_receipt_id": None,
+                    "event_id": item.event_id,
+                    "target_adapter": item.target_adapter,
+                    "attempt_number": attempt_number,
+                },
+            )
+
         renewal_task: asyncio.Task[None] | None = None
 
         try:
@@ -1663,18 +1690,6 @@ class RetryWorker:
 
             renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
 
-            self._emit(
-                "retry_attempted",
-                {
-                    "receipt_id": item.receipt_id or item.outbox_id,
-                    "parent_receipt_id": item.parent_receipt_id,
-                    "retry_receipt_id": None,
-                    "event_id": item.event_id,
-                    "target_adapter": item.target_adapter,
-                    "attempt_number": reserved_attempt,
-                },
-            )
-
             evidence = await self._pipeline.deliver_execution_to_target(
                 event=event,
                 route=route,
@@ -1690,24 +1705,18 @@ class RetryWorker:
             if result_receipt is None:
                 # Defensive: every normal execution persists evidence.
                 raise RuntimeError("target delivery produced no receipt evidence")
-        except _DeliveryDeferred as exc:
+            emit_retry_attempted(reserved_attempt_number)
+        except _DeliveryDeferred:
             # Health-aware admission held the delivery before any native
-            # attempt. The admission path already pushed the owned row to
-            # retry_wait with a bounded next_attempt_at and unchanged
-            # attempts; no failure finalization here, because finalizing
-            # would burn an attempt against an adapter that may recover.
+            # attempt. The admission path either released the reservation or
+            # retained it for reconciliation after a fenced/I/O failure. Do
+            # not invent an attempt receipt or consume the retained reservation.
             self.state.processed += 1
-            _logger.info(
-                "RetryWorker: deferred outbox %s: adapter=%s health=%s; "
-                "obligation held for redispatch on recovery",
-                item.outbox_id,
-                exc.adapter_id,
-                exc.health,
-            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.state.processed += 1
+            emit_retry_attempted(reserved_attempt_number)
             try:
                 finalization = await self._lifecycle.finalize_retry_attempt_error(
                     self._lifecycle_storage,
@@ -1734,11 +1743,13 @@ class RetryWorker:
                     finalization,
                     error_summary=f"{type(exc).__name__}: {exc}",
                 )
-            _logger.debug(
-                "RetryWorker: delivery raised for outbox %s",
-                item.outbox_id,
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
+            original = exc.original if isinstance(exc, _AdapterDeliveryError) else exc
+            if not (isinstance(original, AdapterSendError) and original.transient):
+                _logger.debug(
+                    "RetryWorker: delivery raised for outbox %s",
+                    item.outbox_id,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
         else:
             self.state.processed += 1
             if result_receipt.status not in {"queued", "sent", "suppressed"}:

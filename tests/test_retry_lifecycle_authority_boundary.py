@@ -18,6 +18,7 @@ _ALLOWED_WORKER_STORAGE_CALLS = frozenset(
         "delivery_status",
         "get_metadata",
         "get_outbox_dispatch_context",
+        "health_backlog_adapters",
         "read_event_for_outbox",
     }
 )

@@ -359,6 +359,8 @@ def diagnostic_event(
     event_id: str,
     category: str,
     message: str,
+    *,
+    level: int = logging.WARNING,
     **context: Any,
 ) -> None:
     """Emit a structured diagnostic log entry.
@@ -381,7 +383,8 @@ def diagnostic_event(
         Arbitrary key–value pairs appended to the log entry.
     """
     safe_context = sanitize_for_log(context) if context else {}
-    _diagnostic_logger.warning(
+    _diagnostic_logger.log(
+        level,
         "diagnostic event_id=%s category=%s message=%s %s",
         event_id,
         category,
