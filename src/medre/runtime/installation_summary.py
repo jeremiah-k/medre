@@ -23,13 +23,14 @@ _FORGE_HOSTS = {
 }
 
 
-def _version_label(value: str | None) -> str:
-    return value if value and _VERSION.fullmatch(value) else "?"
+def version_label(value: object) -> str:
+    """Display only a valid printable package version token."""
+    return value if isinstance(value, str) and _VERSION.fullmatch(value) else "?"
 
 
 def _core_version() -> str:
     try:
-        return _version_label(importlib.metadata.version("medre"))
+        return version_label(importlib.metadata.version("medre"))
     except importlib.metadata.PackageNotFoundError:
         return _CORE_FALLBACK_VERSION
     except Exception:  # metadata display must not prevent startup
@@ -53,6 +54,8 @@ def _display_url(value: object) -> tuple[SplitResult, str] | None:
         url = urlsplit(value)
         if not url.scheme or not value.partition(":")[2].startswith("//"):
             return None
+        # Accessing port validates malformed numeric authorities.
+        _ = url.port
         if url.scheme != "file" and not url.hostname:
             return None
         host = url.netloc.rsplit("@", 1)[-1]
@@ -71,7 +74,9 @@ def _repo_segments(path: str, limit: int) -> str | None:
     if limit:
         segments = segments[:limit]
     repo = "/".join(segments)
-    return repo[:-4] if repo.endswith(".git") else repo
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return repo or None
 
 
 def _vcs_label(url: SplitResult, vcs: object, commit: object) -> str:
@@ -85,7 +90,7 @@ def _vcs_label(url: SplitResult, vcs: object, commit: object) -> str:
         hostname = url.hostname or ""
         forge = _FORGE_HOSTS.get(hostname)
         if forge is not None:
-            repo = _repo_segments(url.path, 2)
+            repo = _repo_segments(url.path, 0 if forge == "gitlab" else 2)
             if repo:
                 return f"{forge}:{repo}@{short}"
         location = _repo_segments(url.path, 0)
@@ -97,35 +102,52 @@ def _vcs_label(url: SplitResult, vcs: object, commit: object) -> str:
     return "unknown"
 
 
-def provenance_from_direct(direct: object) -> str:
-    """Compact human provenance label from one parsed PEP 610 direct-URL value.
+def describe_direct_source(direct: object) -> tuple[str, dict[str, object] | None]:
+    """One validated display identity for compact, full and JSON surfaces.
 
     Installed metadata is descriptive only; labels establish neither index
     identity nor source-tree cleanliness or qualification.
     """
+    unknown = ("unknown", None)
     if not isinstance(direct, dict):
-        return "unknown"
+        return unknown
     validated = _display_url(direct.get("url"))
     if validated is None:
-        return "unknown"
+        return unknown
     url, redacted = validated
     # PEP 610 defines mutually exclusive directory, archive and VCS forms.
     kinds = [key for key in ("dir_info", "archive_info", "vcs_info") if key in direct]
     if len(kinds) != 1 or not isinstance(direct[kinds[0]], dict):
-        return "unknown"
+        return unknown
+    record: dict[str, object] = {
+        "kind": "url",
+        "url": redacted,
+        "commit": None,
+        "editable": False,
+    }
     if "vcs_info" in direct:
         vcs = direct["vcs_info"]
-        return _vcs_label(url, vcs.get("vcs"), vcs.get("commit_id"))
-    if "dir_info" in direct:
+        label = _vcs_label(url, vcs.get("vcs"), vcs.get("commit_id"))
+        if label == "unknown":
+            return unknown
+        record.update(kind=vcs["vcs"], commit=vcs["commit_id"])
+    elif "dir_info" in direct:
         if url.scheme != "file" or not url.path.startswith("/"):
-            return "unknown"
+            return unknown
         directory = direct["dir_info"]
-        if not isinstance(directory.get("editable", False), bool):
-            return "unknown"
-        if directory.get("editable") is True:
-            return f"editable:{redacted}"
-        return f"local:{redacted}"
-    return f"url:{redacted}"
+        editable = directory.get("editable", False)
+        if not isinstance(editable, bool):
+            return unknown
+        record.update(kind="local", editable=editable)
+        label = f"editable:{redacted}" if editable else f"local:{redacted}"
+    else:
+        label = f"url:{redacted}"
+    return label, record
+
+
+def provenance_from_direct(direct: object) -> str:
+    """Compact human provenance label from one parsed PEP 610 direct-URL value."""
+    return describe_direct_source(direct)[0]
 
 
 def _source_label(dist: importlib.metadata.Distribution) -> str:
@@ -207,7 +229,7 @@ def provider_identities() -> tuple[list[ProviderIdentity], bool]:
     rows: list[ProviderIdentity] = []
     for (transport, dist_name), dist in sorted(providers.items()):
         try:
-            version = _version_label(dist.version)
+            version = version_label(dist.version)
         except Exception:
             version = "?"
         label = _source_label(dist)

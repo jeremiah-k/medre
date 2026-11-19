@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.metadata
 import platform
 import sys
 
@@ -15,10 +14,9 @@ import sys
 
 def _get_version() -> str:
     """Return the MEDRE version string."""
-    try:
-        return importlib.metadata.version("medre")
-    except importlib.metadata.PackageNotFoundError:
-        return "0.1.2"
+    from medre.runtime.installation_summary import _core_version
+
+    return _core_version()
 
 
 def _version() -> None:

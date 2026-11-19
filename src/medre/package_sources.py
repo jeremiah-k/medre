@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from medre.runtime.installation_summary import provenance_from_direct
+from medre.runtime.installation_summary import describe_direct_source, version_label
 from medre.self_upgrade import (
     UpgradePlan,
     _retain_extras,
@@ -296,27 +296,30 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
         }
         try:
             dist = importlib.metadata.distribution(name)
-            row["installed_version"] = dist.version
+        except importlib.metadata.PackageNotFoundError:
+            rows.append(row)
+            continue
+        except Exception:  # metadata discovery is best effort
+            row["source_label"] = "unknown"
+            row["provenance_error"] = "Installed source metadata is unreadable."
+            rows.append(row)
+            continue
+        row["source_label"] = "unknown"
+        try:
+            row["installed_version"] = version_label(dist.version)
+        except Exception:
+            row["installed_version"] = "?"
+        try:
             raw_url = dist.read_text("direct_url.json")
-            if raw_url is not None:
-                direct = json.loads(raw_url)
-                row["source"] = {
-                    "kind": (
-                        direct.get("vcs_info", {}).get("vcs", "vcs")
-                        if direct.get("vcs_info")
-                        else "local" if direct.get("dir_info") is not None else "url"
-                    ),
-                    "url": redact_source(direct["url"]),
-                    "commit": direct.get("vcs_info", {}).get("commit_id"),
-                    "editable": bool(direct.get("dir_info", {}).get("editable")),
-                }
-                row["source_label"] = provenance_from_direct(direct)
-            else:
+            if raw_url is None:
                 row["source"] = {"kind": "index", "url": None}
                 row["source_label"] = "pypi"
-        except importlib.metadata.PackageNotFoundError:
-            pass
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            else:
+                direct = json.loads(raw_url)
+                row["source_label"], row["source"] = describe_direct_source(direct)
+                if row["source"] is None:
+                    raise ValueError("invalid direct source metadata")
+        except Exception:  # never expose metadata exception details
             row["provenance_error"] = "Installed source metadata is unreadable."
         rows.append(row)
     return {
