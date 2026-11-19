@@ -567,3 +567,72 @@ def test_file_git_provenance_preserves_record(url):
     assert record == {"kind": "git", "url": url, "commit": commit, "editable": False}
     direct["vcs_info"]["commit_id"] = "invalid"
     assert describe_direct_source(direct) == ("unknown", None)
+
+
+# ---------------------------------------------------------------------------
+# Configured-source labels (readiness manifest pins)
+# ---------------------------------------------------------------------------
+
+
+def test_configured_git_label_uses_shared_github_grammar():
+    assert (
+        installation_summary.configured_git_label(
+            "jeremiah-k/medre-adapter-matrix", "a" * 40
+        )
+        == "github:jeremiah-k/medre-adapter-matrix@aaaaaaaa"
+    )
+
+
+def test_configured_git_label_accepts_full_sha512_revision():
+    assert (
+        installation_summary.configured_git_label("owner/repo", "b" * 64)
+        == "github:owner/repo@bbbbbbbb"
+    )
+
+
+def test_configured_git_label_strips_git_suffix_like_installed_labels():
+    assert (
+        installation_summary.configured_git_label("owner/repo.git", "a" * 40)
+        == "github:owner/repo@aaaaaaaa"
+    )
+
+
+def test_configured_git_label_matches_installed_label_for_same_repository():
+    """Same grammar, different fact: configured pin vs installed direct URL."""
+    configured = installation_summary.configured_git_label(
+        "jeremiah-k/medre-adapter-matrix",
+        "c987da62baea6b31627d4f8fc5f5b6c69d07f844",
+    )
+    installed = installation_summary.provenance_from_direct(
+        {
+            "url": "https://github.com/jeremiah-k/medre-adapter-matrix",
+            "vcs_info": {
+                "vcs": "git",
+                "commit_id": "c987da62baea6b31627d4f8fc5f5b6c69d07f844",
+            },
+        }
+    )
+    assert configured == installed
+
+
+@pytest.mark.parametrize(
+    "repository,ref",
+    [
+        (None, "a" * 40),
+        ("", "a" * 40),
+        ("owner repo", "a" * 40),
+        ("owner/repo", None),
+        ("owner/repo", "shortref"),
+        ("owner/repo", 12345),
+    ],
+    ids=[
+        "repository-none",
+        "repository-empty",
+        "repository-not-a-slug",
+        "ref-none",
+        "ref-not-a-revision",
+        "ref-not-a-string",
+    ],
+)
+def test_configured_git_label_degrades_to_unknown(repository, ref):
+    assert installation_summary.configured_git_label(repository, ref) == "unknown"

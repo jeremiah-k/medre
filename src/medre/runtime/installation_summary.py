@@ -158,6 +158,28 @@ def provenance_from_direct(direct: object) -> str:
     return describe_direct_source(direct)[0]
 
 
+def configured_git_label(repository: object, ref: object) -> str:
+    """Provenance label for a *configured* repository pin, in the shared grammar.
+
+    Readiness renders the compatibility snapshot's configured refs (an
+    ``owner/repo`` slug plus a recorded revision) through the same compact
+    grammar as installed labels (``github:owner/repo@short8``). The label
+    form converges; the fact stays distinct: this describes what the
+    manifest configures, never what is installed (installed provenance is
+    ``describe_direct_source``/``provenance_from_direct`` from direct_url
+    metadata). The canonical forge host matches the built-in source
+    authority that turns the same slug into ``git+https://github.com/...``.
+    Invalid or unsupported shapes yield ``unknown`` like every other label.
+    """
+    if not isinstance(repository, str) or not repository:
+        return "unknown"
+    validated = _display_url(f"https://github.com/{repository}")
+    if validated is None:
+        return "unknown"
+    url, _redacted = validated
+    return _vcs_label(url, "git", ref)
+
+
 def _source_label(dist: importlib.metadata.Distribution) -> str:
     """Short install-provenance label; displayed URLs are redacted."""
     try:
