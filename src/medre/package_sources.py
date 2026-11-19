@@ -15,6 +15,7 @@ from medre.self_upgrade import (
     _verify_scoped_sources,
     installed_adapters,
 )
+from medre.runtime.installation_summary import provenance_from_direct
 from medre.tool_management import (
     _REQUIREMENT,
     _SELECTION,
@@ -291,6 +292,7 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
             "requested": redact_source(requested[name]) if name in requested else None,
             "installed_version": None,
             "source": None,
+            "source_label": None,
         }
         try:
             dist = importlib.metadata.distribution(name)
@@ -308,8 +310,10 @@ def source_inventory(catalog: SourceCatalog) -> dict[str, Any]:
                     "commit": direct.get("vcs_info", {}).get("commit_id"),
                     "editable": bool(direct.get("dir_info", {}).get("editable")),
                 }
+                row["source_label"] = provenance_from_direct(direct)
             else:
                 row["source"] = {"kind": "index", "url": None}
+                row["source_label"] = "pypi"
         except importlib.metadata.PackageNotFoundError:
             pass
         except (OSError, ValueError, TypeError, KeyError, AttributeError):

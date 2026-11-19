@@ -131,7 +131,8 @@ def _manage_installation(args: argparse.Namespace) -> None:
                         print(
                             f"  requested: {row['requested'] or '(no managed receipt)'}"
                         )
-                        print(f"  installed source: {json.dumps(row['source'])}")
+                        if row.get("source_label"):
+                            print(f"  installed source: {row['source_label']}")
                         if row.get("provenance_error"):
                             print(f"  {row['provenance_error']}")
                     if report["receipt_error"]:

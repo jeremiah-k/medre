@@ -1365,7 +1365,9 @@ medre adapters sources [--sources PATH]
     Print configurable adapter package sources.
 
 medre sources show [--sources PATH] [--json]
-    Distinguish configured requirements, saved tool requests and installed sources.
+    Distinguish configured requirements, saved tool requests and installed
+    sources; each installed source renders as the shared compact provenance
+    label, while --json keeps the structured direct-source record.
 
 medre sources switch [core|ALIAS...] [--all] (--from index|git|local | --requirement REQUIREMENT) [--dry-run]
     Switch explicitly installed package sources through uv; preserve extras.
