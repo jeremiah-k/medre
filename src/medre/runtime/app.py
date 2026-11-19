@@ -35,6 +35,7 @@ from medre.core.contracts.adapter import (
     ProducerPressureReport,
 )
 from medre.core.delivery_authority import effective_generation
+from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.core.startup_info import (
     CACHE_FILENAME,
@@ -668,6 +669,7 @@ class MedreApp:
     _startup_wall: str | None = field(default=None, init=False)
     _startup_monotonic: float | None = field(default=None, init=False)
     _health_state: dict[str, Any] | None = field(default=None, init=False)
+    _delivery_health_gate: AdapterHealthGate | None = field(default=None, init=False)
     _boot_summary: BootSummary | None = field(default=None, init=False)
     _recovery_run_id: str | None = field(default=None, init=False)
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
@@ -963,6 +965,29 @@ class MedreApp:
             adapter_summary=dict(snapshot.adapter_summary),
         )
 
+    def _adapter_health_fn(self, adapter_id: str) -> str | None:
+        """Return the current normalized health string for one adapter.
+
+        Read-only lookup wrapped by the shared health admission gate and
+        injected into the delivery pipeline and the retry worker for
+        health-aware admission. ``None`` means the runtime holds no
+        observation for the adapter; consumers must not block delivery on a
+        missing observation.
+        """
+        entry = self._observed_adapter_health.get(adapter_id)
+        return entry.health if entry is not None else None
+
+    @property
+    def delivery_health_gate(self) -> AdapterHealthGate:
+        """Shared health admission gate for the pipeline and the retry worker.
+
+        One instance owns the deferral-horizon state so claim exclusion and
+        pipeline admission compose on the same decision per adapter.
+        """
+        if self._delivery_health_gate is None:
+            self._delivery_health_gate = AdapterHealthGate(self._adapter_health_fn)
+        return self._delivery_health_gate
+
     def _health_reporter(self, adapter_id: str) -> Callable[[AdapterInfo], None]:
         """Bind reports to one adapter and runtime lifetime, including SDK threads."""
         loop = asyncio.get_running_loop()
@@ -1047,6 +1072,13 @@ class MedreApp:
             before.health if before is not None else previous.value,
             entry.health,
         )
+        # Health-aware delivery durability: forward the transition so the
+        # retry worker skips the degraded adapter's obligations and
+        # redispatches them promptly on recovery. Runs on the loop thread
+        # (reports arrive via call_soon_threadsafe); the notification only
+        # mutates worker-local maps and sets its wake event.
+        if self._retry_worker is not None:
+            self._retry_worker.notify_adapter_health(adapter_id, entry.health)
         if self._state is RuntimeState.RUNNING:
             self._publish_health_reports()
 
@@ -1235,6 +1267,11 @@ class MedreApp:
                     continue
                 if old_entry.health != new_entry.health:
                     changed.append(aid)
+                    # Manual-poll path mirrors the native-report transition
+                    # notification so health-aware redispatch reacts to both
+                    # observation sources.
+                    if self._retry_worker is not None:
+                        self._retry_worker.notify_adapter_health(aid, new_entry.health)
             if changed:
                 event_detail["changed_adapters"] = sorted(changed)
 
@@ -1639,6 +1676,12 @@ class MedreApp:
         # cleanup (``_cleanup_core_resources``) and ``stop()`` already
         # handle a constructed-but-not-started worker.
         try:
+            # Health-aware delivery admission: the pipeline and the retry
+            # worker read current adapter health from the runtime's retained
+            # observations. Injection happens here because observations only
+            # exist after adapters settled; before this boundary the lookups
+            # are dormant and delivery behavior is unchanged.
+            self.pipeline_runner.set_adapter_health_gate(self.delivery_health_gate)
             if self._retry_worker is not None:
                 # Existing durable rows can target adapters that failed this
                 # startup.  Preserve that work without consuming a transport
@@ -1842,6 +1885,7 @@ class MedreApp:
                 stop_timeout_seconds=float(
                     self.config.runtime.shutdown_timeout_seconds
                 ),
+                adapter_health_gate=self.delivery_health_gate,
             )
             # Activation is deferred to the post-adapter boundary below:
             # the worker's first claim cycle must not run while adapters
