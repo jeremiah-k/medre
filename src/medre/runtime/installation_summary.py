@@ -91,10 +91,10 @@ def _vcs_label(url: SplitResult, vcs: object, commit: object) -> str:
             if not url.path.startswith("/") or not url.path.strip("/"):
                 return "unknown"
             # Use the validated, credential-free file location (including UNC host).
-            location = urlunsplit(
+            file_location = urlunsplit(
                 ("file", url.netloc.rsplit("@", 1)[-1], url.path, "", "")
             )
-            return f"git:{location}@{short}"
+            return f"git:{file_location}@{short}"
         hostname = url.hostname or ""
         forge = _FORGE_HOSTS.get(hostname)
         if forge is not None:
