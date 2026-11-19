@@ -2,8 +2,8 @@
 """Adapter startup-info contract: duck-typed discovery, bounded emission,
 display-only cache, core-boundary redaction, and CLI rendering.
 
-All providers in this module are fakes; no real adapter is changed or
-imported. The contract itself is specified in
+Runtime tests use fake providers. CLI tests load a fake Matrix instance
+through the installed provider's configuration validator. See
 ``docs/spec/adapter-startup-info.md``.
 """
 
@@ -509,6 +509,7 @@ adapters:
       adapter_kind: fake
       homeserver: https://matrix.example.org
       user_id: "@bridge:example.org"
+      access_token: fake_token_for_test
 """
 
 
@@ -536,6 +537,7 @@ def _plant_cli_state(
     return tmp_path
 
 
+@pytest.mark.usefixtures("isolated_config_env")
 class TestAdaptersCliRendering:
     def test_cached_line_renders_with_marker(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
