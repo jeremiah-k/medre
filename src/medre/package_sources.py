@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from medre.runtime.installation_summary import provenance_from_direct
 from medre.self_upgrade import (
     UpgradePlan,
     _retain_extras,
     _verify_scoped_sources,
     installed_adapters,
 )
-from medre.runtime.installation_summary import provenance_from_direct
 from medre.tool_management import (
     _REQUIREMENT,
     _SELECTION,

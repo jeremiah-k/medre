@@ -621,9 +621,9 @@ def test_show_renders_installed_sources_with_shared_labels(
     }
     dist = SimpleNamespace(
         version="0.1.1",
-        read_text=lambda name: json.dumps(direct)
-        if name == "direct_url.json"
-        else None,
+        read_text=lambda name: (
+            json.dumps(direct) if name == "direct_url.json" else None
+        ),
     )
     monkeypatch.setattr(ps.importlib.metadata, "distribution", lambda name: dist)
     monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
@@ -631,9 +631,7 @@ def test_show_renders_installed_sources_with_shared_labels(
     catalog_path.write_text("core: medre\nadapters: {}\n")
     main(["sources", "show", "--sources", str(catalog_path)])
     out = capsys.readouterr().out
-    assert (
-        "installed source: github:jeremiah-k/medre-adapter-matrix@d2619ed8" in out
-    )
+    assert "installed source: github:jeremiah-k/medre-adapter-matrix@d2619ed8" in out
     assert '"kind"' not in out and '"commit"' not in out
 
     main(["sources", "show", "--sources", str(catalog_path), "--json"])
