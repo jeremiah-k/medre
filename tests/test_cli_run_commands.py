@@ -315,7 +315,9 @@ class TestRunExitCodes:
                 return_value={"status": "degraded"},
             ),
         ):
-            output = _run_cli("diagnostics", "--config", str(config_with_routes))
+            output = _run_cli(
+                "diagnostics", "--format", "json", "--config", str(config_with_routes)
+            )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 

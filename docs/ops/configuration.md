@@ -1405,10 +1405,12 @@ medre adapters upgrade [ALIAS...] [--sources PATH] [--sync-sources] [--dry-run]
     Update installed adapters without requesting a core upgrade.
     medre adapters update is the same operation.
 
-medre diagnostics [--config PATH] [--refresh-health]
-    Print adapter diagnostics snapshot. Without --refresh-health, reports
+medre diagnostics [--config PATH] [--refresh-health] [--format human|json|prometheus]
+    Print a pre-flight diagnostics summary. Without --refresh-health, reports
     build-time state only. With --refresh-health, starts adapters, polls
-    health, then stops.
+    health, then stops. The human-readable summary is the default;
+    --format json prints the full machine snapshot and --format prometheus
+    the numeric exposition.
 
 medre readiness [--config PATH] [--json]
     Print the read-only offline readiness report: per compatibility-snapshot

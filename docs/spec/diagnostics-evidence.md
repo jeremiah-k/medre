@@ -3,7 +3,7 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Authoritative specification for diagnostics shape, runtime snapshots, evidence classification, and evidence collection
-> **Last reviewed:** 2026-05-27
+> **Last reviewed:** 2026-11-19
 
 This document defines the normative contract for the MEDRE diagnostics subsystem, runtime snapshot layer, and operational evidence collection. Every runtime component, adapter, test harness, and operator tool that produces or consumes diagnostic data or evidence MUST conform to this specification.
 
@@ -32,14 +32,23 @@ fan-out scopes MUST restore their parent context and MUST NOT leak correlation
 fields across asyncio tasks. Potentially sensitive/high-cardinality target channel
 identifiers are not injected automatically.
 
+Without `--format`, `medre diagnostics` and
+`medre diagnostics --refresh-health` print a human-readable summary in the
+readiness-report style: one line per section (lifecycle, adapters, build
+failures, routes, capacity, outbox, replay, retry, and live health when
+populated), typed statuses instead of error text, and ordered next steps.
+The summary is a rendering of the same snapshot; it adds no observations
+and carries no error text. Machine consumers MUST use `--format json`
+(the full snapshot) or `--format prometheus` (the numeric exposition);
+the human summary MUST NOT be parsed by scripts or treated as evidence.
+
 `medre diagnostics --format prometheus` and
 `medre diagnostics --refresh-health --format prometheus` expose the same runtime
 snapshot as Prometheus text exposition. The CLI first projects the runtime
 snapshot onto bounded aggregate sections, excluding per-adapter and per-route maps,
 then emits only numeric and boolean leaves as gauges without Prometheus labels.
 String-valued paths, identifiers, error text, lists, and `None` values are
-omitted. Operators that need identifiers or diagnostic text MUST use JSON. JSON
-remains the default format.
+omitted. Operators that need identifiers or diagnostic text MUST use JSON.
 The Prometheus view also merges `MedreApp.diagnostic_snapshot()` under the
 `runtime_diagnostics` prefix, exposing numeric durable-ingress and capacity
 counters (including deferrals and forced shutdown cancellations) without changing

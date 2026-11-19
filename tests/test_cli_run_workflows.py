@@ -75,7 +75,9 @@ class TestShutdownRestartWorkflow:
 
     def test_diagnostics_before_run(self, config_fake_multi: Path) -> None:
         """Operator workflow: check diagnostics before attempting run."""
-        output = _run_cli("diagnostics", "--config", str(config_fake_multi))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_fake_multi)
+        )
         parsed = json.loads(output)
         assert "schema_version" in parsed
 
