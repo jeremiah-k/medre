@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import shutil
 import subprocess
@@ -24,6 +25,16 @@ _SYNAPSE_IMAGE = (
 )
 _CONTAINER = "medre-matrix-synapse"
 _PORT = 18008
+
+# Host identity handed to the Synapse containers (``--user`` on generate
+# and run) so every file under the bind-mounted data dir is owned by the
+# invoking user.  The pinned image's start.py only demotes via gosu in run
+# mode and never chowns /data there, so a host-owned bind target is what
+# keeps this harness free of root-mode containers.  POSIX only: the live
+# harness runs on the Linux bench and the fallback never fires there.
+_SYNAPSE_CONTAINER_USER: str = (
+    f"{os.getuid()}:{os.getgid()}" if os.name == "posix" else "991:991"
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,35 +103,28 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
     _docker(["rm", "-f", _CONTAINER], timeout=30, check=False)
     registration_secret, bot_password, peer_password = _fresh_credentials()
 
+    # Wipe stale artifacts from a previous run.  Both the generate step
+    # and the server itself run under the invoking host user (see
+    # ``--user`` below), so every file under ``data_dir`` is host-owned
+    # and a plain host-side removal always succeeds.  A PermissionError
+    # here is the regression signal the retired root-mode cleanup
+    # container used to paper over — stale root-owned leftovers need
+    # operator action.
     if data_dir.exists():
-        try:
-            shutil.rmtree(data_dir)
-        except PermissionError:
-            _docker(
-                [
-                    "run",
-                    "--rm",
-                    "--user",
-                    "root",
-                    "--entrypoint",
-                    "",
-                    "-v",
-                    f"{data_dir}:/data",
-                    _SYNAPSE_IMAGE,
-                    "find",
-                    "/data",
-                    "-mindepth",
-                    "1",
-                    "-delete",
-                ],
-                timeout=30,
-            )
+        shutil.rmtree(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generate Synapse config.  ``--user`` mirrors the integration
+    # conftest: the bind target already exists host-owned, so start.py
+    # runs the generator directly as the given identity (non-root, no
+    # gosu demotion or chown) and the produced config is owned and
+    # writable by the host process — no root-mode chmod step needed.
     _docker(
         [
             "run",
             "--rm",
+            "--user",
+            _SYNAPSE_CONTAINER_USER,
             "-e",
             "SYNAPSE_SERVER_NAME=matrix.localhost",
             "-e",
@@ -132,26 +136,6 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
         ],
         timeout=60,
     )
-    _docker(
-        [
-            "run",
-            "--rm",
-            "--user",
-            "root",
-            "--entrypoint",
-            "",
-            "-v",
-            f"{data_dir}:/data",
-            _SYNAPSE_IMAGE,
-            "chmod",
-            "-R",
-            # Synapse generates /data with mode 700 under its container UID.
-            # X restores directory traversal without making config files executable.
-            "a+rwX",
-            "/data",
-        ],
-        timeout=30,
-    )
     homeserver = data_dir / "homeserver.yaml"
     if homeserver.exists():
         # Open registration must stay off (Synapse refuses to start when
@@ -162,12 +146,17 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
             fh.write(f"registration_shared_secret: {registration_secret}\n")
             fh.write("rc_message:\n  per_second: 25\n  burst_count: 100\n")
 
+    # Start Synapse.  Same ``--user`` pin as generate: the server process
+    # writes media, SQLite state, and logs into the bind mount as the
+    # host user, so teardown never needs container-side help.
     _docker(
         [
             "run",
             "-d",
             "--name",
             _CONTAINER,
+            "--user",
+            _SYNAPSE_CONTAINER_USER,
             "-e",
             "SYNAPSE_SERVER_NAME=matrix.localhost",
             "-e",
