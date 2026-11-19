@@ -386,6 +386,11 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         action="store_true",
         help="With reset, also restore core to main while retaining its extras",
     )
+    adapters_p.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the adapter listing (including last-known startup info) as JSON",
+    )
 
     # diagnostics
     diag_p = sub.add_parser(
@@ -1282,7 +1287,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.action == "check":
             _adapters_check(args.config, cli_failures=args._adapter_cli_failures)
         else:
-            _adapters(cli_failures=args._adapter_cli_failures)
+            _adapters(cli_failures=args._adapter_cli_failures, as_json=args.json)
     elif args.command == "diagnostics":
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 

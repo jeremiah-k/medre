@@ -6,7 +6,14 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-from medre.config.paths import resolve
+from medre.cli.json import to_json
+from medre.config.paths import MedrePaths, resolve
+from medre.core.startup_info import (
+    CACHE_FILENAME,
+    AdapterStartupInfo,
+    read_cache_file,
+    render_startup_info_line,
+)
 
 from .exit_codes import EXIT_CONFIG
 from .transports import TRANSPORTS, is_transport_installed
@@ -267,7 +274,22 @@ def _config_check(config_path: str | None) -> None:
         )
 
 
-def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
+def _cached_startup_info(
+    paths: MedrePaths, adapter_id: str
+) -> AdapterStartupInfo | None:
+    """Read one adapter's display-only last-known startup info, if any."""
+    try:
+        cache_path = paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
+    except Exception:
+        return None
+    return read_cache_file(cache_path)
+
+
+def _adapters(
+    *,
+    cli_failures: tuple[CliContributionFailure, ...] = (),
+    as_json: bool = False,
+) -> None:
     """List adapter types, installed package identities, SDK availability,
     and configured adapters."""
     from medre.config.errors import (
@@ -276,6 +298,33 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
         ConfigValidationError,
     )
     from medre.config.loader import load_config
+
+    paths = resolve()
+
+    sdk_rows: list[dict[str, str]] = []
+    for transport, dist_name, import_names in TRANSPORTS:
+        if not import_names:
+            sdk_rows.append(
+                {
+                    "transport": transport,
+                    "sdk": "not required",
+                    "distribution": dist_name or "",
+                }
+            )
+            continue
+        installed = is_transport_installed(transport)
+        status = "installed" if installed else "not installed"
+        sdk_rows.append(
+            {
+                "transport": transport,
+                "sdk": status,
+                "distribution": dist_name or "external",
+            }
+        )
+
+    if as_json:
+        _adapters_json(paths, sdk_rows, cli_failures=cli_failures)
+        return
 
     print("Adapter types:")
     _print_cli_failures(cli_failures)
@@ -288,14 +337,14 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
         )
 
     # Check SDK availability
-    for transport, dist_name, import_names in TRANSPORTS:
-        if not import_names:
-            print(f"  {transport:14s} Python SDK: not required")
+    for sdk_row in sdk_rows:
+        if sdk_row["sdk"] == "not required":
+            print(f"  {sdk_row['transport']:14s} Python SDK: not required")
             continue
-        installed = is_transport_installed(transport)
-        status = "installed" if installed else "not installed"
-        label = dist_name or "external"
-        print(f"  {transport:14s} SDK ({label}): {status}")
+        print(
+            f"  {sdk_row['transport']:14s} SDK ({sdk_row['distribution']}): "
+            f"{sdk_row['sdk']}"
+        )
 
     # Installed adapter package identities (same rows as the startup banner)
     from medre.runtime.installation_summary import (
@@ -310,13 +359,17 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
     if installed_rows or inventory_incomplete:
         print()
         print("Installed adapters:")
-        for row in installed_rows:
+        for identity_row in installed_rows:
             suffix = (
                 ""
-                if row.distribution == standard_distribution(row.transport)
-                else f" [{row.distribution}]"
+                if identity_row.distribution
+                == standard_distribution(identity_row.transport)
+                else f" [{identity_row.distribution}]"
             )
-            print(f"  {row.transport:14s} {row.version}  {row.source}{suffix}")
+            print(
+                f"  {identity_row.transport:14s} {identity_row.version}  "
+                f"{identity_row.source}{suffix}"
+            )
         if inventory_incomplete:
             print("  Adapter inventory incomplete (metadata unavailable)")
 
@@ -333,6 +386,11 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
             status = "enabled" if rtc.enabled else "disabled"
             kind = getattr(rtc, "adapter_kind", "real")
             print(f"  {transport}.{adapter_id}: {status} (kind={kind})")
+            info = _cached_startup_info(paths, adapter_id)
+            if info is not None:
+                line = render_startup_info_line(info)
+                if line:
+                    print(f"    {line}")
     except ConfigNotFoundError:
         if not TRANSPORTS:
             print("Install a provider before generating a sample or building a bridge.")
@@ -340,6 +398,93 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
             print("No config found — run 'medre config sample' to generate one.")
     except (ConfigFileError, ConfigValidationError):
         print("Config cannot be loaded — run 'medre config check' for details.")
+
+
+def _adapters_json(
+    paths: MedrePaths,
+    sdk_rows: list[dict[str, str]],
+    *,
+    cli_failures: tuple[CliContributionFailure, ...] = (),
+) -> None:
+    """Print the adapters listing as a structured JSON document.
+
+    Startup-info records carry per-field ``cached`` flags: values read
+    from the durable last-known cache are always cached from the CLI's
+    point of view because the listing never starts adapters.
+    """
+    from medre.config.errors import (
+        ConfigFileError,
+        ConfigNotFoundError,
+        ConfigValidationError,
+    )
+    from medre.config.loader import load_config
+    from medre.runtime.installation_summary import (
+        provider_identities,
+        standard_distribution,
+    )
+
+    installed_section: list[dict[str, str]] = []
+    try:
+        installed_rows, inventory_incomplete = provider_identities()
+    except Exception:
+        installed_rows, inventory_incomplete = [], True
+    for identity_row in installed_rows:
+        installed_entry: dict[str, str] = {
+            "transport": identity_row.transport,
+            "version": identity_row.version,
+            "source": identity_row.source,
+        }
+        if identity_row.distribution != standard_distribution(identity_row.transport):
+            installed_entry["distribution"] = identity_row.distribution
+        installed_section.append(installed_entry)
+
+    configured_section: list[dict[str, object]] = []
+    config_error: str | None = None
+    try:
+        config, _source, _paths = load_config(None)
+        for transport, adapter_id, rtc in config.adapters.all_configs():
+            configured_entry: dict[str, object] = {
+                "transport": transport,
+                "adapter_id": adapter_id,
+                "status": "enabled" if rtc.enabled else "disabled",
+                "kind": getattr(rtc, "adapter_kind", "real"),
+            }
+            info = _cached_startup_info(paths, adapter_id)
+            if info is not None:
+                configured_entry["startup_info"] = {
+                    "adapter_id": info.adapter_id,
+                    "transport": info.transport,
+                    "emitted_at": info.emitted_at,
+                    "fields": [
+                        {
+                            "name": field.name,
+                            "value": field.value,
+                            "cached": field.cached,
+                        }
+                        for field in info.fields
+                    ],
+                }
+            configured_section.append(configured_entry)
+    except ConfigNotFoundError:
+        config_error = "no config found"
+    except (ConfigFileError, ConfigValidationError):
+        config_error = "config cannot be loaded"
+
+    document: dict[str, object] = {
+        "adapter_types": sdk_rows,
+        "installed_adapters": installed_section,
+        "configured_adapters": configured_section,
+    }
+    if cli_failures:
+        document["cli_failures"] = [
+            {"transport": failure.transport, "reason": failure.reason}
+            for failure in cli_failures
+        ]
+    if inventory_incomplete:
+        document["inventory_incomplete"] = True
+    if config_error is not None:
+        document["config_error"] = config_error
+    print(to_json(document))
 
 
 def _print_cli_failures(failures: tuple[CliContributionFailure, ...]) -> None:
