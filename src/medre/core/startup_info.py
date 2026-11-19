@@ -82,15 +82,11 @@ readers must tolerate unknown keys and missing fields.
 """
 
 # Prefix length for key-like and address-like rendered values.  Matches
-# the documented diagnostics grammar ("public key hex prefix, max 12
-# hex chars") so every MEDRE surface uses the same prefix budget.
-_PREFIX_CHARS: int = 12
-
 # Generic display cap for any single rendered value, keeping CLI lines
 # bounded even when a provider returns oversized free-text facts.
 _MAX_VALUE_CHARS: int = 64
 
-_PREFIX_SUFFIX = "…"
+_TRUNCATION_SUFFIX = "…"
 
 # Field-name tokens that mark pairing material in addition to the
 # canonical sanitization token set.
@@ -111,18 +107,7 @@ _DEVICE_ID_NAMES: frozenset[str] = frozenset({"device_id", "deviceid"})
 _NAME_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
 
 # Value shapes that are never rendered in full.
-_KEY_MATERIAL_RE = re.compile(
-    r"(?:[0-9a-fA-F]{32,}|[A-Za-z0-9+/_-]{32,}={0,2}|0x[0-9a-fA-F]{8,})"
-)
-_ADDRESS_RE = re.compile(
-    r"(?:"
-    r"![0-9a-fA-F]{4,}"  # Meshtastic-style node address
-    r"|@[^@\s:]+:[^@\s]+"  # Matrix-style actor address
-    r"|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}"  # MAC address
-    r"|\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?"  # IPv4 with optional port
-    r")"
-)
-# Credential-bearing URLs are omitted outright; plain endpoints render.
+# Credential-bearing URLs are omitted outright; plain endpoints render.# Credential-bearing URLs are omitted outright; plain endpoints render.
 _URL_USERINFO_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/@]+@[^\s]+")
 
 # Terminal-display boundary: reject control characters in rendered
@@ -265,21 +250,25 @@ def _field_name_is_secret(name: str) -> bool:
         return False
     if any(pattern.search(lowered) for pattern in SECRET_KEY_PATTERNS):
         return True
-    tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
-    if tokens & _PUBLIC_KEY_NAME_TOKENS and ("key" in tokens or "pubkey" in tokens):
+    if _is_public_key_name(lowered):
         return False
-    return bool(tokens & (SECRET_FIELD_TOKENS | _PAIRING_TOKENS))
+    return bool(
+        frozenset(_NAME_TOKEN_SPLIT.split(lowered))
+        & (SECRET_FIELD_TOKENS | _PAIRING_TOKENS)
+    )
 
 
-def _prefix_only(value: str) -> str:
-    """Cap *value* at the prefix budget, marking actual truncation.
+def _is_public_key_name(lowered: str) -> bool:
+    """Return True when the name explicitly marks a *public* key.
 
-    Idempotent: an already-prefixed value is returned unchanged, so
-    re-redacting a rendered record never grows the marker.
+    Public keys are published by the underlying protocols; an explicit
+    public-key name declares the value renderable in full, including a
+    bypass of the credential-shape scrub below.
     """
-    if len(value) <= _PREFIX_CHARS:
-        return value
-    return value[:_PREFIX_CHARS] + _PREFIX_SUFFIX
+    tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
+    return bool(
+        tokens & _PUBLIC_KEY_NAME_TOKENS and ("key" in tokens or "pubkey" in tokens)
+    )
 
 
 def _redact_value(name: str, value: object) -> str | None:
@@ -290,21 +279,23 @@ def _redact_value(name: str, value: object) -> str | None:
     returned:
 
     * secret-named and pairing-named fields are omitted entirely;
-    * device identifiers render in full as operator-visible facts;
+      a value that cannot be shown safely does not show at all;
+    * every other field renders in full: identifiers, addresses, and
+      public keys are operator facts the underlying protocols already
+      publish, and a partial value cannot be copied, verified, or
+      correlated;
     * non-string scalars are stringified; containers and ``None`` are
       dropped;
     * values carrying control characters are dropped;
     * credential-bearing URLs are omitted outright;
-    * key material and address-like values render as prefixes only;
     * token-like values render as the canonical redaction marker;
-    * remaining values are capped at the display limit.
+    * remaining values are capped at a pure display-length limit.
 
     The transformation is idempotent so core can re-apply it at every
     render boundary without changing already-rendered records.
     """
     if _field_name_is_secret(name):
         return None
-    is_device_id = name.lower() in _DEVICE_ID_NAMES
     if value is None or isinstance(value, (bool, int, float)):
         rendered = str(value)
     elif isinstance(value, str):
@@ -317,19 +308,16 @@ def _redact_value(name: str, value: object) -> str | None:
         return None
     if _URL_USERINFO_RE.search(rendered):
         return None
-    if not is_device_id:
-        if _KEY_MATERIAL_RE.search(rendered) or _ADDRESS_RE.search(rendered):
-            return _prefix_only(rendered)
-        # Same canonical token scrub the error/log surfaces use.
+    # Same canonical token scrub the error/log surfaces use; a
+    # credential-shaped value under a benign name renders the marker.
+    # Explicit public-key names declare their value published and skip
+    # the scrub so key material renders whole.
+    if not _is_public_key_name(name.lower()):
         rendered = sanitize_error(rendered)
         if REDACTED_TOKEN in rendered:
             return rendered
-    # Same canonical token scrub the error/log surfaces use.
-    rendered = sanitize_error(rendered)
-    if REDACTED_TOKEN in rendered:
-        return rendered
     if len(rendered) > _MAX_VALUE_CHARS:
-        return rendered[:_MAX_VALUE_CHARS] + _PREFIX_SUFFIX
+        return rendered[:_MAX_VALUE_CHARS] + _TRUNCATION_SUFFIX
     return rendered
 
 

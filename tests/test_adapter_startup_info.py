@@ -211,33 +211,30 @@ class TestRenderBoundaryRedaction:
         info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
         assert info is None, "every field was secret-like; nothing may render"
 
-    async def test_public_keys_render_as_prefixes(self) -> None:
+    async def test_public_keys_render_in_full(self) -> None:
         class Provider:
             async def startup_info(self) -> dict[str, str]:
-                return {"public_key": "a" * 64}
+                return {"public_key": "K" * 43}
 
         info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
         assert info is not None
-        field = info.fields[0]
-        assert field.value == "a" * 12 + "…"
-        assert "a" * 13 not in field.value
+        assert info.fields[0].value == "K" * 43
 
-    async def test_addresses_render_as_prefixes(self) -> None:
+    async def test_addresses_render_in_full(self) -> None:
         class Provider:
             async def startup_info(self) -> dict[str, str]:
                 return {
-                    "node_address": "!a4cf1214",
-                    "peer_address": "@bridge:example.org",
+                    "node_address": "!a4cf1214e5f6a7b8",
+                    "user_id": "@bridge:example.org",
                     "mac": "aa:bb:cc:dd:ee:ff",
                 }
 
         info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
         assert info is not None
         values = {field.name: field.value for field in info.fields}
-        assert values["node_address"] == "!a4cf1214"
-        assert values["peer_address"] == "@bridge:exam…"
-        assert values["mac"].endswith("…")
-        assert ":" not in values["mac"][12:]
+        assert values["node_address"] == "!a4cf1214e5f6a7b8"
+        assert values["user_id"] == "@bridge:example.org"
+        assert values["mac"] == "aa:bb:cc:dd:ee:ff"
 
     async def test_shared_secrets_drop_even_under_unlisted_names(self) -> None:
         class Provider:
