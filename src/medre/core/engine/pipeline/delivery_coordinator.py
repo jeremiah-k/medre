@@ -37,6 +37,7 @@ from medre.core.engine.pipeline.outbox_manager import (
 from medre.core.engine.pipeline.receipt_factory import plan_capability_receipt_fields
 from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
+    _DeliveryDeferred,
     _RendererDeliveryError,
 )
 from medre.core.events.canonical import (
@@ -1054,6 +1055,18 @@ class DeliveryCoordinator:
                 error=exc.error,
             )
             return _ExecutionResult(outcome, evidence)
+        except _DeliveryDeferred as exc:
+            # Health-aware admission held the delivery before any attempt:
+            # no failure occurred, no attempt was consumed, and the durable
+            # obligation was already pushed to retry_wait by the admission
+            # path. Finalization must not touch that row.
+            outcome = self._build_outcome(
+                ctx,
+                status="skipped",
+                receipt=None,
+                error=str(exc),
+            )
+            return _ExecutionResult(outcome, DeliveryExecutionEvidence())
         except asyncio.CancelledError:
             raise
         except Exception as exc:
