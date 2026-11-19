@@ -641,6 +641,43 @@ def test_show_renders_installed_sources_with_shared_labels(
     assert row["source"]["kind"] == "git"
 
 
+def test_show_full_prints_complete_urls_and_revisions(
+    installation, tmp_path, monkeypatch, capsys
+):
+    direct = {
+        "url": "https://gitlab.internal.example/infra/group/medre-adapter-matrix.git",
+        "vcs_info": {
+            "vcs": "git",
+            "commit_id": "d2619ed8efa621984591d2a50466e4c32a952de6",
+        },
+    }
+    dist = SimpleNamespace(
+        version="0.1.1",
+        read_text=lambda name: (
+            json.dumps(direct) if name == "direct_url.json" else None
+        ),
+    )
+    monkeypatch.setattr(ps.importlib.metadata, "distribution", lambda name: dist)
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    catalog_path = tmp_path / "sources.yaml"
+    catalog_path.write_text("core: medre\nadapters: {}\n")
+    main(["sources", "show", "--sources", str(catalog_path), "--full"])
+    out = capsys.readouterr().out
+    assert (
+        "installed source: "
+        "https://gitlab.internal.example/infra/group/medre-adapter-matrix.git"
+        " @ d2619ed8efa621984591d2a50466e4c32a952de6" in out
+    )
+    assert "git:gitlab.internal.example" not in out
+
+    main(["sources", "show", "--sources", str(catalog_path)])
+    out = capsys.readouterr().out
+    assert (
+        "installed source: "
+        "git:gitlab.internal.example/infra/group/medre-adapter-matrix@d2619ed8" in out
+    )
+
+
 def test_show_hides_installed_source_line_for_uninstalled_packages(
     installation, tmp_path, monkeypatch, capsys
 ):
