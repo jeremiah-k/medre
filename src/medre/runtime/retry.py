@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
 from medre.config.model import RetryConfig
 from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptCommitRejected,
     RetryAttemptFinalization,
@@ -57,6 +58,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
+from medre.core.engine.pipeline.target_delivery import _DeliveryDeferred
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
@@ -247,6 +249,7 @@ class RetryWorker:
         stop_timeout_seconds: float = 5.0,
         available_target_adapters: Iterable[str] | None = None,
         initial_dispatch: bool = False,
+        adapter_health_gate: AdapterHealthGate | None = None,
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
         self._storage: RetryWorkerStorage = storage
@@ -297,6 +300,14 @@ class RetryWorker:
             if available_target_adapters is None
             else frozenset(available_target_adapters)
         )
+        # Health-aware deferral: adapters whose current runtime health is not
+        # healthy have their durable obligations skipped (never claimed, never
+        # attempted) until health recovers or the shared maximum deferral
+        # horizon expires. The runtime pushes observations via
+        # :meth:`notify_adapter_health`; the gate owns the per-adapter
+        # deferral clock and is shared with the delivery pipeline so claim
+        # exclusion and admission compose on one horizon decision.
+        self._health_gate = adapter_health_gate
         if stop_timeout_seconds <= 0:
             raise ValueError(
                 f"stop_timeout_seconds must be > 0, got {stop_timeout_seconds!r}"
@@ -343,6 +354,44 @@ class RetryWorker:
                 "cannot change available target adapters while RetryWorker is running"
             )
         self._available_target_adapters = frozenset(adapter_ids)
+
+    def notify_adapter_health(self, adapter_id: str, health: str | None) -> None:
+        """Apply one runtime health observation for *adapter_id*.
+
+        Called by the runtime on each adapter health change. A return to
+        ``healthy`` clears that adapter's deferral state and wakes the
+        dispatch loop so held obligations are redispatched immediately
+        (bounded by their pushed ``next_attempt_at``). A non-healthy
+        observation starts the safety-net horizon clock if one is not
+        already running.
+        """
+        if self._health_gate is not None:
+            self._health_gate.observe(adapter_id, health)
+        if health is None or health == "healthy":
+            if self._task is not None and self.state.running:
+                self._dispatch_wake.set()
+
+    def _health_excluded_adapters(self, now: datetime) -> tuple[str, ...]:
+        """Return adapters whose obligations must not be claimed now.
+
+        An adapter with a current non-healthy observation is excluded so its
+        due obligations are skipped without burning attempts. The shared
+        gate owns the maximum-deferral-horizon safety net: after it expires
+        for an adapter, that adapter stops being excluded and normal
+        retry/retention rules resume (the admission gate composes with the
+        same decision), so an adapter that never recovers cannot strand
+        obligations silently.
+        """
+        if self._health_gate is None:
+            return ()
+        universe = (
+            self._available_target_adapters
+            if self._available_target_adapters is not None
+            else ()
+        )
+        if not universe:
+            return ()
+        return self._health_gate.excluded_adapters(universe, now=now)
 
     @property
     def outbox_counts(self) -> dict[str, int] | None:
@@ -1032,7 +1081,11 @@ class RetryWorker:
                 worker_id=f"retry-worker-{uuid.uuid4().hex[:8]}",
                 lease_seconds=max(30, int(self._interval * 1.5)),
                 limit=available,
-                excluded_adapters=(*self._active, *self._adapter_deferred_until),
+                excluded_adapters=(
+                    *self._active,
+                    *self._adapter_deferred_until,
+                    *self._health_excluded_adapters(now),
+                ),
                 one_per_adapter=group is not None,
                 initial_only=self._initial_dispatch and not retry_scan,
             )
@@ -1637,6 +1690,20 @@ class RetryWorker:
             if result_receipt is None:
                 # Defensive: every normal execution persists evidence.
                 raise RuntimeError("target delivery produced no receipt evidence")
+        except _DeliveryDeferred as exc:
+            # Health-aware admission held the delivery before any native
+            # attempt. The admission path already pushed the owned row to
+            # retry_wait with a bounded next_attempt_at and unchanged
+            # attempts; no failure finalization here, because finalizing
+            # would burn an attempt against an adapter that may recover.
+            self.state.processed += 1
+            _logger.info(
+                "RetryWorker: deferred outbox %s: adapter=%s health=%s; "
+                "obligation held for redispatch on recovery",
+                item.outbox_id,
+                exc.adapter_id,
+                exc.health,
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
