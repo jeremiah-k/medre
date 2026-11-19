@@ -112,3 +112,58 @@ def test_equivalent_requirement_names_and_versions_do_not_conflict(monkeypatch):
     assert set(
         sdk_contract.declared_sdk_pins("arbitrary-provider-package", extras=("secure",))
     ) == {"privacy-sdk"}
+
+
+def test_sdk_ranges_with_explicit_bounds_are_accepted(monkeypatch):
+    monkeypatch.setattr(
+        sdk_contract.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(
+            requires=["privacy-sdk>=99.111.0,<99.222.0"],
+        ),
+    )
+    pins = sdk_contract.declared_sdk_pins("arbitrary-provider-package")
+    assert set(pins) == {"privacy-sdk"}
+    assert pins["privacy-sdk"].version == "99.111.0"
+    assert pins["privacy-sdk"].specifier == "<99.222.0,>=99.111.0"
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "privacy-sdk>=99.111.0",
+        "privacy-sdk<99.222.0",
+        "privacy-sdk==99.*",
+        "privacy-sdk!=99.111.0",
+        "privacy-sdk",
+    ],
+)
+def test_sdk_requirements_without_bounded_shape_stay_rejected(monkeypatch, requirement):
+    monkeypatch.setattr(
+        sdk_contract.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(requires=[requirement]),
+    )
+    with pytest.raises(
+        AssertionError, match="neither an exact pin nor a bounded range"
+    ):
+        sdk_contract.declared_sdk_pins("arbitrary-provider-package")
+
+
+def test_installed_sdks_are_checked_against_declared_ranges(monkeypatch):
+    monkeypatch.setattr(
+        sdk_contract.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(
+            requires=["privacy-sdk>=99.111.0,<99.222.0"],
+        ),
+    )
+    monkeypatch.setattr(sdk_contract.metadata, "version", lambda name: "99.111.5")
+    sdk_contract.assert_installed_sdk_pins(
+        "arbitrary-provider-package", ["privacy-sdk"]
+    )
+    monkeypatch.setattr(sdk_contract.metadata, "version", lambda name: "99.222.0")
+    with pytest.raises(AssertionError, match="outside .* range"):
+        sdk_contract.assert_installed_sdk_pins(
+            "arbitrary-provider-package", ["privacy-sdk"]
+        )

@@ -21,11 +21,11 @@ from tests.helpers.sdk_contract import declared_extra_pins
         ("meshcore", {"meshcore"}),
     ],
 )
-def test_adapter_sdk_contract_extras_are_exact_pins(
+def test_adapter_sdk_contract_extras_declare_bounded_constraints(
     extra: str,
     expected_distributions: set[str],
 ) -> None:
-    """Adapter distribution metadata, not test literals, owns SDK versions."""
+    """Adapter distribution metadata, not test literals, owns SDK constraints."""
     pins = declared_extra_pins(extra)
     assert set(pins) == expected_distributions
     assert all(pin.version for pin in pins.values())
