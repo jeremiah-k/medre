@@ -93,6 +93,7 @@ durable surface, regardless of what the adapter returned:
 The transformation **MUST** be idempotent so core can re-apply it at
 every render boundary — emission, cache read-back, CLI rendering —
 without altering already-rendered values. A tampered or stale cache
+
 ## Rendering
 
 When last-known startup info exists for a configured adapter (fresh or
