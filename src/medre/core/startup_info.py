@@ -40,14 +40,25 @@ import json
 import logging
 import os
 import re
+import stat
+import tempfile
+import threading
+import time
+import unicodedata
+from _thread import LockType
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
+from itertools import islice
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TypeGuard, TypeVar
+from weakref import WeakValueDictionary
 
 from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
     SECRET_FIELD_TOKENS,
     SECRET_KEY_PATTERNS,
+    contains_credential_shape,
     sanitize_error,
 )
 
@@ -59,6 +70,7 @@ __all__ = [
     "collect_startup_info",
     "read_cache_file",
     "render_startup_info_block",
+    "run_cache_io",
     "startup_info_callable",
     "write_cache_file",
 ]
@@ -69,8 +81,8 @@ DEFAULT_EMISSION_TIMEOUT_SECONDS: float = 2.0
 """Upper bound for one ``startup_info()`` await at the ready transition.
 
 Emission runs alongside peer adapter starts, so the bound applies per
-adapter.  A provider whose ``startup_info()`` never returns costs the
-startup barrier at most this many seconds and yields no info.
+adapter. The supervisor stops waiting after this interval; it cannot
+preempt synchronous code in an async hook or forcibly stop a thread.
 """
 
 CACHE_FILENAME: str = "startup-info.json"
@@ -83,12 +95,18 @@ readers must tolerate unknown keys and missing fields.
 # Keep each adapter block compact even with oversized provider values.
 _MAX_ROWS = 2
 _MAX_VALUE_CHARS: int = 64
+_MAX_RAW_CHARS = 4096
+_MAX_FACTS_PER_ROW = 8
+_MAX_CANDIDATES_PER_ROW = 128
+_MAX_CACHE_BYTES = 64 * 1024
 
 _TRUNCATION_SUFFIX = "…"
 
 # Field-name tokens that mark pairing material in addition to the
 # canonical sanitization token set.
-_PAIRING_TOKENS: frozenset[str] = frozenset({"pairing", "psk"})
+_PAIRING_TOKENS: frozenset[str] = frozenset(
+    {"pairing", "psk", "pin", "private", "bearer", "passphrase", "passwd"}
+)
 
 # Explicit public-key names keep published identifiers legible.
 _PUBLIC_KEY_NAME_TOKENS: frozenset[str] = frozenset({"public", "pub"})
@@ -101,15 +119,21 @@ _PUBLIC_KEY_NAME_TOKENS: frozenset[str] = frozenset({"public", "pub"})
 _DEVICE_ID_NAMES: frozenset[str] = frozenset({"device_id", "deviceid"})
 
 _NAME_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _FACT_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
 
 # Value shapes that are never rendered in full.
 # Credential-bearing URLs are omitted outright.
-_URL_USERINFO_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/@]+@[^\s]+")
+_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s]+")
+_URL_USERINFO_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/]*@[^\s]+")
+
 
 # Terminal-display boundary: reject control characters in rendered
 # values (same rationale as the native setup-instructions seam).
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+def _unsafe_text(value: str) -> bool:
+    return any(
+        unicodedata.category(ch) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for ch in value
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +177,7 @@ class AdapterStartupInfo:
     def to_dict(self, *, include_cached: bool = False) -> dict[str, object]:
         """Serialize ordered facts for the cache or the JSON listing."""
         fields = []
-        for field in self.fields:
+        for field in _validated_fields(self.fields):
             entry: dict[str, object] = {
                 "name": field.name,
                 "value": field.value,
@@ -175,8 +199,8 @@ class AdapterStartupInfo:
     def from_cache_dict(cls, data: Mapping[str, Any]) -> AdapterStartupInfo | None:
         """Parse a durable payload; return ``None`` when it is unusable.
 
-        Values are re-redacted on read so a tampered or stale file can
-        never introduce renderable key material.
+        Cached facts pass the same validation as live facts, including
+        the explicit public-key exception.
         """
         adapter_id = data.get("adapter_id")
         transport = data.get("transport")
@@ -189,8 +213,17 @@ class AdapterStartupInfo:
             and isinstance(raw_fields, list)
         ):
             return None
+        # Metadata is not provider-owned display text. A corrupt timestamp
+        # cannot smuggle arbitrary content into the JSON listing.
+        try:
+            timestamp = datetime.fromisoformat(emitted_at)
+            if timestamp.utcoffset() is None:
+                return None
+        except (ValueError, OverflowError):
+            return None
         fields: list[StartupInfoField] = []
-        for raw_field in raw_fields:
+        counts = [0] * _MAX_ROWS
+        for raw_field in islice(raw_fields, _MAX_CANDIDATES_PER_ROW * _MAX_ROWS):
             if not isinstance(raw_field, Mapping):
                 continue
             row = raw_field.get("row", 0)
@@ -203,15 +236,16 @@ class AdapterStartupInfo:
                 row=row,
                 cached=True,
             )
-            if field is not None:
+            if field is not None and counts[row] < _MAX_FACTS_PER_ROW:
                 fields.append(field)
+                counts[row] += 1
         if not fields:
             return None
         return cls(
             adapter_id=adapter_id,
             transport=transport,
             fields=tuple(fields),
-            emitted_at=emitted_at,
+            emitted_at=timestamp.isoformat(),
         )
 
 
@@ -239,36 +273,30 @@ def startup_info_callable(provider: object) -> Callable[[], object] | None:
 # ---------------------------------------------------------------------------
 
 
-def _field_name_is_secret(name: str) -> bool:
-    """Return True when *name* marks identity keys or pairing material.
+def _name_tokens(name: str) -> frozenset[str]:
+    return frozenset(_NAME_TOKEN_SPLIT.split(_CAMEL_BOUNDARY.sub("_", name).lower()))
 
-    Combines the canonical anchor-regex patterns from the shared
-    sanitization module with a tokenized check so plural forms and
-    compound names (``pairing_token``, ``identity_keys``) also match.
-    Device identifiers and explicit public keys can be operator facts.
-    """
+
+def _field_name_is_secret(name: str) -> bool:
+    """Only exempt explicit public key names from generic key tokens."""
     lowered = name.lower()
     if lowered in _DEVICE_ID_NAMES:
         return False
     if any(pattern.search(lowered) for pattern in SECRET_KEY_PATTERNS):
         return True
-    tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
-    secret_tokens = SECRET_FIELD_TOKENS | _PAIRING_TOKENS | {"private"}
-    if _is_public_key_name(lowered):
+    tokens = _name_tokens(name)
+    secret_tokens = SECRET_FIELD_TOKENS | _PAIRING_TOKENS
+    if _is_public_key_name(name):
         secret_tokens = secret_tokens - {"key", "keys"}
     return bool(tokens & secret_tokens)
 
 
-def _is_public_key_name(lowered: str) -> bool:
-    """Return True when the name explicitly marks a *public* key.
-
-    Public keys are published by the underlying protocols; an explicit
-    public-key name declares the value renderable in full, including a
-    bypass of the credential-shape scrub below.
-    """
-    tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
+def _is_public_key_name(name: str) -> bool:
+    """Recognize explicit public-key names, not arbitrary generic keys."""
+    tokens = _name_tokens(name)
     return bool(
-        tokens & _PUBLIC_KEY_NAME_TOKENS and ("key" in tokens or "pubkey" in tokens)
+        tokens & {"pubkey", "publickey"}
+        or (tokens & _PUBLIC_KEY_NAME_TOKENS and "key" in tokens)
     )
 
 
@@ -281,10 +309,8 @@ def _redact_value(name: str, value: object) -> str | None:
 
     * secret-named and pairing-named fields are omitted entirely;
       a value that cannot be shown safely does not show at all;
-    * every other field renders in full: identifiers, addresses, and
-      public keys are operator facts the underlying protocols already
-      publish, and a partial value cannot be copied, verified, or
-      correlated;
+    * ordinary identifiers, addresses, and explicit public keys are
+      eligible for display subject to credential and length checks;
     * non-string scalars are stringified; containers and ``None`` are
       dropped;
     * values carrying control characters are dropped;
@@ -295,30 +321,40 @@ def _redact_value(name: str, value: object) -> str | None:
     The transformation is idempotent so core can re-apply it at every
     render boundary without changing already-rendered records.
     """
-    if not _FACT_NAME_RE.fullmatch(name) or _field_name_is_secret(name):
+    if (
+        not _FACT_NAME_RE.fullmatch(name)
+        or _field_name_is_secret(name)
+        or contains_credential_shape(name)
+    ):
         return None
     if isinstance(value, (bool, int, float)):
-        rendered = str(value)
+        try:
+            rendered = str(value)
+        except ValueError:
+            return None
     elif isinstance(value, str):
         rendered = value
     else:
         return None
-    if not rendered:
+    if len(rendered) > _MAX_RAW_CHARS or not rendered.strip() or _unsafe_text(rendered):
         return None
-    if _CONTROL_CHARS_RE.search(rendered):
+    # Startup facts need no query strings or fragments. They may carry
+    # opaque credentials whose parameter names are unknown to MEDRE.
+    if _URL_USERINFO_RE.search(rendered) or any(
+        "?" in url or "#" in url for url in _URL_RE.findall(rendered)
+    ):
         return None
-    if _URL_USERINFO_RE.search(rendered):
-        return None
-    # Same canonical token scrub the error/log surfaces use; a
-    # credential-shaped value under a benign name renders the marker.
-    # Explicit public-key names declare their value published and skip
-    # the scrub so key material renders whole.
-    if not _is_public_key_name(name.lower()):
+    public_key = _is_public_key_name(name)
+    if contains_credential_shape(rendered, allow_public_key=public_key):
+        return REDACTED_TOKEN
+    if not public_key:
         rendered = sanitize_error(rendered)
         if REDACTED_TOKEN in rendered:
-            return rendered
+            return REDACTED_TOKEN
     if len(rendered) > _MAX_VALUE_CHARS:
-        return rendered[:_MAX_VALUE_CHARS] + _TRUNCATION_SUFFIX
+        return (
+            rendered[: _MAX_VALUE_CHARS - len(_TRUNCATION_SUFFIX)] + _TRUNCATION_SUFFIX
+        )
     return rendered
 
 
@@ -339,24 +375,51 @@ def _startup_fact(
     )
 
 
+def _validated_fields(
+    fields: Sequence[StartupInfoField],
+) -> tuple[StartupInfoField, ...]:
+    """Apply the same facts policy on every output surface."""
+    result: list[StartupInfoField] = []
+    counts = [0] * _MAX_ROWS
+    for field in islice(fields, _MAX_CANDIDATES_PER_ROW * _MAX_ROWS):
+        if type(field.row) is not int or not 0 <= field.row < _MAX_ROWS:
+            continue
+        if counts[field.row] >= _MAX_FACTS_PER_ROW:
+            continue
+        fact = _startup_fact(
+            field.name, field.value, field.label, row=field.row, cached=field.cached
+        )
+        if fact is not None:
+            result.append(fact)
+            counts[field.row] += 1
+    return tuple(result)
+
+
+def _row_sequence(value: object) -> TypeGuard[Sequence[object]]:
+    return isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    )
+
+
 def _redacted_fields(raw: Mapping[str, object]) -> tuple[StartupInfoField, ...]:
     """Read adapter-owned ordered rows, or accept a flat mapping of facts."""
     fields: list[StartupInfoField] = []
-    if "rows" not in raw:
-        for name, value in raw.items():
+    rows = raw.get("rows")
+    if not _row_sequence(rows):
+        for name, value in islice(raw.items(), _MAX_CANDIDATES_PER_ROW):
             label = name.replace("_", " ") if isinstance(name, str) else None
             field = _startup_fact(name, value, label, row=0)
             if field is not None:
                 fields.append(field)
+                if len(fields) == _MAX_FACTS_PER_ROW:
+                    break
         return tuple(fields)
 
-    rows = raw["rows"]
-    if not isinstance(rows, (list, tuple)):
-        return ()
-    for index, row in enumerate(rows[:_MAX_ROWS]):
-        if not isinstance(row, (list, tuple)):
+    for index, row in enumerate(islice(rows, _MAX_ROWS)):
+        if not _row_sequence(row):
             continue
-        for fact in row:
+        count = 0
+        for fact in islice(row, _MAX_CANDIDATES_PER_ROW):
             if not isinstance(fact, Mapping):
                 continue
             field = _startup_fact(
@@ -364,12 +427,62 @@ def _redacted_fields(raw: Mapping[str, object]) -> tuple[StartupInfoField, ...]:
             )
             if field is not None:
                 fields.append(field)
+                count += 1
+                if count == _MAX_FACTS_PER_ROW:
+                    break
     return tuple(fields)
 
 
 # ---------------------------------------------------------------------------
-# Bounded emission
+# Bounded emission and optional cache I/O
 # ---------------------------------------------------------------------------
+
+_T = TypeVar("_T")
+# Retain unfinished work until it really retires, including exceptions. A
+# timed-out operation cannot publish startup facts through its supervisor.
+_pending_optional_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _retire_optional(task: asyncio.Task[Any]) -> None:
+    _pending_optional_tasks.discard(task)
+    if not task.cancelled():
+        task.exception()
+
+
+async def _wait_optional(
+    work: Coroutine[Any, Any, _T],
+    timeout_seconds: float,
+    *,
+    retire: Callable[[], None] | None = None,
+) -> _T:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    task = asyncio.create_task(work, name="adapter-startup-info")
+    _pending_optional_tasks.add(task)
+    task.add_done_callback(_retire_optional)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        if retire is not None:
+            retire()
+        raise
+    if task not in done or loop.time() >= deadline:
+        if retire is not None:
+            retire()
+        raise TimeoutError("startup-info wait expired")
+    if task.cancelled():
+        raise RuntimeError("startup-info operation cancelled itself")
+    return task.result()
+
+
+async def run_cache_io(
+    call: Callable[[], _T],
+    *,
+    timeout_seconds: float,
+    retire: Callable[[], None] | None = None,
+) -> _T:
+    """Bound an off-loop cache operation without cancelling its worker thread."""
+    return await _wait_optional(asyncio.to_thread(call), timeout_seconds, retire=retire)
 
 
 async def collect_startup_info(
@@ -380,30 +493,51 @@ async def collect_startup_info(
     timeout_seconds: float = DEFAULT_EMISSION_TIMEOUT_SECONDS,
     emitted_at: str,
 ) -> AdapterStartupInfo | None:
-    """Await the provider's duck-typed ``startup_info()`` under a bound.
+    """Collect display facts without trusting a provider to finish cancellation.
 
-    Returns ``None`` — never raises — when the provider has no callable,
-    returns nothing usable, or exceeds *timeout_seconds*.  Caller
-    cancellation still propagates: only failures of the provider call
-    itself are swallowed, so runtime startup remains owner of its own
-    task cancellation.
+    Sync discovery/invocation and normalization run off-loop. Async hooks
+    must cooperate with the loop; neither a thread nor blocking async code
+    can be forcibly interrupted. Late results are discarded.
     """
-    deadline = asyncio.timeout(timeout_seconds)
-    try:
+    retired = threading.Event()
+    hook_task: asyncio.Future[object] | None = None
+
+    def retire() -> None:
+        retired.set()
+        if hook_task is not None and not hook_task.done():
+            hook_task.cancel()
+
+    def invoke() -> object:
+        if retired.is_set():
+            return None
         provider_callable = startup_info_callable(provider)
-        if provider_callable is None:
+        if provider_callable is None or retired.is_set():
             return None
-        async with deadline:
-            raw = provider_callable()
-            if inspect.isawaitable(raw):
-                raw = await raw
-        if deadline.expired() or not isinstance(raw, Mapping):
+        raw = provider_callable()
+        if retired.is_set() and inspect.iscoroutine(raw):
+            raw.close()
             return None
-        fields = _redacted_fields(raw)
+        return raw
+
+    async def normalize() -> tuple[StartupInfoField, ...]:
+        nonlocal hook_task
+        raw = await asyncio.to_thread(invoke)
+        if retired.is_set():
+            # A sync factory may return an unstarted coroutine. Do not
+            # execute it after its supervisor has retired the emission.
+            if inspect.iscoroutine(raw):
+                raw.close()
+            return ()
+        if inspect.isawaitable(raw):
+            hook_task = asyncio.ensure_future(raw)
+            raw = await hook_task
+        if retired.is_set() or not isinstance(raw, Mapping):
+            return ()
+        return await asyncio.to_thread(_redacted_fields, raw)
+
+    try:
+        fields = await _wait_optional(normalize(), timeout_seconds, retire=retire)
     except TimeoutError:
-        # The bounded deadline expired: no info, and startup proceeds.
-        # Caller cancellation is NOT caught — CancelledError derives from
-        # BaseException on Python 3.11+ and must keep propagating.
         return None
     except Exception as exc:
         _logger.debug(
@@ -416,10 +550,7 @@ async def collect_startup_info(
     if not fields:
         return None
     return AdapterStartupInfo(
-        adapter_id=adapter_id,
-        transport=transport,
-        fields=fields,
-        emitted_at=emitted_at,
+        adapter_id=adapter_id, transport=transport, fields=fields, emitted_at=emitted_at
     )
 
 
@@ -428,39 +559,92 @@ async def collect_startup_info(
 # ---------------------------------------------------------------------------
 
 
-def write_cache_file(path: Path, info: AdapterStartupInfo) -> None:
-    """Persist one adapter's last-known startup info atomically.
+# Serialize same-path publication within this process, even if an earlier
+# supervisor has stopped waiting. Unrelated paths never share a disk lock.
+_cache_locks: WeakValueDictionary[Path, LockType] = WeakValueDictionary()
+_cache_locks_guard = threading.Lock()
 
-    Creates parent directories.  Raises on I/O failure; callers treat
-    the cache as best-effort and must not let a write failure affect
-    startup or delivery.
+
+def write_cache_file(
+    path: Path,
+    info: AdapterStartupInfo,
+    *,
+    expires_at: float | None = None,
+    retired: threading.Event | None = None,
+) -> None:
+    """Atomically publish a private cache file; expiry prevents late staging.
+
+    Once replacement starts, the OS operation cannot be cancelled. A later
+    same-path write cannot overtake it within this process.
     """
-    payload = info.to_dict()
-    encoded = json.dumps(payload, sort_keys=True, indent=2) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(path.name + ".tmp")
-    tmp_path.write_text(encoded, encoding="utf-8")
-    os.replace(tmp_path, path)
+
+    def expired() -> bool:
+        return (retired is not None and retired.is_set()) or (
+            expires_at is not None and time.monotonic() >= expires_at
+        )
+
+    path = path.absolute()
+    with _cache_locks_guard:
+        lock = _cache_locks.get(path)
+        if lock is None:
+            lock = threading.Lock()
+            _cache_locks[path] = lock
+    if expired():
+        raise TimeoutError("startup-info cache write expired")
+    if expires_at is None:
+        lock.acquire()
+    elif not lock.acquire(timeout=max(0, expires_at - time.monotonic())):
+        raise TimeoutError("startup-info cache write expired waiting for prior writer")
+    try:
+        if expired():
+            raise TimeoutError("startup-info cache write expired")
+        encoded = json.dumps(info.to_dict(), sort_keys=True, indent=2) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if expired():
+            raise TimeoutError("startup-info cache write expired")
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=path.name + ".",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp_path = Path(handle.name)
+                handle.write(encoded)
+            if expired():
+                raise TimeoutError("startup-info cache write expired")
+            os.replace(tmp_path, path)
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+    finally:
+        lock.release()
 
 
 def read_cache_file(
     path: Path, *, adapter_id: str | None = None, transport: str | None = None
 ) -> AdapterStartupInfo | None:
-    """Load one adapter's last-known startup info, if any.
-
-    Every field of a cache read is marked ``cached``: values persisted
-    by an earlier emission are last-known facts, not fresh ones.  Any
-    read or parse failure yields ``None`` — the cache is display-only
-    and its absence is normal (first boot, cleared state, malformed
-    payload).
-    """
+    """Read a bounded regular-file snapshot; malformed caches are absent."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        fd = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0),
+        )
+        with os.fdopen(fd, "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                return None
+            encoded = handle.read(_MAX_CACHE_BYTES + 1)
+        if len(encoded) > _MAX_CACHE_BYTES:
+            return None
+        raw = json.loads(encoded.decode("utf-8"))
+        if not isinstance(raw, Mapping):
+            return None
+        info = AdapterStartupInfo.from_cache_dict(raw)
+    except (OSError, ValueError, RecursionError, OverflowError):
         return None
-    if not isinstance(raw, Mapping):
-        return None
-    info = AdapterStartupInfo.from_cache_dict(raw)
     if info is None or (
         (adapter_id is not None and info.adapter_id != adapter_id)
         or (transport is not None and info.transport != transport)
@@ -480,14 +664,7 @@ def render_startup_info_block(heading: str, info: AdapterStartupInfo | None) -> 
         return heading
     rows: list[list[str]] = [[] for _ in range(_MAX_ROWS)]
     cached = True
-    for field in info.fields:
-        if not 0 <= field.row < _MAX_ROWS:
-            continue
-        fact = _startup_fact(
-            field.name, field.value, field.label, row=field.row, cached=field.cached
-        )
-        if fact is None:
-            continue
+    for fact in _validated_fields(info.fields):
         rows[fact.row].append(
             f"{fact.label} {fact.value}" if fact.label else fact.value
         )

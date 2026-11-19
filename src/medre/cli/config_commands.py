@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from textwrap import indent
 from typing import TYPE_CHECKING
 
@@ -281,18 +282,23 @@ def _cached_startup_info(
     """Read one adapter's display-only last-known startup info, if any."""
     try:
         cache_path = paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
+        return read_cache_file(cache_path, adapter_id=adapter_id, transport=transport)
     except Exception:
         return None
-    return read_cache_file(cache_path, adapter_id=adapter_id, transport=transport)
 
 
-def _adapters(
-    *,
-    cli_failures: tuple[CliContributionFailure, ...] = (),
-    as_json: bool = False,
-) -> None:
-    """List adapter types, installed package identities, SDK availability,
-    and configured adapters."""
+@dataclass(frozen=True, slots=True)
+class _ConfiguredAdapterRow:
+    transport: str
+    adapter_id: str
+    status: str
+    kind: str
+    startup_info: AdapterStartupInfo | None
+
+
+def _configured_adapter_rows(
+    config_path: str | None,
+) -> tuple[list[_ConfiguredAdapterRow], str | None]:
     from medre.config.errors import (
         ConfigFileError,
         ConfigNotFoundError,
@@ -300,8 +306,32 @@ def _adapters(
     )
     from medre.config.loader import load_config
 
-    paths = resolve()
+    try:
+        config, _source, paths = load_config(config_path)
+    except ConfigNotFoundError:
+        return [], "no config found"
+    except (ConfigFileError, ConfigValidationError):
+        return [], "config cannot be loaded"
+    return [
+        _ConfiguredAdapterRow(
+            transport,
+            adapter_id,
+            "enabled" if rtc.enabled else "disabled",
+            getattr(rtc, "adapter_kind", "real"),
+            _cached_startup_info(paths, adapter_id, transport),
+        )
+        for transport, adapter_id, rtc in config.adapters.all_configs()
+    ], None
 
+
+def _adapters(
+    config_path: str | None = None,
+    *,
+    cli_failures: tuple[CliContributionFailure, ...] = (),
+    as_json: bool = False,
+) -> None:
+    """List adapter types, installed package identities, SDK availability,
+    and configured adapters."""
     sdk_rows: list[dict[str, str]] = []
     for transport, dist_name, import_names in TRANSPORTS:
         if not import_names:
@@ -323,8 +353,9 @@ def _adapters(
             }
         )
 
+    configured, config_error = _configured_adapter_rows(config_path)
     if as_json:
-        _adapters_json(paths, sdk_rows, cli_failures=cli_failures)
+        _adapters_json(configured, config_error, sdk_rows, cli_failures=cli_failures)
         return
 
     print("Adapter types:")
@@ -374,32 +405,29 @@ def _adapters(
         if inventory_incomplete:
             print("  Adapter inventory incomplete (metadata unavailable)")
 
-    # Configured adapters from config
+    # Configured adapters from the same inventory used by JSON output.
     print()
-    try:
-        config, _source, _paths = load_config(None)
-        configured = config.adapters.all_configs()
-        if not configured:
-            print("No adapters configured.")
-            return
-        print("Configured adapters:")
-        for transport, adapter_id, rtc in configured:
-            status = "enabled" if rtc.enabled else "disabled"
-            kind = getattr(rtc, "adapter_kind", "real")
-            info = _cached_startup_info(paths, adapter_id, transport)
-            heading = f"{transport}.{adapter_id}: {status} (kind={kind})"
-            print(indent(render_startup_info_block(heading, info), "  "))
-    except ConfigNotFoundError:
+    if config_error == "no config found":
         if not TRANSPORTS:
             print("Install a provider before generating a sample or building a bridge.")
         else:
             print("No config found — run 'medre config sample' to generate one.")
-    except (ConfigFileError, ConfigValidationError):
+    elif config_error is not None:
         print("Config cannot be loaded — run 'medre config check' for details.")
+    elif not configured:
+        print("No adapters configured.")
+    else:
+        print("Configured adapters:")
+        for row in configured:
+            heading = (
+                f"{row.transport}.{row.adapter_id}: {row.status} (kind={row.kind})"
+            )
+            print(indent(render_startup_info_block(heading, row.startup_info), "  "))
 
 
 def _adapters_json(
-    paths: MedrePaths,
+    configured: list[_ConfiguredAdapterRow],
+    config_error: str | None,
     sdk_rows: list[dict[str, str]],
     *,
     cli_failures: tuple[CliContributionFailure, ...] = (),
@@ -410,12 +438,6 @@ def _adapters_json(
     from the durable last-known cache are always cached from the CLI's
     point of view because the listing never starts adapters.
     """
-    from medre.config.errors import (
-        ConfigFileError,
-        ConfigNotFoundError,
-        ConfigValidationError,
-    )
-    from medre.config.loader import load_config
     from medre.runtime.installation_summary import (
         provider_identities,
         standard_distribution,
@@ -437,24 +459,18 @@ def _adapters_json(
         installed_section.append(installed_entry)
 
     configured_section: list[dict[str, object]] = []
-    config_error: str | None = None
-    try:
-        config, _source, _paths = load_config(None)
-        for transport, adapter_id, rtc in config.adapters.all_configs():
-            configured_entry: dict[str, object] = {
-                "transport": transport,
-                "adapter_id": adapter_id,
-                "status": "enabled" if rtc.enabled else "disabled",
-                "kind": getattr(rtc, "adapter_kind", "real"),
-            }
-            info = _cached_startup_info(paths, adapter_id, transport)
-            if info is not None:
-                configured_entry["startup_info"] = info.to_dict(include_cached=True)
-            configured_section.append(configured_entry)
-    except ConfigNotFoundError:
-        config_error = "no config found"
-    except (ConfigFileError, ConfigValidationError):
-        config_error = "config cannot be loaded"
+    for row in configured:
+        configured_entry: dict[str, object] = {
+            "transport": row.transport,
+            "adapter_id": row.adapter_id,
+            "status": row.status,
+            "kind": row.kind,
+        }
+        if row.startup_info is not None:
+            configured_entry["startup_info"] = row.startup_info.to_dict(
+                include_cached=True
+            )
+        configured_section.append(configured_entry)
 
     document: dict[str, object] = {
         "adapter_types": sdk_rows,

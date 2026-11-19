@@ -1191,6 +1191,8 @@ def main(argv: list[str] | None = None) -> None:
         resetting = args.action == "reset"
         if args.include_core and not resetting:
             parser.error("--include-core requires adapters reset")
+        if args.json and args.action is not None:
+            parser.error("--json is supported only for the adapter listing")
         if (managing and not args.packages) or (
             args.packages and not (managing or upgrading or resetting)
         ):
@@ -1287,7 +1289,9 @@ def main(argv: list[str] | None = None) -> None:
         if args.action == "check":
             _adapters_check(args.config, cli_failures=args._adapter_cli_failures)
         else:
-            _adapters(cli_failures=args._adapter_cli_failures, as_json=args.json)
+            _adapters(
+                args.config, cli_failures=args._adapter_cli_failures, as_json=args.json
+            )
     elif args.command == "diagnostics":
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 

@@ -38,6 +38,7 @@ __all__ = [
     "REDACTED_TOKEN",
     "SECRET_FIELD_TOKENS",
     "SECRET_KEY_PATTERNS",
+    "contains_credential_shape",
     "sanitize_error",
     "sanitize_for_log",
 ]
@@ -194,19 +195,37 @@ def sanitize_for_log(data: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]
 # caused catastrophic backtracking on long inputs.  The lookahead has been
 # removed; the trade-off is that uniform-character strings 40+ chars long
 # may be redacted unnecessarily — a safe default for a secret-filter.
+# Keep the protocol-specific and labeled credential shapes separate from
+# generic long key material. Startup facts may display explicitly public
+# keys, but must still reject recognized credentials under those names.
+_CREDENTIAL_PREFIXES = (r"(syt_[A-Za-z0-9]+)", r"(MDAx[A-Za-z0-9+/=]{20,})")
+_CREDENTIAL_SUFFIXES = (
+    r"(sk-[A-Za-z0-9]{20,})",
+    r"(api[_-]?key[=:]\s*\S+)",
+    r"(access_token[=:]\s*\S+)",
+    r"(token[=:]\s*\S+)",
+    r"(password[=:]\s*\S+)",
+    r"(secret[=:]\s*\S+)",
+    r"(credentials?[=:]\s*\S+)",
+)
+_EXPLICIT_CREDENTIAL_RE = re.compile(
+    "|".join((*_CREDENTIAL_PREFIXES, *_CREDENTIAL_SUFFIXES)), re.IGNORECASE
+)
 _TOKEN_RE: re.Pattern[str] = re.compile(
-    r"(syt_[A-Za-z0-9]+)"
-    r"|(MDAx[A-Za-z0-9+/=]{20,})"
-    r"|([A-Za-z0-9+/=]{40,})"
-    r"|(sk-[A-Za-z0-9]{20,})"
-    r"|(api[_-]?key[=:]\s*\S+)"
-    r"|(access_token[=:]\s*\S+)"
-    r"|(token[=:]\s*\S+)"
-    r"|(password[=:]\s*\S+)"
-    r"|(secret[=:]\s*\S+)"
-    r"|(credentials?[=:]\s*\S+)",
+    "|".join((*_CREDENTIAL_PREFIXES, r"([A-Za-z0-9+/=]{40,})", *_CREDENTIAL_SUFFIXES)),
     re.IGNORECASE,
 )
+
+
+def contains_credential_shape(value: str, *, allow_public_key: bool = False) -> bool:
+    """Detect credential shapes before any presentation truncation.
+
+    Only the generic long-key pattern may be exempted for public facts.
+    This is defense in depth, not proof that arbitrary provider data is safe.
+    """
+    pattern = _EXPLICIT_CREDENTIAL_RE if allow_public_key else _TOKEN_RE
+    return pattern.search(value) is not None
+
 
 _SDK_RE: re.Pattern[str] = re.compile(r"<[\w.]+ object at 0x[0-9a-fA-F]+>")
 
