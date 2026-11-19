@@ -77,13 +77,20 @@ def declared_sdk_pins(
         if exact:
             pin = DeclaredSdkPin(requirement.name, specifiers[0].version)
         else:
-            floor = next(
-                spec.version
-                for spec in specifiers
-                if spec.operator in _LOWER_BOUND_OPERATORS
+            floor = max(
+                (
+                    spec.version
+                    for spec in specifiers
+                    if spec.operator in _LOWER_BOUND_OPERATORS
+                ),
+                key=lambda value: (Version(value), value),
             )
             pin = DeclaredSdkPin(requirement.name, floor, str(requirement.specifier))
-        if name in pins and Version(pins[name].version) != Version(pin.version):
+        existing = pins.get(name)
+        if existing is not None and (
+            Version(existing.version) != Version(pin.version)
+            or SpecifierSet(existing.specifier) != SpecifierSet(pin.specifier)
+        ):
             raise AssertionError(f"conflicting SDK requirement: {name}")
         pins[name] = pin
     if not pins:
@@ -108,8 +115,9 @@ def assert_installed_sdk_pins(
         pin = pins[name]
         installed = metadata.version(pin.distribution)
         if pin.specifier:
-            assert SpecifierSet(pin.specifier).contains(
-                Version(installed), prereleases=True
+            constraint = SpecifierSet(pin.specifier)
+            assert constraint.contains(
+                Version(installed), prereleases=bool(constraint.prereleases)
             ), (
                 f"installed {pin.distribution} {installed} is outside "
                 f"{adapter_distribution} range {pin.specifier}"

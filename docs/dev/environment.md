@@ -180,7 +180,8 @@ checkout is validated against its selected distribution before synchronization.
 
 For a reproducible bridge deployment, use a separate
 [locked deployment project](../ops/adapter-installation.md). `dev sync` does not
-create a combined adapter lock; native SDK versions come from provider metadata.
+create a combined adapter lock. Provider metadata declares eligible SDK versions.
+Capture the resolved SDK versions separately when recording qualification evidence.
 Use the coordinated-change policy below to qualify and land exact candidate pairs.
 
 ## Change Dependencies
@@ -190,8 +191,10 @@ For changes spanning core and adapters, follow
 explicit SHAs, land compatible dependencies first, then refresh the committed
 snapshot and run `python scripts/ci/adapter_matrix.py --check-merged`.
 
-Declare core dependencies in MEDRE, and transport SDK pins in each adapter
-`pyproject.toml`.
+Declare core dependencies in MEDRE and SDK requirements in each adapter's
+`pyproject.toml`. An adapter can publish a compatibility range bounded by its
+qualified floor and release series. Exercise the floor and the default
+resolution when qualifying a new range.
 `uv.lock` records the resolved graph and artifacts. Commit metadata and lockfile
 changes together:
 
@@ -205,8 +208,8 @@ uv run --no-sync medre dev sync --sdk lxmf
 
 For an intentional transitive update, use `uv lock --upgrade-package <package>`
 and inspect the resulting graph. Avoid a blanket upgrade as part of an unrelated
-change. Exact project pins constrain upgrades, so changing an SDK version also
-requires changing its declared requirement. Run that SDK's contract tests and
+change. Update the declared requirement when the supported SDK versions change.
+Run that SDK's contract tests and
 the affected behavioral tests; see [testing.md](testing.md).
 
 CI uses `uv sync --locked` to reject stale or missing lockfiles. `--frozen` skips
