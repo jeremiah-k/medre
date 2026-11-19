@@ -38,7 +38,13 @@ readiness-report style: one line per section (lifecycle, adapters, build
 failures, routes, capacity, outbox, replay, retry, and live health when
 populated), typed statuses instead of error text, and ordered next steps.
 The summary is a rendering of the same snapshot; it adds no observations
-and carries no error text. Machine consumers MUST use `--format json`
+and carries no error text. Build route eligibility and startup route
+readiness MUST remain separately labeled; neither is live delivery evidence.
+Live health, when present for an adapter, supersedes its startup health for
+next-step advice. Empty outbox counts do not establish whether a storage
+refresh occurred. Follow-up commands MUST use the same configuration
+selection; the human summary does not echo configuration paths.
+Machine consumers MUST use `--format json`
 (the full snapshot) or `--format prometheus` (the numeric exposition);
 the human summary MUST NOT be parsed by scripts or treated as evidence.
 

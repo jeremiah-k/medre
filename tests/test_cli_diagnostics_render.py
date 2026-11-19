@@ -77,96 +77,91 @@ routes:
     return p
 
 
-class TestDiagnosticsFormatFlag:
-    """The default is human rendering; machine output stays explicit."""
-
-    def test_default_output_is_human_summary(self, config_with_routes: Path) -> None:
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
-        assert output.startswith("Runtime diagnostics snapshot (build)\n")
-        assert "Runtime state: initialized" in output
-        assert "Adapters: 2 built" in output
-        assert "Build failures: none" in output
-        assert "Routes: 1 configured" in output
-        assert "Capacity: inbound 0/100, delivery 0/100" in output
-        assert "Outbox: counts not seeded" in output
-        assert "Replay: available" in output
-        assert "Retry: disabled" in output
-        assert "Next steps:" in output
-        assert _CLOSING_STEP in output
-
-    def test_default_output_is_not_json(self, config_with_routes: Path) -> None:
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
-        with pytest.raises(json.JSONDecodeError):
-            json.loads(output)
-
-    def test_explicit_json_format_is_machine_snapshot(
-        self, config_with_routes: Path
-    ) -> None:
-        output = _run_cli(
-            "diagnostics",
-            "--format",
-            "json",
-            "--config",
-            str(config_with_routes),
-        )
-        parsed = json.loads(output)
-        assert parsed["snapshot_scope"] == "build"
-        assert isinstance(parsed["adapters"], dict)
-
-    def test_explicit_human_format_matches_default(
-        self, config_with_routes: Path
-    ) -> None:
-        default_output = _run_cli("diagnostics", "--config", str(config_with_routes))
-        explicit = _run_cli(
-            "diagnostics",
-            "--format",
-            "human",
-            "--config",
-            str(config_with_routes),
-        )
-        assert explicit == default_output
-
-    def test_unknown_format_is_rejected(self, config_with_routes: Path) -> None:
-        _, stderr, code = _run_cli_raw(
-            "diagnostics",
-            "--format",
-            "yaml",
-            "--config",
-            str(config_with_routes),
-        )
-        assert code != 0
-        assert "invalid choice" in stderr
-
-    def test_prometheus_format_still_available(self, config_with_routes: Path) -> None:
-        output = _run_cli(
-            "diagnostics",
-            "--format",
-            "prometheus",
-            "--config",
-            str(config_with_routes),
-        )
-        assert "# TYPE medre_" in output
-
-    def test_human_output_carries_no_json_structure(
-        self, config_with_routes: Path
-    ) -> None:
-        """The summary is a rendering, not a schema: no JSON quotes or keys."""
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
-        assert '"' not in output
-        assert "schema_version" not in output
-
-    def test_help_states_human_default_and_json_flag(self) -> None:
-        stdout, _stderr = _run_cli_both("--help")
-        help_text = " ".join(stdout.lower().split())
-        assert "read-only" in help_text
-        assert "config" in help_text
-        assert "--format json" in help_text
+def test_default_output_is_human_summary(config_with_routes: Path) -> None:
+    output = _run_cli("diagnostics", "--config", str(config_with_routes))
+    assert output.startswith("Runtime diagnostics snapshot (build)\n")
+    assert "Runtime state: initialized" in output
+    assert "Adapters: 2 built" in output
+    assert "Build failures: none" in output
+    assert "Routes (build eligibility): 1 configured" in output
+    assert "Capacity: inbound 0/100, delivery 0/100" in output
+    assert "Outbox: no counts reported" in output
+    assert "Replay: available" in output
+    assert "Retry: disabled" in output
+    assert "Next steps:" in output
+    assert _CLOSING_STEP in output
 
 
-class TestRefreshHealthHuman:
-    """--refresh-health keeps the human default and shows live health."""
+def test_default_output_is_not_json(config_with_routes: Path) -> None:
+    output = _run_cli("diagnostics", "--config", str(config_with_routes))
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(output)
 
-    CONFIG_FAKE_SINGLE = """\
+
+def test_explicit_json_format_is_machine_snapshot(config_with_routes: Path) -> None:
+    output = _run_cli(
+        "diagnostics",
+        "--format",
+        "json",
+        "--config",
+        str(config_with_routes),
+    )
+    parsed = json.loads(output)
+    assert parsed["snapshot_scope"] == "build"
+    assert isinstance(parsed["adapters"], dict)
+
+
+def test_explicit_human_format_matches_default(config_with_routes: Path) -> None:
+    default_output = _run_cli("diagnostics", "--config", str(config_with_routes))
+    explicit = _run_cli(
+        "diagnostics",
+        "--format",
+        "human",
+        "--config",
+        str(config_with_routes),
+    )
+    assert explicit == default_output
+
+
+def test_unknown_format_is_rejected(config_with_routes: Path) -> None:
+    _, stderr, code = _run_cli_raw(
+        "diagnostics",
+        "--format",
+        "yaml",
+        "--config",
+        str(config_with_routes),
+    )
+    assert code != 0
+    assert "invalid choice" in stderr
+
+
+def test_prometheus_format_still_available(config_with_routes: Path) -> None:
+    output = _run_cli(
+        "diagnostics",
+        "--format",
+        "prometheus",
+        "--config",
+        str(config_with_routes),
+    )
+    assert "# TYPE medre_" in output
+
+
+def test_human_output_carries_no_json_structure(config_with_routes: Path) -> None:
+    """The summary is a rendering, not a schema: no JSON quotes or keys."""
+    output = _run_cli("diagnostics", "--config", str(config_with_routes))
+    assert '"' not in output
+    assert "schema_version" not in output
+
+
+def test_help_states_human_default_and_json_flag() -> None:
+    stdout, _stderr = _run_cli_both("--help")
+    help_text = " ".join(stdout.lower().split())
+    assert "read-only" in help_text
+    assert "config" in help_text
+    assert "--format json" in help_text
+
+
+CONFIG_FAKE_SINGLE = """\
 runtime:
   name: diag-refresh-render
 storage:
@@ -183,56 +178,59 @@ adapters:
       encryption_mode: plaintext
 """
 
-    @pytest.fixture()
-    def fake_single_config(self, tmp_path: Path) -> Path:
-        p = tmp_path / "config.yaml"
-        p.write_text(self.CONFIG_FAKE_SINGLE)
-        return p
 
-    def test_refresh_health_human_shows_live_health(
-        self,
-        fake_single_config: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+@pytest.fixture()
+def fake_single_config(tmp_path: Path) -> Path:
+    p = tmp_path / "config.yaml"
+    p.write_text(CONFIG_FAKE_SINGLE)
+    return p
 
-        output = _run_cli(
-            "diagnostics",
-            "--refresh-health",
-            "--format",
-            "human",
-            "--config",
-            str(fake_single_config),
-        )
-        assert output.startswith("Runtime diagnostics snapshot (live)\n")
-        assert "Live health: healthy (" in output
-        assert "  fake_main: health healthy" in output
-        assert _CLOSING_STEP in output
 
-    def test_refresh_health_json_remains_explicit(
-        self,
-        fake_single_config: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+def test_refresh_health_human_shows_live_health(
+    fake_single_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
 
-        output = _run_cli(
-            "diagnostics",
-            "--refresh-health",
-            "--format",
-            "json",
-            "--config",
-            str(fake_single_config),
-        )
-        parsed = json.loads(output)
-        assert parsed["snapshot_scope"] == "live"
-        assert parsed["health"]["live_refresh"] is True
+    output = _run_cli(
+        "diagnostics",
+        "--refresh-health",
+        "--format",
+        "human",
+        "--config",
+        str(fake_single_config),
+    )
+    assert output.startswith("Runtime diagnostics snapshot (live)\n")
+    assert "Startup outcome: success" in output
+    assert "state ready" in output
+    assert "Live health: healthy (" in output
+    assert "  fake_main: health healthy" in output
+    assert _CLOSING_STEP in output
+
+
+def test_refresh_health_json_remains_explicit(
+    fake_single_config: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in ("MEDRE_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+
+    output = _run_cli(
+        "diagnostics",
+        "--refresh-health",
+        "--format",
+        "json",
+        "--config",
+        str(fake_single_config),
+    )
+    parsed = json.loads(output)
+    assert parsed["snapshot_scope"] == "live"
+    assert parsed["health"]["live_refresh"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -266,15 +264,15 @@ def test_adapter_line_shows_platform_role_health() -> None:
 @pytest.mark.parametrize(
     "routes, expected",
     [
-        (None, "Routes: not reported"),
-        ("not-a-mapping", "Routes: not reported"),
+        (None, "Routes (build eligibility): not reported"),
+        ("not-a-mapping", "Routes (build eligibility): not reported"),
         (
             {"eligibility": {"configured": ["a", "b"]}},
-            "Routes: 2 configured (all eligible)",
+            "Routes (build eligibility): 2 configured (all eligible)",
         ),
         (
             {"eligibility": {"configured": ["a"], "degraded": ["a"]}},
-            "Routes: 1 configured (1 degraded)",
+            "Routes (build eligibility): 1 configured (1 degraded)",
         ),
         (
             {
@@ -285,7 +283,7 @@ def test_adapter_line_shows_platform_role_health() -> None:
                     "skipped": ["b"],
                 }
             },
-            "Routes: 2 configured (1 disabled, 1 unavailable, 1 skipped)",
+            "Routes (build eligibility): 2 configured (1 disabled, 1 unavailable, 1 skipped)",
         ),
     ],
     ids=["none", "unshaped", "all-eligible", "degraded", "mixed-facts"],
@@ -328,9 +326,9 @@ def test_capacity_line_variants(state: object, expected: str) -> None:
 @pytest.mark.parametrize(
     "outbox, expected",
     [
-        (None, "Outbox: counts not seeded"),
-        ({"counts": None}, "Outbox: counts not seeded"),
-        ({"counts": {}}, "Outbox: counts not seeded"),
+        (None, "Outbox: counts unavailable"),
+        ({"counts": None}, "Outbox: counts unavailable"),
+        ({"counts": {}}, "Outbox: no counts reported"),
         (
             {"counts": {"pending": 2, "failed": 1, "sent": 5}},
             "Outbox: failed=1, pending=2, sent=5",
@@ -516,8 +514,99 @@ def test_render_skips_unshaped_sections(
     out = capsys.readouterr().out
     assert "Adapters: 0 built" in out
     assert "Build failures: none" in out
-    assert "Routes: not reported" in out
+    assert "Routes (build eligibility): not reported" in out
     assert "Capacity: state unavailable" in out
-    assert "Outbox: counts not seeded" in out
+    assert "Outbox: counts unavailable" in out
     assert "Replay: state unavailable" in out
     assert "Retry: state unavailable" in out
+
+
+@pytest.mark.parametrize(
+    "live_health, expected_warning",
+    [("healthy", False), ("failed", True), (None, True)],
+)
+def test_live_health_supersedes_startup_for_each_adapter(
+    capsys: pytest.CaptureFixture[str], live_health: str | None, expected_warning: bool
+) -> None:
+    live_rows = {"bot": {"health": live_health}} if live_health is not None else {}
+    _render_human(
+        _snapshot(
+            adapters={"bot": {"adapter_id": "bot", "health": "degraded"}},
+            health={"live_health": {"adapters": live_rows}},
+        )
+    )
+    out = capsys.readouterr().out
+    assert ("Degraded or failed adapter health reported" in out) is expected_warning
+
+
+def test_live_health_does_not_hide_unobserved_adapter(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _render_human(
+        _snapshot(
+            adapters={
+                "bot": {"adapter_id": "bot", "health": "degraded"},
+                "other": {"adapter_id": "other", "health": "failed"},
+            },
+            health={"live_health": {"adapters": {"bot": {"health": "healthy"}}}},
+        )
+    )
+    assert "Degraded or failed adapter health reported" in capsys.readouterr().out
+
+
+def test_render_keeps_build_and_startup_authorities_separate(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _render_human(
+        _snapshot(
+            snapshot_scope="live",
+            lifecycle={
+                "runtime_state": "running",
+                "uptime_seconds": 2,
+                "adapters": {"bot": "failed"},
+            },
+            startup={
+                "build_failures": [],
+                "boot_summary": {
+                    "startup_outcome": "partial",
+                    "failed_adapter_ids": ["bot"],
+                    "storage_path": "/private/location",
+                },
+            },
+            routes={
+                "eligibility": {"configured": ["r"], "registered": ["r"]},
+                "startup_readiness": {
+                    "readiness": {"r": "skipped"},
+                    "skipped": [
+                        {"route_id": "r", "reason": "no_surviving_targets_start_failed"}
+                    ],
+                },
+            },
+            outbox={"counts": {}},
+        )
+    )
+    out = capsys.readouterr().out
+    assert "state failed, health unknown" in out
+    assert "Startup outcome: partial" in out
+    assert "bot: failed to start" in out
+    assert "Routes (build eligibility): 1 configured (all eligible)" in out
+    assert "Routes (startup readiness): 1 skipped" in out
+    assert "routes.startup_readiness" in out
+    assert "Reuse the original configuration selection" in out
+    assert "--config if supplied" in out
+    assert "Outbox: no counts reported" in out
+    assert "/private/location" not in out
+
+
+def test_follow_up_config_note_does_not_echo_path(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _render_human(
+        _snapshot(routes={"eligibility": {"configured": ["r"], "skipped": ["r"]}})
+    )
+    out = capsys.readouterr().out
+    assert "medre routes plan" in out
+    assert "Reuse the original configuration selection" in out
+    assert out.index("Reuse the original configuration selection") < out.index(
+        _CLOSING_STEP
+    )

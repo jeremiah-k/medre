@@ -1410,7 +1410,9 @@ medre diagnostics [--config PATH] [--refresh-health] [--format human|json|promet
     build-time state only. With --refresh-health, starts adapters, polls
     health, then stops. The human-readable summary is the default;
     --format json prints the full machine snapshot and --format prometheus
-    the numeric exposition.
+    the numeric exposition. Reuse the original configuration selection for
+    follow-up commands. Build eligibility and startup readiness are distinct;
+    empty outbox counts alone do not prove a storage refresh occurred.
 
 medre readiness [--config PATH] [--json]
     Print the read-only offline readiness report: per compatibility-snapshot
