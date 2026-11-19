@@ -22,9 +22,15 @@ def _get_version() -> str:
 
 
 def _version() -> None:
-    """Print version, Python, and platform information."""
+    """Print version, core source, Python, and platform information."""
     version = _get_version()
     print(f"medre {version}")
+    try:
+        from medre.runtime.installation_summary import core_source_label
+
+        print(f"Source   {core_source_label()}")
+    except Exception:  # provenance display must not break 'medre version'
+        print("Source   unknown")
     print(f"Python  {platform.python_version()}")
     print(f"Platform {platform.system()} {platform.release()} ({platform.machine()})")
 

@@ -302,6 +302,16 @@ class TestSubprocessPythonM:
         first_line = proc.stdout.strip().splitlines()[0]
         assert first_line.startswith("medre "), f"Unexpected first line: {first_line!r}"
 
+    def test_version_reports_core_source_label(self) -> None:
+        """``python -m medre version`` includes one compact core source token."""
+        proc = self._run("version")
+        assert proc.returncode == 0
+        lines = proc.stdout.strip().splitlines()
+        source_lines = [line for line in lines if line.startswith("Source")]
+        assert len(source_lines) == 1, f"Expected one Source line: {lines!r}"
+        label = source_lines[0].split(None, 1)[1].strip()
+        assert label and " " not in label, f"Label must be one token: {label!r}"
+
     def test_no_optional_sdks_in_subprocess(self) -> None:
         """Subprocess ``python -m medre version`` does not import optional SDKs.
 
