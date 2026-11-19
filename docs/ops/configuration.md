@@ -1351,7 +1351,7 @@ medre paths
     Print all resolved MEDRE paths.
 
 medre version
-    Print the MEDRE version.
+    Print the MEDRE version and the installed core package source label.
 
 medre adapters
     List available adapter kinds and SDK dependency status, plus installed

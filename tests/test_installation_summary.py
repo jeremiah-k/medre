@@ -284,6 +284,11 @@ def test_core_distribution_missing_reports_source_tree(
     assert expected in lines
 
 
+def test_core_source_label_shares_the_installed_formatter(monkeypatch):
+    _install_environment(monkeypatch, [])
+    assert installation_summary.core_source_label() == "pypi"
+
+
 @pytest.mark.parametrize("scheme", ["ftp", "HTTPS", "sftp"])
 def test_direct_source_redaction_all_schemes(scheme: str):
     dist = _FakeDist(
