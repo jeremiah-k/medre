@@ -1,9 +1,10 @@
 """Human rendering of the offline readiness report (pure formatting).
 
 The renderer prints a path-free operator view. These tests pin every
-branch of that view: provider registration suffixes, configuration
-validity, adapter fact lines, route counts, and the degraded outcomes
-(unavailable snapshot, unshaped sections, empty guidance).
+branch of that view: provider registration suffixes, configured-source
+provenance labels, configuration validity, adapter fact lines, route
+counts, and the degraded outcomes (unavailable snapshot, unshaped
+sections, empty guidance).
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ from medre.cli.readiness_commands import (
     _render_human,
     _routes_line,
 )
+from medre.runtime.installation_summary import configured_git_label
 
 
 def _provider(**overrides: Any) -> dict[str, Any]:
     provider: dict[str, Any] = {
         "transport": "matrix",
         "distribution": "medre-adapter-matrix",
+        "repository": "jeremiah-k/medre-adapter-matrix",
         "ref": "a" * 40,
         "distribution_status": "missing",
         "registration": "registered",
@@ -53,11 +56,27 @@ def _report(**overrides: Any) -> dict[str, Any]:
 def test_provider_line_marks_unregistered_registration() -> None:
     line = _provider_line(_provider(registration="unregistered"))
     assert line.endswith("(unregistered)")
-    assert "medre-adapter-matrix @ aaaaaaaa" in line
+    assert (
+        "medre-adapter-matrix (github:jeremiah-k/medre-adapter-matrix@aaaaaaaa)" in line
+    )
 
 
 def test_provider_line_omits_registered_suffix() -> None:
     assert "(registered)" not in _provider_line(_provider())
+
+
+def test_provider_label_matches_shared_configured_label_helper() -> None:
+    """The rendered configured pin uses the shared provenance label helper."""
+    provider = _provider()
+    assert configured_git_label(
+        provider["repository"], provider["ref"]
+    ) in _provider_line(provider)
+
+
+def test_provider_label_without_repository_yields_unknown() -> None:
+    """Unshaped or absent pins degrade to ``unknown``, never to a guess."""
+    line = _provider_line(_provider(repository=None))
+    assert "medre-adapter-matrix (unknown)" in line
 
 
 def test_valid_configuration_line_carries_source_and_counts() -> None:
@@ -165,7 +184,7 @@ def test_render_skips_unshaped_provider_entries(
     }
     _render_human(_report(manifest=manifest))
     out = capsys.readouterr().out
-    assert out.count("medre-adapter-matrix @ aaaaaaaa") == 1
+    assert out.count("github:jeremiah-k/medre-adapter-matrix@aaaaaaaa") == 1
 
 
 def test_render_non_mapping_config_falls_back_to_unknown(
