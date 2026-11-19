@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
-from datetime import datetime, timezone
+from datetime import datetime
+from time import monotonic
 from typing import TypeAlias
 
 #: Reads the runtime's current normalized health string for one adapter.
@@ -82,7 +83,7 @@ class AdapterHealthGate:
     blocks new deliveries and is excluded from claims. After the horizon
     expires for an adapter, the gate stops blocking it — normal
     claim/retry/retention rules resume — until a ``healthy`` observation
-    clears the expiry marker.
+    clears the expiry marker or a backlog observation shows that its lane drained.
     """
 
     def __init__(
@@ -95,7 +96,7 @@ class AdapterHealthGate:
         self._health_fn = health_fn
         self._max_horizon_seconds = max_horizon_seconds
         self._log = logger or logging.getLogger(__name__)
-        self._deferral_started: dict[str, datetime] = {}
+        self._deferral_started: dict[str, float] = {}
         self._horizon_expired: set[str] = set()
 
     def blocking_health(self, adapter_id: str) -> str | None:
@@ -107,34 +108,57 @@ class AdapterHealthGate:
         """
         health = self._health_fn(adapter_id)
         if health_allows_delivery(health):
-            self._deferral_started.pop(adapter_id, None)
+            self.observe(adapter_id, health)
             return None
         if adapter_id in self._horizon_expired:
             return None
-        now = datetime.now(timezone.utc)
+        now = monotonic()
         started = self._deferral_started.setdefault(adapter_id, now)
-        if (now - started).total_seconds() >= self._max_horizon_seconds:
+        if (now - started) >= self._max_horizon_seconds:
             self._mark_horizon_expired(adapter_id)
             self._deferral_started.pop(adapter_id, None)
             return None
         return health
 
+    def unhealthy_adapters(self, universe: Iterable[str]) -> tuple[str, ...]:
+        """Observe current health without starting clocks on idle adapters."""
+        return tuple(
+            sorted(
+                {
+                    aid
+                    for aid in universe
+                    if not health_allows_delivery(self._health_fn(aid))
+                }
+            )
+        )
+
     def excluded_adapters(
         self,
         universe: Iterable[str],
         *,
+        held: Iterable[str],
         now: datetime | None = None,
     ) -> tuple[str, ...]:
-        """Return the adapters in *universe* whose obligations must not be claimed.
+        """Exclude unhealthy lanes; age only a positively observed backlog.
 
-        Delegates to :meth:`blocking_health` so claim exclusion and pipeline
-        admission share one horizon decision per adapter.
+        An observed empty lane ends the prior deferral episode even during
+        the same outage. A continuously nonempty lane keeps its expired
+        horizon so normal retry/retention rules can drain it.
         """
-        del now  # accepted for call-site symmetry; blocking_health owns the clock
+        del now
+        held_set = set(held)
         excluded: list[str] = []
         for adapter_id in sorted(set(universe)):
-            if self.blocking_health(adapter_id) is not None:
-                excluded.append(adapter_id)
+            if adapter_id in held_set:
+                if self.blocking_health(adapter_id) is not None:
+                    excluded.append(adapter_id)
+            else:
+                self._deferral_started.pop(adapter_id, None)
+                self._horizon_expired.discard(adapter_id)
+                # Still exclude an idle unhealthy adapter so a row inserted
+                # after the backlog read cannot slip through the claim query.
+                if not health_allows_delivery(self._health_fn(adapter_id)):
+                    excluded.append(adapter_id)
         return tuple(excluded)
 
     def observe(self, adapter_id: str, health: str | None) -> None:

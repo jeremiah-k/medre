@@ -244,17 +244,22 @@ class _DeliveryDeferred(Exception):
 
     A deferral is not a failure: no ``deliver()`` invocation was made, no
     attempt receipt exists, and no attempt was consumed. The durable outbox
-    row (when present) has already been pushed to ``retry_wait`` with a
-    bounded ``next_attempt_at`` by the admission path, so downstream
-    finalization must be a no-op for this outcome.
+    row is released to ``retry_wait`` only when the fenced transition succeeds;
+    otherwise the existing reservation is retained for reconciliation.
+    Downstream finalization must be a no-op in either case.
     """
 
-    def __init__(self, adapter_id: str, health: str) -> None:
+    def __init__(self, adapter_id: str, health: str, *, committed: bool) -> None:
         self.adapter_id = adapter_id
         self.health = health
+        self.committed = committed
         super().__init__(
             f"Deferred: adapter={adapter_id} health={health}; "
-            "obligation held for redispatch on recovery"
+            + (
+                "obligation held for redispatch on recovery"
+                if committed
+                else "no native call; durable deferral not established (inspect retained work)"
+            )
         )
 
 
@@ -635,45 +640,46 @@ class TargetDeliveryService:
         # horizon. The runtime notifies the retry worker on the degraded ->
         # healthy transition, which redispatches held obligations. When no
         # health observation exists the delivery proceeds unchanged.
-        _blocking_health = (
-            self._adapter_health_gate.blocking_health(adapter_id or "")
-            if self._adapter_health_gate is not None
-            else None
-        )
-        if _blocking_health is not None:
-            _health = _blocking_health
-            self._log.info(
-                "Deferred: adapter=%s health=%s; obligation held for redispatch "
-                "on recovery: event_id=%s",
-                adapter_id,
-                _health,
-                event.event_id,
+        async def check_health() -> None:
+            health = (
+                self._adapter_health_gate.blocking_health(adapter_id or "")
+                if self._adapter_health_gate is not None
+                else None
             )
-            self._diagnostician.record_deferral(
-                event.event_id,
-                adapter_id or "",
-                f"adapter health={_health}; obligation held for redispatch "
-                "on recovery",
-            )
-            if outbox_id is not None:
-                _deferred_until = datetime.now(tz=timezone.utc) + timedelta(
+            if health is None:
+                return
+            committed = False
+            if (
+                outbox_id is not None
+                and expected_outbox_worker_id
+                and reserved_attempt_number is not None
+            ):
+                deferred_until = datetime.now(timezone.utc) + timedelta(
                     seconds=DEFERRAL_NEXT_ATTEMPT_PUSH_SECONDS
                 )
-                # Push the obligation's next attempt without consuming one:
-                # attempts stay unchanged, only next_attempt_at moves. A
-                # rejected push is harmless — the row's lease expires and the
-                # next claim re-runs this admission gate.
-                await self._storage.mark_outbox_retry_wait(
+                try:
+                    committed = await self._lifecycle.defer_unsubmitted_attempt(
+                        self._storage,
+                        outbox_id,
+                        worker_id=expected_outbox_worker_id,
+                        attempt_number=reserved_attempt_number,
+                        next_attempt_at=deferred_until.isoformat(),
+                    )
+                except Exception:
+                    self._log.exception(
+                        "Could not persist health deferral for outbox %s; retaining reservation for reconciliation",
+                        outbox_id,
+                    )
+            if not committed:
+                self._log.warning(
+                    "Health deferral did not commit for outbox %s; no native call made",
                     outbox_id,
-                    next_attempt_at=_deferred_until.isoformat(),
-                    failure_kind=None,
-                    error_summary=(
-                        f"health_deferral: adapter={adapter_id} " f"health={_health}"
-                    ),
-                    attempt_number=reserved_attempt_number,
-                    expected_worker_id=expected_outbox_worker_id,
                 )
-            raise _DeliveryDeferred(adapter_id or "", _health) from None
+            deferred = _DeliveryDeferred(adapter_id or "", health, committed=committed)
+            self._diagnostician.record_deferral(
+                event.event_id, adapter_id or "", str(deferred)
+            )
+            raise deferred from None
 
         # Check delivery plan deadline.
         now = datetime.now(tz=timezone.utc)
@@ -733,6 +739,8 @@ class TargetDeliveryService:
         dispatch_bound = await self._observe_dispatch_start_bound(
             event, plan, outbox_id
         )
+
+        await check_health()
 
         # Render the event into a RenderingResult before adapter delivery.
         # Pass the adapter's platform so renderers can match on platform
@@ -1132,6 +1140,7 @@ class TargetDeliveryService:
             # A direct fence refusal carries local denial evidence without an
             # attempt receipt. Radio failures keep their existing aggregate
             # receipt/checkpoint semantics and never turn accepted work unsent.
+            await check_health()
             if rendering_result.radio_plan is not None:
                 if getattr(adapter, "supports_radio_multipart", False) is not True:
                     raise AdapterPermanentError(
@@ -1198,7 +1207,7 @@ class TargetDeliveryService:
                     "handoff": adapter_result.disposition,
                 },
             )
-        except _AdapterDeliveryError:
+        except (_AdapterDeliveryError, _DeliveryDeferred):
             # Core dispatch refusals already carry their exact evidence.
             raise
         except asyncio.CancelledError:
@@ -1217,13 +1226,10 @@ class TargetDeliveryService:
             # logging stays reserved for non-transient and unexpected
             # exceptions, which are real bugs needing the full stack.
             if isinstance(exc, AdapterSendError) and exc.transient:
-                self._log.warning(
-                    "Transient delivery failure: event_id=%s -> adapter=%s "
-                    "attempt=%d error=%s",
+                self._diagnostician.record_adapter_failure(
                     event.event_id,
-                    adapter_id,
-                    attempt_number,
-                    error,
+                    adapter_id or "",
+                    f"Transient delivery failure: attempt={attempt_number} error={error}",
                 )
             else:
                 self._log.exception(

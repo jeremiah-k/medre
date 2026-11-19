@@ -407,7 +407,11 @@ rewrite, classify, or retract any existing attempt evidence.
    outbox fields: the row's `next_attempt_at` is pushed forward by a bounded
    horizon while `attempt_number` and the attempt count remain unchanged. No
    new outbox status, receipt status, or terminal state is authorized for
-   deferral. A missing health observation (`None`) MUST NOT block delivery:
+   deferral. The live owner releases only its exact unsubmitted reservation,
+   without advancing the finalized attempt; the release MUST refuse after
+   native-attempt evidence or a competing generation exists. A storage failure
+   or refused release leaves the reservation for normal reconciliation and
+   MUST NOT be reported as a committed deferral. A missing health observation (`None`) MUST NOT block delivery:
    adapters that never report health keep unblocked delivery, and adapters
    that never completed startup remain governed by the retry worker's
    availability gate.
@@ -422,7 +426,10 @@ rewrite, classify, or retract any existing attempt evidence.
 
 5. Safety net: an adapter that never recovers MUST NOT strand obligations
    silently. A maximum deferral horizon bounds how long one adapter may hold
-   obligations in deferral; after it expires, the worker MUST resume normal
+   obligations in deferral, measured on a process-local monotonic clock from
+   a held-work episode rather than from an idle unhealthy observation. An
+   observed empty lane or healthy observation clears the episode; continuously
+   held work shares the adapter-wide horizon. After it expires, the worker MUST resume normal
    claim/retry/retention rules for that adapter's obligations so attempt
    burn, backoff, and dead-letter progression apply again. The horizon is an
    operational bound and MUST NOT be treated as lifecycle authority.
@@ -433,6 +440,16 @@ rewrite, classify, or retract any existing attempt evidence.
    They MUST log exactly one WARN line carrying the exception message and
    event/adapter ids, and MUST NOT log a traceback. Traceback-level logging
    remains reserved for non-transient and unexpected exceptions.
+
+The admission check is repeated after awaited preparation and immediately
+before direct invocation or the radio-plan execution boundary. Once a radio
+plan is bound, its existing packet grants and attempt-progress authority
+remain in force; health admission does not retract an authorized packet or
+rewrite retained progress. An explicitly requested replay is refused before
+allocation if health already blocks admission. Replay generation allocation
+is not an attempt-zero live reservation; a later refusal without a releasable
+reservation leaves that generation for reconciliation rather than silently
+renumbering it or promising automatic redispatch.
 
 ## 4. Evidence Boundary
 

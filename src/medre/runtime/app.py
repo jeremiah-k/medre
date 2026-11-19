@@ -1053,6 +1053,7 @@ class MedreApp:
             observed_wall=observed_wall,
         )
         self._observed_adapter_health[adapter_id] = entry
+        self.delivery_health_gate.observe(adapter_id, entry.health)
         if initializing:
             # Retain observations during an awaited startup probe without
             # claiming that adapter.start() has completed successfully.
@@ -1246,7 +1247,15 @@ class MedreApp:
         prev_snapshot = self._live_health_state
         self._live_health_state = snapshot
         self._live_health_poll_count = next_poll_count
+        previous_observations = self._observed_adapter_health
         self._observed_adapter_health = dict(snapshot.adapters)
+        for aid, entry in snapshot.adapters.items():
+            self.delivery_health_gate.observe(aid, entry.health)
+            previous_entry = previous_observations.get(aid)
+            if self._retry_worker is not None and (
+                previous_entry is None or previous_entry.health != entry.health
+            ):
+                self._retry_worker.notify_adapter_health(aid, entry.health)
 
         # Build event detail (cheap derived data only).
         event_detail: dict[str, Any] = {
@@ -1267,11 +1276,6 @@ class MedreApp:
                     continue
                 if old_entry.health != new_entry.health:
                     changed.append(aid)
-                    # Manual-poll path mirrors the native-report transition
-                    # notification so health-aware redispatch reacts to both
-                    # observation sources.
-                    if self._retry_worker is not None:
-                        self._retry_worker.notify_adapter_health(aid, new_entry.health)
             if changed:
                 event_detail["changed_adapters"] = sorted(changed)
 
@@ -2031,6 +2035,7 @@ class MedreApp:
             )
             return "degraded"
         self._observed_adapter_health[adapter_id] = sampled
+        self.delivery_health_gate.observe(adapter_id, sampled.health)
         return "healthy" if sampled.health == "healthy" else "degraded"
 
     async def _load_cached_startup_info(self) -> None:

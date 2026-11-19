@@ -100,6 +100,7 @@ class OutboxManager:
         source: str = "live",
         replay_run_id: str | None = None,
         pending: bool = False,
+        reserve_initial: bool = False,
     ) -> OutboxContext:
         """Create a durable outbox item tracking a delivery attempt.
 
@@ -134,6 +135,8 @@ class OutboxManager:
         retries, without claiming them or restarting attempt 1.
         """
         source, replay_run_id = normalize_delivery_provenance(source, replay_run_id)
+        if reserve_initial and (pending or source != "live"):
+            raise ValueError("initial reservation requires direct live delivery")
         outbox_id: str | None = None
         outbox_created: bool = False
         pipeline_worker: str = ""
@@ -173,8 +176,8 @@ class OutboxManager:
             # allocates it atomically with insertion; the placeholder value is
             # ignored in replay mode. Live delivery retains normal idempotent
             # attempt-1 creation without claiming existing recovery work.
-            attempt_number = 0 if pending else 1
-            if pending:
+            attempt_number = 0 if pending or reserve_initial else 1
+            if pending or reserve_initial:
                 if source != "live":
                     raise ValueError("only live ingress can stage initial delivery")
                 if event.metadata.routing is None:
@@ -208,6 +211,7 @@ class OutboxManager:
                     target.destination.destination_hash if target.destination else None
                 ),
                 attempt_number=attempt_number,
+                active_attempt=1 if reserve_initial else None,
                 status="pending" if pending else "in_progress",
                 locked_at=None if pending else _now.isoformat(),
                 lease_until=None if pending else _lease_until,

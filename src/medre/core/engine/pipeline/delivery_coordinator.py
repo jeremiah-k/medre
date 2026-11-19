@@ -25,7 +25,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
 from weakref import WeakValueDictionary
 
-from medre.core.contracts.adapter import AdapterContract
+from medre.core.contracts.adapter import AdapterContract, AdapterSendError
+from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
@@ -262,9 +263,13 @@ class DeliveryCoordinator:
         self._route_stats = route_stats
         self._runtime_accounting = runtime_accounting
         self._capacity_controller: CapacityController | None = None
+        self._adapter_health_gate: AdapterHealthGate | None = None
         self._named_replay_locks: WeakValueDictionary[
             tuple[DeliveryIdentity, str], asyncio.Lock
         ] = WeakValueDictionary()
+
+    def set_adapter_health_gate(self, gate: AdapterHealthGate | None) -> None:
+        self._adapter_health_gate = gate
 
     def set_capacity_controller(self, controller: CapacityController) -> None:
         """Use *controller* for delivery admission and release."""
@@ -473,6 +478,20 @@ class DeliveryCoordinator:
         if preflight is not None:
             return preflight
 
+        # Explicit replay allocates an event-wide generation, not an attempt-zero
+        # live obligation. Refuse a known unhealthy replay before allocation;
+        # a manual replay is not silently queued for automatic retry.
+        if ctx.source == "replay" and self._adapter_health_gate is not None:
+            health = self._adapter_health_gate.blocking_health(ctx.adapter_id)
+            if health is not None:
+                reason = f"Deferred: adapter={ctx.adapter_id} health={health}; replay not admitted"
+                self._diagnostician.record_deferral(
+                    ctx.event.event_id, ctx.adapter_id, reason
+                )
+                return self._build_outcome(
+                    ctx, status="skipped", error=reason, receipt=None
+                )
+
         owned_controller, capacity_rejection = await self._acquire_capacity_or_reject(
             ctx
         )
@@ -494,6 +513,9 @@ class DeliveryCoordinator:
                 ctx.adapter_id,
                 source=ctx.source,
                 replay_run_id=ctx.replay_run_id,
+                reserve_initial=(
+                    ctx.source == "live" and self._adapter_health_gate is not None
+                ),
             )
             if outbox_ctx.replay_duplicate:
                 return self._build_replay_duplicate_outcome(
@@ -958,10 +980,8 @@ class DeliveryCoordinator:
     ) -> _ExecutionResult:
         """Return the delivery outcome and validated execution evidence."""
         status: Literal["success", "queued", "transient_failure", "permanent_failure"]
+        deferred = False
         try:
-            if self._runtime_accounting is not None:
-                self._runtime_accounting.record_outbound_attempt()
-
             evidence = await self._deliver_target(
                 ctx.event,
                 ctx.route,
@@ -1001,11 +1021,14 @@ class DeliveryCoordinator:
                 outcome = self._build_outcome(ctx, status=status, receipt=receipt)
             return _ExecutionResult(outcome, evidence)
         except _AdapterDeliveryError as exc:
-            self._diagnostician.record_adapter_failure(
-                ctx.event.event_id,
-                ctx.adapter_id,
-                exc.error,
-            )
+            if not (
+                isinstance(exc.original, AdapterSendError) and exc.original.transient
+            ):
+                self._diagnostician.record_adapter_failure(
+                    ctx.event.event_id,
+                    ctx.adapter_id,
+                    exc.error,
+                )
             self._record_failed(ctx.route.id, exc.error)
             evidence = await self._persisted_evidence(exc.evidence)
             failure_kind = evidence.failure_kind
@@ -1056,10 +1079,11 @@ class DeliveryCoordinator:
             )
             return _ExecutionResult(outcome, evidence)
         except _DeliveryDeferred as exc:
+            deferred = True
             # Health-aware admission held the delivery before any attempt:
             # no failure occurred, no attempt was consumed, and the durable
-            # obligation was already pushed to retry_wait by the admission
-            # path. Finalization must not touch that row.
+            # obligation was either released to retry_wait or retained for
+            # reconciliation by the admission path. Finalization must not touch that row.
             outcome = self._build_outcome(
                 ctx,
                 status="skipped",
@@ -1099,6 +1123,9 @@ class DeliveryCoordinator:
                     error=error,
                 ),
             )
+        finally:
+            if not deferred and self._runtime_accounting is not None:
+                self._runtime_accounting.record_outbound_attempt()
 
     async def _persist_suppression(
         self,

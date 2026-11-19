@@ -239,6 +239,23 @@ class DeliveryLifecycleStorage(Protocol):
         """Release only an owned, unreserved claim under atomic fencing."""
         ...
 
+    async def defer_unsubmitted_outbox_attempt(
+        self,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        next_attempt_at: str,
+    ) -> bool:
+        """Release a reservation that the live owner has not exposed to a provider.
+
+        The caller MUST know that no native submission or provider callback has
+        been authorized for this attempt. Never use this for crash recovery.
+        A mismatched owner, generation or existing attempt evidence refuses
+        release. Prior finalized attempt and receipt evidence are unchanged.
+        """
+        ...
+
     async def reserve_outbox_attempt(
         self,
         outbox_id: str,
@@ -1775,6 +1792,23 @@ class DeliveryLifecycleService:
             unpersisted_error_summary=error_summary,
             attempt_number=resolved_attempt,
             now=now,
+        )
+
+    async def defer_unsubmitted_attempt(
+        self,
+        storage: DeliveryLifecycleStorage,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        next_attempt_at: str,
+    ) -> bool:
+        """Only a live owner before provider invocation may release a reservation."""
+        return await storage.defer_unsubmitted_outbox_attempt(
+            outbox_id,
+            worker_id=worker_id,
+            attempt_number=attempt_number,
+            next_attempt_at=next_attempt_at,
         )
 
     async def release_unstarted_retry_claim(
