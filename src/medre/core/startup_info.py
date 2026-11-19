@@ -101,6 +101,13 @@ _PAIRING_TOKENS: frozenset[str] = frozenset({"pairing"})
 # keeps public keys renderable as prefixes only.
 _PUBLIC_KEY_NAME_TOKENS: frozenset[str] = frozenset({"public", "pub"})
 
+# Device identifiers are operator-visible platform facts on the same
+# class as board names and firmware versions: they identify hardware in
+# logs and packet headers rather than authorizing anything, so they
+# render in full.  The shared error-sanitization anchor that treats
+# ``device_id`` as key material stays untouched for error surfaces.
+_DEVICE_ID_NAMES: frozenset[str] = frozenset({"device_id", "deviceid"})
+
 _NAME_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
 
 # Value shapes that are never rendered in full.
@@ -250,9 +257,12 @@ def _field_name_is_secret(name: str) -> bool:
     sanitization module with a tokenized check so plural forms and
     compound names (``pairing_token``, ``identity_keys``) also match.
     Public-key names (``public_key``, ``pubkey``) are the sanctioned
-    exception: they are retained for prefix-only rendering.
+    exception: they are retained for prefix-only rendering.  Device
+    identifiers (``device_id``) are platform facts, not secrets.
     """
     lowered = name.lower()
+    if lowered in _DEVICE_ID_NAMES:
+        return False
     if any(pattern.search(lowered) for pattern in SECRET_KEY_PATTERNS):
         return True
     tokens = frozenset(_NAME_TOKEN_SPLIT.split(lowered))
@@ -280,6 +290,7 @@ def _redact_value(name: str, value: object) -> str | None:
     returned:
 
     * secret-named and pairing-named fields are omitted entirely;
+    * device identifiers render in full as operator-visible facts;
     * non-string scalars are stringified; containers and ``None`` are
       dropped;
     * values carrying control characters are dropped;
@@ -293,6 +304,7 @@ def _redact_value(name: str, value: object) -> str | None:
     """
     if _field_name_is_secret(name):
         return None
+    is_device_id = name.lower() in _DEVICE_ID_NAMES
     if value is None or isinstance(value, (bool, int, float)):
         rendered = str(value)
     elif isinstance(value, str):
@@ -305,8 +317,13 @@ def _redact_value(name: str, value: object) -> str | None:
         return None
     if _URL_USERINFO_RE.search(rendered):
         return None
-    if _KEY_MATERIAL_RE.search(rendered) or _ADDRESS_RE.search(rendered):
-        return _prefix_only(rendered)
+    if not is_device_id:
+        if _KEY_MATERIAL_RE.search(rendered) or _ADDRESS_RE.search(rendered):
+            return _prefix_only(rendered)
+        # Same canonical token scrub the error/log surfaces use.
+        rendered = sanitize_error(rendered)
+        if REDACTED_TOKEN in rendered:
+            return rendered
     # Same canonical token scrub the error/log surfaces use.
     rendered = sanitize_error(rendered)
     if REDACTED_TOKEN in rendered:
