@@ -36,6 +36,15 @@ from medre.core.contracts.adapter import (
 )
 from medre.core.delivery_authority import effective_generation
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
+from medre.core.startup_info import (
+    CACHE_FILENAME,
+    DEFAULT_EMISSION_TIMEOUT_SECONDS,
+    AdapterStartupInfo,
+    collect_startup_info,
+    read_cache_file,
+    startup_info_callable,
+    write_cache_file,
+)
 from medre.core.storage.sqlite._pressure import SQLITE_MAX_PRESSURE_COUNT
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.health import (
@@ -89,6 +98,10 @@ __all__ = ["MedreApp", "RuntimeState", "StartupScope", "runtime_transition_allow
 _logger = logging.getLogger(__name__)
 
 _STARTUP_HEALTH_TIMEOUT_SECONDS = 1.0
+# Upper bound for one duck-typed adapter startup_info() await at the
+# ready transition.  Emission is best-effort: the bound keeps startup
+# non-blocking and a timeout or failure yields no info.
+_STARTUP_INFO_TIMEOUT_SECONDS = DEFAULT_EMISSION_TIMEOUT_SECONDS
 _ROUTE_IDS_DISPLAY_LIMIT = 10
 
 
@@ -678,6 +691,13 @@ class MedreApp:
     _pending_health_reports: set[str] = field(default_factory=set, init=False)
     _native_health_epoch: object = field(default_factory=object, init=False)
     _observed_adapter_health: dict[str, AdapterLiveHealth] = field(
+        default_factory=dict, init=False
+    )
+    # Display-only last-known adapter startup info.  Populated from the
+    # durable cache during startup preparation (values flagged ``cached``)
+    # and replaced per adapter by a fresh emission at the ready
+    # transition.  Never consulted for routing or delivery decisions.
+    _startup_info: dict[str, AdapterStartupInfo] = field(
         default_factory=dict, init=False
     )
 
@@ -1701,6 +1721,11 @@ class MedreApp:
         self._pending_health_reports.clear()
         # 0. Create required directories.
         self._ensure_dirs()
+        # 0.1 Load display-only last-known startup info from the durable
+        #     cache so cached values render with the ``cached`` marker
+        #     until a fresh emission replaces them.  Best-effort: the
+        #     cache never gates startup.
+        self._load_cached_startup_info()
 
         # 1. Initialise storage.
         if self.storage is not None:
@@ -1964,6 +1989,59 @@ class MedreApp:
         self._observed_adapter_health[adapter_id] = sampled
         return "healthy" if sampled.health == "healthy" else "degraded"
 
+    def _load_cached_startup_info(self) -> None:
+        """Load display-only last-known startup info from the durable cache.
+
+        Cached records are flagged ``cached`` and are replaced per adapter
+        when a fresh emission arrives at the ready transition.  Best-effort
+        and display-only: a missing, malformed, or unreadable cache simply
+        means nothing to render.
+        """
+        self._startup_info.clear()
+        for _transport, adapter_id, rtc in self.config.adapters.all_configs():
+            if not rtc.enabled:
+                continue
+            try:
+                cache_path = self.paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
+            except Exception:
+                continue
+            info = read_cache_file(cache_path)
+            if info is not None:
+                self._startup_info[adapter_id] = info
+
+    async def _collect_adapter_startup_info(
+        self, adapter_id: str, adapter: AdapterContract
+    ) -> None:
+        """Emit and persist startup info at the adapter's ready transition.
+
+        The adapter object is duck-typed: an optional ``startup_info()``
+        callable surfaces platform facts it already holds.  Emission is
+        bounded by ``_STARTUP_INFO_TIMEOUT_SECONDS`` and best-effort — a
+        timeout or failure yields no info and never fails the adapter.
+        The durable cache write is equally best-effort.
+        """
+        if startup_info_callable(adapter) is None:
+            return
+        info = await collect_startup_info(
+            adapter_id,
+            getattr(adapter, "platform", "unknown"),
+            adapter,
+            timeout_seconds=_STARTUP_INFO_TIMEOUT_SECONDS,
+            emitted_at=_utc_now().isoformat(),
+        )
+        if info is None:
+            return
+        self._startup_info[adapter_id] = info
+        try:
+            cache_path = self.paths.adapter_state_dir(adapter_id) / CACHE_FILENAME
+            write_cache_file(cache_path, info)
+        except Exception as exc:
+            _logger.warning(
+                "Adapter %s startup-info cache unavailable (%s)",
+                adapter_id,
+                type(exc).__name__,
+            )
+
     async def _start_adapter(self, adapter_id: str) -> bool:
         """Start one independent adapter and retire a failed partial start.
 
@@ -2040,6 +2118,10 @@ class MedreApp:
             self.started_adapter_ids.append(adapter_id)
             self.started_adapter_ids.sort()
             self._set_adapter_state(adapter_id, AdapterState.READY)
+            # Startup-info emission rides the ready transition: a bounded,
+            # best-effort duck-typed read that never fails the adapter and
+            # never blocks startup beyond its own timeout.
+            await self._collect_adapter_startup_info(adapter_id, adapter)
             if initial_health != "healthy":
                 self._set_adapter_state(adapter_id, AdapterState.DEGRADED)
             _logger.info(
