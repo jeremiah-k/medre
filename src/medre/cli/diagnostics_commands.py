@@ -74,17 +74,18 @@ def _human_lifecycle_line(lifecycle: dict[str, Any] | None) -> str:
     return f"Runtime state: {state} (not started)"
 
 
-def _human_adapter_line(row: dict[str, Any]) -> str:
+def _human_adapter_line(row: dict[str, Any], state: object = None) -> str:
     platform = str(row.get("platform", "unknown"))
     role = str(row.get("role", "unknown"))
     header = f"  {row.get('adapter_id', '?')} ({platform}, {role})"
-    return f"{header}: health {row.get('health', 'unknown')}"
+    lifecycle = f"state {state}, " if isinstance(state, str) else ""
+    return f"{header}: {lifecycle}health {row.get('health', 'unknown')}"
 
 
 def _human_routes_line(routes: object) -> str:
     eligibility = routes.get("eligibility") if isinstance(routes, dict) else None
     if not isinstance(eligibility, dict):
-        return "Routes: not reported"
+        return "Routes (build eligibility): not reported"
 
     def count(key: str) -> int:
         value = eligibility.get(key)
@@ -97,7 +98,22 @@ def _human_routes_line(routes: object) -> str:
         if total:
             facts.append(f"{total} {key}")
     detail = ", ".join(facts) if facts else "all eligible"
-    return f"Routes: {configured} configured ({detail})"
+    return f"Routes (build eligibility): {configured} configured ({detail})"
+
+
+def _human_startup_routes_line(routes: object) -> str | None:
+    readiness = routes.get("startup_readiness") if isinstance(routes, dict) else None
+    if not isinstance(readiness, dict):
+        return None
+    states = readiness.get("readiness")
+    if not isinstance(states, dict):
+        return "Routes (startup readiness): not reported"
+    counts: dict[str, int] = {}
+    for state in states.values():
+        if isinstance(state, str):
+            counts[state] = counts.get(state, 0) + 1
+    detail = ", ".join(f"{total} {state}" for state, total in sorted(counts.items()))
+    return f"Routes (startup readiness): {detail or 'no states reported'}"
 
 
 def _human_capacity_line(state: object) -> str:
@@ -121,14 +137,16 @@ def _human_capacity_line(state: object) -> str:
 
 def _human_outbox_line(outbox: object) -> str:
     counts = outbox.get("counts") if isinstance(outbox, dict) else None
-    if not isinstance(counts, dict) or not counts:
-        return "Outbox: counts not seeded"
+    if not isinstance(counts, dict):
+        return "Outbox: counts unavailable"
+    if not counts:
+        return "Outbox: no counts reported"
     detail = ", ".join(
         f"{status}={total}"
         for status, total in sorted(counts.items())
-        if isinstance(total, int)
+        if isinstance(total, int) and not isinstance(total, bool)
     )
-    return f"Outbox: {detail}" if detail else "Outbox: counts not seeded"
+    return f"Outbox: {detail}" if detail else "Outbox: counts unavailable"
 
 
 def _human_replay_line(replay: object) -> str:
@@ -176,8 +194,10 @@ def _render_human(snapshot: dict[str, Any]) -> None:
         else {}
     )
     print(f"Adapters: {len(adapter_rows)} built")
+    states = lifecycle.get("adapters") if isinstance(lifecycle, dict) else None
     for adapter_id in sorted(adapter_rows):
-        print(_human_adapter_line(adapter_rows[adapter_id]))
+        state = states.get(adapter_id) if isinstance(states, dict) else None
+        print(_human_adapter_line(adapter_rows[adapter_id], state))
 
     startup = snapshot.get("startup")
     failures = startup.get("build_failures") if isinstance(startup, dict) else None
@@ -189,7 +209,18 @@ def _render_human(snapshot: dict[str, Any]) -> None:
     else:
         print("Build failures: none")
 
+    boot = startup.get("boot_summary") if isinstance(startup, dict) else None
+    if isinstance(boot, dict):
+        print(f"Startup outcome: {boot.get('startup_outcome', 'unknown')}")
+        failed_ids = boot.get("failed_adapter_ids")
+        if isinstance(failed_ids, list):
+            for adapter_id in failed_ids:
+                print(f"  {adapter_id}: failed to start")
+
     print(_human_routes_line(snapshot.get("routes")))
+    startup_routes = _human_startup_routes_line(snapshot.get("routes"))
+    if startup_routes is not None:
+        print(startup_routes)
     capacity = snapshot.get("capacity")
     capacity_state = capacity.get("state") if isinstance(capacity, dict) else None
     print(_human_capacity_line(capacity_state))
@@ -237,18 +268,16 @@ def _render_human_next_steps(
             "Adapter build failures present; see startup.build_failures in "
             "'medre diagnostics --format json'."
         )
+    # A current observation supersedes startup health for that adapter only.
+    effective_health = {aid: row.get("health") for aid, row in adapter_rows.items()}
+    live_rows = live.get("adapters") if isinstance(live, dict) else None
+    if isinstance(live_rows, dict):
+        for aid, entry in live_rows.items():
+            if isinstance(entry, dict) and isinstance(entry.get("health"), str):
+                effective_health[aid] = entry["health"]
     unhealthy = any(
-        row.get("health") in ("degraded", "failed") for row in adapter_rows.values()
+        value in ("degraded", "failed") for value in effective_health.values()
     )
-    if (
-        isinstance(live, dict)
-        and isinstance(live.get("adapters"), dict)
-        and any(
-            isinstance(entry, dict) and entry.get("health") in ("degraded", "failed")
-            for entry in live["adapters"].values()
-        )
-    ):
-        unhealthy = True
     if unhealthy:
         steps.append(
             "Degraded or failed adapter health reported; "
@@ -259,16 +288,31 @@ def _render_human_next_steps(
         eligibility = routes.get("eligibility")
         if isinstance(eligibility, dict) and any(
             isinstance(eligibility.get(key), list) and eligibility[key]
-            for key in ("degraded", "unavailable")
+            for key in ("degraded", "unavailable", "skipped")
         ):
             steps.append(
-                "Route eligibility degraded; 'medre routes plan' shows the "
+                "Build route eligibility has restrictions; 'medre routes plan' shows the "
                 "per-route detail."
+            )
+        readiness = routes.get("startup_readiness")
+        if isinstance(readiness, dict) and any(
+            isinstance(readiness.get(key), list) and readiness[key]
+            for key in ("degraded", "skipped")
+        ):
+            steps.append(
+                "Startup route readiness has restrictions; see routes.startup_readiness "
+                "in 'medre diagnostics --refresh-health --format json' "
+                "(starts the runtime)."
             )
     if isinstance(capacity, dict) and capacity.get("accepting_work") is False:
         steps.append(
             "Capacity is not accepting work; inspect capacity.state in "
             "'medre diagnostics --format json'."
+        )
+    if steps:
+        steps.append(
+            "Reuse the original configuration selection for follow-up commands "
+            "(including --config if supplied)."
         )
     steps.append(
         "Snapshots are point-in-time observations; they do not establish "
