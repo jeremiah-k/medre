@@ -222,10 +222,9 @@
       "automerge": true
     },
     {
-      "description": "Review coordinated tool upgrades after the shared quality gate",
+      "description": "Trunk tool pins are refreshed by deliberate trunk upgrade rounds, not tracked as dependencies",
       "matchFileNames": [".trunk/trunk.yaml"],
-      "groupName": "Trunk toolchain",
-      "automerge": false
+      "enabled": false
     },
     {
       "description": "Review CLI releases from the launcher manifest without a release timestamp",
