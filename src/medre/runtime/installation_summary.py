@@ -11,7 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 _logger = logging.getLogger(__name__)
 
-_CORE_FALLBACK_VERSION = "0.1.1"
+_CORE_FALLBACK_VERSION = "0.1.2"
 _NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 _VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9.!+_-]*")
 

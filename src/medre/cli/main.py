@@ -18,7 +18,7 @@ def _get_version() -> str:
     try:
         return importlib.metadata.version("medre")
     except importlib.metadata.PackageNotFoundError:
-        return "0.1.1"
+        return "0.1.2"
 
 
 def _version() -> None:
