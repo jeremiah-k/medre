@@ -171,7 +171,12 @@ def configured_git_label(repository: object, ref: object) -> str:
     authority that turns the same slug into ``git+https://github.com/...``.
     Invalid or unsupported shapes yield ``unknown`` like every other label.
     """
-    if not isinstance(repository, str) or not repository:
+    if not isinstance(repository, str) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
+    ):
+        return "unknown"
+    owner, repo = repository.split("/")
+    if owner in (".", "..") or repo.removesuffix(".git") in ("", ".", ".."):
         return "unknown"
     validated = _display_url(f"https://github.com/{repository}")
     if validated is None:
