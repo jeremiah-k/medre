@@ -170,14 +170,16 @@ async def test_provider_rows_keep_order_and_skip_invalid_facts(tmp_path: Path) -
     assert info is not None
     assert render_startup_info_block("meshtastic.main  ready", info) == (
         "meshtastic.main  ready\n"
-        "  Ridge Relay (RIDG) · !a4b3c2d1\n"
-        "  RAK4631 · firmware 2.7.15"
+        "  node name Ridge Relay (RIDG) · node id !a4b3c2d1\n"
+        "  board RAK4631 · firmware 2.7.15\n"
+        "  extra outside the startup block"
     )
     assert [(field.name, field.row) for field in info.fields] == [
         ("node_name", 0),
         ("node_id", 0),
         ("board", 1),
         ("firmware", 1),
+        ("extra", 2),
     ]
 
     cache = tmp_path / CACHE_FILENAME
@@ -672,8 +674,8 @@ def test_cached_line_renders_with_marker(
     assert "Configured adapters:" in output
     assert (
         "  matrix.main: enabled (kind=fake) (cached)\n"
-        "    @bridge:example.org · device MEDREAB12CD\n"
-        "    https://matrix.example.org" in output
+        "    user id @bridge:example.org · device MEDREAB12CD\n"
+        "    homeserver https://matrix.example.org" in output
     )
 
 
@@ -1267,8 +1269,8 @@ async def test_compact_fact_limit_survives_cache_roundtrip(tmp_path):
         }
     )
     assert info is not None
-    assert len(info.fields) == 16
-    assert [f.row for f in info.fields] == [0] * 8 + [1] * 8
+    assert len(info.fields) == 24
+    assert [f.row for f in info.fields] == [0] * 8 + [1] * 8 + [2] * 8
     path = tmp_path / CACHE_FILENAME
     write_cache_file(path, info)
     assert read_cache_file(path) == info.with_cached_flags(True)

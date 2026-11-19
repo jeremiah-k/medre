@@ -16,9 +16,14 @@ numbers. Omit unavailable facts. Core drops `None`, containers and empty text.
 
 The adapter chooses the facts, their order, and their labels. Put the primary
 account or node identity in the first row and device or endpoint details in the
-second, when useful. Core displays up to two rows of eight accepted facts each.
-For example, a radio adapter
-may provide:
+following rows. Core displays up to ten rows of eight accepted facts each. The
+row bound exists to keep a worst-case multi-adapter banner readable, not to
+ration honest detail: ten packed rows carry up to eighty facts, roughly five
+times what today's richest provider reports, and per-row fact packing already
+bounds density. A provider that supplies more rows than displayed is truncated
+to the first ten, and the rendered block ends with one `… +N more` marker line
+counting the suppressed rows, so truncation is never invisible. For example, a
+radio adapter may provide:
 
 ```python
 {
@@ -29,15 +34,25 @@ may provide:
         ],
         [
             {"name": "board", "value": "RAK4631"},
-            {"name": "firmware", "label": "firmware", "value": "2.7.15"},
+            {"name": "firmware", "value": "2.7.15"},
+            {"name": "radio", "label": "radio (MHz)", "value": "910.525"},
         ],
     ],
 }
 ```
 
-A flat mapping of fact names to scalar values produces one labeled row. A
-non-string sequence under `rows` selects grouped output; a scalar `rows` fact
-is an ordinary flat fact. Core examines at most 128 candidates per row.
+Make every fact self-describing. When a fact carries no explicit label, core
+derives one from the fact name, so a field named `node_id` renders as
+`node !a4b3c2d1` and a field named `radio_mhz` renders as `radio mhz 910.525`.
+To state units, prefer a label that carries them, such as `"label": "radio
+(MHz)"`. Units are provider-owned guidance: core owns presentation and never
+attaches transport-specific units or meanings itself. An explicit label always
+wins over the derived one.
+
+A flat mapping of fact names to scalar values produces one row whose facts
+render with labels derived from their names. A non-string sequence under `rows`
+selects grouped output; a scalar `rows` fact is an ordinary flat fact. Core
+examines at most 128 candidates per row.
 Providers MUST supply facts separately for validation and MUST NOT return
 preformatted output lines. Firmware means the device's firmware version.
 A public key belongs in startup info when it is a primary operator identifier.
@@ -63,13 +78,35 @@ process shutdown; the hook contract prohibits such work.
 ## Presentation and cache
 
 Core renders one heading per adapter with indented facts separated by a middle
-dot. At runtime startup, the fresh block includes the current lifecycle state.
+dot. Every fact renders in the same `label value` grammar. When the provider
+omits a label, core derives one from the fact name: word boundaries split at
+underscores, hyphens, dots, and camel-case transitions, then lowercase and join
+with spaces, so `node_id` renders `node !a4b3c2d1`. An explicit provider label
+always wins. A provider that supplied more rows than displayed ends the block
+with an indented `… +N more` line counting the suppressed rows; the JSON output
+carries the same count. At runtime startup, the fresh block includes the
+current lifecycle state.
 Cached blocks render before adapter start and carry a `(cached)` marker with
 no claim about current health. `medre adapters` uses the same block under
 the configured adapter. Its JSON output includes ordered facts, row indices,
-optional labels, and per-field `cached` flags. Both text and JSON honor the
+optional labels, per-field `cached` flags, and the suppressed-row count when
+rows were truncated. Both text and JSON honor the
 selected `--config` and use the same configured inventory and resolved paths.
 `--json` applies only to the listing, not adapter preflight or package actions.
+
+Display bounds exist to keep the banner compact and to bound malformed input,
+never to truncate an honest record silently. Core displays at most ten rows
+(flood prevention: rows are the visual unit, per-row fact packing already
+bounds density, and ten packed rows keep a worst-case seven-adapter banner
+readable) and packs at most eight accepted facts per row (line packing:
+providers spread more facts across rows instead of overloading one line).
+Truncation beyond these bounds is visible through the `… +N more` marker. The
+malformed-input defenses are unchanged: at most 128 candidate facts are
+examined per row, displayed values are capped at 64 characters including the
+truncation marker, raw inputs longer than 4096 characters are dropped, and
+cache reads inspect at most 64 KiB per file (bounding a tampered cache to at
+most the 1280 candidate fields parsed from one record). These caps bound
+garbage, not honest records.
 
 Core atomically writes the last-known facts beneath the adapter state directory
 in `startup-info.json`, using the configured transport key and adapter ID.
