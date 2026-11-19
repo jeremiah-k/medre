@@ -395,14 +395,14 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     # diagnostics
     diag_p = sub.add_parser(
         "diagnostics",
-        help="Print pre-flight diagnostics; default snapshot is read-only (requires --config or discoverable default), --refresh-health starts live runtime",
+        help="Print a pre-flight diagnostics summary; default snapshot is read-only (requires --config or discoverable default), --refresh-health starts live runtime; --format json prints the machine snapshot",
     )
     diag_p.add_argument("--config", default=None, help="Path to config file")
     diag_p.add_argument(
         "--format",
-        choices=("json", "prometheus"),
-        default="json",
-        help="Diagnostics output format (default: json)",
+        choices=("human", "json", "prometheus"),
+        default="human",
+        help="Diagnostics output format (default: human; json keeps machine output)",
     )
     diag_p.add_argument(
         "--refresh-health",

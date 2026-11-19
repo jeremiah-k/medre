@@ -152,13 +152,17 @@ class TestDiagnostics:
 
     def test_diagnostics_produces_json(self, config_with_routes: Path) -> None:
         """Diagnostics with valid config produces parseable JSON output."""
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_with_routes)
+        )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 
     def test_diagnostics_json_has_adapters_key(self, config_with_routes: Path) -> None:
         """Diagnostics JSON contains adapter information."""
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_with_routes)
+        )
         parsed = json.loads(output)
         assert len(parsed) > 0
 
@@ -166,7 +170,9 @@ class TestDiagnostics:
         self, config_with_routes: Path
     ) -> None:
         """Plain 'medre diagnostics' emits top-level snapshot_scope='build'."""
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_with_routes)
+        )
         parsed = json.loads(output)
         assert parsed["snapshot_scope"] == "build"
 
@@ -251,6 +257,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -271,6 +279,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -291,6 +301,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -314,6 +326,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -335,6 +349,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -477,6 +493,8 @@ adapters:
 
         output = _run_cli(
             "diagnostics",
+            "--format",
+            "json",
             "--refresh-health",
             "--config",
             str(fake_single_config),
@@ -496,7 +514,9 @@ adapters:
         config_with_routes: Path,
     ) -> None:
         """Plain 'medre diagnostics' (no --refresh-health) still works."""
-        output = _run_cli("diagnostics", "--config", str(config_with_routes))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_with_routes)
+        )
         parsed = json.loads(output)
         assert parsed["health"]["live_health"] is None
         assert parsed["health"]["live_refresh"] is False

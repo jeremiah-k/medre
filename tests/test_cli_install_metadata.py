@@ -142,7 +142,9 @@ class TestDockerEnvWorkflow:
     ) -> None:
         """MEDRE_LOG_LEVEL env is picked up through config check (applied via diagnostics)."""
         monkeypatch.setenv("MEDRE_LOG_LEVEL", "DEBUG")
-        output = _run_cli("diagnostics", "--config", str(config_fake_multi))
+        output = _run_cli(
+            "diagnostics", "--format", "json", "--config", str(config_fake_multi)
+        )
         parsed = json.loads(output)
         assert isinstance(parsed, dict)
 

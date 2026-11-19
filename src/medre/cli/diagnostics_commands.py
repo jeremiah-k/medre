@@ -62,13 +62,234 @@ def _metrics_projection(
     }
 
 
-def _diagnostics(config_path: str | None, *, output_format: str = "json") -> None:
-    """Print runtime snapshot JSON using local config/process construction only.
+def _human_lifecycle_line(lifecycle: dict[str, Any] | None) -> str:
+    state = (
+        str(lifecycle.get("runtime_state", "unknown"))
+        if isinstance(lifecycle, dict)
+        else "unknown"
+    )
+    uptime = lifecycle.get("uptime_seconds") if isinstance(lifecycle, dict) else None
+    if isinstance(uptime, (int, float)) and not isinstance(uptime, bool):
+        return f"Runtime state: {state} (uptime {uptime:g}s)"
+    return f"Runtime state: {state} (not started)"
+
+
+def _human_adapter_line(row: dict[str, Any]) -> str:
+    platform = str(row.get("platform", "unknown"))
+    role = str(row.get("role", "unknown"))
+    header = f"  {row.get('adapter_id', '?')} ({platform}, {role})"
+    return f"{header}: health {row.get('health', 'unknown')}"
+
+
+def _human_routes_line(routes: object) -> str:
+    eligibility = routes.get("eligibility") if isinstance(routes, dict) else None
+    if not isinstance(eligibility, dict):
+        return "Routes: not reported"
+
+    def count(key: str) -> int:
+        value = eligibility.get(key)
+        return len(value) if isinstance(value, list) else 0
+
+    configured = count("configured")
+    facts: list[str] = []
+    for key in ("degraded", "disabled", "unavailable", "skipped"):
+        total = count(key)
+        if total:
+            facts.append(f"{total} {key}")
+    detail = ", ".join(facts) if facts else "all eligible"
+    return f"Routes: {configured} configured ({detail})"
+
+
+def _human_capacity_line(state: object) -> str:
+    if not isinstance(state, dict):
+        return "Capacity: state unavailable"
+
+    def pair(current_key: str, limit_key: str) -> str:
+        current = state.get(current_key)
+        limit = state.get(limit_key)
+        current_text = str(current) if isinstance(current, int) else "?"
+        limit_text = str(limit) if isinstance(limit, int) else "?"
+        return f"{current_text}/{limit_text}"
+
+    accepting = state.get("accepting_work")
+    suffix = "" if accepting is not False else ", not accepting work"
+    return (
+        f"Capacity: inbound {pair('inbound_current', 'inbound_limit')}, "
+        f"delivery {pair('delivery_current', 'delivery_limit')}{suffix}"
+    )
+
+
+def _human_outbox_line(outbox: object) -> str:
+    counts = outbox.get("counts") if isinstance(outbox, dict) else None
+    if not isinstance(counts, dict) or not counts:
+        return "Outbox: counts not seeded"
+    detail = ", ".join(
+        f"{status}={total}"
+        for status, total in sorted(counts.items())
+        if isinstance(total, int)
+    )
+    return f"Outbox: {detail}" if detail else "Outbox: counts not seeded"
+
+
+def _human_replay_line(replay: object) -> str:
+    available = replay.get("available") if isinstance(replay, dict) else None
+    if available is True:
+        return "Replay: available"
+    if available is False:
+        return "Replay: unavailable"
+    return "Replay: state unavailable"
+
+
+def _human_retry_line(retry: object) -> str:
+    if not isinstance(retry, dict):
+        return "Retry: state unavailable"
+    enabled = retry.get("enabled")
+    if enabled is False:
+        return "Retry: disabled"
+    if enabled is not True:
+        return "Retry: state unavailable"
+    facts: list[str] = []
+    for key in ("failed", "dead_lettered"):
+        total = retry.get(key)
+        if isinstance(total, int) and total:
+            facts.append(f"{total} {key}")
+    return "Retry: enabled" + (f" ({', '.join(facts)})" if facts else "")
+
+
+def _render_human(snapshot: dict[str, Any]) -> None:
+    """Print the short, path-free operator view of a runtime snapshot.
+
+    Mirrors the readiness report's human style: one line per section,
+    typed statuses instead of error text, and ordered next steps. The
+    full machine contract stays available through ``--format json`` and
+    ``--format prometheus``.
+    """
+    scope = snapshot.get("snapshot_scope", "unknown")
+    print(f"Runtime diagnostics snapshot ({scope})")
+    lifecycle = snapshot.get("lifecycle")
+    print(_human_lifecycle_line(lifecycle if isinstance(lifecycle, dict) else None))
+
+    adapters_raw = snapshot.get("adapters")
+    adapter_rows = (
+        {aid: row for aid, row in adapters_raw.items() if isinstance(row, dict)}
+        if isinstance(adapters_raw, dict)
+        else {}
+    )
+    print(f"Adapters: {len(adapter_rows)} built")
+    for adapter_id in sorted(adapter_rows):
+        print(_human_adapter_line(adapter_rows[adapter_id]))
+
+    startup = snapshot.get("startup")
+    failures = startup.get("build_failures") if isinstance(startup, dict) else None
+    if isinstance(failures, list) and failures:
+        print(f"Build failures: {len(failures)} adapter(s) failed to construct")
+        for failure in failures:
+            if isinstance(failure, dict):
+                print(f"  {failure.get('adapter_id', '?')}: failed to construct")
+    else:
+        print("Build failures: none")
+
+    print(_human_routes_line(snapshot.get("routes")))
+    capacity = snapshot.get("capacity")
+    capacity_state = capacity.get("state") if isinstance(capacity, dict) else None
+    print(_human_capacity_line(capacity_state))
+    print(_human_outbox_line(snapshot.get("outbox")))
+    print(_human_replay_line(snapshot.get("replay")))
+    print(_human_retry_line(snapshot.get("retry")))
+
+    health = snapshot.get("health")
+    live = health.get("live_health") if isinstance(health, dict) else None
+    if isinstance(live, dict) and live:
+        runtime_health = live.get("runtime_health", "unknown")
+        summary = live.get("adapter_summary")
+        if isinstance(summary, dict):
+            counts = ", ".join(
+                f"{category}={total}"
+                for category, total in sorted(summary.items())
+                if isinstance(total, int)
+            )
+            print(f"Live health: {runtime_health} ({counts})")
+        else:
+            print(f"Live health: {runtime_health}")
+        adapters_live = live.get("adapters")
+        if isinstance(adapters_live, dict):
+            for adapter_id in sorted(adapters_live):
+                entry = adapters_live[adapter_id]
+                if isinstance(entry, dict):
+                    print(f"  {adapter_id}: health {entry.get('health', 'unknown')}")
+
+    _render_human_next_steps(
+        adapter_rows, failures, live, snapshot.get("routes"), capacity_state
+    )
+
+
+def _render_human_next_steps(
+    adapter_rows: dict[str, dict[str, Any]],
+    failures: object,
+    live: object,
+    routes: object,
+    capacity: object,
+) -> None:
+    """Print ordered, path-free next steps plus the closing observation rule."""
+    steps: list[str] = []
+    if isinstance(failures, list) and failures:
+        steps.append(
+            "Adapter build failures present; see startup.build_failures in "
+            "'medre diagnostics --format json'."
+        )
+    unhealthy = any(
+        row.get("health") in ("degraded", "failed") for row in adapter_rows.values()
+    )
+    if (
+        isinstance(live, dict)
+        and isinstance(live.get("adapters"), dict)
+        and any(
+            isinstance(entry, dict) and entry.get("health") in ("degraded", "failed")
+            for entry in live["adapters"].values()
+        )
+    ):
+        unhealthy = True
+    if unhealthy:
+        steps.append(
+            "Degraded or failed adapter health reported; "
+            "'medre diagnostics --refresh-health' refreshes live health "
+            "(starts the runtime) before relying on delivery."
+        )
+    if isinstance(routes, dict):
+        eligibility = routes.get("eligibility")
+        if isinstance(eligibility, dict) and any(
+            isinstance(eligibility.get(key), list) and eligibility[key]
+            for key in ("degraded", "unavailable")
+        ):
+            steps.append(
+                "Route eligibility degraded; 'medre routes plan' shows the "
+                "per-route detail."
+            )
+    if isinstance(capacity, dict) and capacity.get("accepting_work") is False:
+        steps.append(
+            "Capacity is not accepting work; inspect capacity.state in "
+            "'medre diagnostics --format json'."
+        )
+    steps.append(
+        "Snapshots are point-in-time observations; they do not establish "
+        "delivery success or native acceptance."
+    )
+    print("Next steps:")
+    for step in steps:
+        print(f"  - {step}")
+
+
+def _diagnostics(config_path: str | None, *, output_format: str = "human") -> None:
+    """Print runtime snapshot using local config/process construction only.
 
     This command builds the runtime from configuration but does **not** start
     adapters, storage, or any I/O.  It produces a pre-flight snapshot showing
     what the runtime *would* look like: adapter inventory, route topology,
     limits, and config state.  No server, socket, or API is involved.
+
+    The default output is the human-readable summary; ``--format json``
+    prints the full machine snapshot and ``--format prometheus`` the
+    numeric exposition.
     """
     from medre.runtime.snapshot import build_runtime_snapshot
 
@@ -125,8 +346,10 @@ def _diagnostics(config_path: str | None, *, output_format: str = "json") -> Non
 
             metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
             print(snapshot_to_prometheus(metrics_snapshot), end="")
-        else:
+        elif output_format == "json":
             print(to_json(snapshot))
+        else:
+            _render_human(snapshot)
     finally:
         # Diagnostic builds the runtime but never starts it.  The
         # runtime holds open storage handles, the pipeline runner has
@@ -186,9 +409,9 @@ def _teardown_unstarted_app(app: object) -> None:
 
 
 async def _diagnostics_refresh(
-    config_path: str | None, *, output_format: str = "json"
+    config_path: str | None, *, output_format: str = "human"
 ) -> None:
-    """Start runtime, refresh adapter health once, print live snapshot JSON.
+    """Start runtime, refresh adapter health once, print the live snapshot.
 
     Builds the runtime via the same :class:`RuntimeBuilder` path as
     :func:`_diagnostics`, then starts the runtime, calls
@@ -207,7 +430,8 @@ async def _diagnostics_refresh(
     Exit codes mirror ``medre run`` semantics:
     ``EXIT_CONFIG`` (2), ``EXIT_BUILD`` (3), ``EXIT_STARTUP`` (4).
     Exits 0 on success regardless of runtime health classification
-    (operators read the JSON).
+    (operators read the rendered report; ``--format json`` for the full
+    machine snapshot).
     """
     try:
         config, source, paths = load_config(config_path)
@@ -275,8 +499,10 @@ async def _diagnostics_refresh(
 
             metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
             print(snapshot_to_prometheus(metrics_snapshot), end="")
-        else:
+        elif output_format == "json":
             print(to_json(snapshot))
+        else:
+            _render_human(snapshot)
     finally:
         # Always attempt clean shutdown after a successful start.
         try:
