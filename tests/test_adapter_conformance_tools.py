@@ -114,18 +114,53 @@ def test_equivalent_requirement_names_and_versions_do_not_conflict(monkeypatch):
     ) == {"privacy-sdk"}
 
 
+@pytest.mark.parametrize(
+    "requirements",
+    [
+        ["privacy-sdk>=99.111.0,<99.222.0", "privacy-sdk>=99.111.0,<99.333.0"],
+        ["privacy-sdk==99.111.0", "privacy-sdk>=99.111.0,<99.222.0"],
+    ],
+)
+def test_active_sdk_constraints_with_the_same_floor_can_conflict(
+    monkeypatch, requirements
+):
+    monkeypatch.setattr(
+        sdk_contract.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(requires=requirements),
+    )
+    with pytest.raises(AssertionError, match="conflicting SDK requirement"):
+        sdk_contract.declared_sdk_pins("arbitrary-provider-package")
+
+
+def test_equivalent_base_and_extra_sdk_ranges_are_accepted(monkeypatch):
+    monkeypatch.setattr(
+        sdk_contract.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(
+            requires=[
+                "Privacy_SDK>=99.111,<99.222.0",
+                'privacy-sdk[secure]<99.222,>=99.111.0; extra == "secure"',
+            ]
+        ),
+    )
+    assert set(
+        sdk_contract.declared_sdk_pins("arbitrary-provider-package", extras=("secure",))
+    ) == {"privacy-sdk"}
+
+
 def test_sdk_ranges_with_explicit_bounds_are_accepted(monkeypatch):
     monkeypatch.setattr(
         sdk_contract.metadata,
         "distribution",
         lambda name: SimpleNamespace(
-            requires=["privacy-sdk>=99.111.0,<99.222.0"],
+            requires=["privacy-sdk>=99.100.0,>=99.111.0,<99.222.0"],
         ),
     )
     pins = sdk_contract.declared_sdk_pins("arbitrary-provider-package")
     assert set(pins) == {"privacy-sdk"}
     assert pins["privacy-sdk"].version == "99.111.0"
-    assert pins["privacy-sdk"].specifier == "<99.222.0,>=99.111.0"
+    assert pins["privacy-sdk"].specifier == "<99.222.0,>=99.100.0,>=99.111.0"
 
 
 @pytest.mark.parametrize(
@@ -136,6 +171,7 @@ def test_sdk_ranges_with_explicit_bounds_are_accepted(monkeypatch):
         "privacy-sdk==99.*",
         "privacy-sdk!=99.111.0",
         "privacy-sdk",
+        "privacy-sdk @ https://example.invalid/privacy.whl",
     ],
 )
 def test_sdk_requirements_without_bounded_shape_stay_rejected(monkeypatch, requirement):
@@ -150,7 +186,19 @@ def test_sdk_requirements_without_bounded_shape_stay_rejected(monkeypatch, requi
         sdk_contract.declared_sdk_pins("arbitrary-provider-package")
 
 
-def test_installed_sdks_are_checked_against_declared_ranges(monkeypatch):
+@pytest.mark.parametrize(
+    ("installed", "accepted"),
+    [
+        ("99.110.0", False),
+        ("99.111.0", True),
+        ("99.111.5", True),
+        ("99.112.0rc1", False),
+        ("99.222.0", False),
+    ],
+)
+def test_installed_sdks_are_checked_against_declared_ranges(
+    monkeypatch, installed, accepted
+):
     monkeypatch.setattr(
         sdk_contract.metadata,
         "distribution",
@@ -158,12 +206,13 @@ def test_installed_sdks_are_checked_against_declared_ranges(monkeypatch):
             requires=["privacy-sdk>=99.111.0,<99.222.0"],
         ),
     )
-    monkeypatch.setattr(sdk_contract.metadata, "version", lambda name: "99.111.5")
-    sdk_contract.assert_installed_sdk_pins(
-        "arbitrary-provider-package", ["privacy-sdk"]
-    )
-    monkeypatch.setattr(sdk_contract.metadata, "version", lambda name: "99.222.0")
-    with pytest.raises(AssertionError, match="outside .* range"):
+    monkeypatch.setattr(sdk_contract.metadata, "version", lambda name: installed)
+    if accepted:
         sdk_contract.assert_installed_sdk_pins(
             "arbitrary-provider-package", ["privacy-sdk"]
         )
+    else:
+        with pytest.raises(AssertionError, match="outside .* range"):
+            sdk_contract.assert_installed_sdk_pins(
+                "arbitrary-provider-package", ["privacy-sdk"]
+            )
