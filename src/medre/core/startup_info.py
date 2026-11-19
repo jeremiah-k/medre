@@ -22,8 +22,10 @@ homeserver and user id).  The seam is deliberately narrow:
   decisions.  Values read back from the cache render with a ``cached``
   marker until a fresh emission replaces them.
 * **Shared presentation.** Providers supply ordered facts. Core renders
-  compact rows, labels cached facts, and filters credentials before
-  persisting or displaying any field.
+  compact labeled rows — deriving a label from the fact name when the
+  provider omits one, and marking suppressed rows with a ``… +N more``
+  line — and filters credentials before persisting or displaying any
+  field.
 
 The record shape is explicitly **not schema-frozen**: nothing under
 ``docs/schemas`` describes it, and the durable payload may change
@@ -92,13 +94,23 @@ The payload shape is not schema-frozen and may change between releases;
 readers must tolerate unknown keys and missing fields.
 """
 
-# Keep each adapter block compact even with oversized provider values.
-_MAX_ROWS = 2
+# Display bounds keep one adapter block compact so a worst-case
+# multi-adapter banner stays readable. They exist to prevent flooding,
+# not to ration honest detail: ten rows of eight packed facts (~80
+# facts) is several times what today's richest provider reports.
+# Garbage is bounded separately by the candidate-examination,
+# raw-value, and cache-size caps, which stay as-is.
+_MAX_ROWS = 10
 _MAX_VALUE_CHARS: int = 64
 _MAX_RAW_CHARS = 4096
 _MAX_FACTS_PER_ROW = 8
 _MAX_CANDIDATES_PER_ROW = 128
 _MAX_CACHE_BYTES = 64 * 1024
+
+# Hygiene clamp on the suppressed-row hint parsed from a cache, so a
+# tampered payload cannot render an absurd marker magnitude. Honest
+# counts (the provider's row total) pass unchanged.
+_MAX_EXTRA_ROWS = 1_000_000
 
 _TRUNCATION_SUFFIX = "…"
 
@@ -159,12 +171,18 @@ class StartupInfoField:
 
 @dataclass(frozen=True, slots=True)
 class AdapterStartupInfo:
-    """Redacted, display-only startup facts for one configured adapter."""
+    """Redacted, display-only startup facts for one configured adapter.
+
+    ``extra_rows`` counts provider rows beyond the display cap when the
+    provider used the grouped form; the renderer emits a ``… +N more``
+    line so row truncation is never invisible.
+    """
 
     adapter_id: str
     transport: str
     fields: tuple[StartupInfoField, ...]
     emitted_at: str
+    extra_rows: int = 0
 
     def with_cached_flags(self, cached: bool) -> AdapterStartupInfo:
         """Return a copy with every field's ``cached`` flag set."""
@@ -188,12 +206,15 @@ class AdapterStartupInfo:
             if include_cached:
                 entry["cached"] = field.cached
             fields.append(entry)
-        return {
+        result: dict[str, object] = {
             "adapter_id": self.adapter_id,
             "transport": self.transport,
             "emitted_at": self.emitted_at,
             "fields": fields,
         }
+        if self.extra_rows > 0:
+            result["extra_rows"] = self.extra_rows
+        return result
 
     @classmethod
     def from_cache_dict(cls, data: Mapping[str, Any]) -> AdapterStartupInfo | None:
@@ -223,6 +244,8 @@ class AdapterStartupInfo:
             return None
         fields: list[StartupInfoField] = []
         counts = [0] * _MAX_ROWS
+        # Candidate fields examined are bounded per displayed row; the
+        # 64 KiB cache read cap bounds the payload itself.
         for raw_field in islice(raw_fields, _MAX_CANDIDATES_PER_ROW * _MAX_ROWS):
             if not isinstance(raw_field, Mapping):
                 continue
@@ -241,11 +264,17 @@ class AdapterStartupInfo:
                 counts[row] += 1
         if not fields:
             return None
+        # The truncation hint is display metadata, not provider text: a
+        # tampered count degrades to no marker or a clamped magnitude.
+        extra_rows = data.get("extra_rows", 0)
+        if type(extra_rows) is not int or extra_rows < 0:
+            extra_rows = 0
         return cls(
             adapter_id=adapter_id,
             transport=transport,
             fields=tuple(fields),
             emitted_at=timestamp.isoformat(),
+            extra_rows=min(extra_rows, _MAX_EXTRA_ROWS),
         )
 
 
@@ -273,8 +302,28 @@ def startup_info_callable(provider: object) -> Callable[[], object] | None:
 # ---------------------------------------------------------------------------
 
 
+def _name_token_list(name: str) -> list[str]:
+    """Ordered human-readable tokens of a field name.
+
+    Word boundaries split at underscores, hyphens, dots, and camel-case
+    transitions; tokens are lowercased.
+    """
+    spaced = _CAMEL_BOUNDARY.sub("_", name).lower()
+    return [token for token in _NAME_TOKEN_SPLIT.split(spaced) if token]
+
+
 def _name_tokens(name: str) -> frozenset[str]:
-    return frozenset(_NAME_TOKEN_SPLIT.split(_CAMEL_BOUNDARY.sub("_", name).lower()))
+    return frozenset(_name_token_list(name))
+
+
+def _default_label(name: str) -> str:
+    """Derive the display label for an unlabeled fact from its name.
+
+    Every rendered fact becomes self-describing regardless of provider:
+    ``node_id`` renders ``node !096ea188``. The name already passed the
+    fact-name grammar, so the derived label is safe by construction.
+    """
+    return " ".join(_name_token_list(name))
 
 
 def _field_name_is_secret(name: str) -> bool:
@@ -401,20 +450,28 @@ def _row_sequence(value: object) -> TypeGuard[Sequence[object]]:
     )
 
 
-def _redacted_fields(raw: Mapping[str, object]) -> tuple[StartupInfoField, ...]:
-    """Read adapter-owned ordered rows, or accept a flat mapping of facts."""
+def _redacted_fields(
+    raw: Mapping[str, object],
+) -> tuple[tuple[StartupInfoField, ...], int]:
+    """Read adapter-owned ordered rows, or accept a flat mapping of facts.
+
+    Returns the accepted facts and the count of provider rows beyond the
+    display cap, so the renderer can mark truncation honestly. Labels
+    are provider-owned: unlabeled facts get their display label derived
+    from the fact name at render time.
+    """
     fields: list[StartupInfoField] = []
     rows = raw.get("rows")
     if not _row_sequence(rows):
         for name, value in islice(raw.items(), _MAX_CANDIDATES_PER_ROW):
-            label = name.replace("_", " ") if isinstance(name, str) else None
-            field = _startup_fact(name, value, label, row=0)
+            field = _startup_fact(name, value, None, row=0)
             if field is not None:
                 fields.append(field)
                 if len(fields) == _MAX_FACTS_PER_ROW:
                     break
-        return tuple(fields)
+        return tuple(fields), 0
 
+    extra_rows = max(len(rows) - _MAX_ROWS, 0)
     for index, row in enumerate(islice(rows, _MAX_ROWS)):
         if not _row_sequence(row):
             continue
@@ -430,7 +487,7 @@ def _redacted_fields(raw: Mapping[str, object]) -> tuple[StartupInfoField, ...]:
                 count += 1
                 if count == _MAX_FACTS_PER_ROW:
                     break
-    return tuple(fields)
+    return tuple(fields), extra_rows
 
 
 # ---------------------------------------------------------------------------
@@ -519,7 +576,7 @@ async def collect_startup_info(
             return None
         return raw
 
-    async def normalize() -> tuple[StartupInfoField, ...]:
+    async def normalize() -> tuple[tuple[StartupInfoField, ...], int]:
         nonlocal hook_task
         raw = await asyncio.to_thread(invoke)
         if retired.is_set():
@@ -527,16 +584,18 @@ async def collect_startup_info(
             # execute it after its supervisor has retired the emission.
             if inspect.iscoroutine(raw):
                 raw.close()
-            return ()
+            return (), 0
         if inspect.isawaitable(raw):
             hook_task = asyncio.ensure_future(raw)
             raw = await hook_task
         if retired.is_set() or not isinstance(raw, Mapping):
-            return ()
+            return (), 0
         return await asyncio.to_thread(_redacted_fields, raw)
 
     try:
-        fields = await _wait_optional(normalize(), timeout_seconds, retire=retire)
+        fields, extra_rows = await _wait_optional(
+            normalize(), timeout_seconds, retire=retire
+        )
     except TimeoutError:
         return None
     except Exception as exc:
@@ -550,7 +609,11 @@ async def collect_startup_info(
     if not fields:
         return None
     return AdapterStartupInfo(
-        adapter_id=adapter_id, transport=transport, fields=fields, emitted_at=emitted_at
+        adapter_id=adapter_id,
+        transport=transport,
+        fields=fields,
+        emitted_at=emitted_at,
+        extra_rows=extra_rows,
     )
 
 
@@ -659,19 +722,27 @@ def read_cache_file(
 
 
 def render_startup_info_block(heading: str, info: AdapterStartupInfo | None) -> str:
-    """Render the same compact block for live startup and adapter listings."""
+    """Render the same compact block for live startup and adapter listings.
+
+    Every fact renders in the ``label value`` grammar: the provider's
+    explicit label wins, and unlabeled facts get a label derived from
+    their field name so no fact appears unidentified. A provider that
+    supplied more rows than displayed ends the block with one honest
+    ``… +N more`` marker line.
+    """
     if info is None:
         return heading
     rows: list[list[str]] = [[] for _ in range(_MAX_ROWS)]
     cached = True
     for fact in _validated_fields(info.fields):
-        rows[fact.row].append(
-            f"{fact.label} {fact.value}" if fact.label else fact.value
-        )
+        label = fact.label if fact.label is not None else _default_label(fact.name)
+        rows[fact.row].append(f"{label} {fact.value}")
         cached = cached and fact.cached
     lines = ["  " + " · ".join(row) for row in rows if row]
     if not lines:
         return heading
+    if info.extra_rows > 0:
+        lines.append(f"  {_TRUNCATION_SUFFIX} +{info.extra_rows} more")
     if cached:
         heading += " (cached)"
     return "\n".join([heading, *lines])
