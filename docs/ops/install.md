@@ -71,7 +71,10 @@ and environment detection.
 At startup, adapters that supply startup facts display their account or node
 identity and any useful hardware details under the current lifecycle state.
 `medre adapters` shows the last-known facts with a `(cached)` marker. Its
-`--json` output includes the structured record.
+`--json` output includes the structured record; use
+`medre adapters --config PATH --json` to inspect a selected configuration.
+Cached facts describe the last successful observation for that adapter state
+location, not a current connection or readiness check.
 See [adapter startup info](../spec/adapter-startup-info.md).
 
 Git branches are convenient for trials; use reviewed commit SHAs or exact
