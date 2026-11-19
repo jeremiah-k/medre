@@ -127,7 +127,7 @@ def test_tampered_extra_rows_hint_degrades(tmp_path: Path) -> None:
     assert cached is not None
     # Hygiene clamp: the marker stays one bounded, readable line.
     assert cached.extra_rows == 1_000_000
-    assert "+1000000 more" in render_startup_info_block("t", cached)
+    assert "1000000 or more additional rows" in render_startup_info_block("t", cached)
     planted("many")
     cached = read_cache_file(path)
     assert cached is not None
@@ -155,3 +155,31 @@ async def test_oversized_raw_values_still_drop() -> None:
     assert info is not None
     assert [f.name for f in info.fields] == ["board"]
     assert await _collect_values({"blob": "a" * 5000}) is None
+
+
+async def test_full_unicode_fact_inventory_roundtrips(tmp_path: Path) -> None:
+    info = await _collect_values(
+        {
+            "rows": [
+                [
+                    {"name": f"fact_{r}_{i}", "label": "𐐀" * 64, "value": "𐐁" * 64}
+                    for i in range(8)
+                ]
+                for r in range(10)
+            ]
+        }
+    )
+    assert info is not None and len(info.fields) == 80
+    path = tmp_path / CACHE_FILENAME
+    write_cache_file(path, info)
+    assert path.stat().st_size <= 65536
+    assert read_cache_file(path) == info.with_cached_flags(True)
+
+
+async def test_derived_label_is_bounded() -> None:
+    info = await _collect_values(
+        {"boardModelVersion_boardModelVersion_boardModelVersion_boardModel": "x"}
+    )
+    assert info is not None
+    line = render_startup_info_block("t", info).splitlines()[1].strip()
+    assert line.endswith("… x") and len(line[:-2]) == 64
