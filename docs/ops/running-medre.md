@@ -34,10 +34,10 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 ```console
 2026-10-18T20:00:00-0500 [INFO] medre: MEDRE starting (bridge) with 2 adapter(s): matrix, radio
-2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre <installed-version> (index)
+2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre <installed-version> (pypi)
 2026-10-18T20:00:00-0500 [INFO] medre:   Python:  <python-version> (Linux x86_64)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix <installed-version> (git <commit>)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic <installed-version> (git <commit>)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix <installed-version> (github:jeremiah-k/medre-adapter-matrix@<commit>)
+2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic <installed-version> (github:jeremiah-k/medre-adapter-meshtastic@<commit>)
 2026-10-18T20:00:00-0500 [INFO] medre.runtime.route_engine: Registered 2 expanded route(s)
 2026-10-18T20:00:00-0500 [INFO] medre:   Routes: 1 enabled, 0 disabled (1 configured)
 2026-10-18T20:00:01-0500 [INFO] medre:   started matrix.matrix (312ms)
@@ -47,12 +47,14 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 This abbreviated text example omits config/state path lines and component logs.
 The `Core`, `Python` and `Adapter` lines report the running installation:
-provider entries show installed versions and recorded source metadata — an
-abbreviated Git commit, `index` when no direct URL is recorded, or an editable
-local path or direct URL. Community distributions appear with their normalized
+provider entries show installed versions and a compact provenance label —
+`github:owner/repo@<commit>` (or `git:host/path@<commit>` for other hosts,
+`hg:`/`svn:` revisions), `pypi` when no direct URL is recorded, `editable:`/
+`local:` for local directories, or `url:` for a direct source location.
+Community distributions appear with their normalized
 package name in brackets. This is an inventory, not a list of enabled adapters
 or proof of installed bytes or qualification. Unreadable metadata yields `?`,
-`unknown source`, or an incomplete-inventory notice without stopping startup.
+`unknown`, or an incomplete-inventory notice without stopping startup.
 URL userinfo, queries and fragments are redacted, but paths and hostnames may
 be private; review logs before sharing. See the
 [package-management spec](../spec/package-management.md#startup-installation-summary).

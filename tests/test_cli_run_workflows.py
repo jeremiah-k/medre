@@ -631,8 +631,8 @@ async def test_startup_installation_summary_survives_core_metadata_failure(
         trigger = asyncio.create_task(_trigger_shutdown_after_startup(run_mod, stdout))
         await asyncio.gather(task, trigger)
     output = stdout.getvalue()
-    assert "Core:    medre ? (unknown source)" in output
+    assert "Core:    medre ? (unknown)" in output
     assert "Python:  " in output
-    assert "Adapter: matrix 0.1.0 (index)" in output
+    assert "Adapter: matrix 0.1.0 (pypi)" in output
     assert "Runtime ready (" in output or "Runtime running (" in output
     assert output.index("State:") < output.index("Core:") < output.index("Python:")
