@@ -94,7 +94,7 @@ _PREFIX_SUFFIX = "…"
 
 # Field-name tokens that mark pairing material in addition to the
 # canonical sanitization token set.
-_PAIRING_TOKENS: frozenset[str] = frozenset({"pairing"})
+_PAIRING_TOKENS: frozenset[str] = frozenset({"pairing", "psk"})
 
 # Name tokens that explicitly mark a *public* key.  Such names are the
 # one sanctioned exception to the secret-name omission rule: the design
