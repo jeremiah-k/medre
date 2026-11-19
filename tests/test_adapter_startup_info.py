@@ -944,7 +944,7 @@ async def test_hook_that_suppresses_cancellation_does_not_hold_supervisor():
         except asyncio.CancelledError:
             cancelled.set()
             await release.wait()
-            raise RuntimeError("late exception must be retrieved")
+            raise RuntimeError("late exception must be retrieved") from None
         finally:
             retired.set()
 
