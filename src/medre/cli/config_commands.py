@@ -316,9 +316,7 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
                 if row.distribution == standard_distribution(row.transport)
                 else f" [{row.distribution}]"
             )
-            print(
-                f"  {row.transport:14s} {row.version}  {row.source}{suffix}"
-            )
+            print(f"  {row.transport:14s} {row.version}  {row.source}{suffix}")
         if inventory_incomplete:
             print("  Adapter inventory incomplete (metadata unavailable)")
 
