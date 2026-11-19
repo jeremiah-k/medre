@@ -76,6 +76,10 @@ or durable surface, regardless of what the adapter returned:
   material — **MUST NOT** be rendered at all. Public-key names
   (`public_key`, `pubkey`) are the sanctioned exception: they are
   retained and fall under the prefix rule below.
+- Device identifiers (`device_id`) are operator-visible platform facts
+  on the same class as board names and firmware versions; they **MUST**
+  render in full. The shared error-sanitization anchor that treats
+  `device_id` as key material does not apply to startup facts.
 - Credential-bearing URLs **MUST** be omitted outright; values carrying
   terminal control characters **MUST** be dropped.
 - Public keys, key material, and address-like values (node addresses,

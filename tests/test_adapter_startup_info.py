@@ -239,6 +239,20 @@ class TestRenderBoundaryRedaction:
         assert values["mac"].endswith("…")
         assert ":" not in values["mac"][12:]
 
+    async def test_device_identifiers_render_in_full(self) -> None:
+        class Provider:
+            async def startup_info(self) -> dict[str, object]:
+                return {
+                    "device_id": "!a4b3c2d1e5f6a7b8",
+                    "deviceId": 2460232048,
+                }
+
+        info = await collect_startup_info("a", "t", Provider(), emitted_at="now")
+        assert info is not None
+        values = {field.name: field.value for field in info.fields}
+        assert values["device_id"] == "!a4b3c2d1e5f6a7b8"
+        assert values["deviceId"] == "2460232048"
+
     async def test_credential_bearing_url_is_dropped(self) -> None:
         class Provider:
             async def startup_info(self) -> dict[str, str]:
