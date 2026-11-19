@@ -1,5 +1,6 @@
 """Requested sources and resolved provenance remain distinct and uv-owned."""
 
+import importlib.metadata
 import json
 from types import SimpleNamespace
 
@@ -437,6 +438,7 @@ def test_inventory_includes_uncataloged_provider_without_receipt(catalog, monkey
     )
     assert row["configured"] == [] and row["requested"] is None
     assert row["installed_version"] == "2.0"
+    assert row["source_label"] == "pypi"
 
 
 @pytest.mark.parametrize("separator", [" ; ", " ;", "  ;  "])
@@ -603,7 +605,58 @@ def test_blank_direct_source_metadata_is_not_an_index_installation(
     report = ps.source_inventory(catalog)
     core = next(row for row in report["packages"] if row["package"] == "medre")
     assert core["source"] is None
+    assert core["source_label"] is None
     assert core["provenance_error"] == "Installed source metadata is unreadable."
+
+
+def test_show_renders_installed_sources_with_shared_labels(
+    installation, tmp_path, monkeypatch, capsys
+):
+    direct = {
+        "url": "https://github.com/jeremiah-k/medre-adapter-matrix.git",
+        "vcs_info": {
+            "vcs": "git",
+            "commit_id": "d2619ed8efa621984591d2a50466e4c32a952de6",
+        },
+    }
+    dist = SimpleNamespace(
+        version="0.1.1",
+        read_text=lambda name: json.dumps(direct)
+        if name == "direct_url.json"
+        else None,
+    )
+    monkeypatch.setattr(ps.importlib.metadata, "distribution", lambda name: dist)
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    catalog_path = tmp_path / "sources.yaml"
+    catalog_path.write_text("core: medre\nadapters: {}\n")
+    main(["sources", "show", "--sources", str(catalog_path)])
+    out = capsys.readouterr().out
+    assert (
+        "installed source: github:jeremiah-k/medre-adapter-matrix@d2619ed8" in out
+    )
+    assert '"kind"' not in out and '"commit"' not in out
+
+    main(["sources", "show", "--sources", str(catalog_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    row = payload["packages"][0]
+    assert row["source_label"] == "github:jeremiah-k/medre-adapter-matrix@d2619ed8"
+    assert row["source"]["kind"] == "git"
+
+
+def test_show_hides_installed_source_line_for_uninstalled_packages(
+    installation, tmp_path, monkeypatch, capsys
+):
+    def missing(name: str) -> object:
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(ps.importlib.metadata, "distribution", missing)
+    monkeypatch.setattr(tm.ToolInstallation, "inspect", lambda: installation)
+    catalog_path = tmp_path / "sources.yaml"
+    catalog_path.write_text("core: medre\nadapters: {}\n")
+    main(["sources", "show", "--sources", str(catalog_path)])
+    out = capsys.readouterr().out
+    assert "installed source:" not in out
+    assert "not installed" in out
 
 
 @pytest.mark.parametrize("mode", ["dry-run", "linux", "win32"])
