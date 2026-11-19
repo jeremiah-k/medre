@@ -268,7 +268,8 @@ def _config_check(config_path: str | None) -> None:
 
 
 def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
-    """List available adapter types, SDK availability, and configured adapters."""
+    """List adapter types, installed package identities, SDK availability,
+    and configured adapters."""
     from medre.config.errors import (
         ConfigFileError,
         ConfigNotFoundError,
@@ -295,6 +296,31 @@ def _adapters(*, cli_failures: tuple[CliContributionFailure, ...] = ()) -> None:
         status = "installed" if installed else "not installed"
         label = dist_name or "external"
         print(f"  {transport:14s} SDK ({label}): {status}")
+
+    # Installed adapter package identities (same rows as the startup banner)
+    from medre.runtime.installation_summary import (
+        provider_identities,
+        standard_distribution,
+    )
+
+    try:
+        installed_rows, inventory_incomplete = provider_identities()
+    except Exception:
+        installed_rows, inventory_incomplete = [], True
+    if installed_rows or inventory_incomplete:
+        print()
+        print("Installed adapters:")
+        for row in installed_rows:
+            suffix = (
+                ""
+                if row.distribution == standard_distribution(row.transport)
+                else f" [{row.distribution}]"
+            )
+            print(
+                f"  {row.transport:14s} {row.version}  {row.source}{suffix}"
+            )
+        if inventory_incomplete:
+            print("  Adapter inventory incomplete (metadata unavailable)")
 
     # Configured adapters from config
     print()

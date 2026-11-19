@@ -594,3 +594,73 @@ def test_adapters_reports_missing_config_separately(
     monkeypatch.setattr(loader, "load_config", missing_config)
     commands._adapters()
     assert "No config found" in capsys.readouterr().out
+
+
+def test_adapters_lists_installed_identities_with_sources(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Installed provider rows mirror the startup banner's identities."""
+    import medre.cli.config_commands as commands
+    from medre.runtime.installation_summary import ProviderIdentity
+
+    rows = [
+        ProviderIdentity(
+            transport="matrix",
+            distribution="medre-adapter-matrix",
+            version="0.1.1",
+            source="github:jeremiah-k/medre-adapter-matrix@d2619ed8",
+        ),
+        ProviderIdentity(
+            transport="radio",
+            distribution="community-radio",
+            version="1.2.3",
+            source="pypi",
+        ),
+    ]
+
+    def identities() -> tuple[list[ProviderIdentity], bool]:
+        return rows, False
+
+    monkeypatch.setattr(
+        "medre.runtime.installation_summary.provider_identities", identities
+    )
+    commands._adapters()
+    out = capsys.readouterr().out
+    assert "Installed adapters:" in out
+    assert (
+        f"  {'matrix':14s} 0.1.1  github:jeremiah-k/medre-adapter-matrix@d2619ed8"
+        in out
+    )
+    assert f"  {'radio':14s} 1.2.3  pypi [community-radio]" in out
+
+
+def test_adapters_reports_incomplete_installed_inventory(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import medre.cli.config_commands as commands
+
+    def identities() -> tuple[list[object], bool]:
+        return [], True
+
+    monkeypatch.setattr(
+        "medre.runtime.installation_summary.provider_identities", identities
+    )
+    commands._adapters()
+    out = capsys.readouterr().out
+    assert "Installed adapters:" in out
+    assert "Adapter inventory incomplete (metadata unavailable)" in out
+
+
+def test_adapters_omits_installed_section_without_installations(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import medre.cli.config_commands as commands
+
+    def identities() -> tuple[list[object], bool]:
+        return [], False
+
+    monkeypatch.setattr(
+        "medre.runtime.installation_summary.provider_identities", identities
+    )
+    commands._adapters()
+    assert "Installed adapters:" not in capsys.readouterr().out

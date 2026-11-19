@@ -1354,7 +1354,8 @@ medre version
     Print the MEDRE version.
 
 medre adapters
-    List available adapter kinds and SDK dependency status.
+    List available adapter kinds and SDK dependency status, plus installed
+    adapter packages with versions and source labels when any are installed.
 
 medre init [--sources PATH]
     Create an adapter source catalog; preserve an existing valid catalog.
