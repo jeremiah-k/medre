@@ -184,6 +184,15 @@ class AdapterStartupInfo:
     emitted_at: str
     extra_rows: int = 0
 
+    def __post_init__(self) -> None:
+        # Keep direct construction, live collection, and cache reload consistent.
+        extra = self.extra_rows
+        object.__setattr__(
+            self,
+            "extra_rows",
+            min(extra, _MAX_EXTRA_ROWS) if type(extra) is int and extra >= 0 else 0,
+        )
+
     def with_cached_flags(self, cached: bool) -> AdapterStartupInfo:
         """Return a copy with every field's ``cached`` flag set."""
         if all(field.cached == cached for field in self.fields):
@@ -320,10 +329,13 @@ def _default_label(name: str) -> str:
     """Derive the display label for an unlabeled fact from its name.
 
     Every rendered fact becomes self-describing regardless of provider:
-    ``node_id`` renders ``node !096ea188``. The name already passed the
+    ``node_id`` renders ``node id !096ea188``. The name already passed the
     fact-name grammar, so the derived label is safe by construction.
     """
-    return " ".join(_name_token_list(name))
+    label = " ".join(_name_token_list(name))
+    if len(label) > _MAX_VALUE_CHARS:
+        return label[: _MAX_VALUE_CHARS - len(_TRUNCATION_SUFFIX)] + _TRUNCATION_SUFFIX
+    return label
 
 
 def _field_name_is_secret(name: str) -> bool:
@@ -661,7 +673,17 @@ def write_cache_file(
     try:
         if expired():
             raise TimeoutError("startup-info cache write expired")
-        encoded = json.dumps(info.to_dict(), sort_keys=True, indent=2) + "\n"
+        encoded = (
+            json.dumps(
+                info.to_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        if len(encoded.encode("utf-8")) > _MAX_CACHE_BYTES:
+            raise ValueError("startup-info cache exceeds read limit")
         path.parent.mkdir(parents=True, exist_ok=True)
         if expired():
             raise TimeoutError("startup-info cache write expired")
@@ -742,7 +764,16 @@ def render_startup_info_block(heading: str, info: AdapterStartupInfo | None) -> 
     if not lines:
         return heading
     if info.extra_rows > 0:
-        lines.append(f"  {_TRUNCATION_SUFFIX} +{info.extra_rows} more")
+        count = (
+            str(info.extra_rows)
+            if info.extra_rows < _MAX_EXTRA_ROWS
+            else f"{_MAX_EXTRA_ROWS} or more"
+        )
+        lines.append(
+            f"  {_TRUNCATION_SUFFIX} +{count} more"
+            if info.extra_rows < _MAX_EXTRA_ROWS
+            else f"  {_TRUNCATION_SUFFIX} {count} additional rows"
+        )
     if cached:
         heading += " (cached)"
     return "\n".join([heading, *lines])

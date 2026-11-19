@@ -100,11 +100,15 @@ never to truncate an honest record silently. Core displays at most ten rows
 bounds density, and ten packed rows keep a worst-case seven-adapter banner
 readable) and packs at most eight accepted facts per row (line packing:
 providers spread more facts across rows instead of overloading one line).
-Truncation beyond these bounds is visible through the `… +N more` marker. The
+Omitted source rows beyond the first ten are counted by the `… +N more`
+marker, including rows whose facts were not examined. The count saturates at
+one million (displayed as a lower bound) consistently in live and cached
+records. Per-row fact limits do not count as omitted rows. The
 malformed-input defenses are unchanged: at most 128 candidate facts are
 examined per row, displayed values are capped at 64 characters including the
 truncation marker, raw inputs longer than 4096 characters are dropped, and
-cache reads inspect at most 64 KiB per file (bounding a tampered cache to at
+cache reads inspect at most 64 KiB per file; writers use compact UTF-8 JSON
+and reject records exceeding that same limit (bounding a tampered cache to at
 most the 1280 candidate fields parsed from one record). These caps bound
 garbage, not honest records.
 
