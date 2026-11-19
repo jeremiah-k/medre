@@ -2,7 +2,7 @@
   {
     "transport": "matrix",
     "repository": "jeremiah-k/medre-adapter-matrix",
-    "ref": "29c4557841d7965ddf00f7963c3b2bd57ec5626a",
+    "ref": "d2619ed8efa621984591d2a50466e4c32a952de6",
     "extras": "e2e",
     "local_integration": false,
     "distribution": "medre-adapter-matrix",
@@ -43,7 +43,7 @@
   {
     "transport": "chatmail",
     "repository": "jeremiah-k/medre-adapter-chatmail",
-    "ref": "b8cfe6720ae1f8baacd17a3043ff68ae4d5385cc",
+    "ref": "903317f74f23d0fb564d3e7671c4e5ad14ccb6de",
     "extras": "",
     "local_integration": false,
     "distribution": "medre-adapter-chatmail"
