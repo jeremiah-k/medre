@@ -37,7 +37,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Mapping
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import (
     Any,
     Callable,
@@ -53,6 +53,10 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.contracts.delivery import AdapterHandoffResult
+from medre.core.engine.pipeline.adapter_health import (
+    DEFERRAL_NEXT_ATTEMPT_PUSH_SECONDS,
+    AdapterHealthGate,
+)
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.radio_delivery import deliver_radio_plan
@@ -235,6 +239,25 @@ class _AdapterDeliveryError(Exception):
         return self.evidence.failure_kind
 
 
+class _DeliveryDeferred(Exception):
+    """Raised when health-aware admission holds a delivery before any attempt.
+
+    A deferral is not a failure: no ``deliver()`` invocation was made, no
+    attempt receipt exists, and no attempt was consumed. The durable outbox
+    row (when present) has already been pushed to ``retry_wait`` with a
+    bounded ``next_attempt_at`` by the admission path, so downstream
+    finalization must be a no-op for this outcome.
+    """
+
+    def __init__(self, adapter_id: str, health: str) -> None:
+        self.adapter_id = adapter_id
+        self.health = health
+        super().__init__(
+            f"Deferred: adapter={adapter_id} health={health}; "
+            "obligation held for redispatch on recovery"
+        )
+
+
 class _DispatchStartDeadlineRefused(Exception):
     """The final dispatch-start fence observed the effective bound elapsed.
 
@@ -396,6 +419,7 @@ class TargetDeliveryService:
         lifecycle: DeliveryLifecycleService,
         logger: logging.Logger,
         native_ref_persisted_fn: Callable[[str], Awaitable[None]] | None = None,
+        adapter_health_gate: AdapterHealthGate | None = None,
     ) -> None:
         self._adapters = adapters
         self._rendering_pipeline = rendering_pipeline
@@ -404,6 +428,19 @@ class TargetDeliveryService:
         self._lifecycle = lifecycle
         self._log = logger
         self._native_ref_persisted_fn = native_ref_persisted_fn
+        self._adapter_health_gate = adapter_health_gate
+
+    def set_adapter_health_gate(
+        self, adapter_health_gate: AdapterHealthGate | None
+    ) -> None:
+        """Attach the runtime's shared health admission gate after construction.
+
+        The runtime builds the pipeline before adapters exist, so the health
+        gate is injected at the post-adapter startup boundary, mirroring the
+        retry worker's availability allow-list activation. The gate carries
+        the runtime's health lookup plus the shared deferral-horizon state.
+        """
+        self._adapter_health_gate = adapter_health_gate
 
     # -- Public API ---------------------------------------------------------
 
@@ -588,6 +625,55 @@ class TargetDeliveryService:
                 _missing_error,
                 evidence=evidence,
             ) from None
+
+        # Health-aware admission: never hand native work to a target whose
+        # current health the runtime already knows is not healthy. A degraded
+        # adapter (for example a link in reconnect backoff) would turn every
+        # dispatch into an expected transient failure. Instead the delivery
+        # is held: deliver() is not invoked, no attempt is consumed, and the
+        # durable obligation's next attempt is pushed out by a bounded
+        # horizon. The runtime notifies the retry worker on the degraded ->
+        # healthy transition, which redispatches held obligations. When no
+        # health observation exists the delivery proceeds unchanged.
+        _blocking_health = (
+            self._adapter_health_gate.blocking_health(adapter_id or "")
+            if self._adapter_health_gate is not None
+            else None
+        )
+        if _blocking_health is not None:
+            _health = _blocking_health
+            self._log.info(
+                "Deferred: adapter=%s health=%s; obligation held for redispatch "
+                "on recovery: event_id=%s",
+                adapter_id,
+                _health,
+                event.event_id,
+            )
+            self._diagnostician.record_deferral(
+                event.event_id,
+                adapter_id or "",
+                f"adapter health={_health}; obligation held for redispatch "
+                "on recovery",
+            )
+            if outbox_id is not None:
+                _deferred_until = datetime.now(tz=timezone.utc) + timedelta(
+                    seconds=DEFERRAL_NEXT_ATTEMPT_PUSH_SECONDS
+                )
+                # Push the obligation's next attempt without consuming one:
+                # attempts stay unchanged, only next_attempt_at moves. A
+                # rejected push is harmless — the row's lease expires and the
+                # next claim re-runs this admission gate.
+                await self._storage.mark_outbox_retry_wait(
+                    outbox_id,
+                    next_attempt_at=_deferred_until.isoformat(),
+                    failure_kind=None,
+                    error_summary=(
+                        f"health_deferral: adapter={adapter_id} " f"health={_health}"
+                    ),
+                    attempt_number=reserved_attempt_number,
+                    expected_worker_id=expected_outbox_worker_id,
+                )
+            raise _DeliveryDeferred(adapter_id or "", _health) from None
 
         # Check delivery plan deadline.
         now = datetime.now(tz=timezone.utc)
@@ -1123,12 +1209,29 @@ class TargetDeliveryService:
             status = "failed"
             error = f"{type(exc).__name__}: {exc}"
             delivery_exc = exc
-            self._log.exception(
-                "Delivery failed: event_id=%s -> adapter=%s attempt=%d",
-                event.event_id,
-                adapter_id,
-                attempt_number,
-            )
+            # Logging discipline: a typed transient adapter failure (for
+            # example a degraded link's "session is not connected") is an
+            # expected outcome whose retry is already scheduled by the
+            # lifecycle authority. It carries exactly one WARN line with the
+            # exception message and ids — never a chained traceback. Traceback
+            # logging stays reserved for non-transient and unexpected
+            # exceptions, which are real bugs needing the full stack.
+            if isinstance(exc, AdapterSendError) and exc.transient:
+                self._log.warning(
+                    "Transient delivery failure: event_id=%s -> adapter=%s "
+                    "attempt=%d error=%s",
+                    event.event_id,
+                    adapter_id,
+                    attempt_number,
+                    error,
+                )
+            else:
+                self._log.exception(
+                    "Delivery failed: event_id=%s -> adapter=%s attempt=%d",
+                    event.event_id,
+                    adapter_id,
+                    attempt_number,
+                )
 
         # Normalize the execution result into immutable evidence. Failures
         # persist an attempt receipt and, when terminal, a linked lifecycle

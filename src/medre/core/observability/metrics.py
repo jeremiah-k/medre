@@ -126,6 +126,7 @@ class Diagnostician:
     replay_skips: Counter[str] = field(default_factory=Counter)
     replay_downgrades: Counter[str] = field(default_factory=Counter)
     correlation_misses: Counter[str] = field(default_factory=Counter)
+    deferrals: Counter[str] = field(default_factory=Counter)
 
     # -- Recording methods --------------------------------------------------
 
@@ -186,6 +187,26 @@ class Diagnostician:
         """
         self.adapter_failures[adapter] += 1
         diagnostic_event(event_id, "adapter_failure", error, adapter=adapter)
+
+    def record_deferral(self, event_id: str, adapter: str, reason: str) -> None:
+        """Record a delivery deferral ahead of a known-unhealthy adapter.
+
+        A deferral is not a failure: no ``deliver()`` invocation was made and
+        no attempt was consumed. It is counted separately from
+        :meth:`record_adapter_failure` so expected hold-for-recovery
+        obligations never surface as adapter failures.
+
+        Parameters
+        ----------
+        event_id:
+            The canonical event ID whose delivery was deferred.
+        adapter:
+            The target adapter whose health blocked the delivery.
+        reason:
+            Human-readable deferral reason (health state and fate).
+        """
+        self.deferrals[adapter] += 1
+        diagnostic_event(event_id, "delivery_deferred", reason, adapter=adapter)
 
     def record_replay_skip(self, event_id: str, reason: str) -> None:
         """Record a replay event that was skipped.
@@ -256,6 +277,7 @@ class Diagnostician:
             "replay_skips": dict(self.replay_skips),
             "replay_downgrades": dict(self.replay_downgrades),
             "correlation_misses": dict(self.correlation_misses),
+            "deferrals": dict(self.deferrals),
         }
 
 

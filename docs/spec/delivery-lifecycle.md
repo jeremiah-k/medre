@@ -382,6 +382,58 @@ MUST NOT recreate lifecycle interpretation outside the lifecycle layer.
 
 ---
 
+### 3.8 Health-Aware Delivery Admission
+
+The runtime retains per-adapter current-health observations (native health
+reports and manual refreshes). Health is operational evidence, not lifecycle
+authority: it gates whether a new native submission may start, and MUST NOT
+rewrite, classify, or retract any existing attempt evidence.
+
+1. Before invoking a target adapter's `deliver()`, the delivery pipeline MUST
+   consult the runtime's current health observation for that target. When the
+   target is observed as not healthy (`degraded`, `failed`, `unknown`,
+   `starting`, or `stopping`), the pipeline MUST NOT invoke `deliver()`.
+   Deliveries into an adapter the runtime already knows is unhealthy are
+   expected transient failures and MUST be prevented, not attempted and
+   failed.
+
+2. A held delivery is a _deferral_, not a failure. A deferral MUST log exactly
+   one INFO line naming the adapter, its health, and the event; MUST record a
+   diagnostic under the `delivery_deferred` category, which is distinct from
+   `adapter_failure` because no failure occurred; and MUST NOT append any
+   attempt receipt, consume an attempt, or produce failure evidence.
+
+3. A deferral of durable work MUST express itself only through existing
+   outbox fields: the row's `next_attempt_at` is pushed forward by a bounded
+   horizon while `attempt_number` and the attempt count remain unchanged. No
+   new outbox status, receipt status, or terminal state is authorized for
+   deferral. A missing health observation (`None`) MUST NOT block delivery:
+   adapters that never report health keep unblocked delivery, and adapters
+   that never completed startup remain governed by the retry worker's
+   availability gate.
+
+4. While a target adapter's health is not healthy, the retry worker MUST skip
+   that adapter's due obligations without claiming them and without burning
+   attempts; they are not due for transport. The runtime MUST notify the
+   retry worker on a degraded-to-healthy transition, and the worker MUST then
+   redispatch that adapter's held obligations (bounded by their pushed
+   `next_attempt_at`). Restart during deferral preserves the obligation:
+   deferred work is durable outbox state, not in-memory state.
+
+5. Safety net: an adapter that never recovers MUST NOT strand obligations
+   silently. A maximum deferral horizon bounds how long one adapter may hold
+   obligations in deferral; after it expires, the worker MUST resume normal
+   claim/retry/retention rules for that adapter's obligations so attempt
+   burn, backoff, and dead-letter progression apply again. The horizon is an
+   operational bound and MUST NOT be treated as lifecycle authority.
+
+6. Typed transient adapter send failures (`AdapterSendError` with
+   `transient=True` or an equivalent typed transient signal) are expected
+   outcomes whose retry is already scheduled by the lifecycle authority.
+   They MUST log exactly one WARN line carrying the exception message and
+   event/adapter ids, and MUST NOT log a traceback. Traceback-level logging
+   remains reserved for non-transient and unexpected exceptions.
+
 ## 4. Evidence Boundary
 
 ### 4.1 Receipts Are Append-Only Evidence
@@ -610,6 +662,18 @@ MUST NOT be presented as proof of delivery. See
 10. Convergence diagnostics and lifecycle convergence findings MUST NOT repair,
     mutate, or block startup. They are detection-only systems. See
     [diagnostics-evidence.md](diagnostics-evidence.md) §21.5 and §23.3.
+
+11. Deliveries to a target adapter whose current runtime health observation
+    is not healthy MUST be deferred (§3.8), not attempted and failed.
+
+12. Typed transient send failures MUST NOT log tracebacks (§3.8 rule 6); they
+    carry exactly one WARN line. Non-transient and unexpected exceptions keep
+    traceback logging as the regression guard.
+
+13. Health-deferred obligations MUST redispatch on adapter recovery and MUST
+    NOT exhaust attempts while deferred (§3.8 rules 4-5). Deferral MUST be
+    expressed through existing outbox fields plus the `delivery_deferred`
+    diagnostic category; no new persisted status is authorized.
 
 ---
 

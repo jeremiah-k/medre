@@ -30,6 +30,7 @@ import msgspec
 from medre.core.contracts.adapter import AdapterCapabilities, AdapterContract
 from medre.core.contracts.delivery import DeliveryFeedback
 from medre.core.engine.phases import PipelinePhase
+from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.engine.pipeline.delivery_coordinator import (
     DeliveryCoordinator,
     InflightDelivery,
@@ -174,6 +175,7 @@ class PipelineConfig:
     route_retry_policies: dict[str, RetryPolicy] = field(default_factory=dict)
     project_sender_metadata_fn: SenderProjectionFn | None = None
     content_ceiling: ContentCeilingPolicy | None = None
+    adapter_health_gate: AdapterHealthGate | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +305,7 @@ class PipelineRunner:
             lifecycle=self._lifecycle,
             logger=self._log,
             native_ref_persisted_fn=self._repair_conversation_after_native_ref,
+            adapter_health_gate=config.adapter_health_gate,
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
@@ -453,6 +456,17 @@ class PipelineRunner:
             self._log.debug(
                 "Populated rendering pipeline platform registry: %s", platforms
             )
+
+    def set_adapter_health_gate(
+        self, adapter_health_gate: AdapterHealthGate | None
+    ) -> None:
+        """Attach the runtime's shared health admission gate for delivery.
+
+        Wired at the post-adapter startup boundary, after the runtime holds
+        health observations; see
+        :class:`~medre.core.engine.pipeline.adapter_health.AdapterHealthGate`.
+        """
+        self._target_delivery.set_adapter_health_gate(adapter_health_gate)
 
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
