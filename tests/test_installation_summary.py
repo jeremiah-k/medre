@@ -88,10 +88,27 @@ def test_banner_reports_core_python_and_provider_provenance(
     monkeypatch.setattr(installation_summary.platform, "machine", lambda: "x86_64")
     lines = installation_summary.installation_lines()
     assert lines == [
-        "  Core:    medre 0.1.1 (index)",
+        "  Core:    medre 0.1.1 (pypi)",
         "  Python:  3.14.8 (Linux x86_64)",
-        "  Adapter: matrix 0.1.0 (git c987da62)",
-        "  Adapter: meshtastic 0.1.1 (index)",
+        "  Adapter: matrix 0.1.0 (github:jeremiah-k/medre-adapter-matrix@c987da62)",
+        "  Adapter: meshtastic 0.1.1 (pypi)",
+    ]
+
+
+def test_provider_identities_share_the_banner_rows(monkeypatch: pytest.MonkeyPatch):
+    _install_environment(
+        monkeypatch,
+        [_entry(GIT_MATRIX, "matrix"), _entry(INDEX_MESHTASTIC, "meshtastic")],
+    )
+    rows, incomplete = installation_summary.provider_identities()
+    assert not incomplete
+    assert [(row.transport, row.version, row.source) for row in rows] == [
+        ("matrix", "0.1.0", "github:jeremiah-k/medre-adapter-matrix@c987da62"),
+        ("meshtastic", "0.1.1", "pypi"),
+    ]
+    banner = installation_summary.installation_lines()
+    assert banner[2:] == [
+        f"  Adapter: {row.transport} {row.version} ({row.source})" for row in rows
     ]
 
 
@@ -99,8 +116,25 @@ def test_community_distribution_names_are_surfaced(monkeypatch: pytest.MonkeyPat
     _install_environment(
         monkeypatch, [_entry(_FakeDist("community-radio", "1.2.3"), "radio")]
     )
-    lines = installation_summary.installation_lines()
-    assert "  Adapter: radio 1.2.3 (index) [community-radio]" in lines
+    rows, _incomplete = installation_summary.provider_identities()
+    assert rows[0].distribution != installation_summary.standard_distribution("radio")
+    assert (
+        "  Adapter: radio 1.2.3 (pypi) [community-radio]"
+        in installation_summary.installation_lines()
+    )
+
+
+def test_first_party_distribution_names_omit_brackets(monkeypatch: pytest.MonkeyPatch):
+    _install_environment(
+        monkeypatch,
+        [_entry(_FakeDist("Medre.Adapter.MeshCore", "1.0.0"), "meshcore")],
+    )
+    assert installation_summary.standard_distribution("meshcore") == (
+        "medre-adapter-meshcore"
+    )
+    assert installation_summary.installation_lines()[-1] == (
+        "  Adapter: meshcore 1.0.0 (pypi)"
+    )
 
 
 def test_editable_and_url_labels_redact_credentials(monkeypatch: pytest.MonkeyPatch):
@@ -121,11 +155,82 @@ def test_editable_and_url_labels_redact_credentials(monkeypatch: pytest.MonkeyPa
         monkeypatch, [_entry(editable, "lxmf"), _entry(wheel, "extra")]
     )
     text = "\n".join(installation_summary.installation_lines())
-    assert "editable file:///home/operator/dev/lxmf" in text
+    assert "editable:file:///home/operator/dev/lxmf" in text
     assert "fixture-secret-sentinel" not in text
     assert "fixture-pass" not in text
     assert "fixture-fragment" not in text
-    assert "url https://example.invalid/pkg.whl?redacted" in text
+    assert "url:https://example.invalid/pkg.whl?redacted" in text
+
+
+def test_local_snapshot_installs_use_the_local_label():
+    assert (
+        installation_summary.provenance_from_direct(
+            {"url": "file:///opt/providers/pkg", "dir_info": {}}
+        )
+        == "local:file:///opt/providers/pkg"
+    )
+
+
+def test_git_forge_urls_compact_to_owner_repo_at_short_commit():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "https://github.com/jeremiah-k/medre-adapter-matrix.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "commit_id": "d2619ed8efa621984591d2a50466e4c32a952de6",
+                },
+            }
+        )
+        == "github:jeremiah-k/medre-adapter-matrix@d2619ed8"
+    )
+
+
+def test_non_forge_git_hosts_keep_host_and_repo():
+    direct = {
+        "url": "https://git.example.com/group/subgroup/repo",
+        "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
+    }
+    assert (
+        installation_summary.provenance_from_direct(direct)
+        == f"git:git.example.com/group/subgroup/repo@{'a' * 8}"
+    )
+
+
+def test_vcs_scheme_prefix_and_uppercase_host_resolve_to_the_forge():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "git+ssh://git@GitHub.com/owner/repo.git",
+                "vcs_info": {"vcs": "git", "commit_id": "B" * 64},
+            }
+        )
+        == f"github:owner/repo@{'B' * 8}"
+    )
+
+
+def test_git_credentials_never_reach_the_label():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "https://user:fixture-pass@github.com/owner/repo",
+                "vcs_info": {"vcs": "git", "commit_id": "c" * 40},
+            }
+        )
+        == "github:owner/repo@cccccccc"
+    )
+
+
+def test_sha256_git_commit_is_abbreviated():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "https://github.com/owner/repo",
+                "vcs_info": {"vcs": "git", "commit_id": "d" * 64},
+            }
+        )
+        == "github:owner/repo@dddddddd"
+    )
 
 
 def test_corrupt_direct_metadata_degrades_per_distribution(
@@ -137,8 +242,8 @@ def test_corrupt_direct_metadata_degrades_per_distribution(
         monkeypatch, [_entry(broken, "xmpp"), _entry(INDEX_MESHTASTIC, "meshtastic")]
     )
     lines = installation_summary.installation_lines()
-    assert "  Adapter: xmpp 0.1.0 (unknown source)" in lines
-    assert "  Adapter: meshtastic 0.1.1 (index)" in lines
+    assert "  Adapter: xmpp 0.1.0 (unknown)" in lines
+    assert "  Adapter: meshtastic 0.1.1 (pypi)" in lines
 
 
 def test_provider_failures_never_block_the_banner(monkeypatch: pytest.MonkeyPatch):
@@ -148,6 +253,8 @@ def test_provider_failures_never_block_the_banner(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         installation_summary.importlib.metadata, "entry_points", entry_points
     )
+    rows, incomplete = installation_summary.provider_identities()
+    assert rows == [] and incomplete
     lines = installation_summary.installation_lines()
     assert lines and lines[0].startswith("  Core:")
 
@@ -169,6 +276,7 @@ def test_core_distribution_missing_reports_source_tree(
     monkeypatch.setattr(
         installation_summary.importlib.metadata, "entry_points", lambda **kw: []
     )
+    assert installation_summary.core_source_label() == "source"
     lines = installation_summary.installation_lines()
     expected = (
         f"  Core:    medre {installation_summary._CORE_FALLBACK_VERSION} (source)"
@@ -188,41 +296,74 @@ def test_direct_source_redaction_all_schemes(scheme: str):
     )
     assert (
         installation_summary._source_label(dist)
-        == f"url {scheme.lower()}://example.invalid/pkg.whl?redacted"
+        == f"url:{scheme.lower()}://example.invalid/pkg.whl?redacted"
     )
 
 
 @pytest.mark.parametrize(
-    "direct",
+    ("direct", "expected"),
     [
-        [],
-        {},
-        {"url": "https://user:fixture-pass@example.invalid/pkg.whl"},
-        {"url": "https://example.invalid/pkg.whl", "archive_info": []},
-        {"url": "https://example.invalid/pkg.whl", "dir_info": {"editable": True}},
-        {
-            "url": "file:///work/repo",
-            "dir_info": {"editable": True},
-            "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
-        },
-        {"url": "file:///work/repo", "dir_info": {"editable": "false"}},
-        {
-            "url": "https://example.invalid/repo",
-            "vcs_info": {"vcs": "git", "commit_id": "fixture-secret"},
-        },
-        {
-            "url": "https://user:fixture pass@example.invalid/pkg.whl",
-            "archive_info": {},
-        },
-        {"url": "https://[invalid", "archive_info": {}},
-        {"url": "relative/pkg.whl", "archive_info": {}},
-        {"url": "https:///pkg.whl", "archive_info": {}},
-        {"url": "https://example.invalid/repo", "vcs_info": {"vcs": "git"}},
+        ({}, "unknown"),
+        ([], "unknown"),
+        (None, "unknown"),
+        ("file:///work/repo", "unknown"),
+        ({"url": "https://user:fixture-pass@example.invalid/pkg.whl"}, "unknown"),
+        ({"url": "https://example.invalid/pkg.whl", "archive_info": []}, "unknown"),
+        (
+            {
+                "url": "https://example.invalid/pkg.whl",
+                "dir_info": {"editable": True},
+            },
+            "unknown",
+        ),
+        (
+            {
+                "url": "file:///work/repo",
+                "dir_info": {"editable": True},
+                "vcs_info": {"vcs": "git", "commit_id": "a" * 40},
+            },
+            "unknown",
+        ),
+        ({"url": "file:///work/repo", "dir_info": {"editable": "false"}}, "unknown"),
+        (
+            {
+                "url": "https://example.invalid/repo",
+                "vcs_info": {"vcs": "git", "commit_id": "fixture-secret"},
+            },
+            "unknown",
+        ),
+        (
+            {
+                "url": "https://user:fixture pass@example.invalid/pkg.whl",
+                "archive_info": {},
+            },
+            "unknown",
+        ),
+        ({"url": "https://[invalid", "archive_info": {}}, "unknown"),
+        ({"url": "relative/pkg.whl", "archive_info": {}}, "unknown"),
+        ({"url": "https:///pkg.whl", "archive_info": {}}, "unknown"),
+        (
+            {"url": "https://example.invalid/repo", "vcs_info": {"vcs": "git"}},
+            "unknown",
+        ),
+        (
+            {
+                "url": "https://example.invalid/repo",
+                "vcs_info": {"vcs": "perforce", "commit_id": "a" * 40},
+            },
+            "unknown",
+        ),
+        (
+            {
+                "url": "https://github.com/owner/repo",
+                "vcs_info": {"vcs": "git", "commit_id": 12345},
+            },
+            "unknown",
+        ),
     ],
 )
-def test_invalid_direct_metadata_is_not_reported_as_provenance(direct):
-    dist = _FakeDist("community", "1.0", direct)
-    assert installation_summary._source_label(dist) == "unknown source"
+def test_invalid_direct_metadata_is_not_reported_as_provenance(direct, expected):
+    assert installation_summary.provenance_from_direct(direct) == expected
 
 
 def _metadata_dist(
@@ -248,7 +389,7 @@ def test_invalid_core_metadata_is_best_effort(monkeypatch, tmp_path):
         installation_summary.importlib.metadata, "entry_points", lambda **kw: []
     )
     assert installation_summary.installation_lines()[0] == (
-        "  Core:    medre ? (unknown source)"
+        "  Core:    medre ? (unknown)"
     )
 
 
@@ -271,9 +412,9 @@ def test_damaged_provider_identity_and_provenance_are_isolated(monkeypatch, tmp_
         ],
     )
     assert installation_summary.installation_lines()[2:] == [
-        "  Adapter: community 1.0 (unknown source) [community]",
-        "  Adapter: matrix 1.0 (index)",
-        "  Adapter: meshtastic 0.1.1 (index)",
+        "  Adapter: community 1.0 (unknown) [community]",
+        "  Adapter: matrix 1.0 (pypi)",
+        "  Adapter: meshtastic 0.1.1 (pypi)",
         "  Adapter inventory incomplete (metadata unavailable)",
     ]
 
@@ -288,8 +429,11 @@ def test_partial_entry_point_discovery_preserves_visited_entries(monkeypatch):
     monkeypatch.setattr(
         installation_summary.importlib.metadata, "entry_points", discover
     )
+    rows, incomplete = installation_summary.provider_identities()
+    assert [(row.transport, row.source) for row in rows] == [("meshtastic", "pypi")]
+    assert incomplete
     assert installation_summary.installation_lines()[2:] == [
-        "  Adapter: meshtastic 0.1.1 (index)",
+        "  Adapter: meshtastic 0.1.1 (pypi)",
         "  Adapter inventory incomplete (metadata unavailable)",
     ]
 
@@ -298,7 +442,7 @@ def test_missing_or_invalid_versions_do_not_hide_provenance(monkeypatch):
     dist = _FakeDist("community-radio", "1.0\nforged log line")
     _install_environment(monkeypatch, [_entry(dist, "radio")])
     assert installation_summary.installation_lines()[2:] == [
-        "  Adapter: radio ? (index) [community-radio]"
+        "  Adapter: radio ? (pypi) [community-radio]"
     ]
 
 
@@ -310,8 +454,14 @@ def test_version_read_exception_preserves_provenance(monkeypatch):
 
     dist = UnreadableVersion("community-radio", "1.0")
     _install_environment(monkeypatch, [_entry(dist, "radio")])
-    assert installation_summary.installation_lines()[2:] == [
-        "  Adapter: radio ? (index) [community-radio]"
+    rows, _incomplete = installation_summary.provider_identities()
+    assert rows == [
+        installation_summary.ProviderIdentity(
+            transport="radio",
+            distribution="community-radio",
+            version="?",
+            source="pypi",
+        )
     ]
 
 
@@ -323,7 +473,7 @@ def test_core_source_lookup_exception_preserves_version(monkeypatch):
 
     monkeypatch.setattr(installation_summary.importlib.metadata, "distribution", failed)
     assert installation_summary.installation_lines()[0] == (
-        "  Core:    medre 0.1.1 (unknown source)"
+        "  Core:    medre 0.1.1 (unknown)"
     )
 
 
@@ -340,7 +490,7 @@ def test_missing_entry_identity_marks_inventory_incomplete(monkeypatch):
         ],
     )
     assert installation_summary.installation_lines()[2:] == [
-        "  Adapter: meshtastic 0.1.1 (index)",
+        "  Adapter: meshtastic 0.1.1 (pypi)",
         "  Adapter inventory incomplete (metadata unavailable)",
     ]
 
@@ -361,7 +511,7 @@ def test_platform_and_discovery_failure_never_leak_exception_details(monkeypatch
 
 @pytest.mark.parametrize(
     ("kind", "commit", "expected"),
-    [("hg", "a" * 40, "hg aaaaaaaa"), ("svn", "12345", "svn 12345")],
+    [("hg", "a" * 40, "hg:aaaaaaaa"), ("svn", "12345", "svn:12345")],
 )
 def test_recognized_non_git_vcs_labels(kind, commit, expected):
     dist = _FakeDist(
@@ -373,3 +523,15 @@ def test_recognized_non_git_vcs_labels(kind, commit, expected):
         },
     )
     assert installation_summary._source_label(dist) == expected
+
+
+def test_hg_sha256_commit_is_abbreviated():
+    assert (
+        installation_summary.provenance_from_direct(
+            {
+                "url": "https://example.invalid/repo",
+                "vcs_info": {"vcs": "hg", "commit_id": "e" * 64},
+            }
+        )
+        == "hg:eeeeeeee"
+    )

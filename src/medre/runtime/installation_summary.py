@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import json
 import logging
 import platform
 import re
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 _logger = logging.getLogger(__name__)
 
 _CORE_FALLBACK_VERSION = "0.1.2"
 _NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 _VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9.!+_-]*")
+_COMMIT = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
+_FORGE_HOSTS = {
+    "github.com": "github",
+    "gitlab.com": "gitlab",
+    "bitbucket.org": "bitbucket",
+}
 
 
 def _version_label(value: str | None) -> str:
@@ -29,8 +36,13 @@ def _core_version() -> str:
         return "?"
 
 
-def _display_url(value: object) -> str | None:
-    """Redact direct URL authority credentials, query and fragment for logs."""
+def _display_url(value: object) -> tuple[SplitResult, str] | None:
+    """Validate a direct URL and return its parts plus a redacted display form.
+
+    Redaction drops authority credentials and replaces the query; the fragment
+    is always dropped. Non-absolute, whitespace-bearing or unprintable values
+    are rejected outright.
+    """
     if (
         not isinstance(value, str)
         or not value
@@ -44,11 +56,76 @@ def _display_url(value: object) -> str | None:
         if url.scheme != "file" and not url.hostname:
             return None
         host = url.netloc.rsplit("@", 1)[-1]
-        return urlunsplit(
+        return url, urlunsplit(
             (url.scheme, host, url.path, "redacted" if url.query else "", "")
         )
     except ValueError:
         return None
+
+
+def _repo_segments(path: str, limit: int) -> str | None:
+    """Join leading URL path segments, stripping a ``.git`` repository suffix."""
+    segments = [segment for segment in path.split("/") if segment]
+    if not segments:
+        return None
+    if limit:
+        segments = segments[:limit]
+    repo = "/".join(segments)
+    return repo[:-4] if repo.endswith(".git") else repo
+
+
+def _vcs_label(url: SplitResult, vcs: object, commit: object) -> str:
+    """Compact recorded-revision label; never includes credentials or queries."""
+    if not isinstance(commit, str):
+        return "unknown"
+    if vcs in ("git", "hg") and _COMMIT.fullmatch(commit):
+        short = commit[:8]
+        if vcs == "hg":
+            return f"hg:{short}"
+        hostname = url.hostname or ""
+        forge = _FORGE_HOSTS.get(hostname)
+        if forge is not None:
+            repo = _repo_segments(url.path, 2)
+            if repo:
+                return f"{forge}:{repo}@{short}"
+        location = _repo_segments(url.path, 0)
+        if hostname and location:
+            return f"git:{hostname}/{location}@{short}"
+        return "unknown"
+    if vcs == "svn" and re.fullmatch(r"[0-9]+", commit):
+        return f"svn:{commit}"
+    return "unknown"
+
+
+def provenance_from_direct(direct: object) -> str:
+    """Compact human provenance label from one parsed PEP 610 direct-URL value.
+
+    Installed metadata is descriptive only; labels establish neither index
+    identity nor source-tree cleanliness or qualification.
+    """
+    if not isinstance(direct, dict):
+        return "unknown"
+    validated = _display_url(direct.get("url"))
+    if validated is None:
+        return "unknown"
+    url, redacted = validated
+    # PEP 610 defines mutually exclusive directory, archive and VCS forms.
+    kinds = [key for key in ("dir_info", "archive_info", "vcs_info") if key in direct]
+    if len(kinds) != 1 or not isinstance(direct[kinds[0]], dict):
+        return "unknown"
+    if "vcs_info" in direct:
+        vcs = direct["vcs_info"]
+        return _vcs_label(url, vcs.get("vcs"), vcs.get("commit_id"))
+    if "dir_info" in direct:
+        if url.scheme != "file" or not url.path.startswith("/"):
+            return "unknown"
+        directory = direct["dir_info"]
+        if not isinstance(directory.get("editable", False), bool):
+            return "unknown"
+        if directory.get("editable") is True:
+            return f"editable:{redacted}"
+        return f"local:{redacted}"
+    return f"url:{redacted}"
 
 
 def _source_label(dist: importlib.metadata.Distribution) -> str:
@@ -56,42 +133,10 @@ def _source_label(dist: importlib.metadata.Distribution) -> str:
     try:
         raw = dist.read_text("direct_url.json")
         if raw is None:
-            return "index"
-        direct = json.loads(raw)
-        if not isinstance(direct, dict):
-            return "unknown source"
-        url = _display_url(direct.get("url"))
-        if url is None:
-            return "unknown source"
-        # PEP 610 defines mutually exclusive directory, archive and VCS forms.
-        kinds = [
-            key for key in ("dir_info", "archive_info", "vcs_info") if key in direct
-        ]
-        if len(kinds) != 1 or not isinstance(direct[kinds[0]], dict):
-            return "unknown source"
-        if "vcs_info" in direct:
-            vcs = direct["vcs_info"]
-            kind, commit = vcs.get("vcs"), vcs.get("commit_id")
-            if isinstance(commit, str):
-                if kind in ("git", "hg") and re.fullmatch(
-                    r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit
-                ):
-                    return f"{kind} {commit[:8]}"
-                if kind == "svn" and re.fullmatch(r"[0-9]+", commit):
-                    return f"svn {commit}"
-            return "unknown source"
-        directory = direct.get("dir_info", {})
-        if "dir_info" in direct and (
-            not url.startswith("file://") or not urlsplit(url).path.startswith("/")
-        ):
-            return "unknown source"
-        if not isinstance(directory.get("editable", False), bool):
-            return "unknown source"
-        if directory.get("editable") is True:
-            return f"editable {url}"
-        return f"url {url}"
+            return "pypi"
+        return provenance_from_direct(json.loads(raw))
     except Exception:  # provenance display is fail-open
-        return "unknown source"
+        return "unknown"
 
 
 def _dist_label(name: str) -> str:
@@ -100,16 +145,40 @@ def _dist_label(name: str) -> str:
     except importlib.metadata.PackageNotFoundError:
         return "source"
     except Exception:
-        return "unknown source"
+        return "unknown"
     return _source_label(dist)
+
+
+def core_source_label() -> str:
+    """Installed provenance label for the medre core distribution."""
+    return _dist_label("medre")
 
 
 def _normalized_name(value: str) -> str:
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
-def _provider_lines() -> list[str]:
-    """One line per installed transport/distribution, without importing SDKs."""
+def standard_distribution(transport: str) -> str:
+    """The first-party distribution name expected for a transport."""
+    return f"medre-adapter-{_normalized_name(transport)}"
+
+
+@dataclasses.dataclass(frozen=True)
+class ProviderIdentity:
+    """One installed adapter entry point's display identity."""
+
+    transport: str
+    distribution: str
+    version: str
+    source: str
+
+
+def provider_identities() -> tuple[list[ProviderIdentity], bool]:
+    """Best-effort installed adapter identities, without importing SDKs.
+
+    Returns the discovered rows and whether any entry-point metadata was
+    unreadable; healthy rows are preserved when siblings fail.
+    """
     providers: dict[tuple[str, str], importlib.metadata.Distribution] = {}
     incomplete = False
     try:
@@ -135,27 +204,42 @@ def _provider_lines() -> list[str]:
                 incomplete = True
     except Exception:  # a discovery failure must not discard visited entries
         incomplete = True
-    lines: list[str] = []
+    rows: list[ProviderIdentity] = []
     for (transport, dist_name), dist in sorted(providers.items()):
         try:
             version = _version_label(dist.version)
         except Exception:
             version = "?"
         label = _source_label(dist)
-        suffix = (
-            ""
-            if dist_name == f"medre-adapter-{_normalized_name(transport)}"
-            else f" [{dist_name}]"
-        )
-        lines.append(f"  Adapter: {transport} {version} ({label}){suffix}")
-    if incomplete:
+        rows.append(ProviderIdentity(transport, dist_name, version, label))
+    return rows, incomplete
+
+
+def _provider_lines() -> list[str]:
+    """One line per installed transport/distribution, without importing SDKs."""
+    lines: list[str] = []
+    try:
+        rows, incomplete = provider_identities()
+        for row in rows:
+            suffix = (
+                ""
+                if row.distribution == standard_distribution(row.transport)
+                else f" [{row.distribution}]"
+            )
+            lines.append(
+                f"  Adapter: {row.transport} {row.version} ({row.source}){suffix}"
+            )
+        if incomplete:
+            lines.append("  Adapter inventory incomplete (metadata unavailable)")
+    except Exception:  # do not include exception details, which may contain URLs
+        _logger.debug("Installed provider summary unavailable")
         lines.append("  Adapter inventory incomplete (metadata unavailable)")
     return lines
 
 
 def installation_lines() -> list[str]:
     """Best-effort startup header describing the running installation."""
-    lines = [f"  Core:    medre {_core_version()} ({_dist_label('medre')})"]
+    lines = [f"  Core:    medre {_core_version()} ({core_source_label()})"]
     try:
         lines.append(
             f"  Python:  {platform.python_version()} "

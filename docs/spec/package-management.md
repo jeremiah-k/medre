@@ -117,7 +117,10 @@ MUST NOT be described as persisted-state rollback.
 
 `sources show` MUST distinguish configured requirements, requested tool sources
 and installed versions/direct-source metadata without importing providers or
-contacting an index. It MUST remain usable outside an owned tool environment
+contacting an index. The human-readable inventory MUST render each installed
+source with the same compact provenance label as the startup summary; the
+`--json` inventory MUST retain the structured direct-source record for
+scripts. `sources show` MUST remain usable outside an owned tool environment
 and explain unavailable receipt evidence. An index installation without direct
 source metadata MUST NOT imply independently verified index provenance.
 A displayed Git commit or local path MUST NOT imply native qualification or
@@ -142,18 +145,28 @@ MUST be excluded by normalized distribution name; nonstandard distribution names
 MUST be shown in brackets. The summary MUST NOT load provider implementations,
 query an index, or change deployment state.
 
-The source label reflects installed metadata only: `index` means no direct URL
-record was found, `source` means core distribution metadata is absent, `git`
-shows an abbreviated recorded commit, `editable` shows a recorded local
-directory, and `url` shows a direct source location. Recognized non-Git VCS
-revisions MAY be displayed. Invalid, inconsistent or unsupported metadata
-MUST yield `unknown source`; a missing, unreadable or unsafe-to-display version
+The source label reflects installed metadata only, as one compact token per
+package: `pypi` means no direct URL record was found, `source` means core
+distribution metadata is absent, Git labels name the recorded repository and
+abbreviated commit (`github:owner/repo@`, `gitlab:group/repo@` or
+`git:host/path@` for non-forge hosts), `hg:` and `svn:` show recorded
+non-Git revisions, `editable:` shows a recorded local directory, `local:`
+shows a recorded local snapshot, and `url:` shows a direct source location.
+Invalid, inconsistent or unsupported metadata
+MUST yield `unknown`; a missing, unreadable or unsafe-to-display version
 MUST yield `?` independently. The source-tree core version fallback is not an installed version.
 These labels establish neither index identity, source-tree cleanliness, exact
 installed bytes, nor qualification. URL userinfo, query values and fragments
-MUST NOT appear in the startup summary, including for non-HTTP schemes. Paths
+MUST NOT appear in the startup summary, including for non-HTTP schemes; Git
+labels are derived from the validated URL's host and path only. Paths
 and hostnames remain visible, so operators MUST NOT embed credentials in paths
 and SHOULD review logs before sharing them. Invalid metadata MUST NOT be logged
 verbatim or prevent startup; an incomplete provider inventory MUST be indicated
 without suppressing healthy entries already discovered. This text is not a
 versioned evidence or snapshot schema.
+
+`medre adapters` MUST list the same installed identities (transport, version
+and provenance label) whenever adapter distributions are installed, alongside
+the transport/SDK availability catalog. `medre version` MUST include the core
+provenance label. All three surfaces share one label formatter; none of them
+MUST import provider implementations or contact an index to produce it.
