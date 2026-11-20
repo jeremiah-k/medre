@@ -57,9 +57,10 @@ Honesty boundaries
 * Whole-message negative reports are evidence too: a failure observation
   for the exact attempt keeps a fully accepted checkpoint held instead of
   letting conflicting evidence settle ``delivered``.
-* Dispatch provenance is never read as authority and never rewritten: the
-  verdict is provenance-agnostic and the settlement transitions leave
-  ``dispatch_source``/``replay_run_id`` untouched.
+* Dispatch provenance constrains the verdict: a checkpoint from a foreign
+  attempt source or replay run remains unresolved even if its parts were
+  accepted. It never grants send authority and settlement never rewrites
+  ``dispatch_source``/``replay_run_id``.
 """
 
 from __future__ import annotations
@@ -325,6 +326,14 @@ def _resolve_checkpoint(
         provenance = checkpoint.provenance
         parts = checkpoint.parts
     part_count = len(parts)
+    if part_count == 0:
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="unreadable_radio_checkpoint",
+            has_checkpoint=True,
+        )
     mismatch = (
         provenance.outbox_id != outbox_id
         or provenance.attempt_number != attempt_number
@@ -487,6 +496,14 @@ def resolve_uncertain_handoff(
     reclaimed row's dispatch provenance; when provided, a retained checkpoint
     must be coherent with them or nothing settles.
     """
+    if not identity.complete or not outbox_id or attempt_number < 1:
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="incomplete_delivery_identity",
+            has_checkpoint=checkpoint is not None,
+        )
     if checkpoint is None:
         return _resolve_message_level(
             outbox_id=outbox_id,
@@ -534,7 +551,11 @@ class HandoffEvidenceStore(Protocol):
 class EvidenceBackedHandoffResolver:
     """Load one attempt's retained evidence and project the verdict.
 
-    The resolver never writes. A storage error while reading the evidence is
+    The resolver never writes. The durable row's current dispatch source can
+    describe a newer attempt; when rechecking an older checkpoint, source
+    coherence belongs to that checkpoint's original reservation and cannot
+    be reconstructed from the newer row. Exact identity and replay run still
+    constrain its verdict. A storage error while reading the evidence is
     reported as an explicitly uncertain ``unresolved`` result so
     reconciliation keeps its conservative accounting instead of failing the
     reclaim; the operator-visible diagnostic names the unreadable evidence.
@@ -589,7 +610,12 @@ class EvidenceBackedHandoffResolver:
             identity=identity,
             checkpoint=checkpoint,
             observations=observations,
-            attempt_source=item.dispatch_source,
+            attempt_source=(
+                item.dispatch_source
+                if attempt_number
+                >= (item.active_attempt or item.attempt_number)
+                else None
+            ),
             replay_run_id=item.replay_run_id,
         )
         return replace(resolution, observation_count=len(observations))
