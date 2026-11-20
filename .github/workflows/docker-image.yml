@@ -89,6 +89,7 @@ jobs:
           import subprocess
           import time
           import uuid
+          from scripts.docker.qualify import startup_ready, validate_shutdown
           name = "medre-image-runtime"
           config = os.environ["RUNNER_TEMP"] + "/medre-image/config.yaml"
           snapshot_path = "/data/image-shutdown-" + uuid.uuid4().hex + ".json"
@@ -103,7 +104,7 @@ jobs:
               deadline = time.monotonic() + 30
               while True:
                   logs = subprocess.check_output(["docker", "logs", name], stderr=subprocess.STDOUT, text=True)
-                  if "Runtime ready (7 adapter(s) running)" in logs:
+                  if startup_ready(logs):
                       break
                   if time.monotonic() >= deadline:
                       raise SystemExit("Runtime startup deadline exceeded: " + logs)
@@ -115,7 +116,6 @@ jobs:
                   "-v", "medre-image-ci:/data:ro", "--entrypoint", "cat",
                   "medre:ci", snapshot_path
               ], text=True))
-              from scripts.docker.qualify import validate_shutdown
               validate_shutdown(state, snapshot)
           finally:
               subprocess.run(["docker", "rm", "--force", name], check=False)

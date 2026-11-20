@@ -41,6 +41,25 @@ def validate_installation(
             )
 
 
+def startup_ready(logs: str) -> bool:
+    """Wait for the seven-adapter image's complete, healthy startup banner."""
+    messages = [
+        line.split(" [INFO] medre: ", 1)[1]
+        for line in logs.splitlines()
+        if " [INFO] medre: " in line
+    ]
+    observed_banner = False
+    for message in messages:
+        if message.startswith("MEDRE ") and " — startup (" in message:
+            observed_banner = message.endswith(" — startup (7 adapter(s))")
+        elif (
+            observed_banner
+            and message == "All adapters ready — MEDRE runtime running"
+        ):
+            return True
+    return False
+
+
 def validate_shutdown(state: dict[str, Any], snapshot: dict[str, Any]) -> None:
     """A zero process exit alone does not prove that the runtime stopped."""
     lifecycle = snapshot["lifecycle"]
