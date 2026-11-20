@@ -470,9 +470,10 @@ before direct invocation or the radio-plan execution boundary. Once a radio
 plan is bound, its existing packet grants and attempt-progress authority
 remain in force; health admission does not retract an authorized packet or
 rewrite retained progress. Each subsequent packet-start grant of the bound
-plan is admitted against the current blocking-health observation as part of
-the same grant unit, so a mid-burst degradation stops new grants while the
-accepted prefix and wholly unsent tail stay authoritative and the tail
+plan samples blocking health for the same outbox obligation before submitting
+its storage command. A degradation observed during that command applies at
+the next grant boundary.
+The accepted prefix and wholly unsent tail stay authoritative and the tail
 resumes under the existing continuation rules on recovery. An explicitly
 requested replay is refused before allocation if health already blocks
 admission. Replay generation allocation is not an attempt-zero live

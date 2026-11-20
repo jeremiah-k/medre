@@ -21,6 +21,7 @@ grant were already atomic and remain covered by their existing suites.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace as dataclass_replace
 from datetime import datetime, timezone
 from typing import Any
@@ -42,6 +43,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage.radio import StoredRadioAttempt
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 from tests.helpers.storage_outbox import (
@@ -156,6 +158,58 @@ async def test_mid_burst_degradation_stops_new_grants_and_keeps_progress(storage
     )
 
 
+async def test_degradation_during_grant_write_applies_to_next_grant(
+    storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = await bound_rendering(storage)
+    begin = storage.begin_radio_part
+    grant_pending = asyncio.Event()
+    resume_grant = asyncio.Event()
+    health: str | None = None
+    native_calls: list[str] = []
+
+    async def begin_after_health_sample(
+        expected: StoredRadioAttempt,
+        worker_id: str | None,
+        ordinal: int,
+        *,
+        deadline: datetime | None = None,
+    ) -> StoredRadioAttempt | None:
+        grant_pending.set()
+        await resume_grant.wait()
+        return await begin(expected, worker_id, ordinal, deadline=deadline)
+
+    async def deliver(packet: RenderingResult) -> AdapterHandoffResult:
+        assert packet.before_native_send is not None
+        await packet.before_native_send()
+        native_calls.append(packet.payload["text"])
+        return AdapterHandoffResult(native_message_id="first")
+
+    monkeypatch.setattr(storage, "begin_radio_part", begin_after_health_sample)
+    burst = asyncio.create_task(
+        deliver_radio_plan(
+            storage, result, "radio-owner", deliver, health_probe=lambda: health
+        )
+    )
+    try:
+        await asyncio.wait_for(grant_pending.wait(), 5)
+        assert native_calls == []
+        health = "degraded"
+        resume_grant.set()
+        with pytest.raises(AdapterSendError, match="radio packet grant refused"):
+            await asyncio.wait_for(burst, 5)
+    finally:
+        if not burst.done():
+            burst.cancel()
+            await asyncio.gather(burst, return_exceptions=True)
+
+    assert len(native_calls) == 1
+    snapshot = await storage.get_radio_attempt_snapshot(result.outbox_id, 1)
+    states = [part["state"] for part in snapshot["parts"]]
+    assert states[0] == "accepted"
+    assert states[1:] and all(state == "unsent" for state in states[1:])
+
+
 async def test_healthy_probe_preserves_burst_and_admits_every_grant(storage):
     """A healthy observation admits every grant exactly once per packet."""
     result = await bound_rendering(storage)
@@ -182,7 +236,10 @@ async def test_healthy_probe_preserves_burst_and_admits_every_grant(storage):
     assert admissions["count"] == len(result.radio_plan.parts)
 
 
-async def test_refused_tail_resumes_under_fresh_grants_after_recovery(storage):
+@pytest.mark.parametrize("degrade_again", [False, True])
+async def test_refused_tail_resumes_under_fresh_grants_after_recovery(
+    storage: SQLiteStorage, degrade_again: bool
+) -> None:
     """Recovery sends only the unsent tail; the accepted prefix is never resent."""
     result = await bound_rendering(storage)
     native_calls: list[str] = []
@@ -227,6 +284,12 @@ async def test_refused_tail_resumes_under_fresh_grants_after_recovery(storage):
     )
 
     tail_calls: list[str] = []
+    tail_admissions = 0
+
+    def tail_health() -> str | None:
+        nonlocal tail_admissions
+        tail_admissions += 1
+        return "degraded" if degrade_again and tail_admissions == 2 else None
 
     async def resumed_deliver(packet):
         await packet.before_native_send()
@@ -236,23 +299,35 @@ async def test_refused_tail_resumes_under_fresh_grants_after_recovery(storage):
             confirmation_level="local_transport",
         )
 
-    await deliver_radio_plan(
+    resumed = dataclass_replace(
+        result,
+        attempt_number=claim.attempt_number + 1,
+        attempt_provenance=continuation,
+    )
+    execution = deliver_radio_plan(
         storage,
-        dataclass_replace(
-            result,
-            attempt_number=claim.attempt_number + 1,
-            attempt_provenance=continuation,
-        ),
+        resumed,
         "next-owner",
         resumed_deliver,
         resume_from=predecessor,
+        health_probe=tail_health,
     )
-    assert tail_calls == [
-        part.wire_text for part in predecessor.progress.plan.parts[2:]
-    ]
+    if degrade_again:
+        with pytest.raises(AdapterSendError, match="radio packet grant refused"):
+            await execution
+    else:
+        await execution
+    tail = [part.wire_text for part in predecessor.progress.plan.parts[2:]]
+    assert tail_calls == (tail[:1] if degrade_again else tail)
+    assert tail_admissions == (2 if degrade_again else len(tail))
     after = await storage.get_radio_attempt(result.outbox_id, 2)
     assert after is not None
-    assert after.progress.handoff_complete
+    assert after.progress.handoff_complete is not degrade_again
+    assert [part.state for part in after.progress.parts] == (
+        ["accepted"] * 3 + ["unsent"] * (len(tail) - 1)
+        if degrade_again
+        else ["accepted"] * (len(tail) + 2)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +466,33 @@ async def test_pipeline_refuses_grants_mid_burst_and_holds_for_retry(
         rows[0].outbox_id, before_attempt=2
     )
     assert predecessor == attempt
+
+
+async def test_packet_grants_use_the_expired_obligation_horizon(
+    storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = RadioAdapter()
+    event, route, plan, runner = await _setup(storage, adapter)
+    now = 0.0
+    health = "healthy"
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.adapter_health.monotonic", lambda: now
+    )
+    gate = AdapterHealthGate(lambda _: health, max_horizon_seconds=10)
+    runner.set_adapter_health_gate(gate)
+    create = storage.create_outbox_item
+
+    async def create_before_degradation(*args: Any, **kwargs: Any):
+        nonlocal now, health
+        row = await create(*args, **kwargs)
+        health = "degraded"
+        assert gate.blocking_health("radio", obligation_id=row.outbox_id) == "degraded"
+        now = 10.0
+        assert gate.blocking_health("radio", obligation_id="younger") == "degraded"
+        assert gate.blocking_health("radio") == "degraded"
+        return row
+
+    monkeypatch.setattr(storage, "create_outbox_item", create_before_degradation)
+    outcomes = await runner.deliver_to_targets(event, [(route, plan)], source="replay")
+    assert outcomes[0].status == "success"
+    assert len(adapter.native) > 1

@@ -448,7 +448,7 @@ class TargetDeliveryService:
         self._adapter_health_gate = adapter_health_gate
 
     def _radio_packet_health_probe(
-        self, adapter_id: str
+        self, adapter_id: str, *, obligation_id: str | None
     ) -> Callable[[], str | None] | None:
         """Bind the current blocking-health lookup for radio packet-start grants.
 
@@ -461,7 +461,7 @@ class TargetDeliveryService:
         gate = self._adapter_health_gate
         if gate is None:
             return None
-        return lambda: gate.blocking_health(adapter_id)
+        return lambda: gate.blocking_health(adapter_id, obligation_id=obligation_id)
 
     # -- Public API ---------------------------------------------------------
 
@@ -1182,7 +1182,9 @@ class TargetDeliveryService:
                         dispatch_bound.deadline if dispatch_bound is not None else None
                     ),
                     resume_from=resume_from,
-                    health_probe=self._radio_packet_health_probe(adapter_id or ""),
+                    health_probe=self._radio_packet_health_probe(
+                        adapter_id or "", obligation_id=outbox_id
+                    ),
                 )
             else:
                 try:
