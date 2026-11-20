@@ -44,11 +44,24 @@ from medre.core.storage.radio import StoredRadioAttempt
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
-_PAST = datetime.now(timezone.utc) - timedelta(seconds=120)
 _WORKER = "reconcile-worker-test"
-_LEASE_END = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
 
 _PLAN_ID = "plan-handoff-resolution"
+
+
+def _past() -> datetime:
+    """A lapsed timestamp computed at test execution time, never at import."""
+    return datetime.now(timezone.utc) - timedelta(seconds=120)
+
+
+def _lease_end() -> str:
+    """A fresh claim lease computed at test execution time.
+
+    Module-import timestamps expire before a slow suite reaches these tests,
+    and the guarded radio bind refuses an expired claim fence, so every
+    seeded lease must be generated when the test actually runs.
+    """
+    return (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
 
 
 def _plan():
@@ -566,8 +579,8 @@ async def _seed_reserved_claim(
         target_channel=channel,
         attempt_number=attempt_number,
         status=status,
-        locked_at=_PAST.isoformat(),
-        lease_until=_LEASE_END,
+        locked_at=_past().isoformat(),
+        lease_until=_lease_end(),
         worker_id=worker,
         dispatch_source="replay" if replay_run_id else "live",
         replay_run_id=replay_run_id,
@@ -639,7 +652,7 @@ async def _claimed_row(storage: SQLiteStorage, outbox_id: str, worker: str):
     # Test setup only: let the seeded owner's lease lapse so the poll reclaims.
     await storage._write_rowcount(
         "UPDATE delivery_outbox SET lease_until = ? WHERE outbox_id = ?",
-        (_PAST.isoformat(), outbox_id),
+        (_past().isoformat(), outbox_id),
     )
     due = datetime.now(timezone.utc).isoformat()
     claimed = [
@@ -657,7 +670,7 @@ async def _due_row(storage: SQLiteStorage, outbox_id: str, worker: str):
     await storage._write_rowcount(
         "UPDATE delivery_outbox SET lease_until = ?, next_attempt_at = ? "
         "WHERE outbox_id = ?",
-        (_PAST.isoformat(), _PAST.isoformat(), outbox_id),
+        (_past().isoformat(), _past().isoformat(), outbox_id),
     )
     due = datetime.now(timezone.utc).isoformat()
     claimed = [
@@ -887,7 +900,7 @@ async def test_resolution_is_idempotent_across_reclaims(
     # re-runs resolution to the same verdict, which then commits.
     await temp_storage._write_rowcount(
         "UPDATE delivery_outbox SET lease_until = ? WHERE outbox_id = ?",
-        (_PAST.isoformat(), stored.outbox_id),
+        (_past().isoformat(), stored.outbox_id),
     )
     reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-b")
     second = await lifecycle.reconcile_retry_claim(
@@ -917,7 +930,7 @@ async def test_settlement_respects_stolen_claim(
     # the first worker reconciles; the live reservation stays on the row.
     await temp_storage._write_rowcount(
         "UPDATE delivery_outbox SET lease_until = ? WHERE outbox_id = ?",
-        (_PAST.isoformat(), stored.outbox_id),
+        (_past().isoformat(), stored.outbox_id),
     )
     stolen = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-b")
     assert stolen.worker_id == "reconciler-b"
