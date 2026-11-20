@@ -408,7 +408,10 @@ async def _build_event_recovery_runbook(
             "When one exact destination is identified, name it with 'medre "
             "replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL' (or "
             "'--exact-no-channel EVENT:PLAN:ADAPTER' when the stored "
-            "identity has no channel); "
+            "identity has no channel; a canonical colon-bearing "
+            "plan:EVENT:ROUTE:INDEX:HASH plan id is consumed as one plan "
+            "component, with the event before it and the adapter and "
+            "channel after it); "
             "replays without that flag still select adapters and routes only."
         )
 

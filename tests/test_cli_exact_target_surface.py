@@ -545,6 +545,64 @@ def test_repeated_identity_across_flags_is_rejected():
         _parse_exact_target_specs(["evt:plan:adapter:ch", "evt:plan:adapter:ch"], None)
 
 
+# Every persisted delivery plan id is the canonical five-component shape
+# ``plan:{event}:{route}:{index}:{hash}``, so the compact ``--exact-target``
+# value must express a plan component that itself contains colons. The
+# identities below are fabricated placeholders in the real shape.
+_EVENT = "evt-4c1a9b02"
+_OTHER_EVENT = "evt-7d2b3e01"
+_CANONICAL_PLAN = f"plan:{_EVENT}:mx-bridge:target:0f1e2d3c4b5a6978"
+
+
+def test_colon_bearing_plan_id_round_trips_to_one_identity():
+    identity = _selection(
+        f"{_EVENT}:{_CANONICAL_PLAN}:matrix:!a4b3c2d1:mesh.example.org"
+    )
+    assert identity == DeliveryIdentity(
+        _EVENT, _CANONICAL_PLAN, "matrix", "!a4b3c2d1:mesh.example.org"
+    )
+
+
+def test_colon_bearing_plan_id_names_the_no_channel_identity():
+    identity = _selection(f"{_EVENT}:{_CANONICAL_PLAN}:matrix")
+    assert identity == DeliveryIdentity(_EVENT, _CANONICAL_PLAN, "matrix", None)
+
+
+def test_explicit_no_channel_flag_accepts_a_colon_bearing_plan_id():
+    identity = _selection(f"{_EVENT}:{_CANONICAL_PLAN}:matrix", no_channel=True)
+    assert identity == DeliveryIdentity(_EVENT, _CANONICAL_PLAN, "matrix", None)
+
+
+def test_colon_bearing_plan_for_another_event_is_rejected_loudly():
+    other_plan = f"plan:{_OTHER_EVENT}:mx-bridge:target:0f1e2d3c4b5a6978"
+    with pytest.raises(ValueError, match=f"embeds event '{_OTHER_EVENT}'"):
+        _parse_exact_target_specs([f"{_EVENT}:{other_plan}:matrix"], None)
+
+
+def test_colon_bearing_plan_with_blank_component_is_rejected():
+    with pytest.raises(ValueError, match="nonblank"):
+        _parse_exact_target_specs(
+            [f"{_EVENT}:plan:{_EVENT}::target:0f1e2d3c4b5a6978:matrix"], None
+        )
+
+
+def test_colon_free_plan_keeps_the_historical_split():
+    # Six-plus components with a colon-free plan component keep the
+    # historical reading: the channel is everything after the third colon.
+    identity = _selection("evt:plan:adapter:a:b:c:d")
+    assert identity == DeliveryIdentity("evt", "plan", "adapter", "a:b:c:d")
+
+
+def test_short_plan_placeholder_keeps_the_historical_split():
+    # The documented compact examples name the plan component literally
+    # ``plan``; with fewer than six remaining components they keep parsing
+    # as plan/adapter/channel, never as a colon-bearing plan id.
+    identity = _selection("evt:plan:adapter:!a4b3c2d1:mesh.example.org")
+    assert identity == DeliveryIdentity(
+        "evt", "plan", "adapter", "!a4b3c2d1:mesh.example.org"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Replay: CLI exit codes and wiring
 # ---------------------------------------------------------------------------
@@ -562,6 +620,10 @@ def test_repeated_identity_across_flags_is_rejected():
         ("--exact-no-channel", "evt:plan:  "),
         ("--exact-no-channel", "evt:plan:adapter:!room"),
         ("--exact-target", "evt:plan:adapter", "--exact-target", "evt:plan:adapter"),
+        (
+            "--exact-target",
+            "evt-4c1a9b02:plan:evt-7d2b3e01:mx-bridge:target:0f1e2d3c4b5a6978:matrix",
+        ),
     ],
 )
 def test_malformed_exact_target_specifications_exit_with_config_error(
@@ -581,6 +643,31 @@ def test_malformed_exact_target_specifications_exit_with_config_error(
     assert code == 2
     assert "Invalid" in stderr or "Duplicate" in stderr
     assert not config_path.exists()
+
+
+def test_colon_bearing_plan_specification_passes_the_config_gate(
+    tmp_path: Path,
+) -> None:
+    """A canonical colon-bearing plan id parses before config loading.
+
+    With a missing config the replay command reaches the config-error
+    boundary, proving the exact-target value itself was accepted.
+    """
+    config_path = tmp_path / "missing-config.yaml"
+    code, _stdout, stderr = _replay_cli(
+        "replay",
+        "--config",
+        str(config_path),
+        "--mode",
+        "dry_run",
+        "--event",
+        "whatever",
+        "--exact-target",
+        f"{_EVENT}:{_CANONICAL_PLAN}:matrix:!a4b3c2d1:mesh.example.org",
+    )
+    assert code == 2
+    assert "Invalid --exact-target" not in stderr
+    assert "Config error" in stderr
 
 
 def test_invalid_request_is_rejected_before_loading_config(
