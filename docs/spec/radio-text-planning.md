@@ -124,7 +124,15 @@ pacing and immediately before the SDK command. The callback MUST commit
 reading the current worker from storage MUST NOT authorize an older dispatch.
 An expired, superseded or reused grant MUST prevent the SDK call. The dispatch
 deadline MUST be checked again at this boundary after pacing. Core MUST
-discard any grant callback supplied by a renderer.
+discard any grant callback supplied by a renderer. When the runtime wires a
+health admission gate, each packet-start grant MUST re-admit against the
+current blocking-health observation as part of the same grant unit: the
+observation is evaluated synchronously immediately before the durable grant
+command, so no grant issues against a degradation the runtime has already
+observed. A refused observation issues no grant and leaves no submitting or
+unknown record; the burst stops with the accepted prefix and a wholly unsent
+tail, which retains its transient retry eligibility, and granted or retained
+progress is never retracted.
 
 A granted invocation MUST NOT use an adapter-internal retry loop. A timeout or
 other uncertain result after the grant MUST stop the plan and retain unknown

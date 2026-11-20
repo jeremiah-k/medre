@@ -447,6 +447,22 @@ class TargetDeliveryService:
         """
         self._adapter_health_gate = adapter_health_gate
 
+    def _radio_packet_health_probe(
+        self, adapter_id: str
+    ) -> Callable[[], str | None] | None:
+        """Bind the current blocking-health lookup for radio packet-start grants.
+
+        Each packet grant inside a multipart plan re-admits against the same
+        gate the pre-plan admission used, so a mid-burst degradation refuses
+        new grants through the existing deferral-horizon rules while granted
+        and retained progress stays authoritative. ``None`` when no gate is
+        wired: the plan executes exactly as before.
+        """
+        gate = self._adapter_health_gate
+        if gate is None:
+            return None
+        return lambda: gate.blocking_health(adapter_id)
+
     # -- Public API ---------------------------------------------------------
 
     async def deliver_execution(
@@ -1166,6 +1182,7 @@ class TargetDeliveryService:
                         dispatch_bound.deadline if dispatch_bound is not None else None
                     ),
                     resume_from=resume_from,
+                    health_probe=self._radio_packet_health_probe(adapter_id or ""),
                 )
             else:
                 try:
