@@ -32,20 +32,49 @@ otherwise invisible in `routes validate` / `routes topology`.
 
 ### Expected Startup Output
 
+Startup prints one minimal start line, per-adapter progress lines, then —
+once every adapter has settled — one consolidated banner followed by a
+single readiness line:
+
 ```console
 2026-10-18T20:00:00-0500 [INFO] medre: MEDRE starting (bridge) with 2 adapter(s): matrix, radio
-2026-10-18T20:00:00-0500 [INFO] medre:   Core:    medre <installed-version> (pypi)
-2026-10-18T20:00:00-0500 [INFO] medre:   Python:  <python-version> (Linux x86_64)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: matrix <installed-version> (github:jeremiah-k/medre-adapter-matrix@<commit>)
-2026-10-18T20:00:00-0500 [INFO] medre:   Adapter: meshtastic <installed-version> (github:jeremiah-k/medre-adapter-meshtastic@<commit>)
-2026-10-18T20:00:00-0500 [INFO] medre.runtime.route_engine: Registered 2 expanded route(s)
-2026-10-18T20:00:00-0500 [INFO] medre:   Routes: 1 enabled, 0 disabled (1 configured)
-2026-10-18T20:00:01-0500 [INFO] medre:   started matrix.matrix (312ms)
-2026-10-18T20:00:01-0500 [INFO] medre:   started meshtastic.radio (145ms)
-2026-10-18T20:00:01-0500 [INFO] medre: Runtime ready (2 adapter(s) running)
+2026-10-18T20:00:00-0500 [INFO] medre.runtime.app: Starting adapter matrix.matrix
+2026-10-18T20:00:00-0500 [INFO] medre.runtime.app: Starting adapter meshtastic.radio
+2026-10-18T20:00:01-0500 [INFO] medre.runtime.app: Adapter matrix.matrix started in 312ms (health=healthy)
+2026-10-18T20:00:01-0500 [INFO] medre.runtime.app: Adapter meshtastic.radio started in 145ms (health=healthy)
+2026-10-18T20:00:01-0500 [INFO] medre: MEDRE bridge — startup (2 adapter(s))
+2026-10-18T20:00:01-0500 [INFO] medre:   Config:  config.yaml
+2026-10-18T20:00:01-0500 [INFO] medre:   State:   /var/lib/medre
+2026-10-18T20:00:01-0500 [INFO] medre:   Core:    medre <installed-version> (pypi)
+2026-10-18T20:00:01-0500 [INFO] medre:   Python:  <python-version> (Linux x86_64)
+2026-10-18T20:00:01-0500 [INFO] medre:   Adapter: matrix <installed-version> (github:jeremiah-k/medre-adapter-matrix@<commit>)
+2026-10-18T20:00:01-0500 [INFO] medre:   Adapter: meshtastic <installed-version> (github:jeremiah-k/medre-adapter-meshtastic@<commit>)
+2026-10-18T20:00:01-0500 [INFO] medre:   Limits:  max_inflight_deliveries=100, max_inflight_replay_events=100, drain_timeout=10s
+2026-10-18T20:00:01-0500 [INFO] medre:
+2026-10-18T20:00:01-0500 [INFO] medre: matrix.matrix      ready  312ms
+2026-10-18T20:00:01-0500 [INFO] medre:   user id @bot:example.com · device id <device>
+2026-10-18T20:00:01-0500 [INFO] medre: meshtastic.radio   ready  145ms
+2026-10-18T20:00:01-0500 [INFO] medre:   node name Ridge Relay · firmware 2.7.15
+2026-10-18T20:00:01-0500 [INFO] medre:
+2026-10-18T20:00:01-0500 [INFO] medre:   Routes:  1 enabled, 0 disabled (1 configured)
+2026-10-18T20:00:01-0500 [INFO] medre:   Routing: 2 live-eligible, 0 startup-blocked (2 build-registered)
+2026-10-18T20:00:01-0500 [INFO] medre:   Events:  71 persisted
+2026-10-18T20:00:01-0500 [INFO] medre:   Storage: sqlite (/var/lib/medre/medre.sqlite)
+2026-10-18T20:00:01-0500 [INFO] medre: All adapters ready — MEDRE runtime running
 ```
 
-This abbreviated text example omits config/state path lines and component logs.
+The banner renders after every adapter has settled, so adapter blocks
+report confirmed facts rather than startup previews. Each adapter block
+carries the instance name, its status (`ready`, `degraded`, `failed`, or
+`build failed`) and startup duration, with the adapter's startup-info
+facts packed beneath in the shared `label value · label value` grammar;
+last-known cached facts keep their `(cached)` marker, and suppressed
+rows keep the `… +N more` marker. Degraded and failed blocks render a
+reason line. The final line claims full readiness only when every
+attempted adapter is ready; otherwise it reports the honest count, for
+example `MEDRE runtime running — 1/2 adapter(s) ready, 1 failed`.
+
+This abbreviated text example omits some component logs.
 The `Core`, `Python` and `Adapter` lines report the running installation:
 provider entries show installed versions and a compact provenance label —
 `github:owner/repo@<commit>` (or `git:host/path@<commit>` for other hosts,
@@ -59,19 +88,21 @@ URL userinfo, queries and fragments are redacted, but paths and hostnames may
 be private; review logs before sharing. See the
 [package-management spec](../spec/package-management.md#startup-installation-summary).
 Adapter startup durations depend on the SDK and connection. `Routes` counts
-configured routes; the registration line counts expanded executable legs.
+configured routes; `Routing` separates current live eligibility from
+build-time registration (the expanded-registration count itself logs at
+DEBUG).
 
 ### Startup Checklist
 
-| Element          | Where to look                                                              | Healthy sign           | Problem sign                       |
-| ---------------- | -------------------------------------------------------------------------- | ---------------------- | ---------------------------------- |
-| Adapter count    | Console first line                                                         | Matches config         | Fewer (build failures)             |
-| Build failures   | Console `Build failures (N)` block                                         | No block               | `✗` entries present                |
-| Routes           | Console `Routes:` line                                                     | Expected count enabled | Zero enabled or errors             |
-| Storage backend  | Console `Storage:` line                                                    | `sqlite`               | `memory` (no persistence)          |
-| Limits           | Console `Limits:` line                                                     | As configured          | Unexpected defaults                |
-| Per-adapter logs | `started transport.adapter_id` summary                                     | All started            | Failed adapter entries or warnings |
-| Runtime summary  | `Runtime ready`, or `Runtime running` while current health has not settled | Expected running count | Failed or degraded startup         |
+| Element          | Where to look                                                                      | Healthy sign           | Problem sign                        |
+| ---------------- | ---------------------------------------------------------------------------------- | ---------------------- | ----------------------------------- |
+| Adapter count    | Console first line                                                                 | Matches config         | Fewer (build failures)              |
+| Build failures   | Console `Build failures (N)` block                                                 | No block               | `✗` entries present                 |
+| Routes           | Banner `Routes:` line                                                              | Expected count enabled | Zero enabled or errors              |
+| Storage backend  | Banner `Storage:` line                                                             | `sqlite`               | `memory` (no persistence)           |
+| Limits           | Banner `Limits:` line                                                              | As configured          | Unexpected defaults                 |
+| Per-adapter logs | Banner adapter blocks (`ready`/`degraded`/`failed` tags with durations)            | All `ready`            | `failed` blocks or `degraded` tags  |
+| Runtime summary  | Final line: `All adapters ready — MEDRE runtime running`, or the N-of-M count form | All adapters ready     | N-of-M wording with degraded/failed |
 
 ### Degraded Startup
 
@@ -119,8 +150,10 @@ All commands print a human-readable error to stderr before exiting nonzero.
 
 ## Current health after startup
 
-`Runtime running` confirms that the adapter owners started; `Runtime ready`
-also reflects healthy startup observations. Matrix keeps its first sync inside
+The N-of-M form (`MEDRE runtime running — 1/2 adapter(s) ready, …`) confirms
+only that adapter owners started and settled; the all-ready form
+(`All adapters ready — MEDRE runtime running`) also reflects healthy
+startup observations. Matrix keeps its first sync inside
 startup for up to `initial_sync_timeout_seconds` after room joins (45 seconds
 by default), logging the wait as startup progress. An acknowledgement within
 that budget permits healthy startup without an initial degradation warning.
@@ -612,9 +645,9 @@ Choose `logging.format: text` for timestamped human-readable records or
 the local UTC offset; JSON timestamps represent record creation in UTC.
 Lifecycle summaries use the same logger and level as runtime messages.
 
-At INFO, startup reports the configured route count and the expanded route
-count separately. Total adapter startup failure is labeled
-`Runtime startup failed` and does not report readiness. Individual expanded
+At INFO, startup renders the consolidated banner once every adapter has
+settled, and total adapter startup failure is labeled
+`Runtime startup failed` without reporting readiness. Individual expanded
 route registrations, adapter construction, and duplicate component startup
 details are available at DEBUG.
 Delivery messages distinguish `Delivery queued` (deferred adapter work) from

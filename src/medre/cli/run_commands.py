@@ -11,15 +11,23 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
+from medre.core.lifecycle.states import AdapterState
 from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 from medre.runtime.installation_summary import installation_lines
+from medre.runtime.startup_banner import (
+    AdapterBannerEntry,
+    StartupBanner,
+    render_outcome_line,
+    render_startup_banner,
+)
 from medre.runtime.summaries import (
     format_duration_ms,
+    format_duration_seconds,
     shutdown_summary,
     startup_route_summary,
     startup_summary,
@@ -319,6 +327,156 @@ async def _wait_for_run_shutdown(app: Any, wake: asyncio.Event) -> None:
         await asyncio.gather(app_wait, wake_wait, return_exceptions=True)
 
 
+class _SettledStartup(NamedTuple):
+    """Banner text plus the honest readiness line rendered after it."""
+
+    text: str
+    outcome_line: str
+    all_ready: bool
+
+
+def _configured_transport_keys(config: Any) -> dict[str, str]:
+    """Map adapter ID to its configured transport key (cache identity)."""
+    transports: dict[str, str] = {}
+    all_configs = getattr(getattr(config, "adapters", None), "all_configs", None)
+    if callable(all_configs):
+        for transport, adapter_id, _rtc in all_configs():
+            transports.setdefault(adapter_id, transport)
+    return transports
+
+
+def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartup:
+    """Compose the consolidated banner from settled runtime state.
+
+    The runtime has already settled every adapter (ready, degraded, or
+    terminally failed) when this runs, so the banner reports confirmed
+    facts and per-instance outcomes rather than startup previews.
+    """
+    transports = _configured_transport_keys(config)
+    attempted = len(app.adapters) + len(app.build_failures)
+
+    # Some in-process test doubles drive `_run` with a minimal app
+    # surface; every banner input stays optional like the summaries the
+    # banner replaces.
+    entries: list[AdapterBannerEntry] = []
+    ready = 0
+    degraded = 0
+    failed = 0
+    adapter_states = getattr(app, "adapter_states", {}) or {}
+    start_durations = getattr(app, "adapter_start_duration_ms", {}) or {}
+    startup_info = getattr(app, "startup_info", {}) or {}
+    start_errors = getattr(app, "adapter_start_errors", {}) or {}
+    for adapter_id in sorted(app.adapters):
+        transport = transports.get(adapter_id, "unknown")
+        state = adapter_states.get(adapter_id)
+        duration_ms = start_durations.get(adapter_id)
+        duration_text = (
+            format_duration_seconds(duration_ms / 1000.0)
+            if isinstance(duration_ms, (int, float)) and duration_ms > 0
+            else None
+        )
+        if state is AdapterState.FAILED:
+            failed += 1
+            entries.append(
+                AdapterBannerEntry(
+                    name=f"{transport}.{adapter_id}",
+                    status="failed",
+                    reason=start_errors.get(adapter_id, "failed during startup"),
+                )
+            )
+            continue
+        if state is AdapterState.DEGRADED:
+            degraded += 1
+        else:
+            ready += 1
+        entries.append(
+            AdapterBannerEntry(
+                name=f"{transport}.{adapter_id}",
+                status=state.value if state is not None else "unknown",
+                duration_text=duration_text,
+                info=startup_info.get(adapter_id),
+            )
+        )
+    build_failures = sorted(
+        app.build_failures, key=lambda bf: (bf.transport, bf.adapter_id)
+    )
+    for bf in build_failures:
+        entries.append(
+            AdapterBannerEntry(
+                name=f"{bf.transport}.{bf.adapter_id}",
+                status="build failed",
+                reason=bf.error,
+            )
+        )
+
+    route_list = config.routes.routes if config.routes else []
+    routes_text: str | None = None
+    if route_list:
+        enabled_routes = sum(1 for r in route_list if r.enabled)
+        routes_text = (
+            f"{enabled_routes} enabled, "
+            f"{len(route_list) - enabled_routes} disabled "
+            f"({len(route_list)} configured)"
+        )
+    eligibility_text: str | None = None
+    route_elig = getattr(app, "route_eligibility", None)
+    if route_elig is not None:
+        eligibility_text = startup_route_summary(
+            route_elig, getattr(app, "startup_readiness", None)
+        ).removeprefix("Route eligibility: ")
+
+    boot = app.boot_summary
+    persisted_text: str | None = None
+    storage_text: str | None = None
+    if boot is not None:
+        if boot.persisted_events_count is not None:
+            persisted_text = f"{boot.persisted_events_count} persisted"
+        storage_text = boot.storage_backend
+        if boot.storage_path is not None:
+            storage_text = f"{boot.storage_backend} ({boot.storage_path})"
+    else:
+        storage_text = config.storage.backend if config.storage else "none"
+
+    disabled = [
+        f"{transport}.{adapter_id}"
+        for transport, adapter_id, rtc in config.adapters.all_configs()
+        if not rtc.enabled
+    ]
+
+    limits = config.limits
+    banner = StartupBanner(
+        runtime_name=config.runtime.name,
+        adapter_count=attempted,
+        config_path=str(paths.config_file),
+        state_dir=str(paths.state_dir),
+        installation_lines=tuple(installation_lines()),
+        limits_text=(
+            f"max_inflight_deliveries={limits.max_inflight_deliveries}, "
+            f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
+            f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
+        ),
+        disabled_adapters=tuple(disabled),
+        routes_text=routes_text,
+        eligibility_text=eligibility_text,
+        persisted_events_text=persisted_text,
+        storage_text=storage_text,
+        adapters=tuple(entries),
+    )
+    all_ready = ready == attempted and degraded == 0 and failed == 0
+    outcome_line = render_outcome_line(
+        ready=ready,
+        total=attempted,
+        degraded=degraded,
+        failed=failed,
+        build_failed=len(build_failures),
+    )
+    return _SettledStartup(
+        text=render_startup_banner(banner),
+        outcome_line=outcome_line,
+        all_ready=all_ready,
+    )
+
+
 async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
     """Load config, build the runtime, and run until interrupted."""
     _reset_shutdown_evidence()
@@ -356,25 +514,14 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     logger.debug("Config path: %s", paths.config_file)
     logger.debug("State dir:   %s", paths.state_dir)
 
-    # Print one concise console header; detailed construction/start timing
-    # belongs in the logger and the post-start summary below.
+    # Print one minimal start line so a failed or interrupted startup
+    # still carries process context. Identity facts, installation
+    # inventory, and route/storage/limits detail belong to the
+    # consolidated banner rendered once every adapter has settled.
     _print(
         f"MEDRE starting ({config.runtime.name}) with "
         f"{len(enabled_adapters)} adapter(s): {', '.join(adapter_ids)}"
     )
-    _print(f"  Config:  {paths.config_file}")
-    _print(f"  State:   {paths.state_dir}")
-
-    # Report the running installation: core and provider versions with their
-    # install provenance (git commit, index release, editable checkout).
-    for line in installation_lines():
-        _print(line)
-
-    # Show disabled adapters for visibility.
-    all_cfgs = config.adapters.all_configs()
-    disabled = [(t, aid) for t, aid, rtc in all_cfgs if not rtc.enabled]
-    if disabled:
-        _print(f"  Disabled adapters: {', '.join(f'{t}.{aid}' for t, aid in disabled)}")
 
     builder = RuntimeBuilder(config, paths)
     try:
@@ -403,29 +550,6 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             flush=True,
         )
         sys.exit(EXIT_BUILD)
-
-    # Show route inventory.
-    route_list = config.routes.routes if config.routes else []
-    enabled_routes = [r for r in route_list if r.enabled]
-    disabled_routes = [r for r in route_list if not r.enabled]
-    if route_list:
-        _print(
-            f"  Routes: {len(enabled_routes)} enabled, "
-            f"{len(disabled_routes)} disabled "
-            f"({len(route_list)} configured)"
-        )
-
-    # Show storage backend.
-    storage_backend = config.storage.backend if config.storage else "none"
-    _print(f"  Storage: {storage_backend}")
-
-    # Show runtime limits.
-    limits = config.limits
-    _print(
-        f"  Limits: max_inflight_deliveries={limits.max_inflight_deliveries}, "
-        f"max_inflight_replay_events={limits.max_inflight_replay_events}, "
-        f"drain_timeout={limits.shutdown_drain_timeout_seconds}s"
-    )
 
     # Install signal handlers for clean shutdown. The wake callback lets the
     # handler begin teardown at servicing time instead of waiting out the
@@ -483,76 +607,19 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             )
             sys.exit(EXIT_STARTUP)
 
-        # Build startup results from app state (supports partial startup).
-        for adapter_id in app.started_adapter_ids:
-            dur = (
-                getattr(app, "adapter_start_duration_ms", {}).get(
-                    adapter_id,
-                    (time.monotonic() - run_start) * 1000,
-                )
-                / 1000.0
-            )
-            startup_results.append(
-                (
-                    adapter_id,
-                    _transport_for_adapter(adapter_id, config),
-                    True,
-                    dur,
-                    None,
-                )
-            )
-        for adapter_id in app._failed_adapter_ids:
-            dur = time.monotonic() - run_start
-            startup_results.append(
-                (
-                    adapter_id,
-                    _transport_for_adapter(adapter_id, config),
-                    False,
-                    dur,
-                    "failed during startup",
-                )
-            )
-
-        # Print current readiness while preserving the historical boot record.
-        live_health = app.live_health
-        boot = app.boot_summary
-        current_health = (
-            live_health.runtime_health
-            if live_health is not None
-            else boot.runtime_health if boot is not None else "healthy"
+        # Every adapter has settled (ready, degraded, or terminally
+        # failed). Render one consolidated banner — identity facts,
+        # per-instance blocks with confirmed facts, and runtime stats —
+        # then a single honest readiness line. Earlier failure and
+        # progress logging stands; no banner is rendered on abort.
+        banner = _settled_startup_banner(app, config, paths)
+        _print(banner.text)
+        _print(
+            banner.outcome_line,
+            level=logging.INFO if banner.all_ready else logging.WARNING,
         )
-        summary = startup_summary(startup_results, ready=current_health == "healthy")
-        _print(summary)
 
-        route_elig = app.route_eligibility
-        if route_elig is not None:
-            _print(startup_route_summary(route_elig, app.startup_readiness))
-
-        # Print boot summary diagnostics if available.
-        if app.boot_summary is not None:
-            bs = app.boot_summary
-            if current_health in {"degraded", "failed"}:
-                _print(
-                    f"  \u26a0 Runtime health is {current_health.upper()}: {bs.adapters_started}/{bs.adapters_total} adapter(s) started",
-                    level=logging.WARNING,
-                )
-                if bs.failed_adapter_ids:
-                    _print(f"    Failed adapters: {', '.join(bs.failed_adapter_ids)}")
-                degraded = [
-                    name
-                    for name, state in sorted(app.adapter_states.items())
-                    if state.value == "degraded"
-                ]
-                if degraded:
-                    _print(f"    Degraded adapters: {', '.join(degraded)}")
-            if bs.persisted_events_count is not None:
-                _print(f"  Persisted events: {bs.persisted_events_count}")
-            if bs.adapters_disabled > 0:
-                _print(f"  Disabled adapters: {bs.adapters_disabled}")
-            if bs.storage_path is not None:
-                _print(f"  Storage: {bs.storage_backend} ({bs.storage_path})")
-
-        # Log structured startup (stdout summary already printed above)
+        # Log structured startup (the banner above is the operator view)
         logger.debug(
             "Runtime started — %d adapter(s) in %s",
             len(app.started_adapter_ids),

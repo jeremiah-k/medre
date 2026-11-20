@@ -679,7 +679,9 @@ def register_routes(
             [t.adapter for t in route.targets],
         )
 
-    _logger.info("Registered %d expanded route(s)", len(registered_routes))
+    # The route inventory belongs to the consolidated startup banner; the
+    # expanded-registration count stays available at DEBUG.
+    _logger.debug("Registered %d expanded route(s)", len(registered_routes))
 
     # Build per-route operational states.
 

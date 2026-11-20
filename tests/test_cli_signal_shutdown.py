@@ -47,7 +47,7 @@ pytestmark = pytest.mark.skipif(
     reason="subprocess os.kill signal delivery exercises POSIX handlers",
 )
 
-_READY_MARKERS = ("Runtime ready (", "Runtime running (")
+_READY_MARKERS = ("All adapters ready", "MEDRE runtime running —")
 _STARTUP_HELD_MARKER = "STARTUP_HELD"
 _STOP_HELD_MARKER = "STOP_HELD"
 _SHUTDOWN_MARKER = "Runtime shutting down"

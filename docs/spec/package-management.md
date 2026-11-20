@@ -140,8 +140,9 @@ over a conflicting catalog alias during source switching.
 ## Startup installation summary
 
 `medre run` MUST report a best-effort installation summary at INFO in the
-startup header, after the config and state paths and before runtime construction.
-It includes the core version and source, Python version/system/architecture,
+consolidated startup banner rendered after every adapter has settled,
+between the config and state paths and the runtime limits. It includes the
+core version and source, Python version/system/architecture,
 and a deterministic list of installed adapter entry-point transport/distribution
 pairs (not just configured or enabled adapter instances). Core-owned entries
 MUST be excluded by normalized distribution name; nonstandard distribution names
