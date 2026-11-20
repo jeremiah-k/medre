@@ -37,13 +37,13 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import effective_generation
 from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
+from medre.core.observability.sanitization import sanitize_error
 from medre.core.startup_info import (
     CACHE_FILENAME,
     DEFAULT_EMISSION_TIMEOUT_SECONDS,
     AdapterStartupInfo,
     collect_startup_info,
     read_cache_file,
-    render_startup_info_block,
     run_cache_io,
     write_cache_file,
 )
@@ -673,6 +673,11 @@ class MedreApp:
     _boot_summary: BootSummary | None = field(default=None, init=False)
     _recovery_run_id: str | None = field(default=None, init=False)
     _failed_adapter_ids: list[str] = field(default_factory=list, init=False)
+    # Sanitized per-adapter startup failure reasons, recorded at the
+    # failed-start transition. Display-only input for the consolidated
+    # startup banner; the app's ERROR log remains the authoritative
+    # failure record.
+    _adapter_start_errors: dict[str, str] = field(default_factory=dict, init=False)
     _route_eligibility: RouteEligibility | None = field(default=None, init=False)
     _route_provenance: dict[str, str] = field(default_factory=dict, init=False)
     _registered_routes: tuple[Route, ...] = field(default=(), init=False)
@@ -746,6 +751,22 @@ class MedreApp:
     def startup_readiness(self) -> RouteStartupReadiness | None:
         """Return startup-derived route readiness, or ``None`` if not yet started."""
         return self._startup_readiness
+
+    @property
+    def startup_info(self) -> dict[str, AdapterStartupInfo]:
+        """Return a copy of the last-known per-adapter startup facts.
+
+        Entries hold the fresh emission from this startup's ready
+        transition when the adapter supplied one, and otherwise the
+        display-only cached values loaded during preparation (fields
+        flagged ``cached``). Never consulted for runtime decisions.
+        """
+        return dict(self._startup_info)
+
+    @property
+    def adapter_start_errors(self) -> dict[str, str]:
+        """Return a copy of sanitized per-adapter startup failure reasons."""
+        return dict(self._adapter_start_errors)
 
     @property
     def event_buffer(self) -> EventBuffer:
@@ -1349,6 +1370,7 @@ class MedreApp:
 
         self._set_state(RuntimeState.STARTING)
         self._startup_scope = scope
+        self._adapter_start_errors.clear()
         _logger.info(
             "Starting MEDRE runtime %s (scope=%s)",
             self.config.runtime.name,
@@ -2069,12 +2091,12 @@ class MedreApp:
         infos = await asyncio.gather(
             *(load(transport, adapter_id) for transport, adapter_id in configured)
         )
-        for (transport, adapter_id), info in zip(configured, infos, strict=True):
+        for (_transport, adapter_id), info in zip(configured, infos, strict=True):
             if info is not None:
+                # Load silently: cached facts are display-only last-known
+                # values. They surface in the consolidated startup banner
+                # at settle instead of previewing before adapters start.
                 self._startup_info[adapter_id] = info
-                _logger.info(
-                    "%s", render_startup_info_block(f"{transport}.{adapter_id}", info)
-                )
 
     async def _collect_adapter_startup_info(
         self, adapter_id: str, transport: str, adapter: AdapterContract
@@ -2208,30 +2230,26 @@ class MedreApp:
                 ),
                 transport,
             )
-            info = await self._collect_adapter_startup_info(
+            # Emission persists the durable cache and refreshes the
+            # display facts the consolidated banner reads at settle. The
+            # return value needs no further handling here.
+            await self._collect_adapter_startup_info(
                 adapter_id, configured_transport, adapter
             )
             current_health = self._observed_adapter_health.get(adapter_id)
             display_health = (
                 current_health.health if current_health is not None else initial_health
             )
-            if info is None:
-                _logger.info(
-                    "Adapter %s.%s started in %.0fms (health=%s)",
-                    transport,
-                    adapter_id,
-                    elapsed,
-                    display_health,
-                )
-            else:
-                state = self._adapter_states[adapter_id].value
-                _logger.info(
-                    "%s",
-                    render_startup_info_block(
-                        f"{configured_transport}.{adapter_id}  {state}", info
-                    ),
-                    extra={"startup_duration_ms": round(elapsed)},
-                )
+            # One readiness progress line per adapter. Startup facts are
+            # not rendered here: the consolidated banner at settle carries
+            # them once, alongside every sibling's confirmed state.
+            _logger.info(
+                "Adapter %s.%s started in %.0fms (health=%s)",
+                transport,
+                adapter_id,
+                elapsed,
+                display_health,
+            )
             self._emit_event(
                 RuntimeEventType.ADAPTER_STARTED,
                 {"adapter_id": adapter_id, "platform": transport},
@@ -2278,6 +2296,7 @@ class MedreApp:
                     )
             self._set_adapter_state(adapter_id, AdapterState.FAILED)
             self._observed_adapter_health.pop(adapter_id, None)
+            self._adapter_start_errors[adapter_id] = sanitize_error(str(exc))
             _logger.error(
                 "Adapter %s.%s failed to start (%.0fms): %s",
                 transport,

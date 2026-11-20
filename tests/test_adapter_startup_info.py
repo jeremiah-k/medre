@@ -485,10 +485,12 @@ async def test_emitted_at_ready_and_persisted(
             "firmware": "1.2.3",
         }
         assert all(not f.cached for f in info.fields)
-        assert (
-            "matrix.fake_matrix  ready\n  board FakeBoard · firmware 1.2.3"
-            in caplog.messages
+        # One readiness progress line at ready; the facts themselves render
+        # in the consolidated banner at settle, not in per-adapter logs.
+        assert f"Adapter matrix.{FAKE_ADAPTER_ID} started in" in " ".join(
+            str(m) for m in caplog.messages
         )
+        assert not any("board FakeBoard" in str(m) for m in caplog.messages)
         cache = _cache_path(tmp_paths)
         stored = read_cache_file(cache)
         assert stored is not None
@@ -589,15 +591,24 @@ async def test_cached_until_fresh_replaces(
         cached = second._startup_info[FAKE_ADAPTER_ID]
         assert cached.fields[0].value == "OLD_BOARD"
         assert cached.fields[0].cached is True
-        assert "matrix.fake_matrix (cached)\n  board OLD_BOARD" in caplog.messages
+        # Cached facts load silently: no preview block before adapters
+        # start. They surface in the consolidated banner at settle.
+        assert not any("board OLD_BOARD" in str(message) for message in caplog.messages)
         # Releasing the blocked start completes the ready transition;
-        # the fresh emission replaces the cached record.
+        # the fresh emission replaces the cached record and the runtime
+        # logs one readiness line (facts render in the banner, not here).
         release.set()
         await starting
         fresh = second._startup_info[FAKE_ADAPTER_ID]
         assert fresh.fields[0].value == "NEW_BOARD"
         assert fresh.fields[0].cached is False
-        assert "matrix.fake_matrix  ready\n  board NEW_BOARD" in caplog.messages
+        readiness = [
+            message
+            for message in caplog.messages
+            if f"Adapter matrix.{FAKE_ADAPTER_ID} started in" in str(message)
+        ]
+        assert len(readiness) == 1
+        assert not any("board NEW_BOARD" in str(m) for m in caplog.messages)
         stored = read_cache_file(_cache_path(tmp_paths))
         assert stored is not None
         assert stored.fields[0].value == "NEW_BOARD"
@@ -1113,7 +1124,9 @@ async def test_initial_degraded_health_does_not_overwrite_later_hook_health(
     caplog.set_level(logging.INFO, logger="medre.runtime.app")
     await app.start()
     try:
-        assert "matrix.fake_matrix  ready\n  board RAK4631" in caplog.messages
+        info = app.startup_info.get(FAKE_ADAPTER_ID)
+        assert info is not None
+        assert {f.name: f.value for f in info.fields} == {"board": "RAK4631"}
     finally:
         await app.stop()
 
@@ -1292,10 +1305,12 @@ async def test_live_startup_log_drops_endpoint_credentials_and_scrubs_public_key
     caplog.set_level(logging.INFO, logger="medre.runtime.app")
     await app.start()
     try:
-        assert (
-            "matrix.fake_matrix  ready\n  board RAK4631 · public key [REDACTED]"
-            in caplog.messages
-        )
+        info = app.startup_info.get(FAKE_ADAPTER_ID)
+        assert info is not None
+        assert {f.name: f.value for f in info.fields} == {
+            "board": "RAK4631",
+            "public_key": "[REDACTED]",
+        }
         stored = _cache_path(tmp_paths).read_text()
         for secret in ("opaque-test-secret", "syt_hidden", "private-test-secret"):
             assert secret not in stored

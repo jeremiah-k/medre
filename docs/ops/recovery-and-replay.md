@@ -189,9 +189,11 @@ medre run --config config.yaml >> "$log_capture" 2>&1
 
 # In another terminal:
 # 4. Inspect every adapter result for THIS run (partial readiness is possible)
-grep -E '^  (started |✗ )' "$log_capture"
-grep -F 'Runtime ready (' "$log_capture" | tail -1
-# Verify each configured adapter has a 'started' line and no 'failed' line.
+grep -F ' — startup (' "$log_capture" | tail -1   # consolidated banner heading
+grep -E '^(.*ready|.*degraded|.*failed|.*build failed)$' "$log_capture" | tail -10
+grep -F 'MEDRE runtime running' "$log_capture" | tail -1
+# Verify each configured adapter block in the banner is ready and the
+# final line reports every adapter ready.
 
 # 5. Check for adapter errors
 grep -E "\[(WARNING|ERROR)\]" "$log_capture" | tail -5
@@ -230,9 +232,9 @@ If the runtime was shut down cleanly (SIGTERM, SIGINT):
 medre run --config config.yaml >> "$log_capture" 2>&1
 
 # In another terminal, verify all configured adapters started
-# (a partially started runtime also emits "Runtime ready"):
-grep -E '^  (started |✗ )' "$log_capture"
-grep -F 'Runtime ready (' "$log_capture" | tail -1
+# (a partially started runtime still emits the banner with N-of-M wording):
+grep -E '^(.*ready|.*degraded|.*failed|.*build failed)$' "$log_capture" | tail -10
+grep -F 'MEDRE runtime running' "$log_capture" | tail -1
 
 # No further action needed. Drained deliveries produced receipts.
 # Non-terminal outbox items were preserved as resumable work.
@@ -897,7 +899,7 @@ receipt rows:
 | Preview replay             | `medre replay --mode dry_run --config my-bridge.yaml`                                                                             |
 | Execute replay             | `medre replay --mode best_effort --config my-bridge.yaml`                                                                         |
 | Check recent errors        | `grep ERROR "$log_capture" \| tail -20`                                                                                           |
-| Verify startup             | `grep "Runtime ready (" "$log_capture" \| tail -1`                                                                                |
+| Verify startup             | `grep -F "MEDRE runtime running" "$log_capture" \| tail -1`                                                                       |
 
 ## Caveats
 

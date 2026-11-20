@@ -84,10 +84,13 @@ underscores, hyphens, dots, and camel-case transitions, then lowercase and join
 with spaces, so `node_id` renders `node !a4b3c2d1`. An explicit provider label
 always wins. A provider that supplied more rows than displayed ends the block
 with an indented `… +N more` line counting the suppressed rows; the JSON output
-carries the same count. At runtime startup, the fresh block includes the
-current lifecycle state.
-Cached blocks render before adapter start and carry a `(cached)` marker with
-no claim about current health. `medre adapters` uses the same block under
+carries the same count. At runtime startup, core collects facts at each
+adapter's ready transition but does not log per-adapter blocks: the
+consolidated startup banner renders every adapter's facts once all adapters
+have settled, beneath the instance's `name status duration` line, keeping
+`(cached)` provenance and `… +N more` truncation markers. Facts loaded from
+the durable cache before adapter start are not previewed at startup.
+`medre adapters` uses the same block under
 the configured adapter. Its JSON output includes ordered facts, row indices,
 optional labels, per-field `cached` flags, and the suppressed-row count when
 rows were truncated. Both text and JSON honor the
