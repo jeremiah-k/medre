@@ -185,7 +185,10 @@ the durable outbox row and immutable receipt history before accepting evidence:
    reservations (see §3.4.1), and the retry lane's `source="retry"` envelope is
    the valid lineage for that row's later attempts. Every other disagreement
    refuses fail-closed — a `retry` or `live` row never admits a `live` or
-   `replay` envelope it did not originate; and
+   `replay` envelope it did not originate. The radio checkpoint fence obeys the
+   same directional rule at its boundary, admitting a `retry`-lane checkpoint
+   over a replay-origin row only while it binds the row's exact active
+   reservation; and
 4. every already-persisted receipt for that exact `outbox_id`/generation MUST
    agree with the envelope's full delivery identity, dispatch source, and replay
    origin. Receipt-history validation MUST be scoped by `outbox_id` before those

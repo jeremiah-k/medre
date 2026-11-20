@@ -22,6 +22,8 @@ from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.rendering.radio_text import RadioTextPlan, plan_radio_text
 from medre.core.routing import Router, RouteSource, RouteTarget
 from medre.core.routing.models import Route
 from medre.core.storage.backend import DeliveryOutboxItem, OutboxDispatchSnapshotWrite
@@ -30,6 +32,7 @@ from medre.runtime.retry import RetryWorker
 from tests.helpers.delivery_callbacks import make_post_handoff_observation
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
 from tests.helpers.storage import make_storage_event
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 _EVENT = "evt-replay-retry-provenance"
 _PLAN_ID = "plan-replay-retry"
@@ -533,4 +536,463 @@ async def test_fence_still_rejects_cross_lane_envelopes(
             channel="ch-live",
         ),
         now,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Radio checkpoint fence: durable origin versus attempt lane
+# ---------------------------------------------------------------------------
+
+
+def _wire() -> RadioTextPlan:
+    """Use a real multibyte, prefixed plan with several ordered native packets."""
+    return plan_radio_text("café α " * 16, max_text_bytes=40, prefix="[North] ")
+
+
+def _radio_provenance(
+    *,
+    outbox_id: str,
+    attempt_number: int,
+    source: str,
+    replay_run_id: str | None,
+    channel: str = _CHANNEL,
+) -> DeliveryAttemptProvenance:
+    """Freeze the radio envelope exactly as the dispatch lane builds it."""
+    return DeliveryAttemptProvenance(
+        event_id=_EVENT,
+        delivery_plan_id=_PLAN_ID,
+        target_adapter=_ADAPTER,
+        target_channel=channel,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
+        source=source,  # type: ignore[arg-type]
+        replay_run_id=replay_run_id,
+    )
+
+
+async def _radio_row(
+    store: SQLiteStorage,
+    *,
+    outbox_id: str,
+    worker_id: str,
+    origin: str = "replay",
+    replay_run_id: str | None = None,
+    channel: str = _CHANNEL,
+    attempt_number: int = 1,
+) -> DeliveryOutboxItem:
+    """Admit one owned, leased in_progress row through production validation.
+
+    Only admission-time origins exist here (``live`` or ``replay``); the
+    ``retry`` row state is reached through ``reserve_outbox_attempt`` exactly
+    as the retry worker reserves it. Distinct channels keep delivery
+    identities disjoint so sibling-generation fences cannot interfere.
+    """
+    item = DeliveryOutboxItem(
+        outbox_id=outbox_id,
+        event_id=_EVENT,
+        route_id=_ROUTE_ID,
+        delivery_plan_id=_PLAN_ID,
+        target_adapter=_ADAPTER,
+        target_channel=channel,
+        attempt_number=attempt_number,
+        status="in_progress",
+        worker_id=worker_id,
+        lease_until=(_now() + timedelta(minutes=30)).isoformat(),
+        dispatch_source=origin,  # type: ignore[arg-type]
+        replay_run_id=replay_run_id,
+    )
+    return await create_outbox_item_with_parent(
+        store, item, allocate_new_generation=(origin == "replay")
+    )
+
+
+async def test_radio_replay_row_admits_replay_lane_checkpoint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``replay`` row + ``replay`` lane: unchanged exact match."""
+    await _admit_event_with_hold(temp_storage)
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-replay-replay",
+        worker_id="pipeline:replay",
+        replay_run_id=_RUN_ID,
+    )
+    assert row.active_attempt is None
+
+    provenance = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=row.attempt_number,
+        source="replay",
+        replay_run_id=_RUN_ID,
+    )
+    bound = await temp_storage.bind_radio_attempt(
+        provenance, "pipeline:replay", _wire()
+    )
+    assert bound is not None
+    submitting = await temp_storage.begin_radio_part(bound, "pipeline:replay", 1)
+    assert submitting is not None
+    observed = await temp_storage.observe_radio_part(
+        submitting, "pipeline:replay", 1, handoff_id="radio:north:1"
+    )
+    assert observed is not None
+
+
+async def test_radio_replay_row_admits_retry_lane_checkpoint_on_active_reservation(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``replay`` row + ``retry`` lane: allow with matching reservation.
+
+    Full chain: the replay generation fails once, the retry worker reserves
+    attempt 2 on the preserved replay origin, and its retry-lane envelope
+    binds, starts and observes radio checkpoints under that exact reservation.
+    Without the fence extension the durable origin would reject every
+    legitimate retry-lane radio checkpoint.
+    """
+    await _admit_event_with_hold(temp_storage)
+    row = await _create_replay_generation(
+        temp_storage, outbox_id="obox-radio-retry-lane"
+    )
+    first_worker = "pipeline:replay"
+    await _claim(temp_storage, row.outbox_id, first_worker)
+    await _finalize_transient_failure(
+        temp_storage, row.outbox_id, worker_id=first_worker, attempt_number=1
+    )
+
+    retry_worker = "retry:worker-1"
+    await _claim(temp_storage, row.outbox_id, retry_worker)
+    assert (
+        await temp_storage.reserve_outbox_attempt(row.outbox_id, retry_worker, 1) == 2
+    )
+    reserved_row = await temp_storage.get_outbox_item(row.outbox_id)
+    assert reserved_row is not None
+    assert reserved_row.dispatch_source == "replay"
+    assert reserved_row.active_attempt == 2
+
+    provenance = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id=_RUN_ID,
+    )
+    bound = await temp_storage.bind_radio_attempt(provenance, retry_worker, _wire())
+    assert bound is not None
+    submitting = await temp_storage.begin_radio_part(bound, retry_worker, 1)
+    assert submitting is not None
+    observed = await temp_storage.observe_radio_part(
+        submitting, retry_worker, 1, handoff_id="radio:retry:1"
+    )
+    assert observed is not None
+
+
+async def test_radio_retry_row_admits_retry_lane_checkpoint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``retry`` row + ``retry`` lane: unchanged exact match."""
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-retry-retry",
+        worker_id="retry:worker-1",
+        origin="live",
+        channel="ch-radio-retry-retry",
+    )
+    assert (
+        await temp_storage.reserve_outbox_attempt(row.outbox_id, "retry:worker-1", 1)
+        == 2
+    )
+    reserved_row = await temp_storage.get_outbox_item(row.outbox_id)
+    assert reserved_row is not None
+    assert reserved_row.dispatch_source == "retry"
+    assert reserved_row.active_attempt == 2
+
+    provenance = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id=None,
+        channel="ch-radio-retry-retry",
+    )
+    bound = await temp_storage.bind_radio_attempt(provenance, "retry:worker-1", _wire())
+    assert bound is not None
+    submitting = await temp_storage.begin_radio_part(bound, "retry:worker-1", 1)
+    assert submitting is not None
+
+
+async def test_radio_replay_row_refuses_live_lane_checkpoint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``replay`` row + ``live`` lane: refuse, not a run-id artifact.
+
+    The unnamed replay row and the live envelope both carry no replay run
+    identifier, so the run ids match exactly and the refusal is attributable
+    to the source labels alone. The replay-lane control binding on the same
+    untouched row proves the state itself is bindable.
+    """
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-replay-live",
+        worker_id="pipeline:replay",
+        replay_run_id=None,
+        channel="ch-radio-replay-live",
+    )
+    live_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=1,
+        source="live",
+        replay_run_id=None,
+        channel="ch-radio-replay-live",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(live_lane, "pipeline:replay", _wire())
+        is None
+    )
+    replay_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=1,
+        source="replay",
+        replay_run_id=None,
+        channel="ch-radio-replay-live",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(replay_lane, "pipeline:replay", _wire())
+        is not None
+    )
+
+
+async def test_radio_retry_row_refuses_replay_lane_checkpoint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``retry`` row + ``replay`` lane: refuse, not a run-id artifact.
+
+    Both the reserved live-origin row and the unnamed replay envelope carry no
+    replay run identifier, so the refusal is attributable to the source labels
+    alone; the retry-lane control binding proves the reserved row is bindable.
+    A named replay envelope over a second reserved row is refused as well.
+    """
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-retry-replay",
+        worker_id="retry:worker-1",
+        origin="live",
+        channel="ch-radio-retry-replay",
+    )
+    assert (
+        await temp_storage.reserve_outbox_attempt(row.outbox_id, "retry:worker-1", 1)
+        == 2
+    )
+    replay_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="replay",
+        replay_run_id=None,
+        channel="ch-radio-retry-replay",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(replay_lane, "retry:worker-1", _wire())
+        is None
+    )
+    retry_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id=None,
+        channel="ch-radio-retry-replay",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(retry_lane, "retry:worker-1", _wire())
+        is not None
+    )
+
+    named_row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-retry-replay-named",
+        worker_id="retry:worker-1",
+        origin="live",
+        channel="ch-radio-retry-replay-named",
+    )
+    assert (
+        await temp_storage.reserve_outbox_attempt(
+            named_row.outbox_id, "retry:worker-1", 1
+        )
+        == 2
+    )
+    named_replay = _radio_provenance(
+        outbox_id=named_row.outbox_id,
+        attempt_number=2,
+        source="replay",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-retry-replay-named",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(named_replay, "retry:worker-1", _wire())
+        is None
+    )
+
+
+async def test_radio_live_row_refuses_replay_lane_checkpoint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Table row ``live`` row + ``replay`` lane: refuse, not a run-id artifact.
+
+    The live row and the unnamed replay envelope both carry no replay run
+    identifier, so the refusal is attributable to the source labels alone;
+    the live-lane control binding proves the row state is bindable.
+    """
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-live-replay",
+        worker_id="pipeline:sender-1",
+        origin="live",
+        channel="ch-radio-live-replay",
+    )
+    replay_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=1,
+        source="replay",
+        replay_run_id=None,
+        channel="ch-radio-live-replay",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(replay_lane, "pipeline:sender-1", _wire())
+        is None
+    )
+    live_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=1,
+        source="live",
+        replay_run_id=None,
+        channel="ch-radio-live-replay",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(live_lane, "pipeline:sender-1", _wire())
+        is not None
+    )
+
+
+async def test_radio_retry_lane_never_binds_unreserved_replay_base_attempt(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A retry-lane envelope without the active reservation never binds.
+
+    The replay row is in_progress with no reservation at all: the attempt
+    guard in the claim query passes on the unreserved base attempt, so this
+    refusal proves the fence's exact active-reservation requirement rather
+    than the status or attempt guards. The replay-lane control binding on the
+    same untouched row proves the state itself is bindable.
+    """
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-unreserved-base",
+        worker_id="pipeline:replay",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-unreserved-base",
+    )
+    assert row.active_attempt is None
+
+    retry_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=row.attempt_number,
+        source="retry",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-unreserved-base",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(retry_lane, "pipeline:replay", _wire())
+        is None
+    )
+    replay_lane = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=row.attempt_number,
+        source="replay",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-unreserved-base",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(replay_lane, "pipeline:replay", _wire())
+        is not None
+    )
+
+
+async def test_radio_retry_lane_refuses_stale_and_future_attempts(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Stale and future retry-lane attempts never bind a replay row.
+
+    A future attempt number does not match the active reservation, and once
+    the reservation is consumed into retry_wait the old attempt-2 envelope no
+    longer binds an in_progress reservation at all.
+    """
+    await _admit_event_with_hold(temp_storage)
+    row = await _create_replay_generation(temp_storage, outbox_id="obox-radio-stale")
+    first_worker = "pipeline:replay"
+    await _claim(temp_storage, row.outbox_id, first_worker)
+    await _finalize_transient_failure(
+        temp_storage, row.outbox_id, worker_id=first_worker, attempt_number=1
+    )
+    retry_worker = "retry:worker-1"
+    await _claim(temp_storage, row.outbox_id, retry_worker)
+    assert (
+        await temp_storage.reserve_outbox_attempt(row.outbox_id, retry_worker, 1) == 2
+    )
+
+    future = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=3,
+        source="retry",
+        replay_run_id=_RUN_ID,
+    )
+    assert await temp_storage.bind_radio_attempt(future, retry_worker, _wire()) is None
+
+    await _finalize_transient_failure(
+        temp_storage, row.outbox_id, worker_id=retry_worker, attempt_number=2
+    )
+    stale = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id=_RUN_ID,
+    )
+    assert await temp_storage.bind_radio_attempt(stale, retry_worker, _wire()) is None
+
+
+async def test_radio_retry_lane_on_replay_row_still_requires_matching_run(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """The divergence admits the reservation, not a foreign replay run.
+
+    With the lane divergence held constant (replay row, retry lane, exact
+    active reservation), flipping only the replay run identifier flips the
+    verdict: the run binding is enforced independently of the source rule.
+    """
+    row = await _radio_row(
+        temp_storage,
+        outbox_id="obox-radio-run-mismatch",
+        worker_id="retry:worker-1",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-run-mismatch",
+    )
+    assert (
+        await temp_storage.reserve_outbox_attempt(row.outbox_id, "retry:worker-1", 1)
+        == 2
+    )
+    foreign_run = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id="run-other-lineage",
+        channel="ch-radio-run-mismatch",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(foreign_run, "retry:worker-1", _wire())
+        is None
+    )
+    matching_run = _radio_provenance(
+        outbox_id=row.outbox_id,
+        attempt_number=2,
+        source="retry",
+        replay_run_id=_RUN_ID,
+        channel="ch-radio-run-mismatch",
+    )
+    assert (
+        await temp_storage.bind_radio_attempt(matching_run, "retry:worker-1", _wire())
+        is not None
     )
