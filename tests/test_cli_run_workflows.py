@@ -17,8 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from medre.core.startup_info import AdapterStartupInfo
 
+from medre.core.startup_info import AdapterStartupInfo
 from tests.helpers.async_utils import wait_until
 from tests.helpers.cli import _run_cli, _run_cli_raw
 from tests.helpers.compatibility_configs import CONFIG_FAKE_MULTI, CONFIG_SINGLE_ADAPTER

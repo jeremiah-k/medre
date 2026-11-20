@@ -53,8 +53,7 @@ def startup_ready(logs: str) -> bool:
         if message.startswith("MEDRE ") and " — startup (" in message:
             observed_banner = message.endswith(" — startup (7 adapter(s))")
         elif (
-            observed_banner
-            and message == "All adapters ready — MEDRE runtime running"
+            observed_banner and message == "All adapters ready — MEDRE runtime running"
         ):
             return True
     return False

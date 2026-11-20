@@ -278,13 +278,17 @@ def test_outcome_line_degraded_adapter_is_not_ready() -> None:
     assert "0/1 adapter(s) ready, 1 degraded" in line
 
 
-
 def test_failure_reason_cannot_create_extra_banner_rows() -> None:
     text = render_startup_banner(
-        _banner(adapters=(AdapterBannerEntry(
-            name="matrix.radio", status="failed",
-            reason="token=private-fixture-token\nforged row\x1b[31m",
-        ),))
+        _banner(
+            adapters=(
+                AdapterBannerEntry(
+                    name="matrix.radio",
+                    status="failed",
+                    reason="token=private-fixture-token\nforged row\x1b[31m",
+                ),
+            )
+        )
     )
     assert "private-fixture-token" not in text
     assert "\nforged row" not in text

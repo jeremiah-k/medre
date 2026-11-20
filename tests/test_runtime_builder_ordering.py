@@ -308,7 +308,9 @@ class TestAllAdaptersBuildFailure:
         with patch.object(
             builder,
             "_build_single_adapter",
-            side_effect=RuntimeConfigError("simulated missing SDK token=fixture-build-token"),
+            side_effect=RuntimeConfigError(
+                "simulated missing SDK token=fixture-build-token"
+            ),
         ):
             app = builder.build()
 
