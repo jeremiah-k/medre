@@ -353,8 +353,10 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
   of the whole message at `remote_service` or `end_to_end` confirmation for
   the exact reclaimed attempt. The obligation settles `sent` through the
   existing guarded terminal transition. No receipt is fabricated: the
-  checkpoint and observation rows remain the evidence, and the settled row
-  carries no receipt pointer when none existed.
+  checkpoint and observation rows remain the evidence, the settled row
+  carries no receipt pointer when none existed, and any stale receipt
+  pointer left by an earlier attempt is cleared in the same transaction as
+  the settlement.
 - `definitively_not_submitted` — a retained radio checkpoint whose grant
   fence is wholly empty proves the transport was never authorized for any
   packet of this attempt. Normal retry semantics follow: the attempt is
@@ -364,36 +366,60 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
 - `unresolved` — everything else. The attempt is consumed conservatively
   exactly as the ambiguous rule prescribes, and the row records the explicit
   `uncertain_native_handoff` detail with a bounded statement of the retained
-  part counts, so the undetermined outcome stays operator-visible and is
-  re-resolved on every later reclaim (bounded by the retry budget).
+  part counts, so the undetermined outcome stays operator-visible. A row
+  consumed as uncertain is reconsidered on two bounded surfaces only: every
+  later reclaim of a reservation within the retry budget, and the bounded
+  pre-dispatch evidence recheck described below.
 
 Honesty boundaries of the pass:
 
 - Resolution claims evidence; it never guesses. Absence of evidence never
   proves rejection, a post-handoff negative transport report never proves
   non-acceptance, and conflicting positive/negative reports keep the result
-  held (`unresolved`).
+  held (`unresolved`) — including a whole-message failure report that
+  contradicts a fully accepted checkpoint.
 - The pass is pure and read-only. Every settlement commits through an
   existing guarded compare-and-set transition fenced to the reclaiming
   worker; a stale or superseded worker's settlement is refused and reported
   as an uncommitted transition, so recovery can run twice without
   double-committing and a lost settlement commit converges on the next
   reclaim.
+- Unreadable evidence is held, never decisive: an observation record that
+  fails to decode, or a packet-scoped claim whose metadata is invalid or
+  does not correlate exactly, neither proves nor refutes and never raises
+  out of reconciliation; the verdict fails closed to `unresolved`.
 - Identity is validated exactly: a checkpoint whose provenance contradicts
-  the reclaimed row never settles it, observations must carry the exact
-  delivery identity and the reclaimed attempt, and packet-scoped facts are
-  trusted only against their retained checkpoint (existing storage
-  interfaces admit a packet observation only against a retained original
-  acceptance, so an uncertain radio part cannot be upgraded from an
-  observation; an adapter-side capability to attest uncertain parts is a
-  separate follow-up, not an assumption of this contract).
+  the reclaimed row never settles it, and neither does a checkpoint whose
+  dispatch provenance is incoherent with the row — a checkpoint bound under
+  a different replay run, or one whose source lineage disagrees with the
+  row, never settles anything. Observations must carry the exact delivery
+  identity and the reclaimed attempt, and packet-scoped facts are trusted
+  only against their retained checkpoint (existing storage interfaces admit
+  a packet observation only against a retained original acceptance, so an
+  uncertain radio part cannot be upgraded from an observation; an
+  adapter-side capability to attest uncertain parts is a separate follow-up,
+  not an assumption of this contract).
 - Dispatch provenance is never rewritten: a `live` or replay-lineage
   (`replay_run_id`) obligation settles on its own row only, with its source
   and run lineage intact, and sibling destinations are unaffected.
-- The pass never invokes a transport and never widens native authority: an
-  `unresolved` outcome never becomes permission to resend, and the retained
-  radio checkpoint continues to fence replay of any accepted or uncertain
-  prefix exactly as before.
+- The pass never invokes a transport and never widens native authority.
+  An `unresolved` outcome keeps the conservative accounting, but it is not
+  an unconditional no-resend guarantee: normal retry can still dispatch a
+  newer attempt while evidence stays unresolved. The retained radio
+  checkpoint continues to fence replay of any accepted or uncertain prefix
+  exactly as before.
+
+Bounded pre-dispatch evidence recheck: when a reclaimed row is about to
+dispatch a NEW attempt and its last finalized attempt carries the
+`uncertain_native_handoff` detail, the read-only verdict is re-run once on
+that attempt's retained evidence before the dispatch reservation commits.
+Evidence that has become readable and settles the attempt commits the
+settlement instead of dispatching; a verdict that now proves the grant fence
+wholly empty records the `handoff_not_submitted` determination and returns
+the row to `retry_wait` without dispatching; anything else leaves normal
+retry dispatch unchanged. This is a single recheck of the last receipt-less
+ambiguous attempt — never a durable hold, never a loop over older attempts,
+and never a transport invocation.
 
 ### 3.5 Stale Feedback Protection
 

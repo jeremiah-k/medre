@@ -306,8 +306,14 @@ class DeliveryLifecycleStorage(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        clear_receipt_id: bool = False,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
+
+        ``clear_receipt_id`` removes any stale receipt pointer on the row in
+        the same transaction as the settlement; it is used by settlements that
+        commit without a receipt.
 
         Return ``False`` when the guarded transition did not commit.
         """
@@ -1666,12 +1672,14 @@ class DeliveryLifecycleService:
           semantics under an evidence-backed diagnostic; anything else stays
           unresolved and is consumed conservatively with the explicit
           ``uncertain_native_handoff`` operator-visible detail for bounded
-          re-resolution on later reclaims.  Without a resolver, or when the
-          pass finds nothing, the reserved identity is consumed as a failed
-          attempt exactly as before and the row moves to ``retry_wait`` (or
-          ``dead_lettered`` when the attempt budget is exhausted).  A later
-          dispatch MUST use a strictly newer attempt number; retry recovery
-          never reuses a reserved dispatch identity.
+          re-resolution on later reclaims and for the bounded pre-dispatch
+          evidence recheck (:meth:`recheck_last_uncertain_handoff`) that
+          runs before a newer attempt dispatches.  Without a resolver, or
+          when the pass finds nothing, the reserved identity is consumed as
+          a failed attempt exactly as before and the row moves to
+          ``retry_wait`` (or ``dead_lettered`` when the attempt budget is
+          exhausted).  A later dispatch MUST use a strictly newer attempt
+          number; retry recovery never reuses a reserved dispatch identity.
         * No reservation: check for next-attempt evidence at
           ``item.attempt_number + 1`` defensively (a superseded engine
           generation may have persisted evidence without the reservation
@@ -1809,14 +1817,16 @@ class DeliveryLifecycleService:
         plan reached its transport boundary, so the existing guarded ``sent``
         transition settles the obligation. No receipt is fabricated: the
         checkpoint and observation rows remain the evidence, and the settled
-        row intentionally carries no receipt pointer when none existed. The
-        guarded CAS refuses a stolen or already-settled row, so re-running
+        row carries no receipt pointer — any stale pointer left on the row by
+        an earlier attempt is cleared atomically with the settlement write.
+        The guarded CAS refuses a stolen or already-settled row, so re-running
         resolution after a lost commit converges instead of double-committing.
         """
         committed = await storage.mark_outbox_sent(
             item.outbox_id,
             attempt_number=attempt_number,
             expected_worker_id=item.worker_id,
+            clear_receipt_id=True,
         )
         self._require_retry_commit(
             committed,
@@ -1837,6 +1847,83 @@ class DeliveryLifecycleService:
             receipt_id=None,
             failure_kind=None,
             attempt_number=attempt_number,
+        )
+
+    async def recheck_last_uncertain_handoff(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        handoff_resolver: UncertainNativeHandoffResolver,
+        now: datetime | None = None,
+    ) -> RetryAttemptFinalization | None:
+        """Bounded pre-dispatch evidence recheck of the last ambiguous attempt.
+
+        Runs immediately before a reclaimed row dispatches a NEW attempt when
+        the row's last finalized attempt carries the explicit
+        ``uncertain_native_handoff`` detail. The read-only verdict is re-run
+        on that attempt's retained evidence, so newly readable evidence is
+        reconsidered before redispatch:
+
+        * ``delivered_with_evidence`` settles the obligation ``sent`` through
+          the existing guarded transition (no receipt is fabricated, and any
+          stale receipt pointer is cleared with the settlement);
+        * ``definitively_not_submitted`` records the evidence-backed
+          determination and returns the row to ``retry_wait`` without
+          dispatching — normal retry dispatch resumes on a later poll;
+        * ``unresolved`` returns ``None`` and normal dispatch proceeds.
+
+        This is a single recheck of the last receipt-less ambiguous attempt —
+        never a durable hold, never a loop over older attempts, and never a
+        transport invocation. Evidence from an older attempt can never settle
+        this attempt: the resolver correlates only the exact attempt named by
+        the row.
+        """
+        if item.active_attempt is not None or item.attempt_number < 1:
+            return None
+        if item.failure_kind_detail != UNCERTAIN_NATIVE_HANDOFF_DETAIL:
+            return None
+        attempt_number = item.attempt_number
+        resolution = await handoff_resolver.resolve(item, attempt_number)
+        if resolution.verdict == "unresolved":
+            return None
+        if resolution.verdict == "delivered_with_evidence":
+            return await self._settle_resolved_handoff(
+                storage, item, attempt_number, resolution
+            )
+        next_attempt_at = (now or datetime.now(timezone.utc)) + RetryExecutor(
+            retry_policy
+        ).compute_backoff(attempt_number)
+        committed = await storage.mark_outbox_retry_wait(
+            item.outbox_id,
+            next_attempt_at=next_attempt_at.isoformat(),
+            failure_kind=_AMBIGUOUS_DISPATCH_FAILURE_KIND,
+            failure_kind_detail=HANDOFF_NOT_SUBMITTED_DETAIL,
+            error_summary=_NOT_SUBMITTED_DISPATCH_ERROR,
+            attempt_number=attempt_number,
+            expected_worker_id=item.worker_id,
+        )
+        self._require_retry_commit(
+            committed,
+            item,
+            transition="retry_wait",
+            attempt_number=attempt_number,
+        )
+        self._log.info(
+            "Pre-dispatch evidence recheck resolved outbox %s attempt %d to a "
+            "proven non-submission (%s); recording the determination instead "
+            "of dispatching",
+            item.outbox_id,
+            attempt_number,
+            ",".join(resolution.reasons),
+        )
+        return RetryAttemptFinalization(
+            outcome="retry_wait",
+            receipt_id=None,
+            failure_kind=_AMBIGUOUS_DISPATCH_FAILURE_KIND,
+            attempt_number=attempt_number,
+            next_retry_at=next_attempt_at,
         )
 
     async def finalize_retry_attempt_error(

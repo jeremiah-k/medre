@@ -1091,6 +1091,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         error_summary: str | None = None,
         next_attempt_at: str | None = None,
         expected_worker_id: str | None = None,
+        clear_receipt_id: bool = False,
     ) -> bool:
         """Shared helper for status transitions.
 
@@ -1132,6 +1133,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         if receipt_id is not None:
             sets.append("receipt_id = ?")
             params.append(receipt_id)
+        elif clear_receipt_id:
+            # Evidence-only settlement: drop any stale receipt pointer in the
+            # same transaction as the transition write.
+            sets.append("receipt_id = NULL")
         if attempt_number is not None:
             # Committing an outcome at an explicit attempt number is the
             # finalization of a reserved (or directly stamped) attempt:
@@ -1247,11 +1252,14 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        clear_receipt_id: bool = False,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
         Authority: **mark** (terminal transition).  Only transitions from
-        ``in_progress`` or ``queued``.
+        ``in_progress`` or ``queued``.  ``clear_receipt_id`` removes any
+        stale receipt pointer in the settlement's transaction.
         """
         return await self._update_outbox_status(
             outbox_id,
@@ -1263,6 +1271,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             receipt_id=receipt_id,
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            clear_receipt_id=clear_receipt_id,
         )
 
     async def mark_outbox_queued(

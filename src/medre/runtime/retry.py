@@ -65,6 +65,7 @@ from medre.core.engine.pipeline.target_delivery import (
     _DeliveryDeferred,
 )
 from medre.core.evidence.handoff_resolution import (
+    UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
     UncertainNativeHandoffResolver,
 )
@@ -1395,6 +1396,57 @@ class RetryWorker:
                 reconciled.outcome,
             )
             return
+
+        # Bounded pre-dispatch evidence recheck: when the row's last finalized
+        # attempt was consumed as an explicitly uncertain native handoff, its
+        # retained evidence is re-read once before a NEW attempt dispatches.
+        # Newly readable evidence settles the obligation instead of
+        # redispatching; unresolved evidence leaves normal retry dispatch
+        # unchanged. This is a single recheck of the last ambiguous attempt —
+        # never a durable hold and never a transport invocation. The durable
+        # marker on the row gates the delegation; the lifecycle authority
+        # re-validates every condition itself.
+        if (
+            self._handoff_resolver is not None
+            and item.active_attempt is None
+            and item.attempt_number >= 1
+            and item.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+        ):
+            try:
+                rechecked = await self._lifecycle.recheck_last_uncertain_handoff(
+                    self._lifecycle_storage,
+                    item,
+                    retry_context.retry_policy,
+                    handoff_resolver=self._handoff_resolver,
+                )
+            except RetryAttemptCommitRejected as stale:
+                self.state.processed += 1
+                self._log_superseded_transition(item, stale)
+                return
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                _logger.exception(
+                    "RetryWorker: failed the pre-dispatch evidence recheck for "
+                    "outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.attempt_number,
+                )
+                return
+            if rechecked is not None:
+                self.state.processed += 1
+                self._record_retry_finalization(item, rechecked, reconciled=True)
+                _logger.info(
+                    "RetryWorker: pre-dispatch recheck settled outbox %s "
+                    "attempt %d as %s; skipping transport",
+                    item.outbox_id,
+                    rechecked.attempt_number,
+                    rechecked.outcome,
+                )
+                return
 
         read_owned = self._storage.read_event_for_outbox
         authorized = await read_owned(item.event_id, item.outbox_id)

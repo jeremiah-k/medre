@@ -29,7 +29,9 @@ closed vocabulary:
   absent, conflicting, or unreadable. Absence of evidence never proves
   rejection; conflicting positive/negative reports stay held. The attempt is
   consumed conservatively and the uncertainty is recorded with an
-  operator-visible diagnostic for bounded re-resolution on later reclaims.
+  operator-visible diagnostic for bounded re-resolution on later reclaims
+  and for the bounded pre-dispatch recheck of the last receipt-less
+  ambiguous attempt before a newer attempt dispatches.
 
 Honesty boundaries
 ------------------
@@ -43,7 +45,17 @@ Honesty boundaries
   not an assumption of this contract.
 * Message-level observations are trusted only with a complete, exact
   delivery identity on the reclaimed attempt; packet-scoped facts are
-  ignored when no checkpoint exists to correlate them.
+  ignored when no checkpoint exists to correlate them. An observation
+  whose packet metadata is invalid is unreadable evidence: it is never
+  classified as whole-message evidence and never correlated as a packet
+  fact, so it can neither prove nor refute — fail closed to ``unresolved``.
+* A checkpoint is validated against the reclaimed row's dispatch
+  provenance as well as its delivery identity: a checkpoint bound under a
+  different replay run, or one whose source lineage disagrees with the row,
+  never settles anything.
+* Whole-message negative reports are evidence too: a failure observation
+  for the exact attempt keeps a fully accepted checkpoint held instead of
+  letting conflicting evidence settle ``delivered``.
 * Dispatch provenance is never read as authority and never rewritten: the
   verdict is provenance-agnostic and the settlement transitions leave
   ``dispatch_source``/``replay_run_id`` untouched.
@@ -161,6 +173,31 @@ def _matches_identity(
     )
 
 
+_OBSERVATION_SCOPE_MESSAGE = "message"
+_OBSERVATION_SCOPE_PACKET = "packet"
+_OBSERVATION_SCOPE_UNREADABLE = "unreadable"
+
+
+def _observation_scope(observation: DeliveryObservation) -> str:
+    """Classify one observation's evidence scope without trusting its payload.
+
+    An observation whose metadata blob is not a readable mapping, or whose
+    ``radio_packet`` claim is not a well-formed mapping, is unreadable
+    evidence: it is never classified as whole-message evidence and never
+    correlated as a packet fact, so it can neither prove nor refute.
+    """
+    metadata = observation.metadata
+    if not isinstance(metadata, Mapping):
+        return _OBSERVATION_SCOPE_UNREADABLE
+    if "radio_packet" not in metadata:
+        return _OBSERVATION_SCOPE_MESSAGE
+    return (
+        _OBSERVATION_SCOPE_PACKET
+        if isinstance(metadata["radio_packet"], Mapping)
+        else _OBSERVATION_SCOPE_UNREADABLE
+    )
+
+
 def _packet_ordinal(
     observation: DeliveryObservation,
     provenance: DeliveryAttemptProvenance,
@@ -208,7 +245,9 @@ def _message_level_observations(
 
     Packet-scoped facts are excluded: without a retained checkpoint there is
     no correlation authority for them, and trusting one would let an
-    uncorrelated row settle a whole radio send.
+    uncorrelated row settle a whole radio send. An observation carrying
+    invalid packet metadata is unreadable evidence and is excluded the same
+    way — it must never be classified as whole-message evidence.
     """
     relevant: list[DeliveryObservation] = []
     for observation in observations:
@@ -218,7 +257,7 @@ def _message_level_observations(
             continue
         if not _matches_identity(observation, identity):
             continue
-        if isinstance(observation.metadata.get("radio_packet"), Mapping):
+        if _observation_scope(observation) != _OBSERVATION_SCOPE_MESSAGE:
             continue
         relevant.append(observation)
     return relevant
@@ -280,6 +319,8 @@ def _resolve_checkpoint(
     attempt_number: int,
     identity: DeliveryIdentity,
     observations: Sequence[DeliveryObservation],
+    attempt_source: str | None = None,
+    replay_run_id: str | None = None,
 ) -> UncertainHandoffResolution:
     if isinstance(checkpoint, StoredRadioAttempt):
         provenance = checkpoint.provenance
@@ -305,19 +346,60 @@ def _resolve_checkpoint(
             has_checkpoint=True,
         )
 
+    if attempt_source is not None or replay_run_id is not None:
+        # Provenance coherence with the reclaimed row. The exact lane identity
+        # (adapter and channel) is already validated above; a checkpoint bound
+        # under a different replay run, or one whose dispatch-source lineage
+        # disagrees with the row (live versus replay-lineage), never settles
+        # anything.
+        coherent = provenance.replay_run_id == replay_run_id and (
+            provenance.source == "live"
+        ) == (attempt_source == "live")
+        if not coherent:
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="checkpoint_provenance_incoherent",
+                has_checkpoint=True,
+            )
+
     accepted = [part for part in parts if part.state == "accepted"]
     uncertain = [part for part in parts if part.state in _UNCERTAIN_PART_STATES]
     unsent = [part for part in parts if part.state == "unsent"]
 
-    # Packet observations are admitted by storage only against a retained
-    # original acceptance. A negative packet report for an accepted part
-    # contradicts the fenced handoff facts and keeps the result held; no
-    # observation can upgrade an uncertain part under existing interfaces.
-    negative_packet = any(
-        _packet_ordinal(observation, provenance, part_count) is not None
-        and observation.state in _NEGATIVE_OBSERVATION_STATES
-        for observation in observations
-    )
+    # Classify the exact attempt's observations. Packet observations are
+    # admitted by storage only against a retained original acceptance, so a
+    # negative packet report for an accepted part contradicts the fenced
+    # handoff facts and keeps the result held; no observation can upgrade an
+    # uncertain part under existing interfaces. A whole-message failure report
+    # for the exact attempt contradicts a fully accepted checkpoint the same
+    # way. A packet claim whose metadata is invalid, or whose part reference
+    # does not correlate exactly, is unreadable evidence: it neither proves
+    # nor refutes and must never be classified as whole-message evidence —
+    # fail closed to unresolved.
+    message_level: list[DeliveryObservation] = []
+    negative_packet = False
+    negative_message = False
+    unreadable_packet = False
+    for observation in observations:
+        if observation.outbox_id != outbox_id:
+            continue
+        if observation.attempt_number != attempt_number:
+            continue
+        if not _matches_identity(observation, identity):
+            continue
+        scope = _observation_scope(observation)
+        if scope == _OBSERVATION_SCOPE_MESSAGE:
+            message_level.append(observation)
+            if observation.state in _NEGATIVE_OBSERVATION_STATES:
+                negative_message = True
+        elif scope == _OBSERVATION_SCOPE_UNREADABLE:
+            unreadable_packet = True
+        elif _packet_ordinal(observation, provenance, part_count) is None:
+            unreadable_packet = True
+        elif observation.state in _NEGATIVE_OBSERVATION_STATES:
+            negative_packet = True
 
     if uncertain:
         return _resolution(
@@ -331,12 +413,18 @@ def _resolve_checkpoint(
             unsent_parts=len(unsent),
         )
     if len(accepted) == part_count:
-        if negative_packet:
+        if negative_packet or negative_message or unreadable_packet:
+            if negative_packet:
+                reason = "conflicting_packet_observation"
+            elif negative_message:
+                reason = "conflicting_message_observation"
+            else:
+                reason = "unreadable_packet_evidence"
             return _resolution(
                 "unresolved",
                 attempt_number,
                 uncertain=True,
-                reason="conflicting_packet_observation",
+                reason=reason,
                 has_checkpoint=True,
                 accepted_parts=len(accepted),
                 uncertain_parts=0,
@@ -353,6 +441,20 @@ def _resolve_checkpoint(
             unsent_parts=0,
         )
     if not accepted:
+        if unreadable_packet:
+            # A packet-scoped row for an attempt whose grant fence is wholly
+            # empty cannot exist under the admission rules; treating it as
+            # readable would overclaim a proven non-submission.
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="unreadable_packet_evidence",
+                has_checkpoint=True,
+                accepted_parts=0,
+                uncertain_parts=0,
+                unsent_parts=len(unsent),
+            )
         return _resolution(
             "definitively_not_submitted",
             attempt_number,
@@ -382,12 +484,16 @@ def resolve_uncertain_handoff(
     identity: DeliveryIdentity,
     checkpoint: StoredRadioAttempt | RadioAttemptMetadata | None,
     observations: Sequence[DeliveryObservation],
+    attempt_source: str | None = None,
+    replay_run_id: str | None = None,
 ) -> UncertainHandoffResolution:
     """Decide what retained evidence establishes about one attempt's handoff.
 
     Pure and fail-closed. The verdict never mutates state, never grants a
     send, and never fabricates evidence; see the module contract for the
-    honesty boundaries.
+    honesty boundaries. *attempt_source* and *replay_run_id* carry the
+    reclaimed row's dispatch provenance; when provided, a retained checkpoint
+    must be coherent with them or nothing settles.
     """
     if checkpoint is None:
         return _resolve_message_level(
@@ -402,6 +508,8 @@ def resolve_uncertain_handoff(
         attempt_number=attempt_number,
         identity=identity,
         observations=observations,
+        attempt_source=attempt_source,
+        replay_run_id=replay_run_id,
     )
 
 
@@ -438,6 +546,10 @@ class EvidenceBackedHandoffResolver:
     reported as an explicitly uncertain ``unresolved`` result so
     reconciliation keeps its conservative accounting instead of failing the
     reclaim; the operator-visible diagnostic names the unreadable evidence.
+    Corrupt or malformed retained rows — an observation payload that fails to
+    decode, an unreadable timestamp — are handled the same way: they neither
+    prove nor refute, and they never raise out of reconciliation, which would
+    strand the claimed reservation.
     """
 
     def __init__(self, storage: HandoffEvidenceStore) -> None:
@@ -467,10 +579,23 @@ class EvidenceBackedHandoffResolver:
                 reason="resolution_evidence_unavailable",
                 has_checkpoint=False,
             )
+        except (TypeError, ValueError):
+            # Undecodable retained evidence (msgspec validation errors and
+            # malformed timestamps are ValueError subclasses). Fail closed to
+            # an explicitly uncertain verdict instead of stranding the claim.
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="resolution_evidence_unreadable",
+                has_checkpoint=False,
+            )
         return resolve_uncertain_handoff(
             outbox_id=item.outbox_id,
             attempt_number=attempt_number,
             identity=identity,
             checkpoint=checkpoint,
             observations=observations,
+            attempt_source=item.dispatch_source,
+            replay_run_id=item.replay_run_id,
         )

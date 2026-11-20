@@ -1872,14 +1872,18 @@ class StorageBackend(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        clear_receipt_id: bool = False,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
         Authority: **mark** (terminal transition).
 
         Only transitions from ``in_progress`` or ``queued``.  No-op if
-        already terminal.  Return ``True`` only when this call committed the
-        transition.
+        already terminal.  ``clear_receipt_id`` removes any stale receipt
+        pointer on the row in the same transaction as the settlement; it is
+        used by settlements that commit without a receipt.  Return ``True``
+        only when this call committed the transition.
         """
         ...
 
