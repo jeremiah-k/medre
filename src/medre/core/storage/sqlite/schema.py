@@ -337,6 +337,14 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id)))
 );
 
+-- Receipt-less handoff settlement: immutable, content-free append-order fence.
+-- The receipt watermark is captured in the terminal transition transaction.
+CREATE TABLE IF NOT EXISTS delivery_handoff_settlements (
+    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    receipt_watermark INTEGER NOT NULL CHECK (receipt_watermark >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS delivery_observations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     observation_id TEXT UNIQUE NOT NULL,
@@ -779,6 +787,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "delivery_handoff_settlements": frozenset(
+        {"outbox_id", "attempt_number", "receipt_watermark"}
+    ),
     "delivery_observations": frozenset(
         {
             "sequence",
@@ -959,6 +970,9 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "event_routing_facts": frozenset({("event_id", "canonical_events", "event_id")}),
+    "delivery_handoff_settlements": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
     "radio_attempt_progress": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
@@ -1248,6 +1262,14 @@ _RETENTION_EPOCHS_DDL = _SCHEMA[
 _DIAGNOSTICS_DDL = _SCHEMA[
     _SCHEMA.index("-- Free-form delivery diagnostic text") : _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS radio_attempt_progress ("
+    )
+]
+
+# Receipt-less settlements gain an append-order fence without rewriting any
+# existing row or guessing the ordering of historical settlements.
+_HANDOFF_SETTLEMENTS_DDL = _SCHEMA[
+    _SCHEMA.index("-- Receipt-less handoff settlement:") : _SCHEMA.index(
+        "CREATE TABLE IF NOT EXISTS delivery_observations ("
     )
 ]
 

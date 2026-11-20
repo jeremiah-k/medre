@@ -17,6 +17,9 @@ FROZEN = json.loads((SCHEMA_DIR / "v0.1.0.freeze.json").read_text(encoding="utf-
 #: operator view); the 0.1.0 manifest itself never changes. Removal or
 #: silent content drift of a listed file still fails below.
 POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
+    "handoff-settlements.schema.sql": (
+        "ecceceaf4808b658313101674b60e260850b5e679a7b6f4788d74281fc549237"
+    ),
     "work-status.schema.json": (
         "06b171e89749e49673351fe6040c670a5756ce1a71a672a3483c561a205463a3"
     ),
@@ -39,9 +42,12 @@ def test_post_release_schema_content_is_pinned(name: str, sha256: str) -> None:
     from jsonschema import Draft202012Validator
 
     assert hashlib.sha256((SCHEMA_DIR / name).read_bytes()).hexdigest() == sha256
-    Draft202012Validator.check_schema(
-        json.loads((SCHEMA_DIR / name).read_text(encoding="utf-8"))
-    )
+    if name.endswith(".schema.json"):
+        Draft202012Validator.check_schema(
+            json.loads((SCHEMA_DIR / name).read_text(encoding="utf-8"))
+        )
+    # Executable SQL fragments are validated against the authoritative DDL
+    # in test_content_schema_documents.py.
 
 
 @pytest.mark.parametrize("name,sha256", sorted(FROZEN["schema_files_sha256"].items()))

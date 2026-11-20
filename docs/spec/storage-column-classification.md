@@ -42,7 +42,8 @@ never authorizes any read, retention action, or collection.
    `route_trace`: write-once route identifiers separated from the opaque
    metadata JSON), the outbox work snapshot's identity and shape columns
    (`delivery_outbox_snapshots.outbox_id`, `attempt_number`,
-   `snapshot_version`, `snapshot_kind`), closed structural descriptors of
+   `snapshot_version`, `snapshot_kind`), immutable receipt append ordering
+   in `delivery_handoff_settlements`, closed structural descriptors of
    what a row is (including the durable ingress `provenance` admission
    marker and the receipt family's closed `source` provenance), and
    write-once recorded timestamps.

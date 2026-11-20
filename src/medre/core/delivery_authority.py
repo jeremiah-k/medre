@@ -38,6 +38,7 @@ __all__ = [
     "delivery_attempt_receipt_provenance_mismatch",
     "delivery_identity",
     "delivery_attempt_provenance_mismatch",
+    "dispatch_source_matches_attempt",
     "delivery_identity_sort_key",
     "effective_generation",
     "group_outbox_by_identity",
@@ -194,6 +195,22 @@ def effective_generation(item: Any) -> int:
     return int(_get(item, "active_attempt") or _get(item, "attempt_number") or 1)
 
 
+def dispatch_source_matches_attempt(
+    row_source: str, attempt_source: str, attempt_number: int
+) -> bool:
+    """Compare durable origin with the attempt lane, not send authority.
+
+    The retry worker uses its lane even for the initial live reservation.
+    Replay origin is retained across retry reservations. Neither exception
+    works in reverse, and a live origin cannot explain a later retry lane.
+    The caller must independently validate identity, ownership and run ID.
+    """
+    return row_source == attempt_source or (
+        attempt_source == "retry"
+        and (row_source == "replay" or (row_source == "live" and attempt_number == 1))
+    )
+
+
 def delivery_attempt_provenance_mismatch(
     provenance: DeliveryAttemptProvenance,
     item: Any,
@@ -207,11 +224,10 @@ def delivery_attempt_provenance_mismatch(
 
     The row's ``dispatch_source`` is the durable origin class recorded at
     allocation, while the envelope's ``source`` is the dispatch lane of the
-    exact attempt. They agree directly except for one legitimate divergence: a
-    replay-origin row keeps ``replay`` across retry-lane reservations, and the
-    retry worker dispatches that lane with ``source="retry"``. Every other
-    disagreement refuses — a ``retry`` or ``live`` row never admits a ``live``
-    or ``replay`` envelope it did not originate.
+    exact attempt. They agree directly except for the retry-lane divergences:
+    replay origin survives a retry reservation, and a first reservation
+    from zero retains live origin. The reverse directions are not valid.
+    Identity, generation and named run must still agree.
     """
     outbox_id = str(_get(item, "outbox_id") or "")
     if outbox_id != provenance.outbox_id:
@@ -242,8 +258,9 @@ def delivery_attempt_provenance_mismatch(
     row_source = _get(item, "dispatch_source")
     if (
         row_source is not None
-        and str(row_source) != provenance.source
-        and not (str(row_source) == "replay" and provenance.source == "retry")
+        and not dispatch_source_matches_attempt(
+            str(row_source), provenance.source, provenance.attempt_number
+        )
     ):
         return (
             "dispatch source mismatch: "

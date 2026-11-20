@@ -281,12 +281,15 @@ class DeliveryLifecycleStorage(Protocol):
         outbox_id: str,
         worker_id: str,
         from_attempt: int,
+        *,
+        expected_observation_count: int | None = None,
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
-        The successful reservation records ``live`` from attempt zero,
-        otherwise ``retry``, as provenance for callbacks that can beat receipt
-        append.
+        The successful reservation preserves replay origin, records ``live``
+        from attempt zero, and otherwise records ``retry``, as provenance
+        for callbacks that can beat receipt append. An expected observation count is an atomic guard on the
+        exact finalized ``from_attempt`` (zero observations is valid).
         Return its number, or ``None`` if the row is no longer owned,
         in progress, or eligible for a new reservation. A failed
         reservation must not proceed to transport dispatch.
@@ -1602,6 +1605,8 @@ class DeliveryLifecycleService:
         self,
         storage: DeliveryLifecycleStorage,
         item: DeliveryOutboxItem,
+        *,
+        expected_observation_count: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1619,10 +1624,14 @@ class DeliveryLifecycleService:
         """
         if item.worker_id is None:
             return None
+        evidence_guard: _ObservationGuard = {}
+        if expected_observation_count is not None:
+            evidence_guard["expected_observation_count"] = expected_observation_count
         return await storage.reserve_outbox_attempt(
             item.outbox_id,
             item.worker_id,
             item.attempt_number,
+            **evidence_guard,
         )
 
     async def renew_retry_lease(
@@ -1681,9 +1690,8 @@ class DeliveryLifecycleService:
           that the grant fence never committed keeps the normal retry
           semantics under an evidence-backed diagnostic; anything else stays
           unresolved and is consumed conservatively with the explicit
-          ``uncertain_native_handoff`` operator-visible detail for bounded
-          re-resolution on later reclaims and for the bounded pre-dispatch
-          evidence recheck (:meth:`recheck_last_uncertain_handoff`) that
+          ``uncertain_native_handoff`` operator-visible detail for the bounded
+          pre-dispatch evidence recheck (:meth:`recheck_last_uncertain_handoff`) that
           runs before a newer attempt dispatches, even when no evidence was
           visible on the first read. Without a resolver, the identity is consumed as
           a failed attempt exactly as before and the row moves to
@@ -1724,13 +1732,13 @@ class DeliveryLifecycleService:
                     return await self._settle_resolved_handoff(
                         storage, item, attempt_number, resolution
                     )
+                if resolution.observation_count is not None:
+                    evidence_guard["expected_observation_count"] = (
+                        resolution.observation_count
+                    )
                 if resolution.verdict == "definitively_not_submitted":
                     failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
                     error_summary = _NOT_SUBMITTED_DISPATCH_ERROR
-                    if resolution.observation_count is not None:
-                        evidence_guard["expected_observation_count"] = (
-                            resolution.observation_count
-                        )
                 else:
                     failure_detail = UNCERTAIN_NATIVE_HANDOFF_DETAIL
                     error_summary = (
@@ -1872,7 +1880,7 @@ class DeliveryLifecycleService:
         *,
         handoff_resolver: UncertainNativeHandoffResolver,
         now: datetime | None = None,
-    ) -> RetryAttemptFinalization | None:
+    ) -> RetryAttemptFinalization | UncertainHandoffResolution | None:
         """Bounded pre-dispatch evidence recheck of the last ambiguous attempt.
 
         Runs immediately before a reclaimed row dispatches a NEW attempt when
@@ -1887,7 +1895,9 @@ class DeliveryLifecycleService:
         * ``definitively_not_submitted`` records the evidence-backed
           determination and returns the row to ``retry_wait`` without
           dispatching — normal retry dispatch resumes on a later poll;
-        * ``unresolved`` returns ``None`` and normal dispatch proceeds.
+        * ``unresolved`` returns the read-only resolution, including its
+          observation count when known, to fence the next reservation.
+        ``None`` means the row was not eligible for a recheck.
 
         This is a single recheck of the last receipt-less ambiguous attempt —
         never a durable hold, never a loop over older attempts, and never a
@@ -1902,7 +1912,7 @@ class DeliveryLifecycleService:
         attempt_number = item.attempt_number
         resolution = await handoff_resolver.resolve(item, attempt_number)
         if resolution.verdict == "unresolved":
-            return None
+            return resolution
         if resolution.verdict == "delivered_with_evidence":
             return await self._settle_resolved_handoff(
                 storage, item, attempt_number, resolution

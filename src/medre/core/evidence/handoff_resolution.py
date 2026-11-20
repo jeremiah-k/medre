@@ -27,11 +27,10 @@ closed vocabulary:
   diagnostic.
 * ``unresolved`` — everything else, including every case where evidence is
   absent, conflicting, or unreadable. Absence of evidence never proves
-  rejection; conflicting positive/negative reports stay held. The attempt is
-  consumed conservatively and the uncertainty is recorded with an
-  operator-visible diagnostic for bounded re-resolution on later reclaims
-  and for the bounded pre-dispatch recheck of the last receipt-less
-  ambiguous attempt before a newer attempt dispatches.
+  rejection; conflicting reports prevent settlement on that pass. The
+  attempt is consumed conservatively and its diagnostic enables a bounded
+  pre-dispatch recheck before a newer attempt dispatches. Normal retry may
+  still dispatch when that recheck cannot resolve the outcome.
 
 Honesty boundaries
 ------------------
@@ -39,10 +38,12 @@ Honesty boundaries
   only reads; the caller settles through existing guarded transitions.
 * Radio attempts are judged by their per-part checkpoint discipline. Packet
   observations are correlated exactly like the read-only packet projector,
-  and existing storage interfaces cannot admit a packet fact for a
-  non-accepted part — so an uncertain radio part can never be upgraded from
-  an observation here. That adapter-side capability is a named follow-up,
-  not an assumption of this contract.
+  and packet-specific admission requires a retained original acceptance.
+  Ordinary observation storage can contain uncorrelated claims, which are
+  unreadable to this resolver. An uncertain radio part is never upgraded
+  from an observation here, although whole-message acceptance can settle
+  the obligation without changing its parts. The adapter-side capability to
+  attest an uncertain packet is a named follow-up, not an assumption here.
 * Message-level observations are trusted only with a complete, exact
   delivery identity on the reclaimed attempt; packet-scoped facts are
   ignored when no checkpoint exists to correlate them. An observation
@@ -67,7 +68,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
-from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.delivery_authority import (
+    DeliveryIdentity,
+    dispatch_source_matches_attempt,
+)
 from medre.core.events import DeliveryObservation
 from medre.core.rendering.radio_text import MAX_RADIO_TEXT_PARTS
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
@@ -117,7 +121,7 @@ class UncertainHandoffResolution:
     handoff state (an interrupted radio part, negative transport reports, or
     unreadable evidence) rather than simply finding nothing. Part counts are
     populated when the radio checkpoint can be classified. The observation
-    count fences a later settlement against newly appended evidence.
+    count fences settlement or the next reservation against appended evidence.
     """
 
     verdict: HandoffResolutionVerdict
@@ -224,14 +228,12 @@ def _exact_observations(
     *,
     outbox_id: str,
     attempt_number: int,
-    identity: DeliveryIdentity,
 ) -> list[DeliveryObservation]:
     return [
         observation
         for observation in observations
         if observation.outbox_id == outbox_id
         and observation.attempt_number == attempt_number
-        and _matches_identity(observation, identity)
     ]
 
 
@@ -253,10 +255,17 @@ def _resolve_message_level(
         observations,
         outbox_id=outbox_id,
         attempt_number=attempt_number,
-        identity=identity,
     )
     message_level = []
     for observation in relevant:
+        if not _matches_identity(observation, identity):
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="observation_identity_mismatch",
+                has_checkpoint=False,
+            )
         scope = _observation_scope(observation)
         if scope == _OBSERVATION_SCOPE_MESSAGE:
             message_level.append(observation)
@@ -339,12 +348,10 @@ def _resolve_checkpoint(
         # under a different replay run, or one whose dispatch-source lineage
         # disagrees with the row (live versus replay-lineage), never settles
         # anything.
-        coherent_source = provenance.source == attempt_source or (
-            attempt_source == "replay" and provenance.source == "retry"
+        coherent_source = attempt_source is None or dispatch_source_matches_attempt(
+            attempt_source, provenance.source, attempt_number
         )
-        coherent = provenance.replay_run_id == replay_run_id and (
-            attempt_source is None or coherent_source
-        )
+        coherent = provenance.replay_run_id == replay_run_id and coherent_source
         if not coherent:
             return _resolution(
                 "unresolved",
@@ -371,10 +378,9 @@ def _resolve_checkpoint(
     unsent = [part for part in parts if part.state == "unsent"]
 
     # Classify the exact attempt's observations. Packet observations are
-    # admitted by storage only against a retained original acceptance, so a
-    # negative packet report for an accepted part contradicts the fenced
-    # handoff facts and keeps the result held; no observation can upgrade an
-    # uncertain part under existing interfaces. A whole-message failure report
+    # admitted by the packet-specific API only against a retained acceptance.
+    # A negative packet report contradicts those facts; no packet report can
+    # upgrade an uncertain part. A whole-message failure report
     # for the exact attempt contradicts a fully accepted checkpoint the same
     # way. A packet claim whose metadata is invalid, or whose part reference
     # does not correlate exactly, is unreadable evidence: it neither proves
@@ -388,12 +394,22 @@ def _resolve_checkpoint(
         observations,
         outbox_id=outbox_id,
         attempt_number=attempt_number,
-        identity=identity,
     ):
+        if not _matches_identity(observation, identity):
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="observation_identity_mismatch",
+                has_checkpoint=True,
+            )
         scope = _observation_scope(observation)
         if scope == _OBSERVATION_SCOPE_MESSAGE:
             negative_message |= observation.state in _NEGATIVE_OBSERVATION_STATES
             positive_message |= _proves_provider_acceptance(observation)
+            continue
+        if scope == _OBSERVATION_SCOPE_UNREADABLE:
+            unreadable_packet = True
             continue
         ordinal = _packet_ordinal(observation)
         handoff = accepted.get(ordinal) if ordinal is not None else None
@@ -410,77 +426,42 @@ def _resolve_checkpoint(
         elif observation.state in _NEGATIVE_OBSERVATION_STATES:
             negative_packet = True
 
-    if uncertain:
-        return _resolution(
-            "unresolved",
-            attempt_number,
-            uncertain=True,
-            reason="uncertain_native_submission",
-            has_checkpoint=True,
-            accepted_parts=len(accepted),
-            uncertain_parts=len(uncertain),
-            unsent_parts=len(unsent),
+    # A whole-message observation can settle the obligation without changing
+    # any local packet state. A packet observation alone cannot do so.
+    reason: str
+    verdict: HandoffResolutionVerdict = "unresolved"
+    if unreadable_packet:
+        reason = "unreadable_packet_evidence"
+    elif negative_packet:
+        reason = "conflicting_packet_observation"
+    elif negative_message:
+        reason = "conflicting_message_observation"
+    elif positive_message and unsent:
+        # An unsent part has no grant; whole-message acceptance cannot be
+        # reconciled with an incomplete grant fence.
+        reason = (
+            "provider_acceptance_conflicts_with_empty_fence"
+            if not accepted and not uncertain
+            else "provider_acceptance_conflicts_with_unsent_parts"
         )
-    if len(accepted) == part_count:
-        if negative_packet or negative_message or unreadable_packet:
-            if negative_packet:
-                reason = "conflicting_packet_observation"
-            elif negative_message:
-                reason = "conflicting_message_observation"
-            else:
-                reason = "unreadable_packet_evidence"
-            return _resolution(
-                "unresolved",
-                attempt_number,
-                uncertain=True,
-                reason=reason,
-                has_checkpoint=True,
-                accepted_parts=len(accepted),
-                uncertain_parts=0,
-                unsent_parts=0,
-            )
-        return _resolution(
-            "delivered_with_evidence",
-            attempt_number,
-            uncertain=False,
-            reason="radio_handoff_complete",
-            has_checkpoint=True,
-            accepted_parts=len(accepted),
-            uncertain_parts=0,
-            unsent_parts=0,
-        )
-    if not accepted:
-        if unreadable_packet or positive_message:
-            reason = (
-                "unreadable_packet_evidence"
-                if unreadable_packet
-                else "provider_acceptance_conflicts_with_empty_fence"
-            )
-            return _resolution(
-                "unresolved",
-                attempt_number,
-                uncertain=True,
-                reason=reason,
-                has_checkpoint=True,
-                accepted_parts=0,
-                uncertain_parts=0,
-                unsent_parts=len(unsent),
-            )
-        return _resolution(
-            "definitively_not_submitted",
-            attempt_number,
-            uncertain=False,
-            reason="native_grant_fence_empty",
-            has_checkpoint=True,
-            accepted_parts=0,
-            uncertain_parts=0,
-            unsent_parts=len(unsent),
-        )
+    elif positive_message:
+        verdict = "delivered_with_evidence"
+        reason = "adapter_reported_provider_acceptance"
+    elif uncertain:
+        reason = "uncertain_native_submission"
+    elif len(accepted) == part_count:
+        verdict = "delivered_with_evidence"
+        reason = "radio_handoff_complete"
+    elif not accepted:
+        verdict = "definitively_not_submitted"
+        reason = "native_grant_fence_empty"
+    else:
+        reason = "unclassified_radio_progress"
     return _resolution(
-        "unresolved",
+        verdict,
         attempt_number,
-        uncertain=True,
-        reason="unclassified_radio_progress",
+        uncertain=verdict == "unresolved",
+        reason=reason,
         has_checkpoint=True,
         accepted_parts=len(accepted),
         uncertain_parts=len(uncertain),

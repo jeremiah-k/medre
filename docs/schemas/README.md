@@ -61,6 +61,9 @@ published as `event-routing-facts.schema.sql`,
 `outbox-dispatch-snapshots.schema.sql`, and
 `content-retention-epochs.schema.sql`. Their table constraints and declared
 indexes are checked against the authoritative SQLite DDL.
+The additive `handoff-settlements.schema.sql` fragment records a content-free
+receipt append watermark for receipt-less handoff settlement. It does not
+change the frozen 0.1.0 catalog.
 
 ## Examples
 

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 import msgspec
 
+from medre.core.delivery_authority import dispatch_source_matches_attempt
 from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartProgress
 from medre.core.rendering.radio_text import RadioTextPlan
@@ -142,11 +143,11 @@ def _owns(
     a checkpoint must never resurrect native submission authority from that row.
 
     The row's durable ``dispatch_source`` origin and the envelope's dispatch
-    lane agree directly except for one directional divergence, mirrored from
-    the callback provenance fence: a replay-origin row keeps ``replay`` across
-    a retry-lane reservation, and the retry worker dispatches that lane with
-    ``source="retry"``. Such a retry-lane checkpoint is admitted only when it
-    binds the row's exact active reservation — the reserved attempt identity,
+    lane agree directly except for the retry-lane divergences mirrored from
+    the callback provenance fence: replay-origin rows retain ``replay`` and
+    the first reservation from zero retains ``live``. The worker dispatches
+    both with ``source="retry"``. Such a retry-lane checkpoint is admitted
+    only when it binds the row's exact active reservation — the reserved attempt identity,
     never the unreserved base attempt, a stale attempt, or a future one.
     Every other disagreement refuses.
     """
@@ -195,17 +196,12 @@ def _owns(
         return False
     if row["dispatch_source"] == claim.source:
         return True
-    # The single directional divergence admitted past the identity check: a
-    # replay-origin row keeps its durable origin across retry-lane
-    # reservations while the retry worker dispatches that lane with
-    # source="retry". The checkpoint must bind the row's exact active
-    # reservation — a retry-lane claim riding the unreserved base attempt,
-    # a superseded attempt, or a future one is refused.
-    return (
-        row["dispatch_source"] == "replay"
-        and claim.source == "retry"
-        and row["active_attempt"] is not None
-        and row["active_attempt"] == claim.attempt_number
+    # A retry-lane divergence requires the exact active reservation, never
+    # an unreserved base attempt or a superseded generation.
+    return row["active_attempt"] == claim.attempt_number and (
+        dispatch_source_matches_attempt(
+            row["dispatch_source"], claim.source, claim.attempt_number
+        )
     )
 
 

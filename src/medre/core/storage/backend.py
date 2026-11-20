@@ -1883,8 +1883,14 @@ class StorageBackend(Protocol):
         Only transitions from ``in_progress`` or ``queued``.  No-op if
         already terminal.  ``clear_receipt_id`` removes any stale receipt
         pointer on the row in the same transaction as the settlement; it is
-        used by settlements that commit without a receipt.  Return ``True``
+        used by settlements that commit without a receipt. Such a settlement
+        also commits its receipt append watermark for historical recovery
+        ordering. Return ``True``
         only when this call committed the transition.
+        ``expected_observation_count`` (including zero) requires an explicit
+        ``attempt_number``. The exact outbox/attempt observation count MUST
+        match in the same guarded write; mismatch returns ``False`` without
+        committing any part of the transition.
         """
         ...
 
@@ -1924,6 +1930,10 @@ class StorageBackend(Protocol):
         Sets ``next_attempt_at`` for the next scheduled attempt.
         Only transitions from ``in_progress``.  Return ``True`` only when
         this call committed the transition.
+        ``expected_observation_count`` (including zero) requires an explicit
+        ``attempt_number``. The exact outbox/attempt observation count MUST
+        match in the same guarded write; mismatch returns ``False`` without
+        committing any part of the transition.
         """
         ...
 
@@ -1949,6 +1959,10 @@ class StorageBackend(Protocol):
         When *attempt_number* is provided, it is persisted on the outbox
         row so that the terminal state records the final attempt count.
         Return ``True`` only when this call committed the transition.
+        ``expected_observation_count`` (including zero) requires an explicit
+        ``attempt_number``. The exact outbox/attempt observation count MUST
+        match in the same guarded write; mismatch returns ``False`` without
+        committing any part of the transition.
         """
         ...
 
@@ -2012,13 +2026,16 @@ class StorageBackend(Protocol):
         outbox_id: str,
         worker_id: str,
         from_attempt: int,
+        *,
+        expected_observation_count: int | None = None,
     ) -> int | None:
         """Durably reserve the next delivery attempt on a claimed row.
 
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1`` and
-        records ``live`` for a first reservation from zero, otherwise ``retry``,
-        only when the row is ``in_progress``,
+        preserves ``replay`` for replay-origin rows, records ``live`` for a
+        first reservation from zero, otherwise ``retry``, only when the row
+        is ``in_progress``,
         owned by *worker_id*, has no
         existing reservation, still stores ``attempt_number ==
         from_attempt``, and no sibling row for the same event-scoped delivery
@@ -2026,6 +2043,10 @@ class StorageBackend(Protocol):
         generation. Returns the reserved attempt number, or ``None`` when the
         guard failed (lost claim, lease theft, replay/sibling supersession, or
         a competing reservation) — the caller must not invoke the transport.
+        A supplied observation count (including zero) MUST match the
+        append-only observations for this outbox and ``from_attempt`` in
+        the same reservation write; a mismatch returns ``None`` without
+        reserving or consuming an attempt.
         """
         ...
 

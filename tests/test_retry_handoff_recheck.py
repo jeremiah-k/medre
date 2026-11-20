@@ -29,6 +29,7 @@ from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
 from medre.core.evidence.handoff_resolution import (
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
+    UncertainHandoffResolution,
 )
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -59,20 +60,23 @@ def _gated_item(**overrides) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(**fields)
 
 
-def _retained_storage(spec_limited: bool = False):
-    """Storage fake; the evidence-store methods opt the resolver in."""
-    spec = (
-        [
+def _retained_storage(
+    *,
+    evidence_methods=("get_radio_attempt", "list_delivery_observations_for_attempt"),
+):
+    """Expose only explicit evidence-read surfaces, not dynamic mock attributes."""
+    storage = MagicMock(
+        spec=[
             "get_metadata",
             "get",
             "delivery_status",
             "get_outbox_dispatch_context",
             "read_event_for_outbox",
+            *evidence_methods,
         ]
-        if spec_limited
-        else None
     )
-    storage = MagicMock(spec=spec)
+    for method in evidence_methods:
+        setattr(storage, method, AsyncMock())
     stored = object()
     storage.get_metadata = AsyncMock(return_value=stored)
     storage.get = AsyncMock(return_value=stored)
@@ -132,9 +136,13 @@ async def _run_with_emit(worker, item) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-async def test_recheck_gate_resolver_absent_skips_recheck():
+@pytest.mark.parametrize(
+    "evidence_methods",
+    [(), ("get_radio_attempt",), ("list_delivery_observations_for_attempt",)],
+)
+async def test_recheck_gate_resolver_absent_skips_recheck(evidence_methods):
     """Backends without the evidence-store surface leave the gate dormant."""
-    storage = _retained_storage(spec_limited=True)
+    storage = _retained_storage(evidence_methods=evidence_methods)
     lifecycle = _lifecycle(recheck_result=None)
     worker, pipeline = _worker(storage, lifecycle)
     item = _gated_item()
@@ -248,6 +256,7 @@ async def test_recheck_settlement_skips_transport():
     assert worker.state.processed == 1
     assert worker.state.succeeded == 1
     assert worker.state.failed == 0
+    emit.assert_called_once()
     emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
     assert set(emitted) == {"retry_succeeded"}
     assert emitted["retry_succeeded"]["receipt_id"] == "rcpt-recheck-settled"
@@ -277,6 +286,7 @@ async def test_recheck_not_submitted_settlement_returns_to_retry_wait():
     assert worker.state.processed == 1
     assert worker.state.failed == 1
     assert worker.state.succeeded == 0
+    emit.assert_called_once()
     emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
     assert set(emitted) == {"retry_failed"}
     assert emitted["retry_failed"]["status"] == "retry_wait"
@@ -331,6 +341,7 @@ async def test_recheck_persistence_error_records_local_observability():
     assert worker.state.processed == 1
     assert worker.state.failed == 1
     assert worker.state.succeeded == 0
+    emit.assert_called_once()
     emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
     assert set(emitted) == {"retry_failed"}
     assert emitted["retry_failed"]["status"] == "lifecycle_persistence_error"
@@ -338,3 +349,26 @@ async def test_recheck_persistence_error_records_local_observability():
         "RuntimeError: evidence recheck storage unavailable"
     )
     assert emitted["retry_failed"]["attempt_number"] == item.attempt_number
+
+
+@pytest.mark.parametrize("count", [0, 2, None])
+async def test_recheck_passes_observation_count_to_reservation(count):
+    storage = _retained_storage()
+    lifecycle = _lifecycle(
+        UncertainHandoffResolution(
+            "unresolved",
+            1,
+            True,
+            ("unresolved",),
+            False,
+            observation_count=count,
+        )
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+    emit = await _run_with_emit(worker, item)
+    lifecycle.reserve_retry_attempt.assert_awaited_once_with(
+        storage, item, expected_observation_count=count
+    )
+    pipeline.deliver_execution_to_target.assert_not_called()
+    emit.assert_not_called()
