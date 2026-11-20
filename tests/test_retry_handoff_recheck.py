@@ -1,0 +1,340 @@
+"""Pre-dispatch uncertain-native-handoff evidence recheck wiring.
+
+The retry worker runs a single bounded evidence recheck through
+``DeliveryLifecycleService.recheck_last_uncertain_handoff`` immediately
+before a reclaimed row dispatches a NEW attempt, gated on the row's last
+finalized attempt having been consumed as an explicitly uncertain native
+handoff.  These tests pin the worker-side surface only: the four gate
+conditions, the delegation arguments, the settle-then-skip-transport path,
+the superseded-commit-rejection handling, and the persistence-error
+accounting.  The lifecycle authority's verdict logic itself is covered in
+``tests/test_uncertain_handoff_resolution.py``.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+import medre.runtime.retry as retry_module
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    RetryAttemptCommitRejected,
+    RetryAttemptFinalization,
+)
+from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
+from medre.core.evidence.handoff_resolution import (
+    UNCERTAIN_NATIVE_HANDOFF_DETAIL,
+    EvidenceBackedHandoffResolver,
+)
+from medre.core.planning.delivery_plan import RetryPolicy
+from medre.core.storage.backend import DeliveryOutboxItem
+from medre.runtime.retry import RetryWorker
+
+# ---------------------------------------------------------------------------
+# Fakes (same pattern as tests/test_retry_superseded_transition.py)
+# ---------------------------------------------------------------------------
+
+_PLAN_ID = "plan-handoff-recheck"
+_WORKER = "retry-worker-recheck"
+
+
+def _gated_item(**overrides) -> DeliveryOutboxItem:
+    """An outbox row whose last finalized attempt was an uncertain handoff."""
+    fields: dict = {
+        "outbox_id": "obox-handoff-recheck",
+        "event_id": "evt-handoff-recheck",
+        "route_id": "route-handoff-recheck",
+        "delivery_plan_id": _PLAN_ID,
+        "target_adapter": "target_a",
+        "attempt_number": 1,
+        "status": "in_progress",
+        "worker_id": _WORKER,
+        "failure_kind_detail": UNCERTAIN_NATIVE_HANDOFF_DETAIL,
+    }
+    fields.update(overrides)
+    return DeliveryOutboxItem(**fields)
+
+
+def _retained_storage(spec_limited: bool = False):
+    """Storage fake; the evidence-store methods opt the resolver in."""
+    spec = (
+        [
+            "get_metadata",
+            "get",
+            "delivery_status",
+            "get_outbox_dispatch_context",
+            "read_event_for_outbox",
+        ]
+        if spec_limited
+        else None
+    )
+    storage = MagicMock(spec=spec)
+    stored = object()
+    storage.get_metadata = AsyncMock(return_value=stored)
+    storage.get = AsyncMock(return_value=stored)
+    storage.delivery_status = AsyncMock(return_value=None)
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
+    storage.read_event_for_outbox = AsyncMock(
+        return_value=SimpleNamespace(status="retained", event=stored)
+    )
+    return storage
+
+
+def _lifecycle(recheck_result) -> MagicMock:
+    """Lifecycle fake; ``reserve_retry_attempt`` returns None so a normal
+    dispatch stops at the lost-claim boundary without invoking transport."""
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)
+    return lifecycle
+
+
+def _worker(storage, lifecycle):
+    pipeline = MagicMock()
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    return worker, pipeline
+
+
+@pytest.fixture(autouse=True)
+def _frozen_retry_context(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: ReconstructedRetryPlan(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+
+
+async def _run_with_emit(worker, item) -> MagicMock:
+    emit = MagicMock()
+    worker._emit = emit
+    await worker._retry_outbox_item(item)
+    return emit
+
+
+# ---------------------------------------------------------------------------
+# Gate conditions: each false clause leaves the recheck dormant and the
+# normal dispatch path resumes.
+# ---------------------------------------------------------------------------
+
+
+async def test_recheck_gate_resolver_absent_skips_recheck():
+    """Backends without the evidence-store surface leave the gate dormant."""
+    storage = _retained_storage(spec_limited=True)
+    lifecycle = _lifecycle(recheck_result=None)
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    assert worker._handoff_resolver is None
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.recheck_last_uncertain_handoff.assert_not_called()
+    assert lifecycle.reserve_retry_attempt.await_count == 1
+    pipeline.deliver_execution_to_target.assert_not_called()
+    assert worker.state.processed == 1
+    emit.assert_not_called()
+
+
+async def test_recheck_gate_active_attempt_skips_recheck():
+    """A row with a live reserved attempt never rechecks before dispatch."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    worker, _pipeline = _worker(storage, lifecycle)
+    item = _gated_item(active_attempt=2)
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.recheck_last_uncertain_handoff.assert_not_called()
+    assert lifecycle.reserve_retry_attempt.await_count == 1
+    assert worker.state.processed == 1
+    emit.assert_not_called()
+
+
+async def test_recheck_gate_unstarted_attempt_skips_recheck():
+    """Attempt zero has no finalized attempt to recheck evidence for."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=False)
+    worker, _pipeline = _worker(storage, lifecycle)
+    item = _gated_item(attempt_number=0)
+
+    await _run_with_emit(worker, item)
+
+    lifecycle.recheck_last_uncertain_handoff.assert_not_called()
+    assert lifecycle.renew_retry_lease.await_count == 1
+    assert worker.state.processed == 1
+
+
+async def test_recheck_gate_other_failure_detail_skips_recheck():
+    """Only the explicit uncertain-native-handoff detail arms the gate."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    worker, _pipeline = _worker(storage, lifecycle)
+    item = _gated_item(failure_kind_detail="adapter_transient")
+
+    await _run_with_emit(worker, item)
+
+    lifecycle.recheck_last_uncertain_handoff.assert_not_called()
+    assert lifecycle.reserve_retry_attempt.await_count == 1
+    assert worker.state.processed == 1
+
+
+# ---------------------------------------------------------------------------
+# Delegation: every gate clause true delegates exactly once with the worker's
+# resolver, then unresolved evidence resumes normal dispatch.
+# ---------------------------------------------------------------------------
+
+
+async def test_recheck_delegates_once_when_gated_in():
+    """The recheck receives the lifecycle storage, row, policy, and resolver."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    worker, _pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    assert isinstance(worker._handoff_resolver, EvidenceBackedHandoffResolver)
+    await _run_with_emit(worker, item)
+
+    assert lifecycle.recheck_last_uncertain_handoff.await_count == 1
+    call = lifecycle.recheck_last_uncertain_handoff.await_args
+    assert call.args[:2] == (storage, item)
+    assert isinstance(call.args[2], RetryPolicy)
+    assert call.args[2].max_attempts == 3
+    assert call.kwargs == {"handoff_resolver": worker._handoff_resolver}
+    # Unresolved evidence: the normal dispatch resumed (reserve reached).
+    assert lifecycle.reserve_retry_attempt.await_count == 1
+    assert worker.state.processed == 1
+
+
+# ---------------------------------------------------------------------------
+# Settlement: a resolved recheck finalizes without any transport work.
+# ---------------------------------------------------------------------------
+
+
+async def test_recheck_settlement_skips_transport():
+    """Newly readable evidence settles the obligation as sent."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(
+        recheck_result=RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id="rcpt-recheck-settled",
+            failure_kind=None,
+            attempt_number=1,
+        )
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    emit = await _run_with_emit(worker, item)
+
+    assert lifecycle.recheck_last_uncertain_handoff.await_count == 1
+    lifecycle.reserve_retry_attempt.assert_not_called()
+    pipeline.deliver_execution_to_target.assert_not_called()
+    storage.read_event_for_outbox.assert_not_called()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    assert worker.state.failed == 0
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert set(emitted) == {"retry_succeeded"}
+    assert emitted["retry_succeeded"]["receipt_id"] == "rcpt-recheck-settled"
+    assert emitted["retry_succeeded"]["attempt_number"] == 1
+    assert emitted["retry_succeeded"]["reconciled"] is True
+
+
+async def test_recheck_not_submitted_settlement_returns_to_retry_wait():
+    """Definitively-not-submitted evidence finalizes without dispatching."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(
+        recheck_result=RetryAttemptFinalization(
+            outcome="retry_wait",
+            receipt_id=None,
+            failure_kind="ambiguous_dispatch",
+            attempt_number=1,
+            next_retry_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+        )
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.reserve_retry_attempt.assert_not_called()
+    pipeline.deliver_execution_to_target.assert_not_called()
+    assert worker.state.processed == 1
+    assert worker.state.failed == 1
+    assert worker.state.succeeded == 0
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert set(emitted) == {"retry_failed"}
+    assert emitted["retry_failed"]["status"] == "retry_wait"
+    assert emitted["retry_failed"]["failure_kind"] == "ambiguous_dispatch"
+
+
+# ---------------------------------------------------------------------------
+# Guarded recheck failures: a lost claim is stale work, and a storage failure
+# is process-local observability only — neither may touch the transport.
+# ---------------------------------------------------------------------------
+
+
+async def test_recheck_superseded_commit_rejection_accounts_stale_work(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A CAS rejection during the recheck is stale work, not a delivery."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    lifecycle.recheck_last_uncertain_handoff = AsyncMock(
+        side_effect=RetryAttemptCommitRejected("claim moved to a newer worker")
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    with caplog.at_level(logging.WARNING):
+        emit = await _run_with_emit(worker, item)
+
+    assert lifecycle.recheck_last_uncertain_handoff.await_count == 1
+    lifecycle.reserve_retry_attempt.assert_not_called()
+    pipeline.deliver_execution_to_target.assert_not_called()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 0
+    emit.assert_not_called()
+    assert "superseded transition ignored" in caplog.text
+
+
+async def test_recheck_persistence_error_records_local_observability():
+    """A recheck storage failure is accounted without inventing durable state."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(recheck_result=None)
+    lifecycle.recheck_last_uncertain_handoff = AsyncMock(
+        side_effect=RuntimeError("evidence recheck storage unavailable")
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    item = _gated_item()
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.reserve_retry_attempt.assert_not_called()
+    pipeline.deliver_execution_to_target.assert_not_called()
+    assert worker.state.processed == 1
+    assert worker.state.failed == 1
+    assert worker.state.succeeded == 0
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert set(emitted) == {"retry_failed"}
+    assert emitted["retry_failed"]["status"] == "lifecycle_persistence_error"
+    assert emitted["retry_failed"]["error"] == (
+        "RuntimeError: evidence recheck storage unavailable"
+    )
+    assert emitted["retry_failed"]["attempt_number"] == item.attempt_number
