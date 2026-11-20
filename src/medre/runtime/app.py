@@ -1247,7 +1247,7 @@ class MedreApp:
         prev_snapshot = self._live_health_state
         self._live_health_state = snapshot
         self._live_health_poll_count = next_poll_count
-        previous_observations = self._observed_adapter_health
+        previous_observations = getattr(self, "_observed_adapter_health", {})
         self._observed_adapter_health = dict(snapshot.adapters)
         for aid, entry in snapshot.adapters.items():
             self.delivery_health_gate.observe(aid, entry.health)
