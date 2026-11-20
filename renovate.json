@@ -222,6 +222,19 @@
       "automerge": true
     },
     {
+      "description": "Adapter revisions requalify as one compatibility set; bundle their bumps into a single medre family PR instead of one PR per adapter",
+      "matchDepNames": [
+        "medre-adapter-matrix",
+        "medre-adapter-meshtastic",
+        "medre-adapter-meshcore",
+        "medre-adapter-lxmf",
+        "medre-adapter-xmpp",
+        "medre-adapter-simplexchat",
+        "medre-adapter-chatmail"
+      ],
+      "groupName": "medre family"
+    },
+    {
       "description": "Trunk tool pins are refreshed by deliberate trunk upgrade rounds, not tracked as dependencies",
       "matchFileNames": [".trunk/trunk.yaml"],
       "enabled": false
