@@ -606,7 +606,9 @@ the generation non-terminal with no attempt evidence, the outbox authority
 reconciles it: the generation transitions to terminal `cancelled` through
 the guarded terminal transaction, which appends one `cancelled` lifecycle
 receipt carrying the generation's delivery identity, attempt number,
-`source="replay"`, and named `replay_run_id` in the same write. The
+`source="replay"`, and named `replay_run_id` in the same write. That write
+MUST match the original owner and generation and MUST refuse an active
+reservation or existing evidence for that attempt. The
 reconciliation records one log line and never raises; if the guarded
 transition does not commit (a competing transition won), the row keeps its
 pre-existing semantics and the loss is logged once.

@@ -350,19 +350,34 @@ class OutboxManager:
         The refusal itself is surfaced once by the admitting boundary; this
         transition adds only the one reconciliation record.
         """
-        if ctx.outbox_id is None or not ctx.created or ctx.replay_duplicate:
+        attempt_number = ctx.attempt_number
+        if (
+            ctx.outbox_id is None
+            or not ctx.created
+            or ctx.replay_duplicate
+            or ctx.skip_reason is not None
+            or not ctx.pipeline_worker
+            or attempt_number is None
+            or attempt_number < 1
+        ):
             return False
         try:
             item = await self._storage.get_outbox_item(ctx.outbox_id)
-            if item is None:
+            if (
+                item is None
+                or item.status != "in_progress"
+                or item.worker_id != ctx.pipeline_worker
+                or item.dispatch_source != "replay"
+                or item.attempt_number != attempt_number
+                or item.active_attempt is not None
+            ):
+                self._log.warning(
+                    "Replay refusal reconciliation skipped; expected unsubmitted "
+                    "generation is unavailable: outbox_id=%s attempt=%d",
+                    ctx.outbox_id,
+                    attempt_number,
+                )
                 return False
-            if item.status != "in_progress" or item.worker_id != ctx.pipeline_worker:
-                return False
-            attempt_number = self._lifecycle.effective_attempt(item)
-            source, replay_run_id = normalize_delivery_provenance(
-                item.dispatch_source or "replay",
-                item.replay_run_id,
-            )
             receipt = build_delivery_receipt(
                 event_id=item.event_id,
                 delivery_plan_id=item.delivery_plan_id,
@@ -372,15 +387,16 @@ class OutboxManager:
                 status="cancelled",
                 receipt_kind="lifecycle",
                 error=reason,
-                source=source,
-                replay_run_id=replay_run_id,
+                source="replay",
+                replay_run_id=item.replay_run_id,
                 attempt_number=attempt_number,
                 outbox_id=item.outbox_id,
             )
             committed = await self._storage.finalize_outbox_terminal(
                 TerminalOutboxFinalization(
                     lifecycle_receipt=receipt,
-                    expected_worker_id=item.worker_id,
+                    expected_worker_id=ctx.pipeline_worker,
+                    require_unsubmitted_replay=True,
                 )
             )
         except Exception as exc:
@@ -403,8 +419,8 @@ class OutboxManager:
             )
         else:
             self._log.warning(
-                "Replay refusal reconciliation did not commit; a competing "
-                "transition owns the row: outbox_id=%s event_id=%s adapter=%s",
+                "Replay refusal reconciliation did not commit; retained state "
+                "or evidence prevents cancellation: outbox_id=%s event_id=%s adapter=%s",
                 item.outbox_id,
                 item.event_id,
                 item.target_adapter,

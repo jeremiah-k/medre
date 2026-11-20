@@ -121,6 +121,22 @@ WHERE outbox_id = ?
   AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
   AND (? IS NULL OR worker_id = ?)
+  AND (NOT ? OR (
+      status = 'in_progress' AND dispatch_source = 'replay'
+      AND replay_run_id IS ? AND active_attempt IS NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM delivery_receipts AS r
+          WHERE r.outbox_id = delivery_outbox.outbox_id
+            AND r.attempt_number = delivery_outbox.attempt_number)
+      AND NOT EXISTS (
+          SELECT 1 FROM delivery_observations AS o
+          WHERE o.outbox_id = delivery_outbox.outbox_id
+            AND o.attempt_number = delivery_outbox.attempt_number)
+      AND NOT EXISTS (
+          SELECT 1 FROM radio_attempt_progress AS p
+          WHERE p.outbox_id = delivery_outbox.outbox_id
+            AND p.attempt_number = delivery_outbox.attempt_number)
+  ))
 """
 
 

@@ -26,6 +26,7 @@ These tests pin the deterministic reconciliation contract:
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
@@ -40,9 +41,10 @@ from medre.core.engine.pipeline.outbox_manager import (
     OutboxContext,
     OutboxManager,
 )
+from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 from tests.helpers.storage_outbox import (
@@ -338,7 +340,7 @@ def _owned_generation_ctx(
         created=True,
         pipeline_worker=pipeline_worker,
         skip_reason=None,
-        attempt_number=1,
+        attempt_number=row.attempt_number,
     )
 
 
@@ -355,6 +357,77 @@ async def _claim_in_progress_row(
     )
     assert any(entry.outbox_id == item.outbox_id for entry in claimed)
     return await temp_storage.get_outbox_item(item.outbox_id)
+
+
+async def _allocate_replay(
+    storage: SQLiteStorage, event_id: str, worker_id: str
+) -> DeliveryOutboxItem:
+    item = replace(
+        make_outbox_item(status="in_progress", event_id=event_id),
+        worker_id=worker_id,
+        dispatch_source="replay",
+        replay_run_id="run-refused",
+    )
+    return await create_outbox_item_with_parent(
+        storage, item, allocate_new_generation=True
+    )
+
+
+async def test_reconciliation_preserves_evidence_added_before_terminal_write(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = await _allocate_replay(temp_storage, "replay-refusal-race", "holder")
+    attempt_receipt = build_delivery_receipt(
+        event_id=row.event_id,
+        delivery_plan_id=row.delivery_plan_id,
+        target_adapter=row.target_adapter,
+        target_channel=row.target_channel,
+        route_id=row.route_id,
+        status="queued",
+        receipt_kind="attempt",
+        source="replay",
+        replay_run_id=row.replay_run_id,
+        attempt_number=row.attempt_number,
+        outbox_id=row.outbox_id,
+    )
+    finalize = temp_storage.finalize_outbox_terminal
+
+    async def commit_after_attempt_evidence(
+        command: TerminalOutboxFinalization,
+    ) -> bool:
+        await temp_storage.append_receipt(attempt_receipt)
+        return await finalize(command)
+
+    monkeypatch.setattr(
+        temp_storage, "finalize_outbox_terminal", commit_after_attempt_evidence
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    assert not await manager.reconcile_refused_replay_generation(
+        _owned_generation_ctx(row, pipeline_worker="holder"), reason="refused"
+    )
+    assert await temp_storage.get_outbox_item(row.outbox_id) == row
+    receipts = await temp_storage.list_receipts_for_event(row.event_id)
+    assert [receipt.receipt_id for receipt in receipts] == [attempt_receipt.receipt_id]
+
+
+def test_unsubmitted_replay_finalization_requires_an_explicit_owner() -> None:
+    receipt = build_delivery_receipt(
+        event_id="replay-refusal-unowned",
+        delivery_plan_id="plan",
+        target_adapter="dest",
+        target_channel="room",
+        route_id="route",
+        status="cancelled",
+        receipt_kind="lifecycle",
+        source="replay",
+        attempt_number=1,
+        outbox_id="obox-unowned",
+    )
+    with pytest.raises(ValueError, match="requires an owned cancelled replay"):
+        TerminalOutboxFinalization(
+            lifecycle_receipt=receipt, require_unsubmitted_replay=True
+        )
 
 
 async def test_reconciliation_requires_an_allocated_generation(
@@ -417,6 +490,7 @@ async def test_reconciliation_returns_false_for_a_missing_generation(
                 created=True,
                 pipeline_worker="pipeline:owner",
                 skip_reason=None,
+                attempt_number=1,
             ),
             reason="refused",
         )
@@ -426,9 +500,10 @@ async def test_reconciliation_returns_false_for_a_missing_generation(
 
 async def test_reconciliation_refuses_a_generation_owned_elsewhere(
     temp_storage: SQLiteStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A row this worker does not own keeps its existing reclaim semantics."""
-    row = await _claim_in_progress_row(temp_storage, "replay-refusal-owner", "holder")
+    row = await _allocate_replay(temp_storage, "replay-refusal-owner", "holder")
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     assert (
         await manager.reconcile_refused_replay_generation(
@@ -442,6 +517,25 @@ async def test_reconciliation_refuses_a_generation_owned_elsewhere(
     assert current.status == "in_progress"
     assert current.worker_id == "holder"
     assert await temp_storage.list_receipts_for_event(row.event_id) == []
+    assert sum("reconciliation skipped" in r.getMessage() for r in caplog.records) == 1
+
+
+async def test_reconciliation_refuses_live_work_owned_by_the_same_worker(
+    temp_storage: SQLiteStorage,
+) -> None:
+    row = await _claim_in_progress_row(temp_storage, "replay-refusal-live", "holder")
+    assert await temp_storage.reserve_outbox_attempt(row.outbox_id, "holder", 0) == 1
+    context = replace(
+        _owned_generation_ctx(row, pipeline_worker="holder"), attempt_number=1
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    assert not await manager.reconcile_refused_replay_generation(
+        context, reason="refused"
+    )
+    retained = await temp_storage.get_outbox_item(row.outbox_id)
+    assert retained is not None and retained.active_attempt == 1
+    assert retained.status == "in_progress"
+    assert await temp_storage.list_receipts_for_event(row.event_id) == []
 
 
 async def test_reconciliation_survives_storage_faults(
@@ -450,7 +544,7 @@ async def test_reconciliation_survives_storage_faults(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A persistence fault logs once and never raises out of reconciliation."""
-    row = await _claim_in_progress_row(temp_storage, "replay-refusal-fault", "holder")
+    row = await _allocate_replay(temp_storage, "replay-refusal-fault", "holder")
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     monkeypatch.setattr(
         temp_storage,
@@ -480,9 +574,7 @@ async def test_reconciliation_loss_keeps_preexisting_row_semantics(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A lost guarded transition leaves the row to its existing authority."""
-    row = await _claim_in_progress_row(temp_storage, "replay-refusal-loss", "holder")
-    reserved = await temp_storage.reserve_outbox_attempt(row.outbox_id, "holder", 0)
-    assert reserved == 1
+    row = await _allocate_replay(temp_storage, "replay-refusal-loss", "holder")
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     monkeypatch.setattr(
         temp_storage,
