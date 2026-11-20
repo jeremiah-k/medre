@@ -190,7 +190,7 @@ medre run --config config.yaml >> "$log_capture" 2>&1
 # In another terminal:
 # 4. Inspect every adapter result for THIS run (partial readiness is possible)
 grep -F ' — startup (' "$log_capture" | tail -1   # consolidated banner heading
-grep -E '^(.*ready|.*degraded|.*failed|.*build failed)$' "$log_capture" | tail -10
+grep -E '\] medre: [^ ]+\.[^ ]+ +(ready|degraded|failed|build failed)( |$)' "$log_capture"
 grep -F 'MEDRE runtime running' "$log_capture" | tail -1
 # Verify each configured adapter block in the banner is ready and the
 # final line reports every adapter ready.
@@ -233,7 +233,7 @@ medre run --config config.yaml >> "$log_capture" 2>&1
 
 # In another terminal, verify all configured adapters started
 # (a partially started runtime still emits the banner with N-of-M wording):
-grep -E '^(.*ready|.*degraded|.*failed|.*build failed)$' "$log_capture" | tail -10
+grep -E '\] medre: [^ ]+\.[^ ]+ +(ready|degraded|failed|build failed)( |$)' "$log_capture"
 grep -F 'MEDRE runtime running' "$log_capture" | tail -1
 
 # No further action needed. Drained deliveries produced receipts.
