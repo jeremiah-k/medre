@@ -57,6 +57,9 @@ from medre.core.storage.backend import (
 _OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
 _OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
 OUTBOX_CREATION_FAILED_REASON: str = "outbox_creation_failed"
+#: ``failure_kind_detail`` stamped on outcomes whose refused explicit replay
+#: generation was reconciled to a terminal ``cancelled`` generation.
+REPLAY_REFUSAL_RECONCILED_DETAIL: str = "replay_generation_reconciled:cancelled"
 
 
 @dataclass(frozen=True)
@@ -315,6 +318,98 @@ class OutboxManager:
             attempt_number=None,
             replay_duplicate=False,
         )
+
+    # -- Replay refusal reconciliation --
+
+    async def reconcile_refused_replay_generation(
+        self,
+        ctx: OutboxContext,
+        *,
+        reason: str,
+    ) -> bool:
+        """Close an allocated-but-refused explicit replay generation as cancelled.
+
+        An explicit replay that is refused *after* its outbox generation was
+        allocated (for example by post-allocation health admission) leaves the
+        generation with no attempt evidence and no releasable reservation: the
+        deferral release guard only accepts reserved attempts, so the row
+        would otherwise stay ``in_progress`` until its lease expired and the
+        recovery claim would auto-redispatch the refused replay as a retry.
+        Reconciliation instead commits one deterministic terminal fact: the
+        generation becomes ``cancelled`` with a ``cancelled`` lifecycle
+        receipt appended in the same guarded transaction. Terminal rows are
+        never claimed, so the refused generation is never redispatched;
+        subsequent replays allocate the next generation above it and remain
+        unblocked.
+
+        Returns ``True`` when the cancelled generation committed. Losses
+        (row already finalized by a competing transition, stale owner) and
+        persistence faults return ``False`` with a single log line and never
+        raise: the row then keeps its pre-existing reclaim semantics.
+
+        The refusal itself is surfaced once by the admitting boundary; this
+        transition adds only the one reconciliation record.
+        """
+        if ctx.outbox_id is None or not ctx.created or ctx.replay_duplicate:
+            return False
+        try:
+            item = await self._storage.get_outbox_item(ctx.outbox_id)
+            if item is None:
+                return False
+            if item.status != "in_progress" or item.worker_id != ctx.pipeline_worker:
+                return False
+            attempt_number = self._lifecycle.effective_attempt(item)
+            source, replay_run_id = normalize_delivery_provenance(
+                item.dispatch_source or "replay",
+                item.replay_run_id,
+            )
+            receipt = build_delivery_receipt(
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                target_channel=item.target_channel,
+                route_id=item.route_id,
+                status="cancelled",
+                receipt_kind="lifecycle",
+                error=reason,
+                source=source,
+                replay_run_id=replay_run_id,
+                attempt_number=attempt_number,
+                outbox_id=item.outbox_id,
+            )
+            committed = await self._storage.finalize_outbox_terminal(
+                TerminalOutboxFinalization(
+                    lifecycle_receipt=receipt,
+                    expected_worker_id=item.worker_id,
+                )
+            )
+        except Exception as exc:
+            self._log.warning(
+                "Replay refusal reconciliation failed; retaining existing row "
+                "state: outbox_id=%s error=%s",
+                ctx.outbox_id,
+                f"{type(exc).__name__}: {exc}",
+            )
+            return False
+        if committed:
+            self._log.info(
+                "replay_refusal_reconciled: event_id=%s adapter=%s outbox_id=%s "
+                "attempt=%d run_id=%s status=cancelled",
+                receipt.event_id,
+                receipt.target_adapter,
+                item.outbox_id,
+                attempt_number,
+                item.replay_run_id,
+            )
+        else:
+            self._log.warning(
+                "Replay refusal reconciliation did not commit; a competing "
+                "transition owns the row: outbox_id=%s event_id=%s adapter=%s",
+                item.outbox_id,
+                item.event_id,
+                item.target_adapter,
+            )
+        return bool(committed)
 
     # -- Lease renewal --
 
