@@ -21,6 +21,7 @@ import pytest
 
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
+    PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
 from medre.core.storage.sqlite.catalog_assessment import (
@@ -34,6 +35,7 @@ from medre.core.storage.sqlite.connection import (
 )
 from medre.core.storage.sqlite.schema import _REQUIRED_COLUMNS
 from medre.core.storage.sqlite.schema_validation import (
+    _expected_definitions,
     safe_additive_state,
     validate_schema_definition,
 )
@@ -41,6 +43,7 @@ from medre.core.storage.sqlite.schema_validation import (
 _FIXTURE = Path(__file__).parent / "fixtures/released-storage-0.1.0.sql"
 _FIXTURE_SHA256 = "623dceec6e92745222c98dac94de976c66bdb50834fe588fa373520822295811"
 _NOW = "2026-11-14T00:00:00+00:00"
+_HANDOFF_SETTLEMENTS = "delivery_handoff_settlements"
 
 
 def _populate(path: Path) -> None:
@@ -114,6 +117,16 @@ def _state(
     return catalog, rows
 
 
+def _expected_upgraded_state(
+    original: tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]],
+) -> tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]]:
+    catalog, rows = original
+    kind, name = "table", _HANDOFF_SETTLEMENTS
+    assert name not in rows
+    entry = (kind, name, _expected_definitions()[(kind, name)])
+    return sorted([*catalog, entry]), {**rows, name: []}
+
+
 def test_released_catalog_sql_boundary_preserves_rows(tmp_path: Path) -> None:
     path = tmp_path / "released.sqlite"
     _populate(path)
@@ -122,11 +135,15 @@ def test_released_catalog_sql_boundary_preserves_rows(tmp_path: Path) -> None:
     assert {"attachment_blobs", "event_attachment_associations"} <= before[1].keys()
     assert sync_find_schema_shape_mismatch(str(path), _REQUIRED_COLUMNS) is None
     with closing(sync_open_readonly(str(path))) as db:
-        assert validate_schema_definition(db, str(path))
+        assert safe_additive_state(db)
+        with pytest.raises(PreReleaseSchemaMismatchError, match=_HANDOFF_SETTLEMENTS):
+            validate_schema_definition(db, str(path))
         assert _state(db) == before
+    expected = _expected_upgraded_state(before)
     for _ in range(2):
         with closing(sync_open(str(path))) as db:
-            assert _state(db) == before
+            assert validate_schema_definition(db, str(path))
+            assert _state(db) == expected
             assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
 
@@ -154,8 +171,11 @@ async def test_released_catalog_runtime_reopens_without_reset(tmp_path: Path) ->
     _populate(path)
     with closing(sqlite3.connect(path)) as db:
         before = _state(db)
-    readonly = await SQLiteStorage.open_readonly(str(path))
-    await readonly.close()
+    before_bytes = path.read_bytes()
+    with pytest.raises(StorageInitializationError, match="recognized additive"):
+        await SQLiteStorage.open_readonly(str(path))
+    assert path.read_bytes() == before_bytes
+    expected = _expected_upgraded_state(before)
     for _ in range(2):
         storage = SQLiteStorage(str(path))
         try:
@@ -163,7 +183,11 @@ async def test_released_catalog_runtime_reopens_without_reset(tmp_path: Path) ->
         finally:
             await storage.close()
         with closing(sqlite3.connect(path)) as db:
-            assert _state(db) == before
+            assert _state(db) == expected
+    after_bytes = path.read_bytes()
+    readonly = await SQLiteStorage.open_readonly(str(path))
+    await readonly.close()
+    assert path.read_bytes() == after_bytes
 
 
 @pytest.mark.parametrize("stamp", ["99", "not-an-integer"])
@@ -205,23 +229,32 @@ def _run_storage_status(path: Path) -> tuple[int, str]:
     return code, stdout.getvalue()
 
 
-def test_released_catalog_assessment_is_current_and_stable(tmp_path: Path) -> None:
-    """The populated released fixture classifies current, repeatedly."""
+def test_released_catalog_assessment_reports_upgrade_then_current(
+    tmp_path: Path,
+) -> None:
+    """Read-only assessment recognizes the precursor to the writable update."""
     path = tmp_path / "released.sqlite"
     _populate(path)
     with closing(sqlite3.connect(path)) as db:
         before = _state(db)
     for _ in range(2):
         assessment = assess_storage_catalog(str(path))
-        assert assessment.classification is CatalogCompatibility.CURRENT
+        assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
         assert assessment.stored_version == "1"
-        assert assessment.detail is None
+        assert assessment.detail == f"missing objects: table {_HANDOFF_SETTLEMENTS}"
     with closing(sqlite3.connect(path)) as db:
         assert _state(db) == before
+    with closing(sync_open(str(path))) as db:
+        assert _state(db) == _expected_upgraded_state(before)
+    upgraded = assess_storage_catalog(str(path))
+    assert upgraded.classification is CatalogCompatibility.CURRENT
+    assert upgraded.stored_version == "1"
+    assert upgraded.detail is None
 
 
+@pytest.mark.parametrize("upgrade_first", [False, True])
 def test_missing_required_index_is_unsupported_for_status_and_startup(
-    tmp_path: Path,
+    tmp_path: Path, upgrade_first: bool
 ) -> None:
     """A dropped required index is refused by status and startup alike.
 
@@ -232,6 +265,8 @@ def test_missing_required_index_is_unsupported_for_status_and_startup(
     """
     path = tmp_path / "released.sqlite"
     _populate(path)
+    if upgrade_first:
+        sync_open(str(path)).close()
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("DROP INDEX idx_outbox_active_adapter")
     before = path.read_bytes()
@@ -240,12 +275,15 @@ def test_missing_required_index_is_unsupported_for_status_and_startup(
     assert assessment.classification is CatalogCompatibility.UNSUPPORTED
     assert assessment.stored_version == "1"
     assert assessment.detail is not None
-    assert "idx_outbox_active_adapter" in assessment.detail
+    if upgrade_first:
+        assert "idx_outbox_active_adapter" in assessment.detail
 
     with closing(sync_open_readonly(str(path))) as db:
         assert safe_additive_state(db) is False
-        with pytest.raises(PreReleaseSchemaConstraintMismatchError) as error:
-            validate_schema_definition(db, str(path))
+    with pytest.raises(StorageInitializationError) as error:
+        sync_open(str(path))
+    if upgrade_first:
+        assert isinstance(error.value, PreReleaseSchemaConstraintMismatchError)
         assert "idx_outbox_active_adapter" in str(error.value)
 
     code, stdout = _run_storage_status(path)
@@ -266,10 +304,11 @@ def test_assessment_preserves_stopped_fixture_files(tmp_path: Path) -> None:
     before_listing = sorted(entry.name for entry in tmp_path.iterdir())
 
     assessment = assess_storage_catalog(str(path))
-    assert assessment.classification is CatalogCompatibility.CURRENT
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
     code, stdout = _run_storage_status(path)
     assert code == 0
-    assert "Status: HEALTHY" in stdout
+    assert "Catalog: supported_upgrade" in stdout
+    assert "Status: SUPPORTED UPGRADE" in stdout
 
     assert path.read_bytes() == before_bytes
     assert sorted(entry.name for entry in tmp_path.iterdir()) == before_listing

@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import subprocess
 import sys
 import tomllib
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
 
@@ -190,6 +192,42 @@ def test_all_scenarios_use_separate_work_directories(
     assert seen == ["d0", "d1"]
 
 
+@pytest.mark.parametrize(
+    "unexpected_sql",
+    [
+        "INSERT INTO delivery_handoff_settlements VALUES ('work', 1, 0)",
+        "DELETE FROM delivery_outbox",
+        "UPDATE _medre_schema_meta SET value = '99'",
+        "CREATE TABLE unexpected (id INTEGER)",
+        "ALTER TABLE delivery_handoff_settlements ADD COLUMN unexpected TEXT",
+    ],
+)
+def test_d0_expected_state_allows_only_the_empty_handoff_table(
+    tmp_path: Path, unexpected_sql: str
+) -> None:
+    driver = _load_driver()
+    path = tmp_path / "baseline.sqlite"
+    with closing(sqlite3.connect(path)) as db:
+        db.executescript(
+            "CREATE TABLE _medre_schema_meta (key TEXT PRIMARY KEY, value TEXT);"
+            "INSERT INTO _medre_schema_meta VALUES ('schema_version', '1');"
+            "CREATE TABLE delivery_outbox (outbox_id TEXT PRIMARY KEY);"
+            "INSERT INTO delivery_outbox VALUES ('work');"
+        )
+        released = driver._dump_state(path)
+        expected = driver._expected_d0_reopen_state(released)
+        ddl = next(
+            sql
+            for kind, name, sql in expected["catalog"]
+            if kind == "table" and name == "delivery_handoff_settlements"
+        )
+        db.execute(ddl)
+        assert driver._dump_state(path) == expected
+        with db:
+            db.execute(unexpected_sql)
+        assert driver._dump_state(path) != expected
+
+
 # ---------------------------------------------------------------------------
 # Integration: real qualification against the cached published artifacts.
 # Skips cleanly when the artifact cache is absent; never skips mid-scenario.
@@ -226,8 +264,9 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
     assert original["unchanged_after_all_steps"] is True
     assert original["wal_bytes"] in (None, 0)
 
-    # Writable reopen on a copy: two successful startups, stable identities.
+    # Writable reopen adds the empty table once and keeps the upgraded state stable.
     reopen = d0["reopen"]
+    assert reopen["expected_added_tables"] == ["delivery_handoff_settlements"]
     assert reopen["schema_version_stamp"] == "1"
     assert reopen["identity_counts"]["canonical_events"] >= 1
     assert reopen["identity_counts"]["delivery_receipts"] >= 1
@@ -236,11 +275,12 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
     assert len(reopen["opens"]) == 2
     for index, opened in enumerate(reopen["opens"], start=1):
         assert opened["open"] == index
-        assert opened["state_equal"] is True
+        assert opened["state_equal"] is False
+        assert opened["expected_state_equal"] is True
         assert opened["identities_equal"] is True
         assert opened["foreign_keys_clean"] is True
         assert opened["schema_version_stamp"] == "1"
-    assert reopen["persisted_changes_detected"] is False
+    assert reopen["persisted_changes_detected"] is True
     assert reopen["consumer_cli_catalog_current"] is True
     assert reopen["consumer_cli_healthy"] is True
 
