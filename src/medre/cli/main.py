@@ -864,7 +864,10 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Restrict delivery admission to one exact target (repeatable). "
             "Three components name the no-channel identity; a fourth names "
-            "the channel. An empty channel component is rejected. "
+            "the channel. A colon-bearing plan id (the canonical "
+            "plan:EVENT:ROUTE:INDEX:HASH shape) is consumed as one plan "
+            "component, so the event sits before it and the adapter and "
+            "channel after it. An empty channel component is rejected. "
             "In dry_run, selection is not evaluated; only best_effort "
             "checks exact-target admission"
         ),
@@ -877,7 +880,8 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Restrict delivery admission to the exact no-channel identity "
             "(repeatable); the explicit spelling of the three-component "
-            "--exact-target form"
+            "--exact-target form, also accepting a colon-bearing plan id "
+            "with no channel tail"
         ),
     )
 

@@ -1034,6 +1034,24 @@ it reports route/plan/render stages and suppresses all delivery, even if its
 named exact identities would be refused by `best_effort`. Use the exact-target
 preview to check the persisted identity before a side-effecting replay.
 
+Delivery plan ids contain colons: every persisted plan carries the canonical
+`plan:EVENT:ROUTE:INDEX:HASH` shape. Name the plan as one component — the
+value before it is the event, the value after it the adapter, and the channel
+tail stays everything after the adapter. Copy the `delivery_plan_id` exactly
+as the preview or evidence output reports it:
+
+```bash
+medre replay --mode best_effort --config bridge.yaml \
+  --event 9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01 --json \
+  --exact-target '9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01:plan:9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01:mx-bridge:target:0f1e2d3c4b5a6978:matrix:!a4b3c2d1:mesh.example.org'
+```
+
+A colon-free plan id keeps the historical reading — the plan is the second
+component and the channel is everything after the third colon — and
+`--exact-no-channel` accepts the same spelling with no channel tail. A plan
+id whose embedded event differs from the named event exits with `2`
+(configuration) instead of silently selecting nothing.
+
 ## Inspect one exact delivery leg before intervention
 
 For an event with two destinations on the same adapter, use the read-only
@@ -1052,7 +1070,10 @@ visible. **This is not a send command.** A replay without an exact-target
 flag still uses broad adapter/route selection and can affect other rooms;
 name the identified destination with `medre replay --exact-target
 EVENT:PLAN:ADAPTER:CHANNEL` or `medre replay --exact-no-channel
-EVENT:PLAN:ADAPTER` when that exact target is the intended recovery scope. Uncertain, active or scheduled attempts remain under their original
+EVENT:PLAN:ADAPTER` when that exact target is the intended recovery scope
+(the plan component may be the canonical colon-bearing
+`plan:EVENT:ROUTE:INDEX:HASH` id; see above). Uncertain, active or scheduled
+attempts remain under their original
 lifecycle owner; an audited resume/resolve decision over an unstarted target
 is recorded separately with `medre resolve --action` (see
 [exact-target decisions](exact-target-decisions.md)).
