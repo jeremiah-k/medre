@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from time import monotonic
-from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -549,8 +549,8 @@ def test_idle_horizon_and_healthy_lookup_start_new_episode(monkeypatch):
 async def test_late_health_change_releases_initial_reservation_and_notification_wakes_worker(
     temp_storage, monkeypatch, caplog
 ):
-    from tests.helpers.initial_outbox import _pipeline, _stage
     from tests.helpers.async_utils import wait_until
+    from tests.helpers.initial_outbox import _pipeline, _stage
 
     runner, route, adapters = _pipeline(temp_storage)
     route.targets = [RouteTarget("radio", "out")]
@@ -634,9 +634,9 @@ async def test_late_health_change_releases_initial_reservation_and_notification_
 async def test_health_release_preserves_prior_attempt_and_refuses_current_evidence(
     temp_storage, has_current_evidence
 ):
-    from tests.helpers.initial_outbox import _pipeline, _stage
-    from medre.core.events.canonical import DeliveryReceipt
     from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+    from medre.core.events.canonical import DeliveryReceipt
+    from tests.helpers.initial_outbox import _pipeline, _stage
 
     runner, route, adapters = _pipeline(temp_storage)
     route.targets = [RouteTarget("radio", "out")]
