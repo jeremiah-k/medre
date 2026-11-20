@@ -35,7 +35,6 @@ from tests.helpers.handoff_resolution import (
 # ---------------------------------------------------------------------------
 
 
-
 async def test_reconcile_settles_complete_handoff_as_sent(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -453,11 +452,11 @@ async def test_evidence_settlement_clears_a_stale_receipt_pointer(
 # ---------------------------------------------------------------------------
 
 
-async def test_pre_dispatch_recheck_settles_newly_readable_complete_handoff(
+async def test_fresh_claim_settles_newly_readable_complete_handoff(
     temp_storage: SQLiteStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Evidence unreadable at consumption is reconsidered before redispatch."""
+    """Evidence unreadable at consumption settles from a fresh claim's re-read."""
     stored, provenance = await _seed_reserved_claim(temp_storage)
     await _bind_and_progress(
         temp_storage, provenance, ["accepted", "accepted", "accepted"]
@@ -469,20 +468,23 @@ async def test_pre_dispatch_recheck_settles_newly_readable_complete_handoff(
 
     monkeypatch.setattr(temp_storage, "get_radio_attempt", unavailable)
     lifecycle = DeliveryLifecycleService()
-    first = await lifecycle.reconcile_retry_claim(
-        temp_storage,
-        claimed,
-        RetryPolicy(max_attempts=4, jitter=False),
-        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
-    )
-    assert first is not None
-    assert first.outcome == "retry_wait"
+    with pytest.raises(StorageError, match="evidence revision"):
+        await lifecycle.reconcile_retry_claim(
+            temp_storage,
+            claimed,
+            RetryPolicy(max_attempts=4, jitter=False),
+            handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+        )
+    # The unreadable claim is retained untouched, never consumed or re-labelled.
     row = await _row(temp_storage, stored.outbox_id)
-    assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL  # type: ignore[attr-defined]
+    assert row.status == "in_progress"  # type: ignore[attr-defined]
+    assert row.active_attempt == provenance.attempt_number  # type: ignore[attr-defined]
     monkeypatch.undo()
 
-    reclaimed = await _due_row(temp_storage, stored.outbox_id, "reconciler-b")
-    final = await lifecycle.recheck_last_uncertain_handoff(
+    # The lease expires; a fresh claim re-reads the same evidence, which now
+    # resolves, and settles the obligation without a newer dispatch.
+    reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-b")
+    final = await lifecycle.reconcile_retry_claim(
         temp_storage,
         reclaimed,
         RetryPolicy(max_attempts=4, jitter=False),
@@ -496,11 +498,11 @@ async def test_pre_dispatch_recheck_settles_newly_readable_complete_handoff(
     assert row.active_attempt is None  # type: ignore[attr-defined]
 
 
-async def test_pre_dispatch_recheck_records_proven_non_submission_without_dispatch(
+async def test_fresh_claim_records_proven_non_submission_without_dispatch(
     temp_storage: SQLiteStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A recheck that proves the fence empty records it and dispatches later."""
+    """A fresh claim that proves the fence empty records it without dispatching."""
     stored, provenance = await _seed_reserved_claim(temp_storage)
     await _bind_and_progress(temp_storage, provenance, ["unsent", "unsent"])
     claimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-a")
@@ -510,20 +512,23 @@ async def test_pre_dispatch_recheck_records_proven_non_submission_without_dispat
 
     monkeypatch.setattr(temp_storage, "get_radio_attempt", unavailable)
     lifecycle = DeliveryLifecycleService()
-    first = await lifecycle.reconcile_retry_claim(
-        temp_storage,
-        claimed,
-        RetryPolicy(max_attempts=4, jitter=False),
-        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
-    )
-    assert first is not None
-    assert first.outcome == "retry_wait"
+    with pytest.raises(StorageError, match="evidence revision"):
+        await lifecycle.reconcile_retry_claim(
+            temp_storage,
+            claimed,
+            RetryPolicy(max_attempts=4, jitter=False),
+            handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+        )
+    # The unreadable claim is retained untouched, never consumed or re-labelled.
     row = await _row(temp_storage, stored.outbox_id)
-    assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL  # type: ignore[attr-defined]
+    assert row.status == "in_progress"  # type: ignore[attr-defined]
+    assert row.active_attempt == provenance.attempt_number  # type: ignore[attr-defined]
     monkeypatch.undo()
 
-    reclaimed = await _due_row(temp_storage, stored.outbox_id, "reconciler-b")
-    final = await lifecycle.recheck_last_uncertain_handoff(
+    # A fresh claim re-reads the same evidence, which now proves the grant
+    # fence empty, and records the determination without dispatching.
+    reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-b")
+    final = await lifecycle.reconcile_retry_claim(
         temp_storage,
         reclaimed,
         RetryPolicy(max_attempts=4, jitter=False),
@@ -536,8 +541,8 @@ async def test_pre_dispatch_recheck_records_proven_non_submission_without_dispat
     assert row.status == "retry_wait"  # type: ignore[attr-defined]
     assert row.failure_kind_detail == HANDOFF_NOT_SUBMITTED_DETAIL  # type: ignore[attr-defined]
 
-    # The recheck is bounded, not a durable hold: the recorded determination
-    # clears the uncertain marker, so a fresh claim dispatches normally.
+    # The recorded determination clears the uncertain marker, so a fresh
+    # claim dispatches normally instead of rechecking again.
     following = await _due_row(temp_storage, stored.outbox_id, "reconciler-c")
     assert (
         await lifecycle.recheck_last_uncertain_handoff(

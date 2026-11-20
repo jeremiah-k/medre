@@ -14,6 +14,7 @@ accounting.  The lifecycle authority's verdict logic itself is covered in
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -90,16 +91,23 @@ def _retained_storage(
 
 def _lifecycle(recheck_result) -> MagicMock:
     """Lifecycle fake; ``reserve_retry_attempt`` returns None so a normal
-    dispatch stops at the lost-claim boundary without invoking transport."""
+    dispatch stops at the lost-claim boundary without invoking transport.
+
+    Every lifecycle surface the worker awaits is an ``AsyncMock`` so
+    await-expectation assertions are valid on each fake method."""
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)
+    lifecycle.abandon_retry_outbox = AsyncMock(return_value=None)
     return lifecycle
 
 
 def _worker(storage, lifecycle):
     pipeline = MagicMock()
+    # The transport entry point is awaited by the worker, so the fake must
+    # support await-expectation assertions like any lifecycle surface.
+    pipeline.deliver_execution_to_target = AsyncMock(return_value=None)
     worker = RetryWorker(
         storage=storage,
         pipeline=pipeline,
@@ -378,7 +386,9 @@ async def test_recheck_passes_observation_count_to_reservation(count):
     emit.assert_not_called()
 
 
-async def test_unreadable_recheck_never_reserves_or_abandons() -> None:
+async def test_unreadable_recheck_never_reserves_or_abandons(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A failed evidence read does not silently remove the preflight fence."""
     storage = _retained_storage()
     lifecycle = _lifecycle(
@@ -392,7 +402,29 @@ async def test_unreadable_recheck_never_reserves_or_abandons() -> None:
         )
     )
     worker, pipeline = _worker(storage, lifecycle)
-    await _run_with_emit(worker, _gated_item())
+    with caplog.at_level(logging.WARNING):
+        await _run_with_emit(worker, _gated_item())
     lifecycle.reserve_retry_attempt.assert_not_awaited()
     lifecycle.abandon_retry_outbox.assert_not_awaited()
     pipeline.deliver_execution_to_target.assert_not_awaited()
+    assert "deferring dispatch until a fresh claim" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Claim identity: every poll cycle owns its claims under a fresh,
+# untruncated retry-worker UUID so claim provenance stays attributable.
+# ---------------------------------------------------------------------------
+
+
+async def test_claim_owner_identifier_is_full_uuid_hex(monkeypatch):
+    """The poll claims due rows as retry-worker-<full uuid4 hex>."""
+    storage = _retained_storage()
+    claim = AsyncMock(return_value=[])
+    storage.claim_due_outbox_items = claim
+    owner = uuid.UUID("12345678123456781234567812345678")
+    monkeypatch.setattr(retry_module.uuid, "uuid4", lambda: owner)
+    worker, _pipeline = _worker(storage, _lifecycle(None))
+
+    await worker._process_due(datetime.now(timezone.utc))
+
+    assert claim.await_args.kwargs["worker_id"] == f"retry-worker-{owner.hex}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace as dataclass_replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -303,8 +304,7 @@ async def test_receipt_watermark_table_is_safe_additive_upgrade(tmp_path):
     try:
         assert await upgraded.get_outbox_item(stored.outbox_id) is not None
         assert (
-            await upgraded._read_all("SELECT * FROM delivery_handoff_settlements")
-            == []
+            await upgraded._read_all("SELECT * FROM delivery_handoff_settlements") == []
         )
         prior = DeliveryReceipt(
             receipt_id="pre-upgrade-failure",
@@ -339,9 +339,10 @@ async def test_receipt_watermark_table_is_safe_additive_upgrade(tmp_path):
     reopened = SQLiteStorage(path)
     await reopened.initialize()
     try:
-        assert await reopened._read_all(
-            "SELECT * FROM delivery_handoff_settlements"
-        ) == watermarks
+        assert (
+            await reopened._read_all("SELECT * FROM delivery_handoff_settlements")
+            == watermarks
+        )
         assert (await reopened.query_unresolved_deliveries()).items == []
     finally:
         await reopened.close()
@@ -445,6 +446,73 @@ async def test_receipt_fence_rejects_terminal_transition_after_late_append(
     assert row is not None and row.status == "in_progress"
 
 
+async def test_reservation_fences_the_checkpoint_revision_seen_at_verdict(
+    temp_storage,
+) -> None:
+    """An existing checkpoint's revision is pinned from verdict to reservation."""
+    stored, _ = await _seed_reserved_claim(temp_storage)
+    # A live first dispatch owns its checkpoint directly, so the sender can
+    # still advance it while a re-claimed row is awaiting its reservation.
+    provenance = _provenance(stored.outbox_id, 1, source="live")
+    await _bind_and_progress(
+        temp_storage, provenance, ["accepted", "accepted", "submitting"]
+    )
+    service = DeliveryLifecycleService()
+    resolver = EvidenceBackedHandoffResolver(temp_storage)
+    policy = RetryPolicy(max_attempts=4)
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "first-reader")
+    consumed = await service.reconcile_retry_claim(
+        temp_storage, claimed, policy, handoff_resolver=resolver
+    )
+    assert consumed is not None and consumed.outcome == "retry_wait"
+    due = await _due_row(temp_storage, stored.outbox_id, "second-reader")
+    verdict = await service.recheck_last_uncertain_handoff(
+        temp_storage, due, policy, handoff_resolver=resolver
+    )
+    assert isinstance(verdict, UncertainHandoffResolution)
+    assert verdict.observation_count == 0
+    checkpoint = await temp_storage.get_radio_attempt(stored.outbox_id, 1)
+    assert checkpoint is not None
+    stale_revision = verdict.checkpoint_revision
+    assert stale_revision == checkpoint.revision and stale_revision >= 0
+
+    # The submitting packet advances its checkpoint after the verdict but
+    # before the guarded reservation write.
+    advanced = await temp_storage.observe_radio_part(checkpoint, due.worker_id, 3)
+    assert advanced is not None
+    assert advanced.revision == stale_revision + 1
+
+    reserved = await service.reserve_retry_attempt(
+        temp_storage,
+        due,
+        expected_observation_count=verdict.observation_count,
+        expected_receipt_count=0,
+        expected_checkpoint_revision=stale_revision,
+    )
+    assert reserved is None
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.status == "in_progress"
+    assert row.active_attempt is None
+
+    # A fresh read resolves the advanced revision and the reservation commits.
+    reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "third-reader")
+    fresh = await service.recheck_last_uncertain_handoff(
+        temp_storage, reclaimed, policy, handoff_resolver=resolver
+    )
+    assert isinstance(fresh, UncertainHandoffResolution)
+    assert fresh.checkpoint_revision == stale_revision + 1
+    reserved = await service.reserve_retry_attempt(
+        temp_storage,
+        reclaimed,
+        expected_observation_count=fresh.observation_count,
+        expected_receipt_count=0,
+        expected_checkpoint_revision=fresh.checkpoint_revision,
+    )
+    assert reserved == provenance.attempt_number + 1
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.active_attempt == reserved
+
+
 async def test_recheck_uses_historical_checkpoint_source_after_newer_reservation(
     temp_storage,
 ) -> None:
@@ -453,7 +521,7 @@ async def test_recheck_uses_historical_checkpoint_source_after_newer_reservation
     assert row is not None
     old_source = _provenance(stored.outbox_id, 1, source="live")
     checkpoint = _checkpoint(old_source, ["accepted"] * 3)
-    current = replace(
+    current = dataclass_replace(
         row, attempt_number=2, active_attempt=3, dispatch_source="retry"
     )
     provider = SimpleNamespace(

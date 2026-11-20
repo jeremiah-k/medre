@@ -616,8 +616,7 @@ class EvidenceBackedHandoffResolver:
             observations=observations,
             attempt_source=(
                 item.dispatch_source
-                if attempt_number
-                >= (item.active_attempt or item.attempt_number)
+                if attempt_number >= (item.active_attempt or item.attempt_number)
                 else None
             ),
             replay_run_id=item.replay_run_id,

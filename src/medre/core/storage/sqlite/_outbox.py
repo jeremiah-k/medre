@@ -1315,9 +1315,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     "EXISTS (SELECT 1 FROM radio_attempt_progress "
                     "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?)"
                 )
-                params.extend(
-                    (outbox_id, attempt_number, expected_checkpoint_revision)
-                )
+                params.extend((outbox_id, attempt_number, expected_checkpoint_revision))
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
