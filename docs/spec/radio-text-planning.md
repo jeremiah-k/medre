@@ -125,14 +125,14 @@ reading the current worker from storage MUST NOT authorize an older dispatch.
 An expired, superseded or reused grant MUST prevent the SDK call. The dispatch
 deadline MUST be checked again at this boundary after pacing. Core MUST
 discard any grant callback supplied by a renderer. When the runtime wires a
-health admission gate, each packet-start grant MUST re-admit against the
-current blocking-health observation as part of the same grant unit: the
-observation is evaluated synchronously immediately before the durable grant
-command, so no grant issues against a degradation the runtime has already
-observed. A refused observation issues no grant and leaves no submitting or
-unknown record; the burst stops with the accepted prefix and a wholly unsent
-tail, which retains its transient retry eligibility, and granted or retained
-progress is never retracted.
+health admission gate, each packet-start grant MUST sample current blocking
+health for the plan's outbox obligation synchronously before submitting the
+durable grant command. If health blocks admission at that sample, the grant
+command is withheld and the burst
+stops with its accepted prefix and wholly unsent tail eligible for transient
+retry. A health change while the storage command is pending applies to later
+grants. Storage still checks the current claim, content authority, and deadline
+for the admitted command. Granted or retained progress remains authoritative.
 
 A granted invocation MUST NOT use an adapter-internal retry loop. A timeout or
 other uncertain result after the grant MUST stop the plan and retain unknown

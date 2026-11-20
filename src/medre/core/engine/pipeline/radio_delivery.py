@@ -137,11 +137,11 @@ class _Submission:
     async def begin(self) -> None:
         """Persist one native-call boundary after pacing, refusing reuse or claim loss.
 
-        Health admission is evaluated as part of the same grant unit: the
-        probe runs synchronously immediately before the storage grant
-        command, so a grant can never issue against a degradation the
-        runtime has already observed. A refused probe issues no grant and
-        leaves no submitting record.
+        The health probe runs synchronously before submitting the storage
+        grant command. A refused probe leaves no submitting record. A
+        health change while the command is pending applies to later grants;
+        storage still checks ownership, content authority and the deadline
+        for this command.
         """
         if self.entered:
             raise AdapterPermanentError(
@@ -191,12 +191,11 @@ async def deliver_radio_plan(
     retries for that invocation. A failed or cancelled native call retains unknown
     progress; no accepted or uncertain prefix is replayed by a new generation.
 
-    ``health_probe`` is admitted as part of every packet-start grant: it is
-    evaluated synchronously inside the grant callback immediately before the
-    durable grant command. A truthy return refuses that grant with no native
-    call and no uncertainty record; the burst stops with the accepted prefix
-    and a wholly unsent tail under the existing transient retry eligibility,
-    and granted or retained progress is never retracted.
+    Each packet-start grant samples ``health_probe`` synchronously before
+    submitting its durable grant command. A truthy return stops the burst
+    before that command, leaving the accepted prefix and a wholly unsent
+    tail eligible for transient retry. Health changes during the command
+    apply to later grants.
 
     ``resume_from`` is selected explicitly by the owning caller, including the
     configured retry owner; a renderer cannot supply it. Storage independently checks
