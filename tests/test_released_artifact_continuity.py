@@ -19,6 +19,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 from types import ModuleType
@@ -33,6 +34,9 @@ _SCRIPT = (
 
 _CORE_WHEEL = "medre-0.1.0-py3-none-any.whl"
 _ADAPTER_WHEEL = "medre_adapter_meshtastic-0.1.1-py3-none-any.whl"
+_TREE_VERSION = tomllib.loads(
+    (_SCRIPT.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+)["project"]["version"]
 
 
 def _load_driver() -> ModuleType:
@@ -242,7 +246,7 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
 
     # Candidate wheel provenance recorded (worktree-built, version-matched).
     candidate = d0["artifacts"]["candidate_wheel"]
-    assert candidate["version"] == "0.1.1"
+    assert candidate["version"] == _TREE_VERSION
     assert candidate["sha256"]
     assert candidate["build_command"][-1] == "--no-isolation"
 
