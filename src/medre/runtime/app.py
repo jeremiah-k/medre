@@ -37,7 +37,7 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import effective_generation
 from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
-from medre.core.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import sanitize_error_line
 from medre.core.startup_info import (
     CACHE_FILENAME,
     DEFAULT_EMISSION_TIMEOUT_SECONDS,
@@ -622,8 +622,8 @@ class MedreApp:
         (``time.monotonic() * 1000``).  Populated during :meth:`start`;
         process-local only — not wall-clock, not persisted, not refreshed.
     adapter_start_duration_ms:
-        Per-adapter startup duration in milliseconds. Populated alongside
-        :attr:`adapter_start_monotonic` for operator summaries.
+        Per-adapter startup attempt duration in milliseconds, including failed
+        attempts but excluding failed-start cleanup. Operator summary only.
     started_adapter_ids:
         Ordered list of adapter IDs that successfully started.
     route_stats:
@@ -767,6 +767,19 @@ class MedreApp:
     def adapter_start_errors(self) -> dict[str, str]:
         """Return a copy of sanitized per-adapter startup failure reasons."""
         return dict(self._adapter_start_errors)
+
+    @property
+    def adapter_start_health_reasons(self) -> dict[str, str]:
+        """Describe retained non-healthy observations at the startup barrier.
+
+        Do not retain an earlier probe error once a newer observation wins.
+        The health contract has no provider-specific reason for a valid sample.
+        """
+        return {
+            adapter_id: info.error or f"reported health: {info.health}"
+            for adapter_id, info in self._observed_adapter_health.items()
+            if info.health != "healthy"
+        }
 
     @property
     def event_buffer(self) -> EventBuffer:
@@ -2023,6 +2036,7 @@ class MedreApp:
         deadline = asyncio.timeout(_STARTUP_HEALTH_TIMEOUT_SECONDS)
         sampled_mono, sampled_wall = _time.monotonic(), _utc_now().isoformat()
         sampled: AdapterLiveHealth | None = None
+        reason = "startup health check timed out"
         try:
             async with deadline:
                 info = await self.adapters[adapter_id].health_check()
@@ -2036,6 +2050,8 @@ class MedreApp:
                     observed_wall=sampled_wall,
                 )
         except Exception as exc:
+            if not deadline.expired():
+                reason = f"startup health unavailable ({type(exc).__name__})"
             _logger.warning(
                 "Adapter %s startup health unavailable (%s)",
                 adapter_id,
@@ -2054,6 +2070,7 @@ class MedreApp:
                 ),
                 poll_timestamp_monotonic=sampled_mono,
                 poll_timestamp_wall=sampled_wall,
+                error=reason,
             )
             return "degraded"
         self._observed_adapter_health[adapter_id] = sampled
@@ -2257,6 +2274,7 @@ class MedreApp:
             return True
         except Exception as exc:
             elapsed = _monotonic_ms() - t0
+            self.adapter_start_duration_ms[adapter_id] = elapsed
 
             # Best-effort cleanup: stop the adapter so it can
             # release any resources acquired during the partial
@@ -2296,20 +2314,22 @@ class MedreApp:
                     )
             self._set_adapter_state(adapter_id, AdapterState.FAILED)
             self._observed_adapter_health.pop(adapter_id, None)
-            self._adapter_start_errors[adapter_id] = sanitize_error(str(exc))
+            self._adapter_start_errors[adapter_id] = (
+                sanitize_error_line(str(exc)) or type(exc).__name__
+            )
             _logger.error(
                 "Adapter %s.%s failed to start (%.0fms): %s",
                 transport,
                 adapter_id,
                 elapsed,
-                exc,
+                self._adapter_start_errors[adapter_id],
             )
             self._emit_event(
                 RuntimeEventType.ADAPTER_START_FAILED,
                 {
                     "adapter_id": adapter_id,
                     "platform": transport,
-                    "error": str(exc),
+                    "error": self._adapter_start_errors[adapter_id],
                 },
             )
             return False

@@ -88,7 +88,9 @@ carries the same count. At runtime startup, core collects facts at each
 adapter's ready transition but does not log per-adapter blocks: the
 consolidated startup banner renders every adapter's facts once all adapters
 have settled, beneath the instance's `name status duration` line, keeping
-`(cached)` provenance and `… +N more` truncation markers. Facts loaded from
+`(cached)` provenance and `… +N more` truncation markers. Failed-start
+and failed-build blocks retain validated last-known cached facts, if present,
+without implying successful startup. Facts loaded from
 the durable cache before adapter start are not previewed at startup.
 `medre adapters` uses the same block under
 the configured adapter. Its JSON output includes ordered facts, row indices,

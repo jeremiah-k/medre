@@ -17,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from medre.core.startup_info import AdapterStartupInfo
 
 from tests.helpers.async_utils import wait_until
 from tests.helpers.cli import _run_cli, _run_cli_raw
@@ -652,225 +653,261 @@ async def test_startup_installation_summary_survives_core_metadata_failure(
 # ===================================================================
 
 
-class TestStartupBannerLifecycle:
-    """The banner is consolidated, settle-time, and honestly worded."""
+async def test_banner_follows_minimal_start_line(tmp_path: Path) -> None:
+    """Early header is suppressed; identity facts render only at settle."""
+    import medre.cli.run_commands as run_mod
 
-    @pytest.mark.asyncio
-    async def test_banner_follows_minimal_start_line(self, tmp_path: Path) -> None:
-        """Early header is suppressed; identity facts render only at settle."""
-        import medre.cli.run_commands as run_mod
+    p = tmp_path / "config.yaml"
+    p.write_text(CONFIG_SINGLE_ADAPTER)
 
-        p = tmp_path / "config.yaml"
-        p.write_text(CONFIG_SINGLE_ADAPTER)
+    run_mod.shutdown_requested = False
 
-        run_mod.shutdown_requested = False
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        task = asyncio.create_task(run_mod._run(str(p)))
+        trigger = asyncio.create_task(_trigger_shutdown_after_startup(run_mod, stdout))
+        await asyncio.gather(task, trigger)
 
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            task = asyncio.create_task(run_mod._run(str(p)))
-            trigger = asyncio.create_task(
-                _trigger_shutdown_after_startup(run_mod, stdout)
+    output = stdout.getvalue()
+    medre_lines = [line for line in output.splitlines() if "[INFO] medre: " in line]
+    assert medre_lines, output
+    # Minimal start line only: no config/state/installation preview.
+    assert (
+        "[INFO] medre: MEDRE starting (single-adapter) with 1 adapter(s): solo"
+        in medre_lines[0]
+    )
+    assert "  Config:" not in medre_lines[0]
+    assert sum("  Config:" in line for line in medre_lines) == 1
+    # Identity facts appear only after the runtime began starting.
+    first_banner_fact = next(line for line in medre_lines if "  Config:" in line)
+    all_lines = output.splitlines()
+    app_start_index = next(
+        i for i, line in enumerate(all_lines) if "Starting MEDRE runtime" in line
+    )
+    assert all_lines.index(first_banner_fact) > app_start_index
+
+
+async def test_banner_blocks_are_consolidated_at_settle(tmp_path: Path) -> None:
+    """One instance block with status and duration, stats, then outcome."""
+    import medre.cli.run_commands as run_mod
+
+    p = tmp_path / "config.yaml"
+    p.write_text(CONFIG_SINGLE_ADAPTER)
+
+    run_mod.shutdown_requested = False
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        task = asyncio.create_task(run_mod._run(str(p)))
+        trigger = asyncio.create_task(_trigger_shutdown_after_startup(run_mod, stdout))
+        await asyncio.gather(task, trigger)
+
+    output = stdout.getvalue()
+    assert "MEDRE single-adapter — startup (1 adapter(s))" in output
+    assert "matrix.solo" in output
+    assert "  ready" in output
+    assert "  Events:" in output
+    assert "(cached)" not in output
+    # The trailing per-adapter "started X (Ns)" list is gone; durations
+    # live in the per-instance banner blocks now.
+    assert "  started matrix.solo" not in output
+    assert "All adapters ready — MEDRE runtime running" in output
+
+
+def test_settled_banner_reports_degraded_honestly() -> None:
+    """A degraded adapter keeps its status tag and the N-of-M outcome line."""
+    import medre.cli.run_commands as run_mod
+    from medre.core.lifecycle.states import AdapterState
+
+    app = SimpleNamespace(
+        adapters={"main": object(), "radio": object()},
+        build_failures=[],
+        adapter_states={
+            "main": AdapterState.READY,
+            "radio": AdapterState.DEGRADED,
+        },
+        adapter_start_duration_ms={"main": 1500.0, "radio": 2200.0},
+        startup_info={},
+        adapter_start_errors={},
+        adapter_start_health_reasons={"radio": "startup health check timed out"},
+        route_eligibility=None,
+        startup_readiness=None,
+        boot_summary=SimpleNamespace(
+            persisted_events_count=4,
+            storage_backend="sqlite",
+            storage_path="/tmp/medre.sqlite",
+        ),
+    )
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(name="degraded-run"),
+        routes=None,
+        storage=SimpleNamespace(backend="sqlite"),
+        adapters=SimpleNamespace(
+            all_configs=lambda: [
+                ("matrix", "main", SimpleNamespace(enabled=True)),
+                ("meshcore", "radio", SimpleNamespace(enabled=True)),
+            ]
+        ),
+        limits=SimpleNamespace(
+            max_inflight_deliveries=10,
+            max_inflight_replay_events=10,
+            shutdown_drain_timeout_seconds=5,
+        ),
+    )
+    paths = SimpleNamespace(config_file="/tmp/degraded.yaml", state_dir="/tmp/state")
+    settled = run_mod._settled_startup_banner(app, config, paths)
+    assert f"{'meshcore.radio':<14}  {'degraded':<8}  2.2s" in settled.text
+    assert f"{'matrix.main':<14}  {'ready':<8}  1.5s" in settled.text
+    assert "  reason startup health check timed out" in settled.text
+    assert settled.all_ready is False
+    assert settled.outcome_line == (
+        "MEDRE runtime running — 1/2 adapter(s) ready, 1 degraded"
+    )
+
+
+def test_settled_banner_reports_failed_honestly() -> None:
+    """A failed adapter carries its reason and the outcome line counts it."""
+    import medre.cli.run_commands as run_mod
+    from medre.core.lifecycle.states import AdapterState
+
+    app = SimpleNamespace(
+        adapters={"main": object(), "radio": object()},
+        build_failures=[],
+        adapter_states={
+            "main": AdapterState.READY,
+            "radio": AdapterState.FAILED,
+        },
+        adapter_start_duration_ms={"main": 1500.0, "radio": 312.0},
+        startup_info={"radio": _cached_banner_info("meshcore")},
+        adapter_start_errors={"radio": "connection refused"},
+        route_eligibility=None,
+        startup_readiness=None,
+        boot_summary=SimpleNamespace(
+            persisted_events_count=None,
+            storage_backend="memory",
+            storage_path=None,
+        ),
+    )
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(name="partial-run"),
+        routes=None,
+        storage=SimpleNamespace(backend="memory"),
+        adapters=SimpleNamespace(
+            all_configs=lambda: [
+                ("matrix", "main", SimpleNamespace(enabled=True)),
+                ("meshcore", "radio", SimpleNamespace(enabled=True)),
+            ]
+        ),
+        limits=SimpleNamespace(
+            max_inflight_deliveries=10,
+            max_inflight_replay_events=10,
+            shutdown_drain_timeout_seconds=5,
+        ),
+    )
+    paths = SimpleNamespace(config_file="/tmp/partial.yaml", state_dir="/tmp/state")
+    settled = run_mod._settled_startup_banner(app, config, paths)
+    assert "meshcore.radio  failed  312ms (cached)" in settled.text
+    assert "  board OLD" in settled.text
+    assert "  reason connection refused" in settled.text
+    assert settled.all_ready is False
+    assert settled.outcome_line == (
+        "MEDRE runtime running — 1/2 adapter(s) ready, 1 failed"
+    )
+
+
+def test_settled_banner_includes_build_failures() -> None:
+    """Build-failed instances render after started ones with their reason."""
+    import medre.cli.run_commands as run_mod
+    from medre.core.lifecycle.states import AdapterState
+
+    app = SimpleNamespace(
+        adapters={"main": object()},
+        build_failures=[
+            SimpleNamespace(
+                transport="meshtastic",
+                adapter_id="radio",
+                error=RuntimeError("missing SDK token=private-fixture-token"),
             )
-            await asyncio.gather(task, trigger)
+        ],
+        adapter_states={"main": AdapterState.READY},
+        adapter_start_duration_ms={"main": 1500.0},
+        startup_info={"radio": _cached_banner_info("meshtastic")},
+        adapter_start_errors={},
+        route_eligibility=None,
+        startup_readiness=None,
+        boot_summary=SimpleNamespace(
+            persisted_events_count=0,
+            storage_backend="memory",
+            storage_path=None,
+        ),
+    )
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(name="build-fail-run"),
+        routes=None,
+        storage=SimpleNamespace(backend="memory"),
+        adapters=SimpleNamespace(
+            all_configs=lambda: [
+                ("matrix", "main", SimpleNamespace(enabled=True)),
+                ("meshtastic", "radio", SimpleNamespace(enabled=True)),
+            ]
+        ),
+        limits=SimpleNamespace(
+            max_inflight_deliveries=10,
+            max_inflight_replay_events=10,
+            shutdown_drain_timeout_seconds=5,
+        ),
+    )
+    paths = SimpleNamespace(config_file="/tmp/build.yaml", state_dir="/tmp/state")
+    settled = run_mod._settled_startup_banner(app, config, paths)
+    assert "meshtastic.radio  build failed (cached)" in settled.text
+    assert "  board OLD" in settled.text
+    assert "  reason missing SDK" in settled.text
+    assert "private-fixture-token" not in settled.text
+    assert not settled.all_ready
+    assert settled.outcome_line == (
+        "MEDRE runtime running — 1/2 adapter(s) ready, 1 failed to build"
+    )
 
-        output = stdout.getvalue()
-        medre_lines = [line for line in output.splitlines() if "[INFO] medre: " in line]
-        assert medre_lines, output
-        # Minimal start line only: no config/state/installation preview.
-        assert (
-            "[INFO] medre: MEDRE starting (single-adapter) with 1 adapter(s): solo"
-            in medre_lines[0]
-        )
-        assert "  Config:" not in medre_lines[0]
-        # Identity facts appear only after the runtime began starting.
-        first_banner_fact = next(line for line in medre_lines if "  Config:" in line)
-        all_lines = output.splitlines()
-        app_start_index = next(
-            i for i, line in enumerate(all_lines) if "Starting MEDRE runtime" in line
-        )
-        assert all_lines.index(first_banner_fact) > app_start_index
 
-    @pytest.mark.asyncio
-    async def test_banner_blocks_are_consolidated_at_settle(
-        self, tmp_path: Path
-    ) -> None:
-        """One instance block with status and duration, stats, then outcome."""
-        import medre.cli.run_commands as run_mod
+def _cached_banner_info(transport: str) -> AdapterStartupInfo:
+    from medre.core.startup_info import StartupInfoField
 
-        p = tmp_path / "config.yaml"
-        p.write_text(CONFIG_SINGLE_ADAPTER)
+    return AdapterStartupInfo(
+        adapter_id="radio",
+        transport=transport,
+        fields=(StartupInfoField(name="board", value="OLD", cached=True, row=0),),
+        emitted_at="2026-11-20T00:00:00+00:00",
+    )
 
-        run_mod.shutdown_requested = False
 
-        stdout = io.StringIO()
-        with redirect_stdout(stdout):
-            task = asyncio.create_task(run_mod._run(str(p)))
-            trigger = asyncio.create_task(
-                _trigger_shutdown_after_startup(run_mod, stdout)
-            )
-            await asyncio.gather(task, trigger)
+@pytest.mark.parametrize(
+    "state_name",
+    [None, "INITIALIZING", "BACKPRESSURED", "DISCONNECTED", "STOPPING", "STOPPED"],
+)
+def test_settled_banner_never_counts_nonready_states(state_name: str | None) -> None:
+    from medre.cli.run_commands import _settled_startup_banner
+    from medre.core.lifecycle.states import AdapterState
 
-        output = stdout.getvalue()
-        assert "MEDRE single-adapter — startup (1 adapter(s))" in output
-        assert "matrix.solo" in output
-        assert "  ready" in output
-        assert "  Events:" in output
-        assert "(cached)" not in output
-        # The trailing per-adapter "started X (Ns)" list is gone; durations
-        # live in the per-instance banner blocks now.
-        assert "  started matrix.solo" not in output
-        assert "All adapters ready — MEDRE runtime running" in output
-
-    def test_settled_banner_reports_degraded_honestly(self) -> None:
-        """A degraded adapter keeps its status tag and the N-of-M outcome line."""
-        from types import SimpleNamespace
-
-        import medre.cli.run_commands as run_mod
-        from medre.core.lifecycle.states import AdapterState
-
-        app = SimpleNamespace(
-            adapters={"main": object(), "radio": object()},
-            build_failures=[],
-            adapter_states={
-                "main": AdapterState.READY,
-                "radio": AdapterState.DEGRADED,
-            },
-            adapter_start_duration_ms={"main": 1500.0, "radio": 2200.0},
-            startup_info={},
-            adapter_start_errors={},
-            route_eligibility=None,
-            startup_readiness=None,
-            boot_summary=SimpleNamespace(
-                persisted_events_count=4,
-                storage_backend="sqlite",
-                storage_path="/tmp/medre.sqlite",
-            ),
-        )
-        config = SimpleNamespace(
-            runtime=SimpleNamespace(name="degraded-run"),
-            routes=None,
-            storage=SimpleNamespace(backend="sqlite"),
-            adapters=SimpleNamespace(
-                all_configs=lambda: [
-                    ("matrix", "main", SimpleNamespace(enabled=True)),
-                    ("meshcore", "radio", SimpleNamespace(enabled=True)),
-                ]
-            ),
-            limits=SimpleNamespace(
-                max_inflight_deliveries=10,
-                max_inflight_replay_events=10,
-                shutdown_drain_timeout_seconds=5,
-            ),
-        )
-        paths = SimpleNamespace(
-            config_file="/tmp/degraded.yaml", state_dir="/tmp/state"
-        )
-        settled = run_mod._settled_startup_banner(app, config, paths)
-        assert f"{'meshcore.radio':<14}  {'degraded':<8}  2.2s" in settled.text
-        assert f"{'matrix.main':<14}  {'ready':<8}  1.5s" in settled.text
-        assert settled.all_ready is False
-        assert settled.outcome_line == (
-            "MEDRE runtime running — 1/2 adapter(s) ready, 1 degraded"
-        )
-
-    def test_settled_banner_reports_failed_honestly(self) -> None:
-        """A failed adapter carries its reason and the outcome line counts it."""
-        from types import SimpleNamespace
-
-        import medre.cli.run_commands as run_mod
-        from medre.core.lifecycle.states import AdapterState
-
-        app = SimpleNamespace(
-            adapters={"main": object(), "radio": object()},
-            build_failures=[],
-            adapter_states={
-                "main": AdapterState.READY,
-                "radio": AdapterState.FAILED,
-            },
-            adapter_start_duration_ms={"main": 1500.0},
-            startup_info={},
-            adapter_start_errors={"radio": "connection refused"},
-            route_eligibility=None,
-            startup_readiness=None,
-            boot_summary=SimpleNamespace(
-                persisted_events_count=None,
-                storage_backend="memory",
-                storage_path=None,
-            ),
-        )
-        config = SimpleNamespace(
-            runtime=SimpleNamespace(name="partial-run"),
-            routes=None,
-            storage=SimpleNamespace(backend="memory"),
-            adapters=SimpleNamespace(
-                all_configs=lambda: [
-                    ("matrix", "main", SimpleNamespace(enabled=True)),
-                    ("meshcore", "radio", SimpleNamespace(enabled=True)),
-                ]
-            ),
-            limits=SimpleNamespace(
-                max_inflight_deliveries=10,
-                max_inflight_replay_events=10,
-                shutdown_drain_timeout_seconds=5,
-            ),
-        )
-        paths = SimpleNamespace(config_file="/tmp/partial.yaml", state_dir="/tmp/state")
-        settled = run_mod._settled_startup_banner(app, config, paths)
-        assert "meshcore.radio  failed" in settled.text
-        assert "  reason connection refused" in settled.text
-        assert settled.all_ready is False
-        assert settled.outcome_line == (
-            "MEDRE runtime running — 1/2 adapter(s) ready, 1 failed"
-        )
-
-    def test_settled_banner_includes_build_failures(self) -> None:
-        """Build-failed instances render after started ones with their reason."""
-        from types import SimpleNamespace
-
-        import medre.cli.run_commands as run_mod
-        from medre.core.lifecycle.states import AdapterState
-
-        app = SimpleNamespace(
-            adapters={"main": object()},
-            build_failures=[
-                SimpleNamespace(
-                    transport="meshtastic", adapter_id="radio", error="missing SDK"
-                )
-            ],
-            adapter_states={"main": AdapterState.READY},
-            adapter_start_duration_ms={"main": 1500.0},
-            startup_info={},
-            adapter_start_errors={},
-            route_eligibility=None,
-            startup_readiness=None,
-            boot_summary=SimpleNamespace(
-                persisted_events_count=0,
-                storage_backend="memory",
-                storage_path=None,
-            ),
-        )
-        config = SimpleNamespace(
-            runtime=SimpleNamespace(name="build-fail-run"),
-            routes=None,
-            storage=SimpleNamespace(backend="memory"),
-            adapters=SimpleNamespace(
-                all_configs=lambda: [
-                    ("matrix", "main", SimpleNamespace(enabled=True)),
-                    ("meshtastic", "radio", SimpleNamespace(enabled=True)),
-                ]
-            ),
-            limits=SimpleNamespace(
-                max_inflight_deliveries=10,
-                max_inflight_replay_events=10,
-                shutdown_drain_timeout_seconds=5,
-            ),
-        )
-        paths = SimpleNamespace(config_file="/tmp/build.yaml", state_dir="/tmp/state")
-        settled = run_mod._settled_startup_banner(app, config, paths)
-        assert (
-            f"{'meshtastic.radio':<16}  {'build failed':<12}".rstrip() in settled.text
-        )
-        assert "  reason missing SDK" in settled.text
-        assert settled.outcome_line == (
-            "MEDRE runtime running — 1/2 adapter(s) ready, 1 failed to build"
-        )
+    app = SimpleNamespace(
+        adapters={"radio": object()}, build_failures=[], boot_summary=None
+    )
+    if state_name is not None:
+        app.adapter_states = {"radio": AdapterState[state_name]}
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(name="unknown-run"),
+        routes=None,
+        storage=None,
+        adapters=SimpleNamespace(
+            all_configs=lambda: [("meshcore", "radio", SimpleNamespace(enabled=True))]
+        ),
+        limits=SimpleNamespace(
+            max_inflight_deliveries=10,
+            max_inflight_replay_events=10,
+            shutdown_drain_timeout_seconds=5,
+        ),
+    )
+    paths = SimpleNamespace(config_file="/tmp/test.yaml", state_dir="/tmp/state")
+    settled = _settled_startup_banner(app, config, paths)
+    assert not settled.all_ready
+    assert settled.outcome_line == "MEDRE runtime running — 0/1 adapter(s) ready"
+    assert (state_name.lower() if state_name else "unknown") in settled.text

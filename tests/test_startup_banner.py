@@ -276,3 +276,35 @@ def test_outcome_line_degraded_adapter_is_not_ready() -> None:
     line = render_outcome_line(ready=0, total=1, degraded=1)
     assert "All adapters ready" not in line
     assert "0/1 adapter(s) ready, 1 degraded" in line
+
+
+
+def test_failure_reason_cannot_create_extra_banner_rows() -> None:
+    text = render_startup_banner(
+        _banner(adapters=(AdapterBannerEntry(
+            name="matrix.radio", status="failed",
+            reason="token=private-fixture-token\nforged row\x1b[31m",
+        ),))
+    )
+    assert "private-fixture-token" not in text
+    assert "\nforged row" not in text
+    assert "\x1b" not in text
+
+
+def test_outcome_line_never_claims_all_ready_with_build_failure() -> None:
+    assert "All adapters ready" not in render_outcome_line(
+        ready=1, total=1, build_failed=1
+    )
+
+
+def test_text_log_formatter_prefixes_every_banner_line() -> None:
+    import logging
+
+    from medre.core.observability.logging import _TextFormatter
+
+    banner = render_startup_banner(_banner())
+    record = logging.LogRecord("medre", logging.INFO, "", 0, banner, (), None)
+    rendered = _TextFormatter().format(record)
+    assert [line.split("[INFO] medre: ", 1)[1] for line in rendered.splitlines()] == (
+        banner.splitlines()
+    )

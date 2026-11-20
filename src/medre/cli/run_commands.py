@@ -17,7 +17,11 @@ from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
 from medre.core.lifecycle.states import AdapterState
-from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
+from medre.core.observability.sanitization import (
+    sanitize_error,
+    sanitize_error_line,
+    sanitize_for_log,
+)
 from medre.runtime.installation_summary import installation_lines
 from medre.runtime.startup_banner import (
     AdapterBannerEntry,
@@ -366,28 +370,24 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
     start_durations = getattr(app, "adapter_start_duration_ms", {}) or {}
     startup_info = getattr(app, "startup_info", {}) or {}
     start_errors = getattr(app, "adapter_start_errors", {}) or {}
+    health_reasons = getattr(app, "adapter_start_health_reasons", {}) or {}
     for adapter_id in sorted(app.adapters):
         transport = transports.get(adapter_id, "unknown")
         state = adapter_states.get(adapter_id)
         duration_ms = start_durations.get(adapter_id)
         duration_text = (
             format_duration_seconds(duration_ms / 1000.0)
-            if isinstance(duration_ms, (int, float)) and duration_ms > 0
+            if isinstance(duration_ms, (int, float)) and duration_ms >= 0
             else None
         )
+        reason = None
         if state is AdapterState.FAILED:
             failed += 1
-            entries.append(
-                AdapterBannerEntry(
-                    name=f"{transport}.{adapter_id}",
-                    status="failed",
-                    reason=start_errors.get(adapter_id, "failed during startup"),
-                )
-            )
-            continue
-        if state is AdapterState.DEGRADED:
+            reason = start_errors.get(adapter_id) or "failed during startup"
+        elif state is AdapterState.DEGRADED:
             degraded += 1
-        else:
+            reason = health_reasons.get(adapter_id) or "startup health is degraded"
+        elif state is AdapterState.READY:
             ready += 1
         entries.append(
             AdapterBannerEntry(
@@ -395,6 +395,7 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
                 status=state.value if state is not None else "unknown",
                 duration_text=duration_text,
                 info=startup_info.get(adapter_id),
+                reason=reason,
             )
         )
     build_failures = sorted(
@@ -405,7 +406,8 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
             AdapterBannerEntry(
                 name=f"{bf.transport}.{bf.adapter_id}",
                 status="build failed",
-                reason=bf.error,
+                info=startup_info.get(bf.adapter_id),
+                reason=str(bf.error) or type(bf.error).__name__,
             )
         )
 
@@ -462,7 +464,7 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
         storage_text=storage_text,
         adapters=tuple(entries),
     )
-    all_ready = ready == attempted and degraded == 0 and failed == 0
+    all_ready = attempted > 0 and ready == attempted and not build_failures
     outcome_line = render_outcome_line(
         ready=ready,
         total=attempted,
@@ -528,7 +530,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         app = builder.build()
     except Exception as exc:
         print(
-            f"Runtime build error: {sanitize_error(str(exc))}",
+            f"Runtime build error: {sanitize_error_line(str(exc))}",
             file=sys.stderr,
             flush=True,
         )
@@ -538,7 +540,10 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     if app.build_failures:
         _print(f"  Build failures ({len(app.build_failures)}):")
         for bf in app.build_failures:
-            _print(f"    \u2717 {bf.transport}.{bf.adapter_id}: {bf.error}")
+            _print(
+                f"    \u2717 {bf.transport}.{bf.adapter_id}: "
+                f"{sanitize_error_line(str(bf.error)) or type(bf.error).__name__}"
+            )
 
     # If ALL enabled adapters failed construction there is nothing to start.
     # Exit with EXIT_BUILD (3) — this is a build-phase failure, not startup.
@@ -595,14 +600,14 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                         _transport_for_adapter(adapter_id, config),
                         False,
                         dur,
-                        sanitize_error(str(exc)),
+                        sanitize_error_line(str(exc)),
                     )
                 )
 
             summary = startup_summary(startup_results)
             _print(summary)
             _print(
-                f"Runtime startup failed: {sanitize_error(str(exc))}",
+                f"Runtime startup failed: {sanitize_error_line(str(exc))}",
                 level=logging.ERROR,
             )
             sys.exit(EXIT_STARTUP)
