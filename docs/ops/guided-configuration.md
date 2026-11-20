@@ -1,8 +1,8 @@
 # Guided bridge configuration
 
-Use `medre config bridge` to connect two adapter instances without writing a
-route by hand. It asks for conversation addresses, explains message direction,
-shows the compiled route plan, and saves a new configuration after review.
+Use `medre config bridge` to build a route between two configured connections.
+Choose the room, chat, or channel on each side and where messages should go.
+The builder shows the compiled route plan and saves a new file after review.
 It never connects to an account or device, installs packages, or starts MEDRE.
 
 In a uv deployment, prefix the commands below with `uv run --locked`.
@@ -29,17 +29,18 @@ retains all its connections.
 
 Press Ctrl+C at any prompt to cancel without saving.
 
-1. Choose a source and destination by number or exact instance ID. The
-   destination list excludes the selected source; its numbers start at 1.
+1. Choose a source and destination by menu number or connection name (the
+   adapter instance ID in YAML). The destination list excludes the selected
+   source and its numbers start at 1.
    If an instance ID is itself a number, menu positions use `#1`, `#2`, and so
    on to avoid confusing an ID with a menu position.
    Noninteractive commands still require exact IDs.
 2. Choose a direction by number or name. Press Enter for the default,
    `bidirectional` (both ways). Choose `source_to_dest` or `dest_to_source`
    for one-way traffic.
-3. Enter a source context and its destination context. These are native
-   conversation addresses: a room ID, channel index, topic, or another address
-   defined by the provider. They remain strings, including numeric channels.
+3. Enter the room ID, channel index, topic, or other conversation identifier
+   for each side. The prompts call these source and destination contexts.
+   They remain strings, including numeric channels.
    Each prompt shows the provider's declared example address in parentheses;
    the example is a format reference, not a required value. Each pair is
    validated as soon as it is entered: a rejected address — for example a
@@ -70,29 +71,34 @@ kinds need an explicit policy change. Replies and any attachments carried by
 those events continue to follow the existing attachment settings, provider
 capabilities, and fallback policies.
 
-Validate the result and exercise one source/context from the displayed plan:
+Validate the saved file and check the expanded legs:
 
 ```bash
 medre config check --config bridge.yaml
 medre routes plan --config bridge.yaml
+```
+
+To inspect the destination text for a fixed synthetic message, use the
+[presentation preview](../spec/synthetic-message-preview.md):
+
+```bash
 medre config preview-message --config bridge.yaml --route bridge --json
+```
+
+Use `--repeat 32` to inspect truncation or `--relation reply` to see a synthetic
+reply fallback.
+
+For sample configurations, exercise one source/context and its matched
+fanout. Use the exact source instance and context from the displayed plan:
+
+```bash
 medre smoke --config bridge.yaml \
   --source-adapter SOURCE_ID --source-context SOURCE_CONTEXT --json
 ```
 
-Replace the last command's source values with an actual leg from the plan.
-The `preview-message` step shows what each configured leg's **actual pure
-renderer** produces for a fixed synthetic text event. Use `--repeat 32` to
-exercise truncation and `--relation reply` to demonstrate an explicitly chosen
-fallback, not a live capability decision. It neither stages delivery nor
-contacts a provider. See [synthetic preview](../spec/synthetic-message-preview.md).
-
-Repeat for the reverse leg and other mappings when present. Fake factories
-that support context selection accept the generic `channel` argument; MEDRE
-rejects a factory that ignores it instead of claiming that context was tested.
-A smoke pass covers one source/context and its matched fanout, not every route
-or native delivery. `--source-context` applies to normal smoke, not drills or
-run sessions. Real configurations are rejected by fake smoke.
+Repeat for other mappings and reverse legs when present. Smoke uses fake
+adapters and rejects real configurations. Use
+[live validation](live-validation/short-iterations.md) to test native delivery.
 
 ## Create native connections without hand-writing adapter fields
 
@@ -117,8 +123,8 @@ fields relevant to that connection. XMPP and LXMF expose pure provider-owned
 connection fields; an LXMF identity path refers to an existing identity and
 never creates one. Consult the
 [transport setup guides](transport-setup/README.md) for native preparation.
-Chatmail and SimpleX profile provisioning is available through `medre adapter chatmail` and `medre adapter simplexchat`;
-these commands intentionally contact the native service, unlike `config native`.
+Use `medre adapter chatmail` and `medre adapter simplexchat` to provision those
+profiles. Provisioning contacts the native service.
 
 Providers that cannot offer a form may instead declare a typed setup journey.
 Running **`medre config native`** against such a provider prints that
@@ -181,7 +187,7 @@ medre routes plan --config revised.yaml
 
 Use `--config` with a file containing your existing adapter connections. Native
 connection fields and prerequisites stay with their providers; see
-[transport setup guides](README.md#find-the-right-guide). The workflow does not request or
+[transport setup guides](transport-setup/README.md). The workflow does not request or
 display connection credentials. Existing fields, literal secrets, and path
 placeholders are retained in the new file; environment values are not copied.
 The route plan includes the current environment overrides, just like

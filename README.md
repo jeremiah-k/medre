@@ -7,20 +7,21 @@ networks you need.
 
 ## Install MEDRE
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and MEDRE.
 
 ```bash
 uv tool install medre
 ```
 
-Add the adapters for the networks you want to connect. For example:
+Matrix requires Python 3.12 or later. Use `uv tool install --python 3.12 medre`
+for that provider. To add the Matrix and Meshtastic adapters:
 
 ```bash
 medre adapters install matrix meshtastic
 ```
 
-Matrix requires Python 3.12+. See [installation options](docs/ops/install.md)
-for interpreter and platform setup.
+See [installation options](docs/ops/install.md) for interpreter and platform
+setup.
 
 ## Run a bridge
 
@@ -32,7 +33,7 @@ medre config check --config bridge.yaml
 medre run --config bridge.yaml
 ```
 
-Leave MEDRE running to keep the bridge connected; press **Ctrl+C** to stop it.
+Leave MEDRE running to keep the bridge connected. Press **Ctrl+C** to stop it.
 For container deployments, see [Docker](docs/ops/docker.md).
 
 ### Optional: try an offline demo
@@ -48,9 +49,9 @@ It runs locally without accounts or radios.
 
 ## Adapters
 
-Install the adapters for the networks you want to connect. Each adapter has its
-own setup guide; the [transport profiles](docs/spec/transport-profiles/README.md)
-describe supported features.
+Use each adapter's setup guide to prepare the connection. The
+[transport profiles](docs/spec/transport-profiles/README.md) describe supported
+features.
 
 | Adapter                                                                 | Transport                                              | Setup                                            |
 | ----------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
@@ -74,8 +75,6 @@ For more adapters, package updates, or Git and local sources, see
 | [Operator guides](docs/ops/README.md)          | Run, update, and troubleshoot a bridge        |
 | [Developer guides](docs/dev/README.md)         | Contribute, test, and build adapters          |
 | [Technical specification](docs/spec/README.md) | Event formats, routing, and storage contracts |
-
-New operators can also use [AI-assisted setup](docs/ops/ai-assisted-setup.md).
 
 ## Community and testing
 

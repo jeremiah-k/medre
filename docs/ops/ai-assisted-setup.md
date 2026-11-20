@@ -1,55 +1,60 @@
 # AI-assisted setup
 
-AI assistance is strictly optional: MEDRE is usable today without any AI
-service, and the guided builder already authors and validates your routes.
+We're working to make MEDRE configuration easier. Start with the
+[guided configuration](guided-configuration.md) commands to build and preview
+a route. If you use an agent, it can help you choose settings for your first
+route or reason through a change involving several conversations.
 
-MEDRE has many configuration choices. If you get stuck on instances, contexts,
-or routes, an AI coding assistant can walk you through `medre config bridge`,
-the offline command that authors and validates your first configuration.
-[OpenCode](https://opencode.ai/) is one option:
+Give the agent the MEDRE version you run, the corresponding guide, and just
+enough detail to describe the route. Use consistent stand-ins for private
+room IDs, hostnames, and adapter names. Keep credentials, identity files, and
+databases local. Run checks against your real configuration on your own machine
+and share only the relevant sanitized output.
 
-```bash
-curl -fsSL https://opencode.ai/v2/install | bash
-opencode
-```
-
-The [download page](https://opencode.ai/download) lists every installation
-method (npm, Homebrew, and others), and the
-[official setup guide](https://opencode.ai/v2/docs/) covers first steps.
-
-OpenCode's model catalog changes over time: models rotate, but there is
-usually something free to use, and many free models work without creating an
-account. Two high-quality free options at the time of writing are **DeepSeek
-V4.1 Flash** (`deepseek-v4.1-flash-free`) and **GLM-5.3 Flash**
-(`glm-5.3-flash-free`); check
-[OpenCode's live model catalog](https://opencode.ai/v2/docs/console/models/)
-for what is currently available and its terms.
-
-You can ask an assistant in plain language. Two examples:
-
-Ask for a guided first bridge between two transports:
+## Set up a first route
 
 ```text
-Using the MEDRE Getting Started guide, walk me through `medre config bridge
---output bridge.yaml` for a first two-way route between my Matrix test room
-and Meshtastic channel 0. Explain each prompt: adapter instances, direction,
-contexts, and labels. Remind me that Matrix needs a room ID starting with `!`
-rather than a `#` alias, and that Meshtastic contexts are channel indexes.
-After the command saves, have me run the `medre config check` and
-`medre smoke` steps it prints. Do not invent adapter fields; MEDRE validates,
-you explain.
+My Matrix and Meshtastic connections are already in connections.yaml. Help
+me forward text from one Matrix test room to Meshtastic channel 0, one way.
+Use MEDRE's guided configuration and transport setup guides for my version.
+
+Show me where to put the connection names, Matrix room ID, and radio
+channel number. Use placeholders for anything I haven't supplied. Give me
+a config bridge command with the direction explicit, a preview I can
+review before saving, and the checks to run against the new file. Tell me
+which direction I should see in the plan. Leave connecting to the services
+and sending a test message to me.
 ```
 
-Ask for a plan to bring to the builder:
+## Review a change to an existing bridge
 
 ```text
-Using the MEDRE documentation, help me plan a bridge between my MeshCore node
-and my Matrix account. Ask me for whatever details you need, then give me the
-list to bring to `medre config bridge`: both adapter instance IDs, each side's
-context, a direction, and any labels. Explain each choice, then have me run
-the builder and validate the saved file with `medre config check`.
+I want two Matrix announcement rooms to feed the same radio channel, with
+no radio traffic forwarded back. I'll share the sanitized route definitions
+and current output of medre routes plan --json.
+
+List which room should send to which channel. Check whether an existing
+route already forwards either room's messages or sends radio traffic back.
+Use MEDRE's configuration reference to propose the smallest change in a
+separate draft file. Preserve unrelated routes and policies. Show which
+connections and directions should change in the before and after plans.
 ```
 
-Keep tokens, passwords, private keys, and unredacted databases **out of AI
-chats**. Review every proposed change. MEDRE does not need an AI service to
-operate.
+## Investigate a missing message
+
+```text
+I expected a message from radio channel 2 to match my bridge route, but it
+didn't appear in the destination room. Give me a medre routes explain
+command that uses the radio connection name, channel number, and event
+kind. If the route checks a sender allowlist, include the sender input
+too. Use placeholders for private values.
+
+I'll share the sanitized report. Point to the rule or field that determined
+the match. If a route matches and policy allows it, tell me what evidence
+I'd need to check delivery. Keep this investigation read-only.
+```
+
+Review the output of `medre config check` and `medre routes plan` before
+starting a bridge. The [route explanation guide](guided-configuration.md#explain-a-route-decision)
+covers what you can verify offline. Use [troubleshooting](troubleshooting.md)
+when the question involves a live connection or delivery.
