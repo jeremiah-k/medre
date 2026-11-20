@@ -588,13 +588,16 @@ class DeliveryOutboxItem:
     error_summary:
         Sanitised, capped error string from the most recent attempt.
     dispatch_source:
-        Dispatch mechanism for the row's current/effective attempt
+        Durable dispatch origin of the row's current/effective attempt
         (``"live"``, ``"replay"``, or ``"retry"``).  Initial admission stores
         live versus replay independently of ``replay_run_id`` so unnamed replay
-        remains attributable before its first receipt exists.  Reserving a
-        retry updates this field to ``"retry"`` atomically with
-        ``active_attempt``; the value survives queue handoff after that
-        reservation is consumed.  ``None`` is permitted only on transient
+        remains attributable before its first receipt exists.  Reserving an
+        attempt records ``"live"`` for the first reservation from zero and
+        ``"retry"`` for later live-origin reservations, atomically with
+        ``active_attempt``; a replay-origin row keeps ``"replay"`` so its
+        content authority (the still-live source admission hold) survives the
+        retry lane, and the value survives queue handoff after the reservation
+        is consumed.  ``None`` is permitted only on transient
         pre-storage construction; storage canonicalizes it at admission.
     replay_run_id:
         Non-empty replay execution identifier that durably owns this delivery

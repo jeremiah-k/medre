@@ -237,8 +237,12 @@ def reserve_guarded_outbox_attempt(
 
     The next generation may be reserved only by the claimed row and only when
     no sibling row for the same event-scoped delivery identity already
-    represents that generation or a newer one.  This keeps in-memory lifecycle
-    fakes aligned with the production replay/retry collision fence.
+    represents that generation or a newer one.  A replay-origin row keeps its
+    durable ``replay`` origin marker across the retry lane (its content
+    authority is the still-live source admission hold); the first reservation
+    from zero records ``live``; every other reservation records ``retry``.
+    This keeps in-memory lifecycle fakes aligned with the production
+    replay/retry collision fence and provenance preservation.
     """
     item = items.get(outbox_id)
     if (
@@ -261,7 +265,13 @@ def reserve_guarded_outbox_attempt(
 
     object.__setattr__(item, "active_attempt", next_attempt)
     object.__setattr__(
-        item, "dispatch_source", "live" if item.attempt_number == 0 else "retry"
+        item,
+        "dispatch_source",
+        (
+            "replay"
+            if item.dispatch_source == "replay"
+            else ("live" if item.attempt_number == 0 else "retry")
+        ),
     )
     return next_attempt
 

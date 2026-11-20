@@ -1028,8 +1028,12 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
 
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
-        and records ``live`` for the first reservation from zero, otherwise
-        ``retry``, only when the row is ``in_progress``,
+        and records the dispatch provenance for the reserved attempt: a
+        replay-origin row keeps ``replay`` (its content authority is the
+        still-live source admission hold, so the origin marker must survive
+        the retry lane), the first reservation from zero records ``live``,
+        and any other reservation records ``retry``.  This commits only when
+        the row is ``in_progress``,
         owned by *worker_id*, carries
         no reservation yet, still stores ``attempt_number == from_attempt``,
         and no sibling row for the same event-scoped delivery identity already
@@ -1044,7 +1048,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         rowcount = await self._write_rowcount(
             """UPDATE delivery_outbox
                SET active_attempt = attempt_number + 1,
-                   dispatch_source = CASE WHEN attempt_number = 0 THEN 'live' ELSE 'retry' END,
+                   dispatch_source = CASE
+                       WHEN dispatch_source = 'replay' THEN 'replay'
+                       WHEN attempt_number = 0 THEN 'live'
+                       ELSE 'retry'
+                   END,
                    last_attempt_at = ?,
                    updated_at = ?
                WHERE outbox_id = ?

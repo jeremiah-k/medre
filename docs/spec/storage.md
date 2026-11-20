@@ -1062,12 +1062,15 @@ claiming `worker_id`. Guarded status mutations return whether the update
 committed so lifecycle code cannot report a state change after a compare-and-set
 miss.
 
-`dispatch_source` records the dispatch mechanism for the row's current/effective
-attempt. Initial admission stores `live` or `replay` independently of
-`replay_run_id`, so unnamed replay remains attributable before a receipt exists.
-Reservation from attempt zero retains `live`; later RetryWorker reservations
-atomically change it to `retry` with `active_attempt`;
-that value survives queue handoff after the reservation is consumed. Callback
+`dispatch_source` records the durable dispatch origin of the row's
+current/effective attempt. Initial admission stores `live` or `replay`
+independently of `replay_run_id`, so unnamed replay remains attributable before
+a receipt exists. Reservation from attempt zero retains `live`; later
+live-origin RetryWorker reservations atomically change it to `retry` with
+`active_attempt`; a replay-origin row keeps `replay` across retry-lane
+reservations because its content authority is the still-live source admission
+hold, which the content-authority check recognizes only by this column. That
+value survives queue handoff after the reservation is consumed. Callback
 lineage therefore does not depend on whether the immutable queued receipt is
 already visible.
 

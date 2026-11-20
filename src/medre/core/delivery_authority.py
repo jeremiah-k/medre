@@ -204,6 +204,14 @@ def delivery_attempt_provenance_mismatch(
     outbox row that admitted the attempt. Mutable row provenance is validation
     evidence only; callers must never use it to reconstruct a missing callback
     source or replay run.
+
+    The row's ``dispatch_source`` is the durable origin class recorded at
+    allocation, while the envelope's ``source`` is the dispatch lane of the
+    exact attempt. They agree directly except for one legitimate divergence: a
+    replay-origin row keeps ``replay`` across retry-lane reservations, and the
+    retry worker dispatches that lane with ``source="retry"``. Every other
+    disagreement refuses — a ``retry`` or ``live`` row never admits a ``live``
+    or ``replay`` envelope it did not originate.
     """
     outbox_id = str(_get(item, "outbox_id") or "")
     if outbox_id != provenance.outbox_id:
@@ -232,7 +240,11 @@ def delivery_attempt_provenance_mismatch(
         )
 
     row_source = _get(item, "dispatch_source")
-    if row_source is not None and str(row_source) != provenance.source:
+    if (
+        row_source is not None
+        and str(row_source) != provenance.source
+        and not (str(row_source) == "replay" and provenance.source == "retry")
+    ):
         return (
             "dispatch source mismatch: "
             f"callback={provenance.source!r} row={str(row_source)!r}"
