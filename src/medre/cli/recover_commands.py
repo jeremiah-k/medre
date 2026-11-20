@@ -405,16 +405,13 @@ async def _build_event_recovery_runbook(
             "Review every destination in the dry-run output before sending."
         )
         runbook["warnings"].append(
-            "When one exact destination is identified, name it with 'medre "
-            "replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL' (or "
-            "'--exact-no-channel EVENT:PLAN:ADAPTER' when the stored "
-            "identity has no channel; a canonical colon-bearing "
-            "plan:EVENT:ROUTE:INDEX:HASH plan id is consumed as one plan "
-            "component, with the event before it and the adapter and "
-            "channel after it); when the event id or channel itself carries "
-            'colons, use \'--exact-target-json ["EVENT","PLAN","ADAPTER",'
-            '"CHANNEL"]\' (null CHANNEL for no channel) instead; '
-            "replays without that flag still select adapters and routes only."
+            "When one exact destination is identified, name it with medre replay "
+            """--exact-target-json '["EVENT","PLAN","ADAPTER","CHANNEL"]' """
+            "(use null for no channel). Copy the full plan ID from the exact "
+            "preview. For colon-free IDs, use --exact-target "
+            "EVENT:PLAN:ADAPTER:CHANNEL or --exact-no-channel "
+            "EVENT:PLAN:ADAPTER. Replays without an exact-target selector use adapter and "
+            "route scope."
         )
 
     # Side-effecting replay remains an explicit operator choice after preview.

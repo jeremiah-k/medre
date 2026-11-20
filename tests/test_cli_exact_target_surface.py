@@ -545,45 +545,8 @@ def test_repeated_identity_across_flags_is_rejected():
         _parse_exact_target_specs(["evt:plan:adapter:ch", "evt:plan:adapter:ch"], None)
 
 
-# Every persisted delivery plan id is the canonical five-component shape
-# ``plan:{event}:{route}:{index}:{hash}``, so the compact ``--exact-target``
-# value must express a plan component that itself contains colons. The
-# identities below are fabricated placeholders in the real shape.
 _EVENT = "evt-4c1a9b02"
-_OTHER_EVENT = "evt-7d2b3e01"
 _CANONICAL_PLAN = f"plan:{_EVENT}:mx-bridge:target:0f1e2d3c4b5a6978"
-
-
-def test_colon_bearing_plan_id_round_trips_to_one_identity():
-    identity = _selection(
-        f"{_EVENT}:{_CANONICAL_PLAN}:matrix:!a4b3c2d1:mesh.example.org"
-    )
-    assert identity == DeliveryIdentity(
-        _EVENT, _CANONICAL_PLAN, "matrix", "!a4b3c2d1:mesh.example.org"
-    )
-
-
-def test_colon_bearing_plan_id_names_the_no_channel_identity():
-    identity = _selection(f"{_EVENT}:{_CANONICAL_PLAN}:matrix")
-    assert identity == DeliveryIdentity(_EVENT, _CANONICAL_PLAN, "matrix", None)
-
-
-def test_explicit_no_channel_flag_accepts_a_colon_bearing_plan_id():
-    identity = _selection(f"{_EVENT}:{_CANONICAL_PLAN}:matrix", no_channel=True)
-    assert identity == DeliveryIdentity(_EVENT, _CANONICAL_PLAN, "matrix", None)
-
-
-def test_colon_bearing_plan_for_another_event_is_rejected_loudly():
-    other_plan = f"plan:{_OTHER_EVENT}:mx-bridge:target:0f1e2d3c4b5a6978"
-    with pytest.raises(ValueError, match=f"embeds event '{_OTHER_EVENT}'"):
-        _parse_exact_target_specs([f"{_EVENT}:{other_plan}:matrix"], None)
-
-
-def test_colon_bearing_plan_with_blank_component_is_rejected():
-    with pytest.raises(ValueError, match="nonblank"):
-        _parse_exact_target_specs(
-            [f"{_EVENT}:plan:{_EVENT}::target:0f1e2d3c4b5a6978:matrix"], None
-        )
 
 
 def test_colon_free_plan_keeps_the_historical_split():
@@ -701,37 +664,19 @@ def test_json_identity_duplicate_across_flags_is_rejected():
         )
 
 
-def test_legacy_event_named_plan_with_colon_channel_is_a_near_collision():
-    """The near-collision that motivates the explicit JSON grammar.
+@pytest.mark.parametrize("legacy_adapter", ["plan", "matrix"])
+def test_canonical_looking_compact_value_keeps_legacy_channel(legacy_adapter):
+    channel = "route:target:0f1e2d3c4b5a6978:matrix"
+    compact = _selection(f"plan:plan:{legacy_adapter}:{channel}")
+    assert compact == DeliveryIdentity("plan", "plan", legacy_adapter, channel)
 
-    An event id literally ``plan`` with a colon-bearing channel tail is
-    byte-indistinguishable from the canonical plan-id spelling of a
-    different obligation, so the compact string cannot reliably carry the
-    legacy reading: hash-tailed bytes are refused loudly, and the
-    plan-shaped bytes are consumed as a canonical plan id. The JSON form
-    names the four fields explicitly and selects exactly the named
-    obligation — distinct from what the compact bytes produce.
-    """
-    channel = "!room:example.org:0f1e2d3c4b5a6978:tail"
-    # The legacy compact bytes sit inside the canonical plan-id shape, so
-    # the conservative detection refuses them instead of guessing.
-    with pytest.raises(ValueError, match="embeds event"):
-        _parse_exact_target_specs([f"plan:plan:matrix:{channel}"], None)
-    # The JSON spelling carries the intended legacy obligation byte-exact.
-    legacy = _json_selection(
-        '["plan","plan","matrix","!room:example.org:0f1e2d3c4b5a6978:tail"]'
+    canonical = _json_selection(
+        f'["plan","plan:{legacy_adapter}:route:target:0f1e2d3c4b5a6978","matrix",null]'
     )
-    assert legacy == DeliveryIdentity(
-        "plan", "plan", "matrix", "!room:example.org:0f1e2d3c4b5a6978:tail"
+    assert canonical == DeliveryIdentity(
+        "plan", f"plan:{legacy_adapter}:route:target:0f1e2d3c4b5a6978", "matrix", None
     )
-    # Plan-shaped compact bytes are consumed as a canonical plan id — a
-    # different obligation than the JSON spelling of the same leading
-    # event id, which is exactly the ambiguity the JSON form removes.
-    compact = _selection("plan:plan:plan:route:target:0f1e2d3c4b5a6978:matrix")
-    assert compact == DeliveryIdentity(
-        "plan", "plan:plan:route:target:0f1e2d3c4b5a6978", "matrix", None
-    )
-    assert compact != legacy
+    assert compact != canonical
 
 
 # ---------------------------------------------------------------------------
@@ -752,8 +697,8 @@ def test_legacy_event_named_plan_with_colon_channel_is_a_near_collision():
         ("--exact-no-channel", "evt:plan:adapter:!room"),
         ("--exact-target", "evt:plan:adapter", "--exact-target", "evt:plan:adapter"),
         (
-            "--exact-target",
-            "evt-4c1a9b02:plan:evt-7d2b3e01:mx-bridge:target:0f1e2d3c4b5a6978:matrix",
+            "--exact-no-channel",
+            "evt-4c1a9b02:plan:evt-4c1a9b02:mx-bridge:target:0f1e2d3c4b5a6978:matrix",
         ),
         ("--exact-target-json", "not json"),
         ("--exact-target-json", '{"event":"evt"}'),
@@ -805,8 +750,8 @@ def test_colon_bearing_plan_specification_passes_the_config_gate(
         "dry_run",
         "--event",
         "whatever",
-        "--exact-target",
-        f"{_EVENT}:{_CANONICAL_PLAN}:matrix:!a4b3c2d1:mesh.example.org",
+        "--exact-target-json",
+        f'["{_EVENT}","{_CANONICAL_PLAN}","matrix","!a4b3c2d1:mesh.example.org"]',
     )
     assert code == 2
     assert "Invalid --exact-target" not in stderr

@@ -864,14 +864,9 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Restrict delivery admission to one exact target (repeatable). "
             "Three components name the no-channel identity; a fourth names "
-            "the channel. A colon-bearing plan id (the canonical "
-            "plan:EVENT:ROUTE:INDEX:HASH shape) is consumed as one plan "
-            "component, so the event sits before it and the adapter and "
-            "channel after it. Colon-bearing event ids and channels have no "
-            "unambiguous compact spelling — use --exact-target-json for "
-            "those. An empty channel component is rejected. In dry_run, "
-            "selection is not evaluated; only best_effort checks "
-            "exact-target admission"
+            "the channel. Use --exact-target-json when the event, plan, or "
+            "adapter ID contains colons. In dry_run, selection is not "
+            "evaluated; only best_effort checks exact-target admission"
         ),
     )
     replay_p.add_argument(
@@ -881,9 +876,8 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         metavar="EVENT:PLAN:ADAPTER",
         help=(
             "Restrict delivery admission to the exact no-channel identity "
-            "(repeatable); the explicit spelling of the three-component "
-            "--exact-target form, also accepting a colon-bearing plan id "
-            "with no channel tail"
+            "(repeatable); use --exact-target-json with null for the "
+            "channel when an ID contains colons"
         ),
     )
     replay_p.add_argument(
@@ -893,16 +887,9 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         metavar="JSON",
         help=(
             "Restrict delivery admission to one exact target (repeatable), "
-            "expressed explicitly as a JSON array of exactly four elements "
-            '[\'["EVENT","TARGET","ADAPTER","CHANNEL|null"]\']. This is the '
-            "unambiguous grammar for colon-bearing identifiers: a "
-            "colon-bearing event id, a canonical colon-bearing plan id "
-            "(plan:EVENT:ROUTE:INDEX:HASH), or a colon-bearing channel each "
-            "survive byte-exact, where the compact colon spelling cannot "
-            "distinguish them from the overloaded string. Null is the "
-            "no-channel spelling; the first three elements must be nonblank "
-            "strings. Malformed JSON, wrong arity, or non-string elements "
-            "exit with a configuration error"
+            'as a JSON array ["EVENT","PLAN","ADAPTER",null]. Replace null '
+            "with a nonblank channel string if the target has a channel. "
+            "Use this form for colon-bearing IDs, including generated plan IDs"
         ),
     )
 
