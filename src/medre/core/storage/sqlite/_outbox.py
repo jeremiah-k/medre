@@ -85,6 +85,12 @@ if TYPE_CHECKING:
     _T = TypeVar("_T")
 
 
+def _stale_queued_cutoff(now: str) -> str:
+    return (
+        datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
+    ).isoformat()
+
+
 class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
     """Delivery outbox methods for SQLiteStorage.
 
@@ -817,9 +823,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         observe fewer rows than its initial ``SELECT`` saw.
         """
         lease_until = _add_seconds_iso(now, lease_seconds)
-        stale_cutoff = (
-            datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
-        ).isoformat()
+        stale_cutoff = _stale_queued_cutoff(now)
         claimable_ph = ",".join("?" for _ in CLAIMABLE_OUTBOX_STATUSES)
         claimable_params = tuple(CLAIMABLE_OUTBOX_STATUSES)
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
@@ -985,11 +989,12 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         )
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...]
+        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
     ) -> tuple[str, ...]:
         """Probe each unhealthy lane for current nonterminal work using its index."""
         if not candidates:
             return ()
+        stale_cutoff = _stale_queued_cutoff(queued_as_of) if queued_as_of else None
         values = ",".join("(?)" for _ in candidates)
         rows = await self._read_all(
             f"""WITH candidates(target_adapter) AS (VALUES {values})
@@ -997,7 +1002,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                WHERE EXISTS (
                  SELECT 1 FROM delivery_outbox
                  WHERE delivery_outbox.target_adapter=candidates.target_adapter
-                   AND status IN ('pending','retry_wait','in_progress')
+                   AND (status IN ('pending','retry_wait','in_progress')
+                        OR (status='queued' AND updated_at<=?))
                    AND NOT EXISTS (
                        SELECT 1 FROM delivery_outbox sibling
                        WHERE sibling.outbox_id<>delivery_outbox.outbox_id
@@ -1008,7 +1014,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                          AND COALESCE(sibling.active_attempt,sibling.attempt_number)>=
                              COALESCE(delivery_outbox.active_attempt,delivery_outbox.attempt_number))
                )""",  # nosec B608 - values contains only parameter placeholders
-            candidates,
+            (*candidates, stale_cutoff),
         )
         return tuple(sorted(row["target_adapter"] for row in rows))
 
