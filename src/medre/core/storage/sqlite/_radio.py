@@ -140,6 +140,15 @@ def _owns(
 
     Once the parent enters queued it has relinquished its worker reservation;
     a checkpoint must never resurrect native submission authority from that row.
+
+    The row's durable ``dispatch_source`` origin and the envelope's dispatch
+    lane agree directly except for one directional divergence, mirrored from
+    the callback provenance fence: a replay-origin row keeps ``replay`` across
+    a retry-lane reservation, and the retry worker dispatches that lane with
+    ``source="retry"``. Such a retry-lane checkpoint is admitted only when it
+    binds the row's exact active reservation — the reserved attempt identity,
+    never the unreserved base attempt, a stale attempt, or a future one.
+    Every other disagreement refuses.
     """
     row = db.execute(
         """SELECT * FROM delivery_outbox AS current
@@ -170,20 +179,33 @@ def _owns(
                 return False
         except (ValueError, TypeError):
             return False
-    return (
+    if (
         row["event_id"],
         row["delivery_plan_id"],
         row["target_adapter"],
         row["target_channel"] or "",
-        row["dispatch_source"],
         row["replay_run_id"],
-    ) == (
+    ) != (
         claim.event_id,
         claim.delivery_plan_id,
         claim.target_adapter,
         claim.target_channel or "",
-        claim.source,
         claim.replay_run_id,
+    ):
+        return False
+    if row["dispatch_source"] == claim.source:
+        return True
+    # The single directional divergence admitted past the identity check: a
+    # replay-origin row keeps its durable origin across retry-lane
+    # reservations while the retry worker dispatches that lane with
+    # source="retry". The checkpoint must bind the row's exact active
+    # reservation — a retry-lane claim riding the unreserved base attempt,
+    # a superseded attempt, or a future one is refused.
+    return (
+        row["dispatch_source"] == "replay"
+        and claim.source == "retry"
+        and row["active_attempt"] is not None
+        and row["active_attempt"] == claim.attempt_number
     )
 
 

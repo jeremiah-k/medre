@@ -177,8 +177,18 @@ the durable outbox row and immutable receipt history before accepting evidence:
 1. event/plan/adapter/route-channel identity and `outbox_id` MUST match the row;
 2. `attempt_number` MUST match the row's effective generation (`active_attempt`
    while reserved, otherwise the finalized attempt number);
-3. durable dispatch `source` and named `replay_run_id`, when present on the row,
-   MUST agree with the envelope; and
+3. the row's durable dispatch `source` and named `replay_run_id`, when present
+   on the row, MUST agree with the envelope. The row's `dispatch_source` is the
+   generation's durable origin class; the envelope's `source` is the dispatch
+   lane of that exact attempt. They agree directly except for one legitimate
+   divergence: a replay-origin row keeps `source="replay"` across retry-lane
+   reservations (see §3.4.1), and the retry lane's `source="retry"` envelope is
+   the valid lineage for that row's later attempts. Every other disagreement
+   refuses fail-closed — a `retry` or `live` row never admits a `live` or
+   `replay` envelope it did not originate. The radio checkpoint fence obeys the
+   same directional rule at its boundary, admitting a `retry`-lane checkpoint
+   over a replay-origin row only while it binds the row's exact active
+   reservation; and
 4. every already-persisted receipt for that exact `outbox_id`/generation MUST
    agree with the envelope's full delivery identity, dispatch source, and replay
    origin. Receipt-history validation MUST be scoped by `outbox_id` before those
@@ -254,6 +264,19 @@ attempt.
   orderings. A worker that lost its claim (lease theft or reclaim), or whose
   next generation was superseded by replay, cannot reserve and MUST NOT invoke
   the transport.
+- The reservation commits dispatch provenance atomically with the reserved
+  generation, and that provenance preserves the row's durable origin: a
+  replay-origin row keeps `dispatch_source="replay"`, the first reservation
+  from attempt zero records `"live"`, and any other reservation records
+  `"retry"`. The origin marker is load-bearing authority — a replay
+  generation adopts no target-scoped content dependency and dispatches on the
+  still-live source admission hold, which the content-authority check
+  recognizes only by this column — so rewriting a replay origin to `"retry"`
+  would dead-letter a deliverable message with `content_authority_denied` on
+  the recovery redispatch. Preservation never widens authority: a live-origin
+  row's retry lane stays `"retry"` and still requires its own adopted
+  dependency, and preserved replay origin still fails closed once the source
+  admission hold expires or is released.
 - While the reserved dispatch runs, the worker renews the claimed row's
   lease: one awaited renewal immediately after the reservation — aborting
   transport when the claim is already lost and starting the dispatch on a
@@ -286,7 +309,10 @@ attempt.
   reserved number, exact delivery identity, dispatch source, and optional replay
   run. The rendered result, deferred work item, and asynchronous feedback variants
   carry that same envelope, so feedback echoes exactly the identity/provenance the
-  outbox will admit. Receipt lineage (`parent_receipt_id`) is independent and
+  outbox will admit. The envelope's `source` records the dispatch lane — the
+  retry worker dispatches every reserved generation with `source="retry"`,
+  including generations whose row keeps a preserved `replay` origin. Receipt
+  lineage (`parent_receipt_id`) is independent and
   still derives from immutable prior/queued receipt evidence when available.
 
 Claim reconciliation uses the reservation as the discriminator for crash
@@ -643,14 +669,24 @@ RetryWorker.
 Initial replay dispatches use `source="replay"` and persist `replay_run_id` on the
 durable generation. Retry dispatches from that replay-origin outbox row use
 `source="retry"` while preserving `replay_run_id`; replay origin is
-provenance, not dispatch mechanism or lifecycle identity. Before asynchronous
+provenance, not dispatch mechanism or lifecycle identity. The row's durable
+`dispatch_source="replay"` marker is preserved across those retry-lane
+reservations: a replay generation adopts no target-scoped content dependency,
+so the content-authority check authorizes its redispatch — including the
+recovery worker's read and the native-submission fence — only while the row
+still carries that origin and the source admission hold is live. The retry
+lane therefore never rewrites a replay origin, and a live-origin row's retry
+lane never gains replay authority. Before asynchronous
 hand-off, the pipeline freezes those facts together with exact delivery identity
 and generation in `DeliveryAttemptProvenance`. Built-in callbacks echo that
 envelope unchanged.
 
 Core validates the callback envelope against the authoritative outbox row for
 status, event, adapter, plan, channel, attempt generation, dispatch source, and
-named replay run. Every immutable receipt already carrying the same
+named replay run. The row's `dispatch_source` is the durable origin class and
+the envelope's `source` is the attempt lane: they agree directly except that
+the retry lane's `source="retry"` envelope is valid lineage over a preserved
+replay origin, while every other disagreement refuses fail-closed. Every immutable receipt already carrying the same
 `outbox_id`/generation must also agree with the envelope. That history is loaded
 by `outbox_id` before identity/source validation so malformed evidence cannot be
 hidden by the read used to verify it. A queued receipt supplies
