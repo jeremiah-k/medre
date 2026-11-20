@@ -132,6 +132,7 @@ from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    StorageError,
     TerminalOutboxFinalization,
 )
 
@@ -175,6 +176,8 @@ _UNCERTAIN_HANDOFF_ERROR_PREFIX = (
 
 class _ObservationGuard(TypedDict, total=False):
     expected_observation_count: int
+    expected_receipt_count: int
+    expected_checkpoint_revision: int
 
 
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
@@ -283,6 +286,8 @@ class DeliveryLifecycleStorage(Protocol):
         from_attempt: int,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
@@ -317,6 +322,8 @@ class DeliveryLifecycleStorage(Protocol):
         *,
         clear_receipt_id: bool = False,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
 
@@ -353,6 +360,8 @@ class DeliveryLifecycleStorage(Protocol):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Schedule the next attempt if the supplied attempt and owner match.
 
@@ -371,6 +380,8 @@ class DeliveryLifecycleStorage(Protocol):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Commit terminal failure if the supplied attempt and owner match.
 
@@ -401,6 +412,10 @@ class DeliveryLifecycleStorage(Protocol):
         failure_kind: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Abandon the row only while its optional claim owner still matches.
 
@@ -984,7 +999,14 @@ class DeliveryLifecycleService:
                 mismatch,
             )
             return False
-        if outbox.status not in {"in_progress", "queued", "sent"}:
+        eligible_uncertain_backoff = (
+            outbox.status == "retry_wait"
+            and outbox.active_attempt is None
+            and outbox.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+        )
+        if outbox.status not in {"in_progress", "queued", "sent"} and not (
+            eligible_uncertain_backoff
+        ):
             self._log.warning(
                 "Rejecting post-handoff observation for ineligible outbox state: "
                 "outbox_id=%s status=%s attempt=%s state=%s",
@@ -1251,13 +1273,28 @@ class DeliveryLifecycleService:
         item: DeliveryOutboxItem,
         *,
         error_summary: str,
+        expected_observation_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> None:
         """Persist terminal abandonment for an unreconstructable retry item."""
+        evidence_guard: _ObservationGuard = {}
+        if expected_observation_count is not None:
+            evidence_guard["expected_observation_count"] = expected_observation_count
+            evidence_guard["expected_receipt_count"] = 0
+        if expected_checkpoint_revision is not None:
+            evidence_guard["expected_checkpoint_revision"] = (
+                expected_checkpoint_revision
+            )
         committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
             error_summary=error_summary,
-            attempt_number=item.active_attempt,
+            attempt_number=(
+                item.active_attempt
+                if item.active_attempt is not None
+                else item.attempt_number if evidence_guard else None
+            ),
             expected_worker_id=item.worker_id,
+            **evidence_guard,
         )
         self._require_retry_commit(
             committed,
@@ -1607,6 +1644,8 @@ class DeliveryLifecycleService:
         item: DeliveryOutboxItem,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1627,6 +1666,12 @@ class DeliveryLifecycleService:
         evidence_guard: _ObservationGuard = {}
         if expected_observation_count is not None:
             evidence_guard["expected_observation_count"] = expected_observation_count
+        if expected_receipt_count is not None:
+            evidence_guard["expected_receipt_count"] = expected_receipt_count
+        if expected_checkpoint_revision is not None:
+            evidence_guard["expected_checkpoint_revision"] = (
+                expected_checkpoint_revision
+            )
         return await storage.reserve_outbox_attempt(
             item.outbox_id,
             item.worker_id,
@@ -1728,6 +1773,15 @@ class DeliveryLifecycleService:
 
             if handoff_resolver is not None:
                 resolution = await handoff_resolver.resolve(item, attempt_number)
+                if resolution.observation_count is None:
+                    raise StorageError(
+                        "Cannot reconcile handoff without an evidence revision"
+                    )
+                evidence_guard["expected_receipt_count"] = 0
+                if resolution.checkpoint_revision is not None:
+                    evidence_guard["expected_checkpoint_revision"] = (
+                        resolution.checkpoint_revision
+                    )
                 if resolution.verdict == "delivered_with_evidence":
                     return await self._settle_resolved_handoff(
                         storage, item, attempt_number, resolution
@@ -1844,12 +1898,16 @@ class DeliveryLifecycleService:
         The guarded CAS refuses a stolen or already-settled row, so re-running
         resolution after a lost commit converges instead of double-committing.
         """
+        if resolution.observation_count is None:
+            raise StorageError("Cannot settle a handoff without an evidence revision")
         committed = await storage.mark_outbox_sent(
             item.outbox_id,
             attempt_number=attempt_number,
             expected_worker_id=item.worker_id,
             clear_receipt_id=True,
             expected_observation_count=resolution.observation_count,
+            expected_receipt_count=0,
+            expected_checkpoint_revision=resolution.checkpoint_revision,
         )
         self._require_retry_commit(
             committed,
@@ -1911,6 +1969,8 @@ class DeliveryLifecycleService:
             return None
         attempt_number = item.attempt_number
         resolution = await handoff_resolver.resolve(item, attempt_number)
+        if resolution.observation_count is None:
+            return resolution
         if resolution.verdict == "unresolved":
             return resolution
         if resolution.verdict == "delivered_with_evidence":
@@ -1929,6 +1989,8 @@ class DeliveryLifecycleService:
             attempt_number=attempt_number,
             expected_worker_id=item.worker_id,
             expected_observation_count=resolution.observation_count,
+            expected_receipt_count=0,
+            expected_checkpoint_revision=resolution.checkpoint_revision,
         )
         self._require_retry_commit(
             committed,

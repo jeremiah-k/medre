@@ -17,6 +17,7 @@ the backend already holds before the transport may be invoked again.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -160,16 +161,20 @@ async def _run_worker_once(
     temp_storage: SQLiteStorage,
     runner: PipelineRunner,
     now: datetime | None = None,
-) -> None:
-    worker = RetryWorker(
-        temp_storage,
-        runner,
-        None,
-        enabled=True,
-        interval_seconds=5.0,
-        max_attempts=4,
-    )
+    *,
+    worker: RetryWorker | None = None,
+) -> RetryWorker:
+    if worker is None:
+        worker = RetryWorker(
+            temp_storage,
+            runner,
+            None,
+            enabled=True,
+            interval_seconds=5.0,
+            max_attempts=4,
+        )
     await worker._process_due(now or datetime.now(timezone.utc))
+    return worker
 
 
 async def test_worker_settles_complete_radio_handoff_without_transport(
@@ -306,6 +311,15 @@ async def test_worker_fences_acceptance_during_owned_content_read(
         assert row["status"] == "retry_wait" and row["attempt_number"] == 1
         runner.set_adapter_health_gate(AdapterHealthGate(lambda _: "healthy"))
         read_owned = temp_storage.read_event_for_outbox
+        reserve = temp_storage.reserve_outbox_attempt
+        reservation_results: list[int | None] = []
+
+        async def observe_reservation(*args, **kwargs):
+            result = await reserve(*args, **kwargs)
+            reservation_results.append(result)
+            return result
+
+        reserved = AsyncMock(wraps=observe_reservation)
 
         async def append_then_read(*args, **kwargs):
             assert await temp_storage.append_delivery_observation(_late_acceptance(row))
@@ -313,11 +327,17 @@ async def test_worker_fences_acceptance_during_owned_content_read(
 
         with monkeypatch.context() as patch:
             patch.setattr(temp_storage, "read_event_for_outbox", append_then_read)
+            patch.setattr(temp_storage, "reserve_outbox_attempt", reserved)
             await _run_worker_once(
                 temp_storage,
                 runner,
                 datetime.fromisoformat(row["next_attempt_at"]) + timedelta(seconds=1),
             )
+        reserved.assert_awaited_once()
+        assert reservation_results == [None]
+        assert reserved.await_args.kwargs["expected_observation_count"] == 0
+        assert reserved.await_args.kwargs["expected_receipt_count"] == 0
+        assert reserved.await_args.kwargs["expected_checkpoint_revision"] == -1
         row = await _row(temp_storage, row["event_id"])
         assert row["status"] == "in_progress"
         assert row["active_attempt"] is None and row["attempt_number"] == 1
@@ -349,7 +369,7 @@ async def test_worker_recovers_lost_recheck_write_on_ordinary_poll(
     try:
         row = await _row(temp_storage, "evt-worker-lost-recheck")
         await _expire_lease(temp_storage, row["outbox_id"])
-        await _run_worker_once(temp_storage, runner)
+        worker = await _run_worker_once(temp_storage, runner)
         row = await _row(temp_storage, row["event_id"])
         assert row["status"] == "retry_wait"
         runner.set_adapter_health_gate(AdapterHealthGate(lambda _: "healthy"))
@@ -371,7 +391,7 @@ async def test_worker_recovers_lost_recheck_write_on_ordinary_poll(
         with monkeypatch.context() as patch:
             patch.setattr(temp_storage, "claim_due_outbox_items", claim_then_append)
             patch.setattr(temp_storage, "mark_outbox_sent", lost_write)
-            await _run_worker_once(temp_storage, runner, now)
+            await _run_worker_once(temp_storage, runner, now, worker=worker)
         row = await _row(temp_storage, row["event_id"])
         assert row["status"] == ("sent" if commit_before_raise else "in_progress")
         if not commit_before_raise:
@@ -380,7 +400,9 @@ async def test_worker_recovers_lost_recheck_write_on_ordinary_poll(
             assert projected is not None
             assert projected.failure_kind_detail == "uncertain_native_handoff"
         # No status or schedule edits: use the next ordinary poll after expiry.
-        await _run_worker_once(temp_storage, runner, now + timedelta(minutes=6))
+        await _run_worker_once(
+            temp_storage, runner, now + timedelta(minutes=6), worker=worker
+        )
         settled = await _row(temp_storage, row["event_id"])
         assert settled["status"] == "sent" and settled["attempt_number"] == 1
         assert adapters["fake_presentation"].delivered_payloads == []

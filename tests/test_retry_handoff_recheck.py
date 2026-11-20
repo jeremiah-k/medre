@@ -351,7 +351,7 @@ async def test_recheck_persistence_error_records_local_observability():
     assert emitted["retry_failed"]["attempt_number"] == item.attempt_number
 
 
-@pytest.mark.parametrize("count", [0, 2, None])
+@pytest.mark.parametrize("count", [0, 2])
 async def test_recheck_passes_observation_count_to_reservation(count):
     storage = _retained_storage()
     lifecycle = _lifecycle(
@@ -368,7 +368,31 @@ async def test_recheck_passes_observation_count_to_reservation(count):
     item = _gated_item()
     emit = await _run_with_emit(worker, item)
     lifecycle.reserve_retry_attempt.assert_awaited_once_with(
-        storage, item, expected_observation_count=count
+        storage,
+        item,
+        expected_observation_count=count,
+        expected_receipt_count=0,
+        expected_checkpoint_revision=None,
     )
     pipeline.deliver_execution_to_target.assert_not_called()
     emit.assert_not_called()
+
+
+async def test_unreadable_recheck_never_reserves_or_abandons() -> None:
+    """A failed evidence read does not silently remove the preflight fence."""
+    storage = _retained_storage()
+    lifecycle = _lifecycle(
+        UncertainHandoffResolution(
+            "unresolved",
+            1,
+            True,
+            ("resolution_evidence_unreadable",),
+            False,
+            observation_count=None,
+        )
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+    await _run_with_emit(worker, _gated_item())
+    lifecycle.reserve_retry_attempt.assert_not_awaited()
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()

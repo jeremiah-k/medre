@@ -123,6 +123,9 @@ class UncertainHandoffResolution:
     unreadable evidence) rather than simply finding nothing. Part counts are
     populated when the radio checkpoint can be classified. The observation
     count fences settlement or the next reservation against appended evidence.
+    ``checkpoint_revision=-1`` records the absence of a checkpoint; an actual
+    checkpoint carries its non-negative CAS revision. ``None`` means evidence
+    was unreadable and cannot authorize another transition.
     """
 
     verdict: HandoffResolutionVerdict
@@ -134,6 +137,7 @@ class UncertainHandoffResolution:
     uncertain_parts: int | None = None
     unsent_parts: int | None = None
     observation_count: int | None = None
+    checkpoint_revision: int | None = None
 
     def summary(self) -> str:
         """Return a bounded human-readable statement of what was decided."""
@@ -618,4 +622,8 @@ class EvidenceBackedHandoffResolver:
             ),
             replay_run_id=item.replay_run_id,
         )
-        return replace(resolution, observation_count=len(observations))
+        return replace(
+            resolution,
+            observation_count=len(observations),
+            checkpoint_revision=checkpoint.revision if checkpoint is not None else -1,
+        )

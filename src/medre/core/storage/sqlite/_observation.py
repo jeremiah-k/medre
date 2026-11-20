@@ -54,7 +54,19 @@ WHERE o.outbox_id = ?
   AND o.delivery_plan_id = ?
   AND o.target_adapter = ?
   AND ? = COALESCE(o.active_attempt, o.attempt_number)
-  AND o.status IN ('in_progress', 'queued', 'sent')
+  AND (
+      o.status IN ('in_progress', 'queued', 'sent')
+      OR (
+          o.status = 'retry_wait' AND o.active_attempt IS NULL
+          AND (
+              SELECT d.diagnostic FROM delivery_evidence_diagnostics d
+              WHERE d.family = 'outbox' AND d.row_id = o.outbox_id
+                AND d.attempt = o.attempt_number
+                AND d.field = 'failure_kind_detail'
+              ORDER BY d.diag_id DESC LIMIT 1
+          ) = 'uncertain_native_handoff'
+      )
+  )
 ON CONFLICT(observation_id) DO NOTHING
 """
 
@@ -135,7 +147,11 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
         """Append one observation only while its exact outbox attempt is valid.
 
         The ``INSERT ... SELECT`` revalidates correlation and handoff state in
-        the same SQLite statement that persists the observation.  This closes
+        the same SQLite statement that persists the observation. A completed
+        attempt in ``retry_wait`` remains observable only while its explicit
+        ``uncertain_native_handoff`` diagnostic is current; this lets an
+        authenticated late acknowledgement arrive during backoff without
+        reopening native send authority.  This closes
         the read-then-insert race with retry/dead-letter/cancel transitions.
         Returns ``True`` when a new row was inserted and ``False`` for either a
         duplicate observation ID or an attempt that is no longer admissible.

@@ -1866,6 +1866,10 @@ class StorageBackend(Protocol):
         """
         ...
 
+    # Evidence guards are atomic transition conditions, not preflight reads.
+    # All supplied counts/revisions require a positive exact attempt_number;
+    # count zero is meaningful. On mismatch, return False without writing.
+    # checkpoint_revision=-1 means no checkpoint exists for that attempt.
     async def mark_outbox_sent(
         self,
         outbox_id: str,
@@ -1875,6 +1879,8 @@ class StorageBackend(Protocol):
         *,
         clear_receipt_id: bool = False,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1922,6 +1928,8 @@ class StorageBackend(Protocol):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1948,6 +1956,8 @@ class StorageBackend(Protocol):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1993,6 +2003,10 @@ class StorageBackend(Protocol):
         failure_kind: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
@@ -2028,6 +2042,8 @@ class StorageBackend(Protocol):
         from_attempt: int,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next delivery attempt on a claimed row.
 
