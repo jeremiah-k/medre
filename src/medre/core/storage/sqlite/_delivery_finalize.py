@@ -171,6 +171,8 @@ class _DeliveryFinalizationMixin:
             command.attempt_number,
             command.expected_worker_id,
             command.expected_worker_id,
+            command.require_unsubmitted_replay,
+            receipt.replay_run_id,
         )
         outbox_diagnostics = outbox_diagnostic_ops(
             {

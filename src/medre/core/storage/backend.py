@@ -809,12 +809,14 @@ class TerminalOutboxFinalization:
     evidence.  Callers therefore cannot provide parallel scalar identity fields
     that disagree with the evidence being committed.  ``attempt_receipt`` is
     present only when this transaction is also introducing the causative failed
-    dispatch attempt.
+    dispatch attempt. Enabling ``require_unsubmitted_replay`` limits the
+    transition to an owned replay generation without attempt evidence.
     """
 
     lifecycle_receipt: DeliveryReceipt
     attempt_receipt: DeliveryReceipt | None = None
     expected_worker_id: str | None = None
+    require_unsubmitted_replay: bool = False
 
     def __post_init__(self) -> None:
         """Reject terminal evidence without a valid delivery and attempt link.
@@ -844,6 +846,15 @@ class TerminalOutboxFinalization:
             raise ValueError("terminal lifecycle receipt attempt_number must be >= 1")
 
         attempt = self.attempt_receipt
+        if self.require_unsubmitted_replay and (
+            receipt.source != "replay"
+            or receipt.status != "cancelled"
+            or attempt is not None
+            or not self.expected_worker_id
+        ):
+            raise ValueError(
+                "unsubmitted replay finalization requires an owned cancelled replay"
+            )
         if attempt is None:
             return
         if attempt.receipt_kind != "attempt":
