@@ -312,11 +312,13 @@ class RetryWorker:
         )
         # Health-aware deferral: adapters whose current runtime health is not
         # healthy have their durable obligations skipped (never claimed, never
-        # attempted) until health recovers or the shared maximum deferral
-        # horizon expires. The runtime pushes observations via
-        # :meth:`notify_adapter_health`; the gate owns the per-adapter
-        # deferral clock and is shared with the delivery pipeline so claim
-        # exclusion and admission compose on one horizon decision.
+        # attempted) until health recovers or their deferral horizons expire.
+        # Each deferred obligation carries its own maximum horizon; a lane
+        # stays excluded while any of its horizons (including the lane
+        # fallback for held work this process never admitted) is unexpired.
+        # The runtime pushes observations via :meth:`notify_adapter_health`;
+        # the gate owns the horizon state and is shared with the delivery
+        # pipeline so claim exclusion and admission compose on one decision.
         self._health_gate = adapter_health_gate
         if stop_timeout_seconds <= 0:
             raise ValueError(
@@ -369,10 +371,10 @@ class RetryWorker:
         """Apply one runtime health observation for *adapter_id*.
 
         Called by the runtime on each adapter health change. A return to
-        ``healthy`` clears that adapter's deferral state and wakes the
-        dispatch loop so held obligations are redispatched immediately
-        (bounded by their pushed ``next_attempt_at``). A non-healthy
-        observation does not start a horizon until work is held.
+        ``healthy`` clears every deferral horizon recorded for that adapter
+        and wakes the dispatch loop so held obligations are redispatched
+        immediately (bounded by their pushed ``next_attempt_at``). A
+        non-healthy observation does not start a horizon until work is held.
         """
         if self._health_gate is not None:
             self._health_gate.observe(adapter_id, health)
@@ -386,10 +388,12 @@ class RetryWorker:
 
         An adapter with a current non-healthy observation is excluded so its
         due obligations are skipped without burning attempts. The shared
-        gate owns the maximum-deferral-horizon safety net: after it expires
-        for an adapter, that adapter stops being excluded and normal
+        gate owns the deferral-horizon safety nets: each deferred obligation
+        carries its own maximum horizon, and a lane stops being excluded
+        once its earliest horizon — including the lane fallback for held
+        work this process never admitted — expires, so normal
         retry/retention rules resume (the admission gate composes with the
-        same decision), so an adapter that never recovers cannot strand
+        same decision) and an adapter that never recovers cannot strand
         obligations silently.
         """
         if self._health_gate is None:

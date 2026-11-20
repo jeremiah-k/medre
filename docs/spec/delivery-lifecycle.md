@@ -401,7 +401,11 @@ rewrite, classify, or retract any existing attempt evidence.
    one INFO line naming the adapter, its health, and the event; MUST record a
    diagnostic under the `delivery_deferred` category, which is distinct from
    `adapter_failure` because no failure occurred; and MUST NOT append any
-   attempt receipt, consume an attempt, or produce failure evidence.
+   attempt receipt, consume an attempt, or produce failure evidence. The
+   line and diagnostic are per deferral episode: a re-admission of an
+   obligation already inside its deferral episode (its own horizon still
+   running) reschedules the durable row silently and MUST NOT emit a second
+   deferral line or diagnostic for the same episode.
 
 3. A deferral of durable work MUST express itself only through existing
    outbox fields: the row's `next_attempt_at` is pushed forward by a bounded
@@ -425,17 +429,28 @@ rewrite, classify, or retract any existing attempt evidence.
    deferred work is durable outbox state, not in-memory state.
 
 5. Safety net: an adapter that never recovers MUST NOT strand obligations
-   silently. A maximum deferral horizon bounds how long one adapter may hold
-   obligations in deferral, measured on a process-local monotonic clock from
-   a held-work episode rather than from an idle unhealthy observation. An
-   observed empty lane or healthy observation clears the episode; continuously
-   held work shares the adapter-wide horizon. With automatic retries enabled, a
-   current queued row past the existing reclaim grace period counts as held work
-   so the horizon can reopen its lane for evidence reconciliation. After the
-   horizon expires, the worker MUST resume normal
-   claim/retry/retention rules for that adapter's obligations so attempt
-   burn, backoff, and dead-letter progression apply again. The horizon is an
-   operational bound and MUST NOT be treated as lifecycle authority.
+   silently. Each deferred obligation carries its own maximum deferral
+   horizon, keyed by the durable outbox identity and measured on a
+   process-local monotonic clock from that obligation's first blocked
+   admission; later-arriving work in a continuously unhealthy lane starts a
+   fresh horizon of its own instead of inheriting an adapter-wide episode.
+   While every horizon on a lane is unexpired, the worker MUST keep skipping
+   that lane's due obligations without claiming them. When the earliest
+   horizon on the lane expires, that obligation's episode ends: the worker
+   MUST resume normal claim/retry/retention rules for it — and for every
+   later horizon that expires — so attempt burn, backoff, and dead-letter
+   progression apply again, while siblings still inside their own horizons
+   remain deferred through admission without new deferral records. An
+   observed empty lane or healthy observation clears the episode. Held work
+   this process never admitted (rows deferred before a restart, or a current
+   queued row past the existing reclaim grace period when automatic retries
+   are enabled) anchors a lane-level fallback horizon so its lane still
+   reopens for evidence reconciliation; once that fallback expires, the lane
+   remains open until health or a drained-lane observation clears it. The
+   horizon is an operational bound and MUST NOT be treated as lifecycle
+   authority: it gates scheduling only, never attempt numbering, and losing
+   horizons to a restart is safe because each restarted process re-observes
+   health and starts fresh episodes on the next blocked admission.
 
 6. Typed transient adapter send failures (`AdapterSendError` with
    `transient=True` or an equivalent typed transient signal) are expected
