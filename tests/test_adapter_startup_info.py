@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 
 from medre.config.paths import MedrePaths, resolve
+from medre.core.lifecycle.states import AdapterState
 from medre.core.startup_info import (
     CACHE_FILENAME,
     AdapterStartupInfo,
@@ -1127,6 +1128,14 @@ async def test_initial_degraded_health_does_not_overwrite_later_hook_health(
         info = app.startup_info.get(FAKE_ADAPTER_ID)
         assert info is not None
         assert {f.name: f.value for f in info.fields} == {"board": "RAK4631"}
+        assert app.adapter_states[FAKE_ADAPTER_ID] is AdapterState.READY
+        assert app.live_health is not None
+        assert app.live_health.adapters[FAKE_ADAPTER_ID].health == "healthy"
+        assert any(
+            f".{FAKE_ADAPTER_ID} started in " in record.message
+            and "(health=healthy)" in record.message
+            for record in caplog.records
+        )
     finally:
         await app.stop()
 

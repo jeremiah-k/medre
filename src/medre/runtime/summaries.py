@@ -153,7 +153,7 @@ def shutdown_summary(
     return "\n".join(lines)
 
 
-def startup_route_summary(
+def startup_route_totals(
     eligibility: RouteEligibility, readiness: RouteStartupReadiness | None
 ) -> str:
     """Separate build registration from current live-source/target availability.
@@ -173,7 +173,7 @@ def startup_route_summary(
         else {route.route_id for route in eligibility.degraded}
     ) - blocked
     message = (
-        f"Route eligibility: {len(registered - blocked)} live-eligible, "
+        f"{len(registered - blocked)} live-eligible, "
         f"{len(blocked)} startup-blocked ({len(registered)} build-registered)"
     )
     if partial:

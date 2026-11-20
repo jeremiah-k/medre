@@ -33,7 +33,7 @@ from medre.runtime.summaries import (
     format_duration_ms,
     format_duration_seconds,
     shutdown_summary,
-    startup_route_summary,
+    startup_route_totals,
     startup_summary,
 )
 
@@ -423,9 +423,9 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
     eligibility_text: str | None = None
     route_elig = getattr(app, "route_eligibility", None)
     if route_elig is not None:
-        eligibility_text = startup_route_summary(
+        eligibility_text = startup_route_totals(
             route_elig, getattr(app, "startup_readiness", None)
-        ).removeprefix("Route eligibility: ")
+        )
 
     boot = app.boot_summary
     persisted_text: str | None = None
@@ -612,27 +612,26 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             )
             sys.exit(EXIT_STARTUP)
 
-        # Every adapter has settled (ready, degraded, or terminally
-        # failed). Render one consolidated banner — identity facts,
-        # per-instance blocks with confirmed facts, and runtime stats —
-        # then a single honest readiness line. Earlier failure and
-        # progress logging stands; no banner is rendered on abort.
-        banner = _settled_startup_banner(app, config, paths)
-        _print(banner.text)
-        _print(
-            banner.outcome_line,
-            level=logging.INFO if banner.all_ready else logging.WARNING,
-        )
-
-        # Log structured startup (the banner above is the operator view)
-        logger.debug(
-            "Runtime started — %d adapter(s) in %s",
-            len(app.started_adapter_ids),
-            format_duration_ms(run_start),
-            extra=sanitize_for_log({"adapter_count": len(app.started_adapter_ids)}),
-        )
-
         try:
+            try:
+                banner = _settled_startup_banner(app, config, paths)
+                _print(banner.text)
+                _print(
+                    banner.outcome_line,
+                    level=logging.INFO if banner.all_ready else logging.WARNING,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Startup banner unavailable: %s",
+                    sanitize_error_line(str(exc)) or type(exc).__name__,
+                )
+
+            logger.debug(
+                "Runtime started — %d adapter(s) in %s",
+                len(app.started_adapter_ids),
+                format_duration_ms(run_start),
+                extra=sanitize_for_log({"adapter_count": len(app.started_adapter_ids)}),
+            )
             await _wait_for_run_shutdown(app, shutdown_wake)
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt — shutting down")
