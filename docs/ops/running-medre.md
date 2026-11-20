@@ -77,6 +77,8 @@ cached facts, which do not imply connectivity or readiness. The final line
 claims full readiness only when every attempted adapter is ready; otherwise
 it reports the honest count, for
 example `MEDRE runtime running — 1/2 adapter(s) ready, 1 failed`.
+If the banner cannot be rendered, the CLI logs a warning and continues running
+until shutdown.
 
 This abbreviated text example omits some component logs.
 The `Core`, `Python` and `Adapter` lines report the running installation:
@@ -100,7 +102,7 @@ DEBUG).
 
 | Element          | Where to look                                                                      | Healthy sign           | Problem sign                        |
 | ---------------- | ---------------------------------------------------------------------------------- | ---------------------- | ----------------------------------- |
-| Adapter count    | Console first line                                                                 | Matches config         | Fewer (build failures)              |
+| Adapter count    | Console first line                                                                 | Matches enabled config | Unexpected enabled count            |
 | Build failures   | Console `Build failures (N)` block                                                 | No block               | `✗` entries present                 |
 | Routes           | Banner `Routes:` line                                                              | Expected count enabled | Zero enabled or errors              |
 | Storage backend  | Banner `Storage:` line                                                             | `sqlite`               | `memory` (no persistence)           |

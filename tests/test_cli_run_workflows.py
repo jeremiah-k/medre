@@ -352,6 +352,33 @@ class TestSnapshotOnShutdown:
 class TestRealSnapshotOnShutdown:
     """_run() lifecycle writes a valid snapshot to the specified path."""
 
+    async def test_banner_failure_still_writes_shutdown_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import medre.cli.run_commands as run_mod
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(CONFIG_SINGLE_ADAPTER)
+        snapshot_path = tmp_path / "snap.json"
+
+        def broken_installation_lines() -> list[str]:
+            raise RuntimeError("metadata unavailable token=syt_SecretFixture")
+
+        async def request_shutdown(app, _shutdown_wake: asyncio.Event) -> None:
+            assert app.state.value == "running"
+
+        monkeypatch.setattr(run_mod, "installation_lines", broken_installation_lines)
+        monkeypatch.setattr(run_mod, "_wait_for_run_shutdown", request_shutdown)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            await run_mod._run(str(config_path), snapshot_path=str(snapshot_path))
+
+        assert "Startup banner unavailable: metadata unavailable" in stdout.getvalue()
+        assert "syt_SecretFixture" not in stdout.getvalue()
+        lifecycle = json.loads(snapshot_path.read_text())["lifecycle"]
+        assert lifecycle["runtime_state"] == "stopped"
+        assert lifecycle["adapters"] == {"solo": "stopped"}
+
     @pytest.mark.asyncio
     async def test_snapshot_written_after_shutdown(self, tmp_path: Path) -> None:
         """Full _run() lifecycle: startup -> shutdown -> snapshot file exists and is valid."""
@@ -457,8 +484,9 @@ class TestRunOutput:
             await asyncio.gather(task, trigger)
 
         output = stdout.getvalue()
-        assert "  Routing:" in output
+        assert "  Routing: " in output
         assert "live-eligible" in output
+        assert "Route eligibility:" not in output
 
     @pytest.mark.asyncio
     async def test_shutdown_output_shows_accounting(self, tmp_path: Path) -> None:
