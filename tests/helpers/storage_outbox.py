@@ -422,6 +422,35 @@ def release_guarded_outbox_claim(
     object.__setattr__(item, "status", release_status)
 
 
+def defer_guarded_unsubmitted_attempt(
+    items: dict[str, DeliveryOutboxItem],
+    outbox_id: str,
+    worker_id: str,
+    *,
+    attempt_number: int,
+    next_attempt_at: str,
+) -> bool:
+    """Mirror SQLite's guarded release of an unsubmitted reservation."""
+    if not worker_id or attempt_number < 1:
+        return False
+    item = items.get(outbox_id)
+    if (
+        item is None
+        or item.status != "in_progress"
+        or item.worker_id != worker_id
+        or item.active_attempt != attempt_number
+        or item.attempt_number + 1 != attempt_number
+    ):
+        return False
+    object.__setattr__(item, "status", "retry_wait")
+    object.__setattr__(item, "active_attempt", None)
+    object.__setattr__(item, "worker_id", None)
+    object.__setattr__(item, "locked_at", None)
+    object.__setattr__(item, "lease_until", None)
+    object.__setattr__(item, "next_attempt_at", next_attempt_at)
+    return True
+
+
 class FrozenOutboxSnapshotFakeMixin:
     """Production-shaped frozen snapshot ownership for in-memory test stores.
 
