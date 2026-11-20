@@ -79,7 +79,7 @@ _HIGHER_COMMITTED_THAN_CURRENT = (
 # has a committed receipt. In-progress later generations are not delivery
 # evidence and cannot supersede a settled result.
 _WINNING_SETTLEMENT = (
-    " AND NOT EXISTS ("
+    " AND NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     "   SELECT 1 FROM delivery_outbox later_generation"
     "   JOIN delivery_receipts later_receipt"
     "     ON later_receipt.outbox_id = later_generation.outbox_id"
@@ -109,7 +109,7 @@ _LATER_WINNING_COMMITTED = (
     "     AND settled.status = 'sent' AND settled.receipt_id IS NULL"
     "     AND settled.attempt_number > candidate_outbox.attempt_number"
     + _WINNING_SETTLEMENT
-    + " )"
+    + " )"  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " AND NOT EXISTS ("
     "   SELECT 1"
     "   FROM delivery_receipts higher_receipt"
