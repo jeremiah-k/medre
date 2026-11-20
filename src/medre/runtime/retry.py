@@ -33,7 +33,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import msgspec
 
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         DeliveryLifecycleStorage,
     )
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+    from medre.core.evidence.handoff_resolution import HandoffEvidenceStore
     from medre.core.storage.sqlite._deadline_cleanup import DeadlineRetirement
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
@@ -62,6 +63,10 @@ from medre.core.engine.pipeline.retry_plan import (
 from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
     _DeliveryDeferred,
+)
+from medre.core.evidence.handoff_resolution import (
+    EvidenceBackedHandoffResolver,
+    UncertainNativeHandoffResolver,
 )
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import (
@@ -304,6 +309,29 @@ class RetryWorker:
             storage, "retire_expired_unstarted_outbox", None
         )
         self._next_sweep_at: datetime | None = None
+        # Uncertain-native-handoff remediation: claim reconciliation resolves
+        # an ambiguous reserved dispatch from evidence the backend already
+        # holds (retained radio checkpoints and append-only delivery
+        # observations). The evidence reads are a backend-specific surface;
+        # backends without them leave resolution dormant and reconciliation
+        # keeps the merged ambiguous-dispatch behavior unchanged.
+        handoff_evidence_store = cast(
+            "HandoffEvidenceStore | None",
+            (
+                storage
+                if (
+                    getattr(storage, "get_radio_attempt", None) is not None
+                    and getattr(storage, "list_delivery_observations_for_outbox", None)
+                    is not None
+                )
+                else None
+            ),
+        )
+        self._handoff_resolver: UncertainNativeHandoffResolver | None = (
+            None
+            if handoff_evidence_store is None
+            else EvidenceBackedHandoffResolver(handoff_evidence_store)
+        )
         self._event_buffer = event_buffer
         self._available_target_adapters = (
             None
@@ -1333,6 +1361,7 @@ class RetryWorker:
                 self._lifecycle_storage,
                 item,
                 retry_context.retry_policy,
+                handoff_resolver=self._handoff_resolver,
             )
         except RetryAttemptCommitRejected as stale:
             self.state.processed += 1

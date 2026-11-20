@@ -335,6 +335,66 @@ unambiguous because reserved attempt identities are never reused for another
 dispatch. A different attempt or a still-reserved row remains superseded and
 MUST NOT be reclassified by runtime code.
 
+### 3.4.2 Uncertain-Native-Handoff Remediation
+
+An uncertain native handoff — a crash mid-send, a lost adapter
+acknowledgement, or process death between the grant fence and receipt
+persistence — is classified and conservatively accounted by the rules above,
+and recovery MUST additionally attempt to _resolve_ it from evidence the
+system already holds before consuming the reserved identity. When claim
+reconciliation encounters a reserved attempt whose receipts do not settle the
+attempt, an optional bounded, read-only evidence pass (the uncertain-native-
+handoff resolver; backends without the evidence-read surfaces leave recovery
+on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
+
+- `delivered_with_evidence` — a retained radio checkpoint shows the whole
+  plan handed off (every part accepted under its fenced handoff reference),
+  or adapter-reported delivery observations prove provider-side acceptance
+  of the whole message at `remote_service` or `end_to_end` confirmation for
+  the exact reclaimed attempt. The obligation settles `sent` through the
+  existing guarded terminal transition. No receipt is fabricated: the
+  checkpoint and observation rows remain the evidence, and the settled row
+  carries no receipt pointer when none existed.
+- `definitively_not_submitted` — a retained radio checkpoint whose grant
+  fence is wholly empty proves the transport was never authorized for any
+  packet of this attempt. Normal retry semantics follow: the attempt is
+  consumed and the row moves to `retry_wait` (or `dead_lettered` when
+  exhausted), recorded with the evidence-backed `handoff_not_submitted`
+  detail rather than the ambiguity wording.
+- `unresolved` — everything else. The attempt is consumed conservatively
+  exactly as the ambiguous rule prescribes, and the row records the explicit
+  `uncertain_native_handoff` detail with a bounded statement of the retained
+  part counts, so the undetermined outcome stays operator-visible and is
+  re-resolved on every later reclaim (bounded by the retry budget).
+
+Honesty boundaries of the pass:
+
+- Resolution claims evidence; it never guesses. Absence of evidence never
+  proves rejection, a post-handoff negative transport report never proves
+  non-acceptance, and conflicting positive/negative reports keep the result
+  held (`unresolved`).
+- The pass is pure and read-only. Every settlement commits through an
+  existing guarded compare-and-set transition fenced to the reclaiming
+  worker; a stale or superseded worker's settlement is refused and reported
+  as an uncommitted transition, so recovery can run twice without
+  double-committing and a lost settlement commit converges on the next
+  reclaim.
+- Identity is validated exactly: a checkpoint whose provenance contradicts
+  the reclaimed row never settles it, observations must carry the exact
+  delivery identity and the reclaimed attempt, and packet-scoped facts are
+  trusted only against their retained checkpoint (existing storage
+  interfaces admit a packet observation only against a retained original
+  acceptance, so an uncertain radio part cannot be upgraded from an
+  observation; an adapter-side capability to attest uncertain parts is a
+  separate follow-up, not an assumption of this contract).
+- Dispatch provenance is never rewritten: a `live` or replay-lineage
+  (`replay_run_id`) obligation settles on its own row only, with its source
+  and run lineage intact, and sibling destinations are unaffected.
+- The pass never invokes a transport and never widens native authority: an
+  `unresolved` outcome never becomes permission to resend, and the retained
+  radio checkpoint continues to fence replay of any accepted or uncertain
+  prefix exactly as before.
+
 ### 3.5 Stale Feedback Protection
 
 Stale feedback is an asynchronous adapter fact that arrives after the outbox

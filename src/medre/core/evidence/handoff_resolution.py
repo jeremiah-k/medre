@@ -1,0 +1,476 @@
+"""Uncertain-native-handoff remediation: resolve-by-evidence decisions.
+
+Gap G02 remediation. Recovery previously classified an uncertain native
+handoff (crash mid-send, lost adapter acknowledgement, process death between
+the grant fence and receipt persistence) and accounted for it conservatively
+without ever determining the actual outcome. This module is the bounded,
+read-only evidence pass that decides what the retained facts establish, so
+claim reconciliation can settle the obligation instead of only consuming the
+attempt ambiguously.
+
+Contract
+--------
+``resolve_uncertain_handoff`` is pure: it consumes evidence the system
+already holds — the attempt's retained radio checkpoint (if any) and the
+outbox's append-only delivery observations — and returns one verdict of a
+closed vocabulary:
+
+* ``delivered_with_evidence`` — a fenced radio checkpoint shows the whole
+  plan locally handed off, or adapter-reported observations prove
+  provider-side acceptance of the whole message at ``remote_service`` or
+  ``end_to_end`` confirmation. The verdict claims evidence only; the
+  settlement commits through the existing guarded outbox transition and
+  never fabricates a receipt.
+* ``definitively_not_submitted`` — the radio grant fence is wholly empty:
+  the plan was bound but no packet-start grant ever committed, so no native
+  call was authorized. Normal retry semantics follow with an evidence-backed
+  diagnostic.
+* ``unresolved`` — everything else, including every case where evidence is
+  absent, conflicting, or unreadable. Absence of evidence never proves
+  rejection; conflicting positive/negative reports stay held. The attempt is
+  consumed conservatively and the uncertainty is recorded with an
+  operator-visible diagnostic for bounded re-resolution on later reclaims.
+
+Honesty boundaries
+------------------
+* The decision never mutates state. :class:`EvidenceBackedHandoffResolver`
+  only reads; the caller settles through existing guarded transitions.
+* Radio attempts are judged by their per-part checkpoint discipline. Packet
+  observations are correlated exactly like the read-only packet projector,
+  and existing storage interfaces cannot admit a packet fact for a
+  non-accepted part — so an uncertain radio part can never be upgraded from
+  an observation here. That adapter-side capability is a named follow-up,
+  not an assumption of this contract.
+* Message-level observations are trusted only with a complete, exact
+  delivery identity on the reclaimed attempt; packet-scoped facts are
+  ignored when no checkpoint exists to correlate them.
+* Dispatch provenance is never read as authority and never rewritten: the
+  verdict is provenance-agnostic and the settlement transitions leave
+  ``dispatch_source``/``replay_run_id`` untouched.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Literal, Protocol
+
+from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.events import DeliveryObservation
+from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+
+__all__ = [
+    "HANDOFF_NOT_SUBMITTED_DETAIL",
+    "UNCERTAIN_NATIVE_HANDOFF_DETAIL",
+    "EvidenceBackedHandoffResolver",
+    "HandoffResolutionVerdict",
+    "UncertainHandoffResolution",
+    "UncertainNativeHandoffResolver",
+    "resolve_uncertain_handoff",
+]
+
+HandoffResolutionVerdict = Literal[
+    "delivered_with_evidence",
+    "definitively_not_submitted",
+    "unresolved",
+]
+"""Closed settlement vocabulary for one uncertain native handoff."""
+
+#: Operator-visible ``failure_kind_detail`` for an attempt whose native
+#: handoff outcome stayed undetermined after the bounded evidence pass.
+UNCERTAIN_NATIVE_HANDOFF_DETAIL = "uncertain_native_handoff"
+
+#: Operator-visible ``failure_kind_detail`` for an attempt whose retained
+#: grant fence proves no native submission was ever authorized.
+HANDOFF_NOT_SUBMITTED_DETAIL = "handoff_not_submitted"
+
+#: Confirmation levels that prove provider-side acceptance. Local queue and
+#: transport echoes are MEDRE-local facts and never settle a send.
+_CONFIRMATION_LEVELS_PROVING_ACCEPTANCE = frozenset({"remote_service", "end_to_end"})
+
+#: Post-handoff observation states that report a transport-side negative.
+_NEGATIVE_OBSERVATION_STATES = frozenset({"failed", "rejected", "cancelled"})
+
+_UNCERTAIN_PART_STATES = frozenset({"submitting", "unknown"})
+
+
+@dataclass(frozen=True, slots=True)
+class UncertainHandoffResolution:
+    """One bounded, read-only resolution decision over retained evidence.
+
+    ``uncertain`` marks that the pass actually found unresolved native
+    handoff state (an interrupted radio part, negative transport reports, or
+    unreadable evidence) rather than simply finding nothing; reconciliation
+    uses it to choose the operator-visible diagnostic. Part counts are
+    populated only for checkpoint-backed (radio) attempts.
+    """
+
+    verdict: HandoffResolutionVerdict
+    attempt_number: int
+    uncertain: bool
+    reasons: tuple[str, ...]
+    has_checkpoint: bool
+    accepted_parts: int | None = None
+    uncertain_parts: int | None = None
+    unsent_parts: int | None = None
+
+    def summary(self) -> str:
+        """Return a bounded human-readable statement of what was decided."""
+        if self.has_checkpoint:
+            return (
+                f"radio attempt {self.attempt_number}: {self.accepted_parts} "
+                f"accepted, {self.uncertain_parts} uncertain, "
+                f"{self.unsent_parts} unsent packet(s)"
+            )
+        return f"attempt {self.attempt_number}: no retained radio checkpoint"
+
+
+def _resolution(
+    verdict: HandoffResolutionVerdict,
+    attempt_number: int,
+    *,
+    uncertain: bool,
+    reason: str,
+    has_checkpoint: bool,
+    accepted_parts: int | None = None,
+    uncertain_parts: int | None = None,
+    unsent_parts: int | None = None,
+) -> UncertainHandoffResolution:
+    return UncertainHandoffResolution(
+        verdict=verdict,
+        attempt_number=attempt_number,
+        uncertain=uncertain,
+        reasons=(reason,),
+        has_checkpoint=has_checkpoint,
+        accepted_parts=accepted_parts,
+        uncertain_parts=uncertain_parts,
+        unsent_parts=unsent_parts,
+    )
+
+
+def _matches_identity(
+    observation: DeliveryObservation, identity: DeliveryIdentity
+) -> bool:
+    return (
+        observation.event_id == identity.event_id
+        and observation.delivery_plan_id == identity.delivery_plan_id
+        and observation.target_adapter == identity.target_adapter
+        and (observation.target_channel or None) == identity.target_channel
+    )
+
+
+def _packet_ordinal(
+    observation: DeliveryObservation,
+    provenance: DeliveryAttemptProvenance,
+    part_count: int,
+) -> int | None:
+    """Correlate a packet-scoped fact to this exact attempt, else ``None``.
+
+    The correlation mirrors the read-only packet projector and the guarded
+    ``append_radio_packet_observation`` admission: the fact must name the
+    ordinal and the original attempt in ``metadata.radio_packet`` and must
+    match the retained attempt identity. A fact for another attempt, or one
+    without a retained checkpoint correlation, is never adopted.
+    """
+    payload = observation.metadata.get("radio_packet")
+    if not isinstance(payload, Mapping):
+        return None
+    ordinal = payload.get("ordinal")
+    if (
+        type(ordinal) is not int
+        or not 1 <= ordinal <= part_count
+        or payload.get("origin_outbox_id") != provenance.outbox_id
+        or payload.get("origin_attempt_number") != provenance.attempt_number
+    ):
+        return None
+    if (
+        observation.event_id != provenance.event_id
+        or observation.delivery_plan_id != provenance.delivery_plan_id
+        or observation.target_adapter != provenance.target_adapter
+        or (observation.target_channel or None) != (provenance.target_channel or None)
+        or observation.outbox_id != provenance.outbox_id
+        or observation.attempt_number != provenance.attempt_number
+    ):
+        return None
+    return ordinal
+
+
+def _message_level_observations(
+    observations: Sequence[DeliveryObservation],
+    *,
+    outbox_id: str,
+    attempt_number: int,
+    identity: DeliveryIdentity,
+) -> list[DeliveryObservation]:
+    """Select whole-message facts for the exact reclaimed attempt.
+
+    Packet-scoped facts are excluded: without a retained checkpoint there is
+    no correlation authority for them, and trusting one would let an
+    uncorrelated row settle a whole radio send.
+    """
+    relevant: list[DeliveryObservation] = []
+    for observation in observations:
+        if observation.outbox_id != outbox_id:
+            continue
+        if observation.attempt_number != attempt_number:
+            continue
+        if not _matches_identity(observation, identity):
+            continue
+        if isinstance(observation.metadata.get("radio_packet"), Mapping):
+            continue
+        relevant.append(observation)
+    return relevant
+
+
+def _resolve_message_level(
+    *,
+    outbox_id: str,
+    attempt_number: int,
+    identity: DeliveryIdentity,
+    observations: Sequence[DeliveryObservation],
+) -> UncertainHandoffResolution:
+    relevant = _message_level_observations(
+        observations,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
+        identity=identity,
+    )
+    positive = [
+        observation
+        for observation in relevant
+        if observation.state == "delivered"
+        and observation.confirmation_level in _CONFIRMATION_LEVELS_PROVING_ACCEPTANCE
+    ]
+    negative = [
+        observation
+        for observation in relevant
+        if observation.state in _NEGATIVE_OBSERVATION_STATES
+    ]
+    if positive and not negative:
+        return _resolution(
+            "delivered_with_evidence",
+            attempt_number,
+            uncertain=False,
+            reason="adapter_reported_provider_acceptance",
+            has_checkpoint=False,
+        )
+    if negative:
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="conflicting_or_negative_observation",
+            has_checkpoint=False,
+        )
+    return _resolution(
+        "unresolved",
+        attempt_number,
+        uncertain=False,
+        reason="no_resolution_evidence",
+        has_checkpoint=False,
+    )
+
+
+def _resolve_checkpoint(
+    *,
+    outbox_id: str,
+    checkpoint: StoredRadioAttempt | RadioAttemptMetadata,
+    attempt_number: int,
+    identity: DeliveryIdentity,
+    observations: Sequence[DeliveryObservation],
+) -> UncertainHandoffResolution:
+    if isinstance(checkpoint, StoredRadioAttempt):
+        provenance = checkpoint.provenance
+        parts = checkpoint.progress.parts
+    else:
+        provenance = checkpoint.provenance
+        parts = checkpoint.parts
+    part_count = len(parts)
+    mismatch = (
+        provenance.outbox_id != outbox_id
+        or provenance.attempt_number != attempt_number
+        or provenance.event_id != identity.event_id
+        or provenance.delivery_plan_id != identity.delivery_plan_id
+        or provenance.target_adapter != identity.target_adapter
+        or (provenance.target_channel or None) != identity.target_channel
+    )
+    if mismatch:
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="checkpoint_identity_mismatch",
+            has_checkpoint=True,
+        )
+
+    accepted = [part for part in parts if part.state == "accepted"]
+    uncertain = [part for part in parts if part.state in _UNCERTAIN_PART_STATES]
+    unsent = [part for part in parts if part.state == "unsent"]
+
+    # Packet observations are admitted by storage only against a retained
+    # original acceptance. A negative packet report for an accepted part
+    # contradicts the fenced handoff facts and keeps the result held; no
+    # observation can upgrade an uncertain part under existing interfaces.
+    negative_packet = any(
+        _packet_ordinal(observation, provenance, part_count) is not None
+        and observation.state in _NEGATIVE_OBSERVATION_STATES
+        for observation in observations
+    )
+
+    if uncertain:
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="uncertain_native_submission",
+            has_checkpoint=True,
+            accepted_parts=len(accepted),
+            uncertain_parts=len(uncertain),
+            unsent_parts=len(unsent),
+        )
+    if len(accepted) == part_count:
+        if negative_packet:
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="conflicting_packet_observation",
+                has_checkpoint=True,
+                accepted_parts=len(accepted),
+                uncertain_parts=0,
+                unsent_parts=0,
+            )
+        return _resolution(
+            "delivered_with_evidence",
+            attempt_number,
+            uncertain=False,
+            reason="radio_handoff_complete",
+            has_checkpoint=True,
+            accepted_parts=len(accepted),
+            uncertain_parts=0,
+            unsent_parts=0,
+        )
+    if not accepted:
+        return _resolution(
+            "definitively_not_submitted",
+            attempt_number,
+            uncertain=False,
+            reason="native_grant_fence_empty",
+            has_checkpoint=True,
+            accepted_parts=0,
+            uncertain_parts=0,
+            unsent_parts=len(unsent),
+        )
+    return _resolution(
+        "unresolved",
+        attempt_number,
+        uncertain=True,
+        reason="unclassified_radio_progress",
+        has_checkpoint=True,
+        accepted_parts=len(accepted),
+        uncertain_parts=len(uncertain),
+        unsent_parts=len(unsent),
+    )
+
+
+def resolve_uncertain_handoff(
+    *,
+    outbox_id: str,
+    attempt_number: int,
+    identity: DeliveryIdentity,
+    checkpoint: StoredRadioAttempt | RadioAttemptMetadata | None,
+    observations: Sequence[DeliveryObservation],
+) -> UncertainHandoffResolution:
+    """Decide what retained evidence establishes about one attempt's handoff.
+
+    Pure and fail-closed. The verdict never mutates state, never grants a
+    send, and never fabricates evidence; see the module contract for the
+    honesty boundaries.
+    """
+    if checkpoint is None:
+        return _resolve_message_level(
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            identity=identity,
+            observations=observations,
+        )
+    return _resolve_checkpoint(
+        outbox_id=outbox_id,
+        checkpoint=checkpoint,
+        attempt_number=attempt_number,
+        identity=identity,
+        observations=observations,
+    )
+
+
+class UncertainNativeHandoffResolver(Protocol):
+    """The evidence-pass surface :meth:`reconcile_retry_claim` consumes."""
+
+    async def resolve(
+        self, item: DeliveryOutboxItem, attempt_number: int
+    ) -> UncertainHandoffResolution:
+        """Resolve one reclaimed attempt from evidence storage already holds."""
+        ...
+
+
+class HandoffEvidenceStore(Protocol):
+    """Narrow read surface the evidence-backed resolver needs.
+
+    Backends without both surfaces leave resolution dormant at the runtime
+    composition boundary, mirroring the optional deadline-sweep policy.
+    """
+
+    async def get_radio_attempt(
+        self, outbox_id: str, attempt_number: int
+    ) -> StoredRadioAttempt | None: ...
+
+    async def list_delivery_observations_for_outbox(
+        self, outbox_id: str
+    ) -> list[DeliveryObservation]: ...
+
+
+class EvidenceBackedHandoffResolver:
+    """Load one attempt's retained evidence and project the verdict.
+
+    The resolver never writes. A storage error while reading the evidence is
+    reported as an explicitly uncertain ``unresolved`` result so
+    reconciliation keeps its conservative accounting instead of failing the
+    reclaim; the operator-visible diagnostic names the unreadable evidence.
+    """
+
+    def __init__(self, storage: HandoffEvidenceStore) -> None:
+        self._storage = storage
+
+    async def resolve(
+        self, item: DeliveryOutboxItem, attempt_number: int
+    ) -> UncertainHandoffResolution:
+        identity = DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
+        try:
+            checkpoint = await self._storage.get_radio_attempt(
+                item.outbox_id, attempt_number
+            )
+            observations = await self._storage.list_delivery_observations_for_outbox(
+                item.outbox_id
+            )
+        except StorageError:
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="resolution_evidence_unavailable",
+                has_checkpoint=False,
+            )
+        return resolve_uncertain_handoff(
+            outbox_id=item.outbox_id,
+            attempt_number=attempt_number,
+            identity=identity,
+            checkpoint=checkpoint,
+            observations=observations,
+        )
