@@ -389,9 +389,12 @@ Honesty boundaries of the pass:
   as an uncommitted transition. Every verdict with a readable exact-attempt
   observation count (including zero) fences its settlement to that count
   in the same write, even when an unresolved attempt has exhausted its
-  budget. A new observation causes the write to be refused, leaving the
-  reservation for a later reclaim. A failed or undecodable evidence read
-  supplies no count and retains the conservative accounting.
+  budget. The read also records whether a checkpoint exists (and its revision)
+  and whether an exact-attempt receipt has appeared. The guarded write MUST
+  reject a new observation, receipt, or checkpoint revision atomically, leaving
+  the reservation for a later reclaim. A failed or undecodable evidence read
+  supplies no count and MUST NOT authorize an unfenced terminal transition or
+  new dispatch; the existing claim remains eligible on ordinary lease expiry.
 - Unreadable evidence is held, never decisive: an observation record that
   fails to decode, or a packet-scoped claim whose metadata is invalid or
   does not correlate exactly leaves the verdict `unresolved`. Filter by
@@ -402,11 +405,13 @@ Honesty boundaries of the pass:
   whole-message acceptance can settle a plan with no unsent parts even
   when its final granted part remains locally uncertain; it must not
   rewrite any local packet state.
-- Identity is validated exactly: a checkpoint whose provenance contradicts
-  the reclaimed row never settles it, and neither does a checkpoint whose
-  dispatch provenance is incoherent with the row — a checkpoint bound under
-  a different replay run, or one whose dispatch source disagrees with the
-  row, never settles anything. A replay-origin row can carry a checkpoint
+- Identity is validated exactly: an incomplete delivery identity, a zero-part
+  checkpoint, or a checkpoint whose lineage contradicts the attempted delivery
+  MUST NOT settle. The current row's `dispatch_source` constrains the current
+  attempt but cannot rewrite a historical checkpoint's source after a newer
+  attempt is reserved. A checkpoint from a different replay run is incoherent;
+  cross-attempt source comparisons MUST use that attempt's retained provenance
+  rather than a mutable current-row lane. A replay-origin row can carry a checkpoint
   from its retry-lane dispatch, as can a live-origin row on its first
   reserved attempt (see §5.3). Observations for other outboxes or attempts
   are ignored, but an observation with the exact outbox/attempt keys and
@@ -435,17 +440,25 @@ settlement instead of dispatching; a verdict that now proves the grant fence
 wholly empty records the `handoff_not_submitted` determination and returns
 the row to `retry_wait` without dispatching; an unresolved verdict with a
 readable observation count MUST fence reservation of the next attempt to that
-count atomically. If evidence changes before reservation, no attempt is
+count atomically, together with the checkpoint revision and absence of a new
+exact-attempt receipt. If evidence changes before reservation, no attempt is
 reserved or dispatched; a later claim rechecks the same attempt. An unknown
-count retains the conservative retry policy. An older receipt pointer does
+count does not authorize a new attempt: reclaim MUST obtain a readable revision
+first. An older receipt pointer does
 not disqualify an explicitly uncertain finalized attempt. An operational
 deferral without consuming an attempt preserves the uncertainty diagnostic.
+While that marker names the row's finalized attempt in `retry_wait`, a delayed
+whole-message observation for exactly that attempt MAY still be admitted;
+this does not reopen unrelated attempts, grant native packet authority, or
+make a terminal row mutable.
 Failed settlement writes and refused reservations leave the unreserved claim
 eligible on ordinary lease expiry; a committed terminal row is not reclaimed.
 This is a bounded recheck of the last receipt-less ambiguous attempt — never
 a durable hold, never a loop over older attempts, and never a transport
 invocation. Evidence appended after a new reservation is outside this fence;
-normal retry is not an unconditional no-resend guarantee.
+normal retry is not an unconditional no-resend guarantee. An operational
+content-denied abandonment after a pre-dispatch recheck MUST use the same
+atomic observation, receipt, and checkpoint-revision guards.
 
 ### 3.5 Stale Feedback Protection
 

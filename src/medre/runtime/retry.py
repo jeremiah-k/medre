@@ -1129,7 +1129,7 @@ class RetryWorker:
                 self._next_retry_scan = now + timedelta(seconds=self._interval)
             items = await self._storage.claim_due_outbox_items(
                 now=now.isoformat(),
-                worker_id=f"retry-worker-{uuid.uuid4().hex[:8]}",
+                worker_id=f"retry-worker-{uuid.uuid4().hex}",
                 lease_seconds=max(30, int(self._interval * 1.5)),
                 limit=available,
                 excluded_adapters=(
@@ -1408,6 +1408,7 @@ class RetryWorker:
         # marker on the row gates the delegation; the lifecycle authority
         # re-validates every condition itself.
         recheck_observation_count: int | None = None
+        recheck_checkpoint_revision: int | None = None
         if (
             self._handoff_resolver is not None
             and item.active_attempt is None
@@ -1440,6 +1441,18 @@ class RetryWorker:
                 return
             if isinstance(rechecked, UncertainHandoffResolution):
                 recheck_observation_count = rechecked.observation_count
+                recheck_checkpoint_revision = rechecked.checkpoint_revision
+                if recheck_observation_count is None:
+                    # Evidence decoding failed. Leaving the owned claim leased
+                    # permits a new read after reclaim; dispatch and terminal
+                    # abandonment must not use an unguarded stale verdict.
+                    self.state.processed += 1
+                    _logger.warning(
+                        "RetryWorker: unreadable evidence for outbox %s; "
+                        "deferring dispatch until a fresh claim",
+                        item.outbox_id,
+                    )
+                    return
             elif rechecked is not None:
                 self.state.processed += 1
                 self._record_retry_finalization(item, rechecked, reconciled=True)
@@ -1465,6 +1478,8 @@ class RetryWorker:
                     self._lifecycle_storage,
                     item,
                     error_summary="content_authority_denied",
+                    expected_observation_count=recheck_observation_count,
+                    expected_checkpoint_revision=recheck_checkpoint_revision,
                 )
             except RetryAttemptCommitRejected as stale:
                 self._log_superseded_transition(item, stale)
@@ -1704,6 +1719,10 @@ class RetryWorker:
                     self._lifecycle_storage,
                     item,
                     expected_observation_count=recheck_observation_count,
+                    expected_receipt_count=(
+                        0 if recheck_observation_count is not None else None
+                    ),
+                    expected_checkpoint_revision=recheck_checkpoint_revision,
                 )
             except Exception as lifecycle_exc:
                 self.state.processed += 1

@@ -1827,10 +1827,11 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
 - `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched.
-- `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row only when no sibling row for the same event-scoped delivery identity already represents that generation or a newer one.
+- `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row only when no sibling row for the same event-scoped delivery identity already represents that generation or a newer one. For an evidence-rechecked finalized attempt, the observation count, receipt count, and radio checkpoint revision supplied by the caller MUST be checked in the same reservation transaction. Zero is a valid expected count; checkpoint revision `-1` means absence. A changed fact MUST refuse the reservation and MUST NOT start another transport call.
 - `mark_outbox_sent` / `mark_outbox_queued`: Guarded success transitions; return whether the transition committed.
 - `mark_outbox_retry_wait` / `mark_outbox_dead_lettered`: Guarded failure transitions; return whether the transition committed.
-- `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status.
+- `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status. Evidence-backed abandonment MUST use the same exact-attempt guards as evidence-only settlement; a late receipt, observation, or checkpoint change MUST refuse an unobserved terminal decision.
+- Guarded evidence-based transitions (`sent`, `retry_wait`, `dead_lettered`, `abandoned`) MUST check supplied counts and checkpoint revisions atomically with status and owner. A missing/unknown evidence revision cannot be treated as an empty set. A read error cannot authorize an unfenced transition. For explicitly uncertain receipt-less attempts, a delayed whole-message observation MAY be stored during `retry_wait` for the finalized attempt only; it MUST be refused after terminal settlement or after reservation of the next attempt.
 - `renew_outbox_lease`: Extends the lease while the worker owns the `in_progress` row.
 - `release_outbox_claim`: Releases an owned, unreserved claim to `pending` or
   `retry_wait`. The SQLite update MUST refuse a row with `active_attempt` even

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from msgspec.structs import force_setattr, replace
 
 from medre.core.delivery_authority import dispatch_source_matches_attempt
-from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    DeliveryLifecycleService,
+    RetryAttemptCommitRejected,
+)
 from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
@@ -15,6 +21,7 @@ from medre.core.evidence.handoff_resolution import (
     resolve_uncertain_handoff,
 )
 from medre.core.planning.delivery_plan import RetryPolicy
+from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.handoff_resolution import (
     _WORKER,
@@ -291,14 +298,204 @@ async def test_receipt_watermark_table_is_safe_additive_upgrade(tmp_path):
         await storage._write_rowcount("DROP TABLE delivery_handoff_settlements", ())
     finally:
         await storage.close()
-    for _ in range(2):
-        upgraded = SQLiteStorage(path)
-        await upgraded.initialize()
-        try:
-            assert await upgraded.get_outbox_item(stored.outbox_id) is not None
-            assert (
-                await upgraded._read_all("SELECT * FROM delivery_handoff_settlements")
-                == []
-            )
-        finally:
-            await upgraded.close()
+    upgraded = SQLiteStorage(path)
+    await upgraded.initialize()
+    try:
+        assert await upgraded.get_outbox_item(stored.outbox_id) is not None
+        assert (
+            await upgraded._read_all("SELECT * FROM delivery_handoff_settlements")
+            == []
+        )
+        prior = DeliveryReceipt(
+            receipt_id="pre-upgrade-failure",
+            event_id=stored.event_id,
+            delivery_plan_id=stored.delivery_plan_id,
+            target_adapter=stored.target_adapter,
+            target_channel=stored.target_channel,
+            status="failed",
+            failure_kind="adapter_permanent",
+            attempt_number=4,
+        )
+        await append_receipt_with_parent(upgraded, prior)
+        provenance = _provenance(stored.outbox_id, 1, source="retry")
+        assert await upgraded.append_delivery_observation(
+            _observation("post-upgrade-acceptance", provenance)
+        )
+        claimed = await _claimed_row(upgraded, stored.outbox_id, "post-upgrade")
+        result = await DeliveryLifecycleService().reconcile_retry_claim(
+            upgraded,
+            claimed,
+            RetryPolicy(max_attempts=4),
+            handoff_resolver=EvidenceBackedHandoffResolver(upgraded),
+        )
+        assert result is not None and result.outcome == "accepted"
+        watermarks = await upgraded._read_all(
+            "SELECT * FROM delivery_handoff_settlements"
+        )
+        assert len(watermarks) == 1
+        assert (await upgraded.query_unresolved_deliveries()).items == []
+    finally:
+        await upgraded.close()
+    reopened = SQLiteStorage(path)
+    await reopened.initialize()
+    try:
+        assert await reopened._read_all(
+            "SELECT * FROM delivery_handoff_settlements"
+        ) == watermarks
+        assert (await reopened.query_unresolved_deliveries()).items == []
+    finally:
+        await reopened.close()
+
+
+async def test_empty_observation_metadata_is_not_acceptance(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    assert await temp_storage.append_delivery_observation(
+        _observation("unreadable-metadata", provenance)
+    )
+    await temp_storage._write_rowcount(
+        "UPDATE delivery_observations SET metadata=? WHERE outbox_id=?",
+        ("", stored.outbox_id),
+    )
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reader")
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(item, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.observation_count is None
+    assert verdict.reasons == ("resolution_evidence_unreadable",)
+    with pytest.raises(StorageError, match="evidence revision"):
+        await DeliveryLifecycleService().reconcile_retry_claim(
+            temp_storage,
+            item,
+            RetryPolicy(max_attempts=1),
+            handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+        )
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.status == "in_progress"
+
+
+@pytest.mark.parametrize("metadata", ["", None])
+def test_metadata_decoder_rejects_unreadable_empty_value(metadata) -> None:
+    from medre.core.storage.sqlite.serde import _row_to_delivery_observation
+
+    with pytest.raises(ValueError, match="unreadable"):
+        _row_to_delivery_observation({"metadata": metadata})
+
+
+def test_incomplete_delivery_identity_fails_closed() -> None:
+    from medre.core.delivery_authority import DeliveryIdentity
+
+    provenance = _provenance("obox-incomplete-identity", 1)
+    identity = DeliveryIdentity("evt-handoff-resolution", "", "radio", "ch-0")
+    verdict = resolve_uncertain_handoff(
+        outbox_id=provenance.outbox_id,
+        attempt_number=1,
+        identity=identity,
+        checkpoint=None,
+        observations=[_observation("accepted", provenance)],
+    )
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("incomplete_delivery_identity",)
+
+
+async def test_content_denied_abandonment_fences_new_evidence(temp_storage) -> None:
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    assert await temp_storage.append_delivery_observation(
+        _observation("late-acceptance-before-abandon", provenance)
+    )
+    with pytest.raises(RetryAttemptCommitRejected):
+        await DeliveryLifecycleService().abandon_retry_outbox(
+            temp_storage,
+            item,
+            error_summary="content_authority_denied",
+            expected_observation_count=0,
+            expected_checkpoint_revision=-1,
+        )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None and row.status == "in_progress"
+
+
+async def test_receipt_fence_rejects_terminal_transition_after_late_append(
+    temp_storage,
+) -> None:
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="late-sent-receipt",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="sent",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    assert not await temp_storage.mark_outbox_dead_lettered(
+        item.outbox_id,
+        attempt_number=1,
+        expected_worker_id=item.worker_id,
+        expected_observation_count=0,
+        expected_receipt_count=0,
+        expected_checkpoint_revision=-1,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None and row.status == "in_progress"
+
+
+async def test_recheck_uses_historical_checkpoint_source_after_newer_reservation(
+    temp_storage,
+) -> None:
+    stored, _ = await _seed_reserved_claim(temp_storage)
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None
+    old_source = _provenance(stored.outbox_id, 1, source="live")
+    checkpoint = _checkpoint(old_source, ["accepted"] * 3)
+    current = replace(
+        row, attempt_number=2, active_attempt=3, dispatch_source="retry"
+    )
+    provider = SimpleNamespace(
+        get_radio_attempt=AsyncMock(return_value=checkpoint),
+        list_delivery_observations_for_attempt=AsyncMock(return_value=[]),
+    )
+    resolved = await EvidenceBackedHandoffResolver(provider).resolve(current, 1)
+    assert resolved.verdict == "delivered_with_evidence"
+    assert resolved.checkpoint_revision == checkpoint.revision
+    provider.get_radio_attempt.assert_awaited_once_with(stored.outbox_id, 1)
+    provider.list_delivery_observations_for_attempt.assert_awaited_once_with(
+        stored.outbox_id, 1
+    )
+
+
+async def test_uncertain_backoff_accepts_exact_finalized_observation(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "first-reader")
+    first = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert first is not None and first.outcome == "retry_wait"
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.active_attempt is None
+    assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+    assert await temp_storage.append_delivery_observation(
+        _observation("late-during-backoff", provenance)
+    )
+    later = _provenance(stored.outbox_id, provenance.attempt_number + 1)
+    assert not await temp_storage.append_delivery_observation(
+        _observation("wrong-later-attempt", later)
+    )
+    due = await _due_row(temp_storage, stored.outbox_id, "second-reader")
+    final = await DeliveryLifecycleService().recheck_last_uncertain_handoff(
+        temp_storage,
+        due,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert final is not None and final.outcome == "accepted"
+    settled = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert settled is not None and settled.status == "sent"

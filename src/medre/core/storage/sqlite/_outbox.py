@@ -1025,6 +1025,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         from_attempt: int,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1054,6 +1056,18 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             raise ValueError(
                 "An observation guard requires a finalized attempt and count"
             )
+        if (
+            expected_receipt_count is not None
+            or expected_checkpoint_revision is not None
+        ) and from_attempt < 1:
+            raise ValueError("Evidence guards require a finalized attempt")
+        if expected_receipt_count is not None and expected_receipt_count < 0:
+            raise ValueError("Receipt count must be non-negative")
+        if (
+            expected_checkpoint_revision is not None
+            and expected_checkpoint_revision < -1
+        ):
+            raise ValueError("Invalid radio checkpoint revision")
         now = _now_iso()
         rowcount = await self._write_rowcount(
             """UPDATE delivery_outbox
@@ -1075,6 +1089,22 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                      WHERE outbox_id = delivery_outbox.outbox_id
                        AND attempt_number = delivery_outbox.attempt_number
                  ) = ?)
+                 AND (? IS NULL OR (
+                     SELECT COUNT(*) FROM delivery_receipts
+                     WHERE outbox_id = delivery_outbox.outbox_id
+                       AND attempt_number = delivery_outbox.attempt_number
+                 ) = ?)
+                 AND (? IS NULL OR
+                     (? = -1 AND NOT EXISTS (
+                         SELECT 1 FROM radio_attempt_progress
+                         WHERE outbox_id = delivery_outbox.outbox_id
+                           AND attempt_number = delivery_outbox.attempt_number
+                     )) OR EXISTS (
+                         SELECT 1 FROM radio_attempt_progress
+                         WHERE outbox_id = delivery_outbox.outbox_id
+                           AND attempt_number = delivery_outbox.attempt_number
+                           AND revision = ?
+                     ))
                  AND NOT EXISTS (
                      SELECT 1
                        FROM delivery_outbox AS sibling
@@ -1095,6 +1125,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 from_attempt,
                 expected_observation_count,
                 expected_observation_count,
+                expected_receipt_count,
+                expected_receipt_count,
+                expected_checkpoint_revision,
+                expected_checkpoint_revision,
+                expected_checkpoint_revision,
             ),
         )
         if rowcount == 1:
@@ -1116,6 +1151,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_worker_id: str | None = None,
         clear_receipt_id: bool = False,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Shared helper for status transitions.
 
@@ -1246,6 +1283,41 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "WHERE outbox_id = ? AND attempt_number = ?) = ?"
             )
             params.extend((outbox_id, attempt_number, expected_observation_count))
+        if expected_receipt_count is not None:
+            if (
+                attempt_number is None
+                or attempt_number < 1
+                or expected_receipt_count < 0
+            ):
+                raise ValueError("A receipt guard requires an exact attempt and count")
+            where_clauses.append(
+                "(SELECT COUNT(*) FROM delivery_receipts "
+                "WHERE outbox_id = ? AND attempt_number = ?) = ?"
+            )
+            params.extend((outbox_id, attempt_number, expected_receipt_count))
+        if expected_checkpoint_revision is not None:
+            if (
+                attempt_number is None
+                or attempt_number < 1
+                or expected_checkpoint_revision < -1
+            ):
+                raise ValueError(
+                    "A checkpoint guard requires an exact attempt and revision"
+                )
+            if expected_checkpoint_revision == -1:
+                where_clauses.append(
+                    "NOT EXISTS (SELECT 1 FROM radio_attempt_progress "
+                    "WHERE outbox_id = ? AND attempt_number = ?)"
+                )
+                params.extend((outbox_id, attempt_number))
+            else:
+                where_clauses.append(
+                    "EXISTS (SELECT 1 FROM radio_attempt_progress "
+                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?)"
+                )
+                params.extend(
+                    (outbox_id, attempt_number, expected_checkpoint_revision)
+                )
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
@@ -1311,6 +1383,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         *,
         clear_receipt_id: bool = False,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1330,6 +1404,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_worker_id=expected_worker_id,
             clear_receipt_id=clear_receipt_id,
             expected_observation_count=expected_observation_count,
+            expected_receipt_count=expected_receipt_count,
+            expected_checkpoint_revision=expected_checkpoint_revision,
         )
 
     async def mark_outbox_queued(
@@ -1365,6 +1441,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1384,6 +1462,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             next_attempt_at=next_attempt_at,
             expected_worker_id=expected_worker_id,
             expected_observation_count=expected_observation_count,
+            expected_receipt_count=expected_receipt_count,
+            expected_checkpoint_revision=expected_checkpoint_revision,
         )
 
     async def mark_outbox_dead_lettered(
@@ -1397,6 +1477,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_worker_id: str | None = None,
         *,
         expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1419,6 +1501,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
             expected_observation_count=expected_observation_count,
+            expected_receipt_count=expected_receipt_count,
+            expected_checkpoint_revision=expected_checkpoint_revision,
         )
 
     async def mark_outbox_cancelled(
@@ -1459,6 +1543,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         failure_kind: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
@@ -1479,6 +1567,9 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             failure_kind=failure_kind,
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
+            expected_observation_count=expected_observation_count,
+            expected_receipt_count=expected_receipt_count,
+            expected_checkpoint_revision=expected_checkpoint_revision,
         )
 
     async def renew_outbox_lease(
