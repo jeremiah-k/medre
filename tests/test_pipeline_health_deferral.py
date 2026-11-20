@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Any, cast
 
@@ -41,9 +41,11 @@ from medre.core.engine.pipeline.target_delivery import (
 )
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
+from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+from tests.helpers.storage_outbox import make_outbox_item
 
 # ---------------------------------------------------------------------------
 # Fakes / helpers
@@ -378,6 +380,49 @@ async def test_deferral_horizon_expires_to_normal_retry_rules(
         assert rows[0]["status"] == "sent"
     finally:
         await runner.stop()
+
+
+@pytest.mark.parametrize("retries_enabled", [True, False])
+async def test_stale_queued_work_ages_deferral_only_when_retries_are_enabled(
+    outbox_temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+    retries_enabled: bool,
+) -> None:
+    clock = 0.0
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.adapter_health.monotonic", lambda: clock
+    )
+    target = "meshcore"
+    gate = AdapterHealthGate(lambda _: "degraded", max_horizon_seconds=10)
+    worker = RetryWorker(
+        outbox_temp_storage,
+        cast(PipelineRunner, object()),
+        None,
+        enabled=retries_enabled,
+        initial_dispatch=True,
+        available_target_adapters=[target],
+        adapter_health_gate=gate,
+    )
+    stored = await outbox_temp_storage.create_outbox_item(
+        make_outbox_item(target_adapter=target)
+    )
+    assert stored.updated_at is not None
+    assert await outbox_temp_storage.claim_due_outbox_items(
+        stored.updated_at, "test-worker"
+    )
+    assert await outbox_temp_storage.mark_outbox_queued(stored.outbox_id)
+    queued = await outbox_temp_storage.get_outbox_item(stored.outbox_id)
+    assert queued is not None and queued.updated_at is not None
+    fresh = datetime.fromisoformat(queued.updated_at)
+    stale = fresh + timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
+
+    assert await worker._health_excluded_adapters(fresh) == (target,)
+    clock = 10.0
+    assert await worker._health_excluded_adapters(stale) == (target,)
+    clock = 20.0
+    assert await worker._health_excluded_adapters(stale) == (
+        () if retries_enabled else (target,)
+    )
 
 
 async def test_restart_during_deferral_preserves_obligation(

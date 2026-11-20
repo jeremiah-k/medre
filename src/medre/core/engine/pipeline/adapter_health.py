@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
-from datetime import datetime
 from time import monotonic
 from typing import TypeAlias
 
@@ -137,7 +136,6 @@ class AdapterHealthGate:
         universe: Iterable[str],
         *,
         held: Iterable[str],
-        now: datetime | None = None,
     ) -> tuple[str, ...]:
         """Exclude unhealthy lanes; age only a positively observed backlog.
 
@@ -145,7 +143,6 @@ class AdapterHealthGate:
         the same outage. A continuously nonempty lane keeps its expired
         horizon so normal retry/retention rules can drain it.
         """
-        del now
         held_set = set(held)
         excluded: list[str] = []
         for adapter_id in sorted(set(universe)):

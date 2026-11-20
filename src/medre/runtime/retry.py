@@ -95,9 +95,9 @@ class RetryWorkerStorage(Protocol):
     """
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...]
+        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
     ) -> tuple[str, ...]:
-        """Return adapters with current nonterminal outbox work."""
+        """Return lanes with current work, including stale queued rows if requested."""
         ...
 
     async def claim_due_outbox_items(
@@ -401,11 +401,14 @@ class RetryWorker:
         )
         candidates = self._health_gate.unhealthy_adapters(universe)
         held = (
-            await self._storage.health_backlog_adapters(candidates)
+            await self._storage.health_backlog_adapters(
+                candidates,
+                queued_as_of=now.isoformat() if self._retries_enabled else None,
+            )
             if candidates
             else ()
         )
-        return self._health_gate.excluded_adapters(universe, held=held, now=now)
+        return self._health_gate.excluded_adapters(universe, held=held)
 
     @property
     def outbox_counts(self) -> dict[str, int] | None:

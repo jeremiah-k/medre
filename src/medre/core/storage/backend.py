@@ -1803,9 +1803,9 @@ class StorageBackend(Protocol):
         ...
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...]
+        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
     ) -> tuple[str, ...]:
-        """Return adapters with current nonterminal outbox work."""
+        """Return lanes with current work, including stale queued rows if requested."""
         ...
 
     async def claim_due_outbox_items(

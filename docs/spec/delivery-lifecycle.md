@@ -429,7 +429,10 @@ rewrite, classify, or retract any existing attempt evidence.
    obligations in deferral, measured on a process-local monotonic clock from
    a held-work episode rather than from an idle unhealthy observation. An
    observed empty lane or healthy observation clears the episode; continuously
-   held work shares the adapter-wide horizon. After it expires, the worker MUST resume normal
+   held work shares the adapter-wide horizon. With automatic retries enabled, a
+   current queued row past the existing reclaim grace period counts as held work
+   so the horizon can reopen its lane for evidence reconciliation. After the
+   horizon expires, the worker MUST resume normal
    claim/retry/retention rules for that adapter's obligations so attempt
    burn, backoff, and dead-letter progression apply again. The horizon is an
    operational bound and MUST NOT be treated as lifecycle authority.
