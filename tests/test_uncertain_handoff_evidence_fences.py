@@ -80,9 +80,11 @@ def test_exact_attempt_contradiction_cannot_be_discarded(
     )
     assert verdict.verdict == "unresolved"
     assert verdict.reasons == (
-        "observation_identity_mismatch"
-        if contradiction == "channel"
-        else "unreadable_packet_evidence",
+        (
+            "observation_identity_mismatch"
+            if contradiction == "channel"
+            else "unreadable_packet_evidence"
+        ),
     )
 
 

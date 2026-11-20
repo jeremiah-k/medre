@@ -256,11 +256,8 @@ def delivery_attempt_provenance_mismatch(
         )
 
     row_source = _get(item, "dispatch_source")
-    if (
-        row_source is not None
-        and not dispatch_source_matches_attempt(
-            str(row_source), provenance.source, provenance.attempt_number
-        )
+    if row_source is not None and not dispatch_source_matches_attempt(
+        str(row_source), provenance.source, provenance.attempt_number
     ):
         return (
             "dispatch source mismatch: "

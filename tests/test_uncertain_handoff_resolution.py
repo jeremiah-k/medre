@@ -561,7 +561,9 @@ async def test_receipt_less_attempt_rechecks_acceptance_appended_during_reclaim(
     lifecycle = DeliveryLifecycleService()
     resolver = EvidenceBackedHandoffResolver(temp_storage)
     policy = RetryPolicy(max_attempts=max_attempts, jitter=False)
-    method = "mark_outbox_dead_lettered" if max_attempts == 1 else "mark_outbox_retry_wait"
+    method = (
+        "mark_outbox_dead_lettered" if max_attempts == 1 else "mark_outbox_retry_wait"
+    )
     original = getattr(temp_storage, method)
 
     async def append_before_commit(*args, **kwargs):

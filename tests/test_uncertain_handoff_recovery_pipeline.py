@@ -308,9 +308,7 @@ async def test_worker_fences_acceptance_during_owned_content_read(
         read_owned = temp_storage.read_event_for_outbox
 
         async def append_then_read(*args, **kwargs):
-            assert await temp_storage.append_delivery_observation(
-                _late_acceptance(row)
-            )
+            assert await temp_storage.append_delivery_observation(_late_acceptance(row))
             return await read_owned(*args, **kwargs)
 
         with monkeypatch.context() as patch:
@@ -361,9 +359,7 @@ async def test_worker_recovers_lost_recheck_write_on_ordinary_poll(
         async def claim_then_append(*args, **kwargs):
             claims = await original_claim(*args, **kwargs)
             assert len(claims) == 1
-            assert await temp_storage.append_delivery_observation(
-                _late_acceptance(row)
-            )
+            assert await temp_storage.append_delivery_observation(_late_acceptance(row))
             return claims
 
         async def lost_write(*args, **kwargs):
