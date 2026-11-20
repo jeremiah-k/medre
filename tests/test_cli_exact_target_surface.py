@@ -604,6 +604,137 @@ def test_short_plan_placeholder_keeps_the_historical_split():
 
 
 # ---------------------------------------------------------------------------
+# Replay: explicit JSON identity form
+#
+# The compact colon spelling cannot distinguish every identity from the
+# overloaded string alone, so --exact-target-json names the four identity
+# fields positionally: ["EVENT", "TARGET", "ADAPTER", "CHANNEL-or-null"].
+# ---------------------------------------------------------------------------
+
+
+def _json_selection(value: str) -> DeliveryIdentity:
+    selections = _parse_exact_target_specs(None, None, [value])
+    assert len(selections) == 1
+    return selections[0].identity
+
+
+def test_json_identity_round_trips_colon_bearing_fields():
+    identity = _json_selection(
+        '["event:1","plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978",'
+        '"matrix","!room:example.org"]'
+    )
+    assert identity == DeliveryIdentity(
+        "event:1",
+        "plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978",
+        "matrix",
+        "!room:example.org",
+    )
+
+
+def test_json_identity_accepts_a_colon_bearing_event_id():
+    # The compact spelling has no reading at all for a colon-bearing event
+    # id; the JSON form carries it byte-exact.
+    identity = _json_selection('["event:1","plan","matrix",null]')
+    assert identity == DeliveryIdentity("event:1", "plan", "matrix", None)
+
+
+def test_json_identity_null_channel_names_the_no_channel_identity():
+    identity = _json_selection('["evt","plan","adapter",null]')
+    assert identity == DeliveryIdentity("evt", "plan", "adapter", None)
+
+
+def test_json_selections_accumulate_across_repeats_and_compact_flags():
+    selections = _parse_exact_target_specs(
+        ["evt:plan:adapter"],
+        None,
+        [
+            '["evt","plan:evt:route:target:0f1e2d3c4b5a6978","matrix",'
+            '"!room:example.org"]',
+            '["evt-2","plan","adapter",null]',
+        ],
+    )
+    assert [s.identity for s in selections] == [
+        DeliveryIdentity("evt", "plan", "adapter", None),
+        DeliveryIdentity(
+            "evt",
+            "plan:evt:route:target:0f1e2d3c4b5a6978",
+            "matrix",
+            "!room:example.org",
+        ),
+        DeliveryIdentity("evt-2", "plan", "adapter", None),
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not json",
+        '{"event":"evt","plan":"plan"}',
+        '"evt"',
+        "42",
+        "null",
+        "[]",
+        '["evt","plan"]',
+        '["evt","plan","adapter"]',
+        '["evt","plan","adapter","ch","extra"]',
+        '[1,"plan","adapter",null]',
+        '["evt",null,"adapter",null]',
+        '["evt","plan","adapter",7]',
+        '["evt","plan","adapter",false]',
+        '["","plan","adapter",null]',
+        '["  ","plan","adapter",null]',
+        '["evt","  ","adapter",null]',
+        '["evt","plan","  ",null]',
+        '["evt","plan","adapter",""]',
+        '["evt","plan","adapter","  "]',
+    ],
+)
+def test_malformed_json_identity_is_rejected(value: str):
+    with pytest.raises(ValueError, match="Invalid --exact-target-json"):
+        _parse_exact_target_specs(None, None, [value])
+
+
+def test_json_identity_duplicate_across_flags_is_rejected():
+    with pytest.raises(ValueError, match="Duplicate exact-target"):
+        _parse_exact_target_specs(
+            ["evt:plan:adapter"], None, ['["evt","plan","adapter",null]']
+        )
+
+
+def test_legacy_event_named_plan_with_colon_channel_is_a_near_collision():
+    """The near-collision that motivates the explicit JSON grammar.
+
+    An event id literally ``plan`` with a colon-bearing channel tail is
+    byte-indistinguishable from the canonical plan-id spelling of a
+    different obligation, so the compact string cannot reliably carry the
+    legacy reading: hash-tailed bytes are refused loudly, and the
+    plan-shaped bytes are consumed as a canonical plan id. The JSON form
+    names the four fields explicitly and selects exactly the named
+    obligation — distinct from what the compact bytes produce.
+    """
+    channel = "!room:example.org:0f1e2d3c4b5a6978:tail"
+    # The legacy compact bytes sit inside the canonical plan-id shape, so
+    # the conservative detection refuses them instead of guessing.
+    with pytest.raises(ValueError, match="embeds event"):
+        _parse_exact_target_specs([f"plan:plan:matrix:{channel}"], None)
+    # The JSON spelling carries the intended legacy obligation byte-exact.
+    legacy = _json_selection(
+        '["plan","plan","matrix","!room:example.org:0f1e2d3c4b5a6978:tail"]'
+    )
+    assert legacy == DeliveryIdentity(
+        "plan", "plan", "matrix", "!room:example.org:0f1e2d3c4b5a6978:tail"
+    )
+    # Plan-shaped compact bytes are consumed as a canonical plan id — a
+    # different obligation than the JSON spelling of the same leading
+    # event id, which is exactly the ambiguity the JSON form removes.
+    compact = _selection("plan:plan:plan:route:target:0f1e2d3c4b5a6978:matrix")
+    assert compact == DeliveryIdentity(
+        "plan", "plan:plan:route:target:0f1e2d3c4b5a6978", "matrix", None
+    )
+    assert compact != legacy
+
+
+# ---------------------------------------------------------------------------
 # Replay: CLI exit codes and wiring
 # ---------------------------------------------------------------------------
 
@@ -623,6 +754,18 @@ def test_short_plan_placeholder_keeps_the_historical_split():
         (
             "--exact-target",
             "evt-4c1a9b02:plan:evt-7d2b3e01:mx-bridge:target:0f1e2d3c4b5a6978:matrix",
+        ),
+        ("--exact-target-json", "not json"),
+        ("--exact-target-json", '{"event":"evt"}'),
+        ("--exact-target-json", '["evt","plan"]'),
+        ("--exact-target-json", '["evt","plan","adapter","ch","extra"]'),
+        ("--exact-target-json", '[1,"plan","adapter",null]'),
+        ("--exact-target-json", '["evt","plan","adapter",""]'),
+        (
+            "--exact-target",
+            "evt:plan:adapter",
+            "--exact-target-json",
+            '["evt","plan","adapter",null]',
         ),
     ],
 )
@@ -667,6 +810,34 @@ def test_colon_bearing_plan_specification_passes_the_config_gate(
     )
     assert code == 2
     assert "Invalid --exact-target" not in stderr
+    assert "Config error" in stderr
+
+
+def test_json_identity_specification_passes_the_config_gate(tmp_path: Path) -> None:
+    """The explicit JSON identity form parses before config loading.
+
+    A colon-bearing event id and channel that have no unambiguous compact
+    spelling are accepted through the JSON form: with a missing config the
+    replay command reaches the config-error boundary, proving the value
+    itself was accepted, and repeated flags accumulate without error.
+    """
+    config_path = tmp_path / "missing-config.yaml"
+    code, _stdout, stderr = _replay_cli(
+        "replay",
+        "--config",
+        str(config_path),
+        "--mode",
+        "dry_run",
+        "--event",
+        "whatever",
+        "--exact-target-json",
+        '["event:1","plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978",'
+        '"matrix","!room:example.org"]',
+        "--exact-target-json",
+        '["event:1","plan","matrix",null]',
+    )
+    assert code == 2
+    assert "Invalid --exact-target-json" not in stderr
     assert "Config error" in stderr
 
 

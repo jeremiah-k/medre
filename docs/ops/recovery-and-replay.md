@@ -1052,6 +1052,32 @@ component and the channel is everything after the third colon — and
 id whose embedded event differs from the named event exits with `2`
 (configuration) instead of silently selecting nothing.
 
+### Explicit JSON identity form
+
+The compact colon spelling cannot distinguish every identity from the
+overloaded string alone: a legacy value whose plan component is literally
+`plan` next to a colon-bearing channel is byte-identical to the canonical
+plan-id spelling, and a colon-bearing event id has no compact spelling at
+all. When any identifier carries colons, prefer the explicit JSON form
+`--exact-target-json '["EVENT","TARGET","ADAPTER","CHANNEL"]'`. The four
+elements are positional and read byte-exact; `null` in the channel position
+is the no-channel spelling. The flag is repeatable and selections accumulate
+across it and the compact flags; one delivery identity may still not repeat
+across them.
+
+```bash
+medre replay --mode best_effort --config bridge.yaml \
+  --event 9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01 --json \
+  --exact-target-json '["event:1","plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978","matrix","!a4b3c2d1:mesh.example.org"]' \
+  --exact-target-json '["event:2","plan","mx-bridge",null]'
+```
+
+Malformed input — invalid JSON, a non-array value, an element count other
+than four, a non-string element in the first three positions, or an empty
+or blank string (the channel may be `null`) — exits with `2`
+(configuration) before any configuration is loaded, exactly like a
+malformed compact spec.
+
 ## Inspect one exact delivery leg before intervention
 
 For an event with two destinations on the same adapter, use the read-only
@@ -1072,7 +1098,9 @@ name the identified destination with `medre replay --exact-target
 EVENT:PLAN:ADAPTER:CHANNEL` or `medre replay --exact-no-channel
 EVENT:PLAN:ADAPTER` when that exact target is the intended recovery scope
 (the plan component may be the canonical colon-bearing
-`plan:EVENT:ROUTE:INDEX:HASH` id; see above). Uncertain, active or scheduled
+`plan:EVENT:ROUTE:INDEX:HASH` id; see above; when the event id or the
+channel itself carries colons, use the explicit `--exact-target-json` form
+instead). Uncertain, active or scheduled
 attempts remain under their original
 lifecycle owner; an audited resume/resolve decision over an unstarted target
 is recorded separately with `medre resolve --action` (see
