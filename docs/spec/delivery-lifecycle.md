@@ -469,11 +469,16 @@ The admission check is repeated after awaited preparation and immediately
 before direct invocation or the radio-plan execution boundary. Once a radio
 plan is bound, its existing packet grants and attempt-progress authority
 remain in force; health admission does not retract an authorized packet or
-rewrite retained progress. An explicitly requested replay is refused before
-allocation if health already blocks admission. Replay generation allocation
-is not an attempt-zero live reservation; a later refusal without a releasable
-reservation MUST reconcile the allocated generation as specified in
-§5.1.3 rather than silently renumbering it or promising automatic redispatch.
+rewrite retained progress. Each subsequent packet-start grant of the bound
+plan is admitted against the current blocking-health observation as part of
+the same grant unit, so a mid-burst degradation stops new grants while the
+accepted prefix and wholly unsent tail stay authoritative and the tail
+resumes under the existing continuation rules on recovery. An explicitly
+requested replay is refused before allocation if health already blocks
+admission. Replay generation allocation is not an attempt-zero live
+reservation; a later refusal without a releasable reservation MUST reconcile
+the allocated generation as specified in §5.1.3 rather than silently
+renumbering it or promising automatic redispatch.
 
 ## 4. Evidence Boundary
 

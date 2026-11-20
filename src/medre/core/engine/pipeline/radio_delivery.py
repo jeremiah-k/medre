@@ -36,6 +36,28 @@ _CONFIRMATION_ORDER = (
 )
 
 
+class _RadioGrantHealthRefused(AdapterSendError):
+    """Health admission refused one packet-start grant before any native call.
+
+    A refusal at the grant boundary is a decision, not a failure: the grant
+    was never issued, so no submitting or unknown record exists, and the
+    retained plan stays an accepted prefix followed by a wholly unsent tail.
+    That is exactly the continuation-eligible state, so the refusal stays
+    transient under the existing delivery policy instead of demanding
+    inspection like an interrupted native call.
+    """
+
+    def __init__(self, adapter_id: str, health: str, ordinal: int) -> None:
+        self.adapter_id = adapter_id
+        self.health = health
+        self.ordinal = ordinal
+        super().__init__(
+            f"radio packet grant refused: adapter={adapter_id} "
+            f"health={health} part={ordinal}",
+            transient=True,
+        )
+
+
 def _handoff_reference(
     result: AdapterHandoffResult, ordinal: int, payload_fingerprint: str | None = None
 ) -> str:
@@ -108,11 +130,19 @@ class _Submission:
     worker_id: str | None
     ordinal: int
     deadline: datetime | None = None
+    health_probe: Callable[[], str | None] | None = None
     entered: bool = False
     submitting: StoredRadioAttempt | None = None
 
     async def begin(self) -> None:
-        """Persist one native-call boundary after pacing, refusing reuse or claim loss."""
+        """Persist one native-call boundary after pacing, refusing reuse or claim loss.
+
+        Health admission is evaluated as part of the same grant unit: the
+        probe runs synchronously immediately before the storage grant
+        command, so a grant can never issue against a degradation the
+        runtime has already observed. A refused probe issues no grant and
+        leaves no submitting record.
+        """
         if self.entered:
             raise AdapterPermanentError(
                 "radio native submission grant cannot be reused"
@@ -123,6 +153,13 @@ class _Submission:
         if self.deadline is not None and datetime.now(timezone.utc) >= self.deadline:
             raise AdapterPermanentError(
                 "radio delivery deadline exceeded before native submission"
+            )
+        refused = self.health_probe() if self.health_probe is not None else None
+        if refused:
+            raise _RadioGrantHealthRefused(
+                self.checkpoint.provenance.target_adapter,
+                refused,
+                self.ordinal,
             )
         self.submitting = await self.storage.begin_radio_part(
             self.checkpoint, self.worker_id, self.ordinal, deadline=self.deadline
@@ -145,6 +182,7 @@ async def deliver_radio_plan(
     *,
     deadline: datetime | None = None,
     resume_from: StoredRadioAttempt | None = None,
+    health_probe: Callable[[], str | None] | None = None,
 ) -> AdapterHandoffResult:
     """Bind once, grant each native call, and aggregate only a complete local plan.
 
@@ -152,6 +190,13 @@ async def deliver_radio_plan(
     immediately before a single native invocation. Adapters must disable internal
     retries for that invocation. A failed or cancelled native call retains unknown
     progress; no accepted or uncertain prefix is replayed by a new generation.
+
+    ``health_probe`` is admitted as part of every packet-start grant: it is
+    evaluated synchronously inside the grant callback immediately before the
+    durable grant command. A truthy return refuses that grant with no native
+    call and no uncertainty record; the burst stops with the accepted prefix
+    and a wholly unsent tail under the existing transient retry eligibility,
+    and granted or retained progress is never retracted.
 
     ``resume_from`` is selected explicitly by the owning caller, including the
     configured retry owner; a renderer cannot supply it. Storage independently checks
@@ -194,7 +239,14 @@ async def deliver_radio_plan(
     for part, progress in zip(plan.parts, checkpoint.progress.parts, strict=True):
         if progress.state == "accepted":
             continue
-        grant = _Submission(storage, checkpoint, worker_id, part.ordinal, deadline)
+        grant = _Submission(
+            storage,
+            checkpoint,
+            worker_id,
+            part.ordinal,
+            deadline,
+            health_probe=health_probe,
+        )
         packet = replace(
             result,
             payload={**result.payload, "text": part.wire_text},
@@ -256,6 +308,12 @@ async def deliver_radio_plan(
             if isinstance(exc, asyncio.CancelledError):
                 raise
             if not isinstance(exc, Exception):
+                raise
+            if isinstance(exc, _RadioGrantHealthRefused):
+                # A grant-time health refusal issued no native call and left
+                # no uncertainty record: the accepted prefix and the wholly
+                # unsent tail stay authoritative, and the existing retry
+                # policy plus health recovery own what happens next.
                 raise
             if (
                 isinstance(exc, AdapterSendError)
