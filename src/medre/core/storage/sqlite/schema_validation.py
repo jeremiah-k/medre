@@ -25,6 +25,7 @@ from medre.core.storage.sqlite.schema import (
     _DIAGNOSTICS_DDL,
     _DIAGNOSTICS_INDEX_DDL,
     _EXPECTED_SCHEMA_VERSION,
+    _HANDOFF_SETTLEMENTS_DDL,
     _INDEXES,
     _PRESSURE_OUTAGE_GAPS_DDL,
     _REQUIRED_COLUMNS,
@@ -90,6 +91,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("table", "delivery_evidence_diagnostics"),
         ("table", "event_routing_facts"),
         ("table", "delivery_outbox_snapshots"),
+        ("table", "delivery_handoff_settlements"),
         ("table", "inbound_pressure_outage_gaps"),
         ("index", "idx_outbox_deadline_cleanup_order"),
         ("index", "idx_diagnostics_identity"),
@@ -179,6 +181,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _ROUTING_FACTS_DDL)
     if ("table", "delivery_outbox_snapshots") not in current:
         execute_ddl(db, _SNAPSHOTS_DDL)
+    if ("table", "delivery_handoff_settlements") not in current:
+        execute_ddl(db, _HANDOFF_SETTLEMENTS_DDL)
     if ("table", "inbound_pressure_outage_gaps") not in current:
         execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
     if ("index", "idx_outbox_deadline_cleanup_order") not in current:

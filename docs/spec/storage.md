@@ -13,7 +13,8 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 This document specifies the MEDRE storage layer. The current SQLite backend persists
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
 projection and its `conversation_projection_state`, `native_message_refs`,
-`delivery_receipts`, `delivery_outbox`, `radio_attempt_progress`,
+`delivery_receipts`, `delivery_outbox`, `delivery_handoff_settlements`,
+`radio_attempt_progress`,
 `event_body_identity`, `event_content_access_policies`,
 `event_content_access_grants`, `durable_ingress_work`, `adapter_checkpoints`, the durable-attachment
 `attachment_blobs` and `event_attachment_associations` tables, a schema-reserved
@@ -1072,7 +1073,11 @@ reservations because its content authority is the still-live source admission
 hold, which the content-authority check recognizes only by this column. That
 value survives queue handoff after the reservation is consumed. Callback
 lineage therefore does not depend on whether the immutable queued receipt is
-already visible.
+already visible. A retry-lane envelope can therefore match a live-origin
+row on attempt 1 or a replay-origin row on its own reserved attempt; it
+never admits the reverse divergence. Radio checkpoint writes additionally
+require the exact current reservation for either divergence, with the lease
+and content-authority fences unchanged.
 
 The schema enforces the same base invariants independently of lifecycle code:
 `attempt_number` is non-negative; a live `active_attempt` is exactly the next
@@ -1263,6 +1268,28 @@ An unretired snapshot blocks content release as live work state through the
 `unretired_outbox_snapshots` probe of the shared release-assessment
 decision ([content-collection-guard.md](content-collection-guard.md)); a
 retired snapshot blocks nothing.
+
+### 4.10.3 Receipt-less handoff settlement ordering
+
+```sql
+CREATE TABLE IF NOT EXISTS delivery_handoff_settlements (
+    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    receipt_watermark INTEGER NOT NULL CHECK (receipt_watermark >= 0)
+);
+```
+
+An evidence-only terminal `sent` transition MUST record the current receipt
+append watermark (`MAX(sequence)`, or zero when empty) in the same guarded
+transaction that clears the receipt pointer. This row is immutable,
+content-free ordering evidence, not a delivery receipt or a send grant.
+An outbox-less historical receipt has its own attempt-counter namespace;
+recovery queries compare its append sequence to this watermark, never its
+attempt number to an outbox generation. Later append sequences remain
+eligible for recovery. Outbox-backed failures retain generation ordering
+within the exact delivery identity. Existing receipt-less settlements without
+a watermark MUST NOT infer ordering over outbox-less receipts. The table is
+an exact additive upgrade; existing terminal rows are not backfilled.
 
 ### 4.11 durable_ingress_work
 
@@ -1953,7 +1980,8 @@ and the named rebuild steps in
 
 - Recognized missing tables: `event_content_collection_log`, `content_retention_epochs`,
   `delivery_evidence_diagnostics`, `event_routing_facts`,
-  `delivery_outbox_snapshots`, and `inbound_pressure_outage_gaps`.
+  `delivery_outbox_snapshots`, `delivery_handoff_settlements`, and
+  `inbound_pressure_outage_gaps`.
 - Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
   `idx_diagnostics_identity`, `idx_events_admission_order`, and
   `idx_outbox_snapshot_owner_unique`.
@@ -2278,6 +2306,7 @@ contract](storage-column-classification.md).
 | `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
 | `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
 | `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                            | None                                          | Forever                          |
+| `delivery_handoff_settlements`  | Guarded receipt-less terminal settlement                                         | None (immutable receipt watermark)                               | None                                          | Forever                          |
 | `radio_attempt_progress`        | Owned radio checkpoint API after full outbox claim validation                      | CAS part transitions and restart-to-unknown only                  | None                                          | Forever                          |
 | `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented)                | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
 | `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                      | None                                          | Forever                          |

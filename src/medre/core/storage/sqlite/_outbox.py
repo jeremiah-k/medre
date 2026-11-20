@@ -1023,6 +1023,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         outbox_id: str,
         worker_id: str,
         from_attempt: int,
+        *,
+        expected_observation_count: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1041,9 +1043,17 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         generation, reclaim, lease theft, or competing reservation makes the
         guard fail and nothing is written.
 
-        Returns the reserved attempt number, or ``None`` when the guard
-        failed — the caller must not invoke the transport in that case.
+        A supplied observation count is checked in the same UPDATE for
+        the exact finalized ``from_attempt``. Returns the reserved attempt
+        number, or ``None`` when any guard failed — the caller must not
+        invoke the transport in that case.
         """
+        if expected_observation_count is not None and (
+            from_attempt < 1 or expected_observation_count < 0
+        ):
+            raise ValueError(
+                "An observation guard requires a finalized attempt and count"
+            )
         now = _now_iso()
         rowcount = await self._write_rowcount(
             """UPDATE delivery_outbox
@@ -1060,6 +1070,11 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                  AND status = 'in_progress'
                  AND active_attempt IS NULL
                  AND attempt_number = ?
+                 AND (? IS NULL OR (
+                     SELECT COUNT(*) FROM delivery_observations
+                     WHERE outbox_id = delivery_outbox.outbox_id
+                       AND attempt_number = delivery_outbox.attempt_number
+                 ) = ?)
                  AND NOT EXISTS (
                      SELECT 1
                        FROM delivery_outbox AS sibling
@@ -1072,7 +1087,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                         AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
                             delivery_outbox.attempt_number + 1
                  )""",
-            (now, now, outbox_id, worker_id, from_attempt),
+            (
+                now,
+                now,
+                outbox_id,
+                worker_id,
+                from_attempt,
+                expected_observation_count,
+                expected_observation_count,
+            ),
         )
         if rowcount == 1:
             return from_attempt + 1
@@ -1206,8 +1229,16 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             )
             params.extend((attempt_number, attempt_number))
         if expected_observation_count is not None:
-            if attempt_number is None:
-                raise ValueError("An observation guard requires an exact attempt")
+            if (
+                attempt_number is None
+                or attempt_number < 1
+                or expected_observation_count < 0
+            ):
+                raise ValueError(
+                    "An observation guard requires an exact attempt and count"
+                )
+            where_clauses.append("COALESCE(active_attempt, attempt_number) = ?")
+            params.append(attempt_number)
             # A concurrent callback can append evidence without changing the
             # claim. Fence the exact attempt's append-only set in this write.
             where_clauses.append(
@@ -1230,6 +1261,20 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         # transition's transaction, so the diagnostic lands on the exact
         # generation the failure text describes.
         follow_ups = outbox_diagnostic_ops(diagnostics, now, outbox_id)
+        if new_status == "sent" and clear_receipt_id and receipt_id is None:
+            # Capture receipt append order under the same write lock as the
+            # successful evidence settlement. An outbox-less receipt's
+            # attempt counter is not an outbox generation.
+            follow_ups.append(
+                (
+                    "INSERT INTO delivery_handoff_settlements "
+                    "(outbox_id, attempt_number, receipt_watermark) "
+                    "SELECT outbox_id, attempt_number, "
+                    "(SELECT COALESCE(MAX(sequence), 0) FROM delivery_receipts) "
+                    "FROM delivery_outbox WHERE outbox_id=?",
+                    (outbox_id,),
+                )
+            )
         if new_status in TERMINAL_OUTBOX_STATUSES:
             # Retirement of the frozen dispatch context is part of the
             # guarded terminal settlement: the delete runs inside the same

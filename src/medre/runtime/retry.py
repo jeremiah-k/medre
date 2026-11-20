@@ -67,6 +67,7 @@ from medre.core.engine.pipeline.target_delivery import (
 from medre.core.evidence.handoff_resolution import (
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
+    UncertainHandoffResolution,
     UncertainNativeHandoffResolver,
 )
 from medre.core.planning.delivery_plan import DeliveryFailureKind
@@ -1406,6 +1407,7 @@ class RetryWorker:
         # never a durable hold and never a transport invocation. The durable
         # marker on the row gates the delegation; the lifecycle authority
         # re-validates every condition itself.
+        recheck_observation_count: int | None = None
         if (
             self._handoff_resolver is not None
             and item.active_attempt is None
@@ -1436,7 +1438,9 @@ class RetryWorker:
                     attempt_number=item.attempt_number,
                 )
                 return
-            if rechecked is not None:
+            if isinstance(rechecked, UncertainHandoffResolution):
+                recheck_observation_count = rechecked.observation_count
+            elif rechecked is not None:
                 self.state.processed += 1
                 self._record_retry_finalization(item, rechecked, reconciled=True)
                 _logger.info(
@@ -1699,6 +1703,7 @@ class RetryWorker:
                 reserved_attempt = await self._lifecycle.reserve_retry_attempt(
                     self._lifecycle_storage,
                     item,
+                    expected_observation_count=recheck_observation_count,
                 )
             except Exception as lifecycle_exc:
                 self.state.processed += 1
@@ -1716,8 +1721,8 @@ class RetryWorker:
             if reserved_attempt is None:
                 self.state.processed += 1
                 _logger.warning(
-                    "RetryWorker: lost claim on outbox %s before dispatch; "
-                    "attempt reservation failed without consuming transport",
+                    "RetryWorker: reservation refused for outbox %s before "
+                    "dispatch (claim or evidence changed); transport not invoked",
                     item.outbox_id,
                 )
                 return

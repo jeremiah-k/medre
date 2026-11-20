@@ -358,6 +358,11 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
   pointer left by an earlier attempt is cleared in the same transaction as
   the settlement. A newer receipt-less settlement supersedes an older
   failure for the same delivery identity in unresolved-delivery queries.
+  Outbox-backed generations are ordered by the outbox allocator. Outbox-less
+  receipts have independent attempt counters and are compared against the
+  receipt append watermark committed atomically with the sent settlement.
+  Rows lacking this watermark cannot establish that an outbox-less receipt
+  preceded their settlement.
 - `definitively_not_submitted` — a retained radio checkpoint whose grant
   fence is wholly empty proves the transport was never authorized for any
   packet of this attempt. Normal retry semantics follow: the attempt is
@@ -381,29 +386,36 @@ Honesty boundaries of the pass:
 - The pass is pure and read-only. Every settlement commits through an
   existing guarded compare-and-set transition fenced to the reclaiming
   worker; a stale or superseded worker's settlement is refused and reported
-  as an uncommitted transition. A decisive evidence settlement also checks
-  that the exact attempt's append-only observation set is unchanged in the
-  same write. A new observation causes the write to be refused so the next
-  reclaim can reconsider the evidence.
+  as an uncommitted transition. Every verdict with a readable exact-attempt
+  observation count (including zero) fences its settlement to that count
+  in the same write, even when an unresolved attempt has exhausted its
+  budget. A new observation causes the write to be refused, leaving the
+  reservation for a later reclaim. A failed or undecodable evidence read
+  supplies no count and retains the conservative accounting.
 - Unreadable evidence is held, never decisive: an observation record that
   fails to decode, or a packet-scoped claim whose metadata is invalid or
   does not correlate exactly leaves the verdict `unresolved`. Filter by
   outbox and attempt before decoding observations. A radio checkpoint must
   provide a decodable handoff reference for each accepted part. A packet
   observation must match the accepted original part. Provider acceptance
-  contradicting an empty grant fence also leaves the attempt unresolved.
+  contradicting any unsent part leaves the attempt unresolved. Qualifying
+  whole-message acceptance can settle a plan with no unsent parts even
+  when its final granted part remains locally uncertain; it must not
+  rewrite any local packet state.
 - Identity is validated exactly: a checkpoint whose provenance contradicts
   the reclaimed row never settles it, and neither does a checkpoint whose
   dispatch provenance is incoherent with the row — a checkpoint bound under
   a different replay run, or one whose dispatch source disagrees with the
   row, never settles anything. A replay-origin row can carry a checkpoint
-  from its retry-lane dispatch. Observations must carry the exact delivery
-  identity and the reclaimed attempt, and packet-scoped facts are trusted
-  only against their retained checkpoint (existing storage interfaces admit
-  a packet observation only against a retained original acceptance, so an
-  uncertain radio part cannot be upgraded from an observation; an
-  adapter-side capability to attest uncertain parts is a separate follow-up,
-  not an assumption of this contract).
+  from its retry-lane dispatch, as can a live-origin row on its first
+  reserved attempt (see §5.3). Observations for other outboxes or attempts
+  are ignored, but an observation with the exact outbox/attempt keys and
+  contradictory delivery identity is unreadable evidence. Packet-specific
+  admission requires a retained original acceptance; ordinary observation
+  storage does not enforce that packet correlation. The resolver MUST
+  refuse an uncorrelated stored claim. An uncertain radio part cannot be
+  upgraded from a packet observation; an adapter-side capability to attest
+  uncertain parts is a separate follow-up, not an assumption of this contract.
 - Dispatch provenance is never rewritten: a `live` or replay-lineage
   (`replay_run_id`) obligation settles on its own row only, with its source
   and run lineage intact, and sibling destinations are unaffected.
@@ -421,10 +433,19 @@ that attempt's retained evidence before the dispatch reservation commits.
 Evidence that has become readable and settles the attempt commits the
 settlement instead of dispatching; a verdict that now proves the grant fence
 wholly empty records the `handoff_not_submitted` determination and returns
-the row to `retry_wait` without dispatching; anything else leaves normal
-retry dispatch unchanged. This is a single recheck of the last receipt-less
-ambiguous attempt — never a durable hold, never a loop over older attempts,
-and never a transport invocation.
+the row to `retry_wait` without dispatching; an unresolved verdict with a
+readable observation count MUST fence reservation of the next attempt to that
+count atomically. If evidence changes before reservation, no attempt is
+reserved or dispatched; a later claim rechecks the same attempt. An unknown
+count retains the conservative retry policy. An older receipt pointer does
+not disqualify an explicitly uncertain finalized attempt. An operational
+deferral without consuming an attempt preserves the uncertainty diagnostic.
+Failed settlement writes and refused reservations leave the unreserved claim
+eligible on ordinary lease expiry; a committed terminal row is not reclaimed.
+This is a bounded recheck of the last receipt-less ambiguous attempt — never
+a durable hold, never a loop over older attempts, and never a transport
+invocation. Evidence appended after a new reservation is outside this fence;
+normal retry is not an unconditional no-resend guarantee.
 
 ### 3.5 Stale Feedback Protection
 
@@ -777,7 +798,10 @@ status, event, adapter, plan, channel, attempt generation, dispatch source, and
 named replay run. The row's `dispatch_source` is the durable origin class and
 the envelope's `source` is the attempt lane: they agree directly except that
 the retry lane's `source="retry"` envelope is valid lineage over a preserved
-replay origin, while every other disagreement refuses fail-closed. Every immutable receipt already carrying the same
+replay origin or a live-origin first attempt. The latter exception applies
+only to attempt 1, since reservation from zero records `live`; later
+live-origin retry reservations record `retry`. Every other disagreement
+refuses fail-closed. Every immutable receipt already carrying the same
 `outbox_id`/generation must also agree with the envelope. That history is loaded
 by `outbox_id` before identity/source validation so malformed evidence cannot be
 hidden by the read used to verify it. A queued receipt supplies

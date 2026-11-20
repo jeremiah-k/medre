@@ -314,6 +314,11 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "diagnostic": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    "delivery_handoff_settlements": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "receipt_watermark": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "radio_attempt_progress": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,

@@ -16,7 +16,9 @@ materialising the full ``delivery_status`` view for every page. Each unresolved
 receipt candidate is checked against the same two authority classes as
 :mod:`medre.core.delivery_authority`: exact committed outbox pointers ranked by
 outbox generation, and outbox-less evidence ranked by append sequence. The
-winning class is then selected by append sequence. No OFFSET or global COUNT is
+winning class is then selected by append sequence. A newer receipt-less sent
+settlement also supersedes older exact-identity failures using generation or
+receipt append watermark ordering. No OFFSET or global COUNT is
 used: the page is probed with ``limit + 1`` authoritative rows and the last
 emitted row's ``receipt_sequence`` becomes the next keyset position (strictly
 ascending — ``sequence`` is the AUTOINCREMENT primary key, so positions are
@@ -99,15 +101,23 @@ _LATER_WINNING_COMMITTED = (
     ")"
 )
 
-# A newer committed sent settlement may carry retained handoff evidence
-# instead of a receipt. Its exact delivery generation supersedes an older
-# failure without hiding a newer failure or one for a different destination.
+# Outbox-backed generations share the allocator's ordering. Outbox-less
+# receipts do not: their caller-supplied attempt counters are independent.
+# For those, use the receipt append watermark captured at the settlement
+# transaction. Historical receipt-less settlements without a watermark cannot
+# prove that an outbox-less failure preceded them.
 _NEWER_RECEIPTLESS_SETTLEMENT = (
     "NOT EXISTS ("  # nosec B608
     " SELECT 1 FROM delivery_outbox settled"
     f" WHERE {_same_identity('settled')}"
     " AND settled.status = 'sent' AND settled.receipt_id IS NULL"
-    " AND settled.attempt_number > COALESCE(committed_outbox.attempt_number, dr.attempt_number)"
+    " AND ((dr.outbox_id IS NOT NULL"
+    "       AND settled.attempt_number > committed_outbox.attempt_number)"
+    "   OR (dr.outbox_id IS NULL AND EXISTS ("
+    "       SELECT 1 FROM delivery_handoff_settlements handoff"
+    "       WHERE handoff.outbox_id = settled.outbox_id"
+    "         AND handoff.attempt_number = settled.attempt_number"
+    "         AND handoff.receipt_watermark >= dr.sequence)))"
     ")"
 )
 

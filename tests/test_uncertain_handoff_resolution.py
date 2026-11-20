@@ -13,160 +13,49 @@ evidence pass decides one of three verdicts over what storage already holds:
   evidence-backed diagnostic;
 * ``unresolved`` — everything else; the attempt is consumed conservatively
   and the uncertainty is recorded with an operator-visible detail, to be
-  re-resolved on every later reclaim (bounded by the retry budget).
+  reconsidered before a new reservation (bounded by the retry budget).
 
 The decision is idempotent, race-safe under the claim fencing, and honest:
-absence of evidence never proves rejection and conflicting evidence stays
-held. Replay provenance is never rewritten by a resolution.
+absence of evidence never proves rejection and conflicting evidence prevents
+settlement on that pass. Normal retry may still dispatch after an unresolved
+pre-dispatch recheck. Replay provenance is never rewritten by a resolution.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
 
-from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
     RetryAttemptCommitRejected,
 )
-from medre.core.events import DeliveryObservation, DeliveryReceipt
-from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
     HANDOFF_NOT_SUBMITTED_DETAIL,
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
+    UncertainHandoffResolution,
     resolve_uncertain_handoff,
 )
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartProgress
-from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio import StoredRadioAttempt
-from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.storage_outbox import create_outbox_item_with_parent
-
-_WORKER = "reconcile-worker-test"
-
-_PLAN_ID = "plan-handoff-resolution"
-
-
-def _past() -> datetime:
-    """A lapsed timestamp computed at test execution time, never at import."""
-    return datetime.now(timezone.utc) - timedelta(seconds=120)
-
-
-def _lease_end() -> str:
-    """A fresh claim lease computed at test execution time.
-
-    Module-import timestamps expire before a slow suite reaches these tests,
-    and the guarded radio bind refuses an expired claim fence, so every
-    seeded lease must be generated when the test actually runs.
-    """
-    return (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-
-
-def _plan():
-    """A real multibyte, prefixed plan with exactly three ordered packets."""
-    return plan_radio_text("café α " * 6, max_text_bytes=40, prefix="[North] ")
-
-
-def _identity(
-    event_id: str = "evt-handoff-resolution",
-    adapter: str = "radio",
-    channel: str | None = "ch-0",
-) -> DeliveryIdentity:
-    return DeliveryIdentity(event_id, _PLAN_ID, adapter, channel)
-
-
-def _provenance(
-    outbox_id: str,
-    attempt_number: int,
-    *,
-    event_id: str = "evt-handoff-resolution",
-    adapter: str = "radio",
-    channel: str | None = "ch-0",
-    source: str = "live",
-    replay_run_id: str | None = None,
-) -> DeliveryAttemptProvenance:
-    return DeliveryAttemptProvenance(
-        event_id=event_id,
-        delivery_plan_id=_PLAN_ID,
-        target_adapter=adapter,
-        target_channel=channel,
-        outbox_id=outbox_id,
-        attempt_number=attempt_number,
-        source=source,
-        replay_run_id=replay_run_id,
-    )
-
-
-def _checkpoint(
-    provenance: DeliveryAttemptProvenance,
-    states: list[str],
-) -> StoredRadioAttempt:
-    """Build a stored radio checkpoint with the requested part states.
-
-    States must satisfy the accepted-prefix invariant: accepted parts carry a
-    handoff reference, and the first non-accepted part owns the boundary.
-    """
-    plan = _plan()
-    assert len(states) == len(plan.parts)
-    parts = []
-    for ordinal, state in enumerate(states, 1):
-        if state == "accepted":
-            parts.append(
-                RadioPartProgress(
-                    ordinal,
-                    "accepted",
-                    RadioLocalHandoff(
-                        ordinal, f"native-{ordinal}", "ch-0", "local_transport"
-                    ).encode(),
-                )
-            )
-        else:
-            parts.append(RadioPartProgress(ordinal, state))
-    progress = RadioAttemptProgress(
-        provenance.outbox_id, provenance.attempt_number, plan, tuple(parts)
-    )
-    revision = sum(
-        0 if part.state == "unsent" else 1 if part.state == "submitting" else 2
-        for part in progress.parts
-    )
-    return StoredRadioAttempt(provenance, progress, revision)
-
-
-def _observation(
-    observation_id: str,
-    provenance: DeliveryAttemptProvenance,
-    *,
-    state: str = "delivered",
-    confirmation_level: str = "end_to_end",
-    radio_packet: object = None,
-    native_channel_id: str | None = "ch-0",
-    adapter_message_id: str | None = "native-1",
-) -> DeliveryObservation:
-    metadata: dict[str, object] = {}
-    if radio_packet is not None:
-        metadata["radio_packet"] = radio_packet
-    return DeliveryObservation(
-        observation_id=observation_id,
-        event_id=provenance.event_id,
-        delivery_plan_id=provenance.delivery_plan_id,
-        target_adapter=provenance.target_adapter,
-        target_channel=provenance.target_channel,
-        native_channel_id=native_channel_id,
-        outbox_id=provenance.outbox_id,
-        attempt_number=provenance.attempt_number,
-        adapter_message_id=adapter_message_id,
-        state=state,  # type: ignore[arg-type]
-        confirmation_level=confirmation_level,  # type: ignore[arg-type]
-        metadata=metadata,
-        observed_at=datetime.now(timezone.utc),
-    )
-
+from tests.helpers.handoff_resolution import (
+    _WORKER,
+    _bind_and_progress,
+    _checkpoint,
+    _claimed_row,
+    _due_row,
+    _identity,
+    _observation,
+    _past,
+    _plan,
+    _provenance,
+    _row,
+    _seed_reserved_claim,
+)
 
 # ---------------------------------------------------------------------------
 # Pure verdict tests
@@ -393,6 +282,7 @@ def test_negative_packet_observation_conflicts_with_complete_handoff() -> None:
     )
     assert resolution.verdict == "unresolved"
     assert resolution.uncertain is True
+    assert resolution.reasons == ("conflicting_packet_observation",)
 
 
 def test_positive_packet_observation_agrees_with_complete_handoff() -> None:
@@ -464,6 +354,7 @@ def test_checkpoint_from_another_replay_run_never_settles() -> None:
     ("row_source", "checkpoint_source", "expected"),
     [
         ("replay", "retry", "delivered_with_evidence"),
+        ("live", "retry", "delivered_with_evidence"),
         ("retry", "retry", "delivered_with_evidence"),
         ("retry", "replay", "unresolved"),
     ],
@@ -604,140 +495,6 @@ def test_corrupt_accepted_handoff_reference_cannot_settle() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _seed_reserved_claim(
-    storage: SQLiteStorage,
-    *,
-    outbox_id: str = "obox-reconcile",
-    event_id: str = "evt-handoff-resolution",
-    adapter: str = "radio",
-    channel: str | None = "ch-0",
-    worker: str = _WORKER,
-    replay_run_id: str | None = None,
-    status: str = "in_progress",
-    attempt_number: int = 0,
-) -> tuple[object, DeliveryAttemptProvenance]:
-    from medre.core.storage.backend import DeliveryOutboxItem
-
-    item = DeliveryOutboxItem(
-        outbox_id=outbox_id,
-        event_id=event_id,
-        route_id="route-handoff-resolution",
-        delivery_plan_id=_PLAN_ID,
-        target_adapter=adapter,
-        target_channel=channel,
-        attempt_number=attempt_number,
-        status=status,
-        locked_at=_past().isoformat(),
-        lease_until=_lease_end(),
-        worker_id=worker,
-        dispatch_source="replay" if replay_run_id else "live",
-        replay_run_id=replay_run_id,
-        metadata={
-            "capability_level": None,
-            "delivery_strategy": "direct",
-            "capability_field": None,
-            "capability_reason": None,
-            "deadline": None,
-        },
-    )
-    stored = await create_outbox_item_with_parent(
-        storage, item, allocate_new_generation=replay_run_id is not None
-    )
-    reserved = await storage.reserve_outbox_attempt(
-        outbox_id, worker, stored.attempt_number
-    )
-    assert reserved == stored.attempt_number + 1
-    # The dispatch reservation stamps the durable provenance the original
-    # dispatch ran under (a named replay dispatched by the retry worker
-    # carries source ``retry`` with its run lineage).
-    reserved_row = await storage.get_outbox_item(outbox_id)
-    assert reserved_row is not None
-    source = "retry" if replay_run_id else reserved_row.dispatch_source or "live"
-    provenance = _provenance(
-        outbox_id,
-        reserved,
-        event_id=event_id,
-        adapter=adapter,
-        channel=channel,
-        source=source,
-        replay_run_id=replay_run_id,
-    )
-    return stored, provenance
-
-
-async def _bind_and_progress(
-    storage: SQLiteStorage,
-    provenance: DeliveryAttemptProvenance,
-    states: list[str],
-    worker: str = _WORKER,
-) -> None:
-    """Drive the real guarded transitions through the requested states."""
-    plan = _plan()
-    checkpoint = await storage.bind_radio_attempt(provenance, worker, plan)
-    assert checkpoint is not None
-    for ordinal, state in enumerate(states, 1):
-        if state == "unsent":
-            continue
-        submitting = await storage.begin_radio_part(checkpoint, worker, ordinal)
-        assert submitting is not None
-        if state == "accepted":
-            observed = await storage.observe_radio_part(
-                submitting,
-                worker,
-                ordinal,
-                handoff_id=RadioLocalHandoff(
-                    ordinal, f"native-{ordinal}", "ch-0", "local_transport"
-                ).encode(),
-            )
-            assert observed is not None
-            checkpoint = observed
-        elif state == "unknown":
-            observed = await storage.observe_radio_part(submitting, worker, ordinal)
-            assert observed is not None
-            checkpoint = observed
-        # "submitting" stays in flight.
-
-
-async def _claimed_row(storage: SQLiteStorage, outbox_id: str, worker: str):
-    # Test setup only: let the seeded owner's lease lapse so the poll reclaims.
-    await storage._write_rowcount(
-        "UPDATE delivery_outbox SET lease_until = ? WHERE outbox_id = ?",
-        (_past().isoformat(), outbox_id),
-    )
-    due = datetime.now(timezone.utc).isoformat()
-    claimed = [
-        row
-        for row in await storage.claim_due_outbox_items(now=due, worker_id=worker)
-        if row.outbox_id == outbox_id
-    ]
-    assert claimed
-    return claimed[0]
-
-
-async def _due_row(storage: SQLiteStorage, outbox_id: str, worker: str):
-    # Test setup only: make a retry_wait row due (lapsed lease, past schedule)
-    # so a fresh poll reclaims it for the pre-dispatch recheck.
-    await storage._write_rowcount(
-        "UPDATE delivery_outbox SET lease_until = ?, next_attempt_at = ? "
-        "WHERE outbox_id = ?",
-        (_past().isoformat(), _past().isoformat(), outbox_id),
-    )
-    due = datetime.now(timezone.utc).isoformat()
-    claimed = [
-        row
-        for row in await storage.claim_due_outbox_items(now=due, worker_id=worker)
-        if row.outbox_id == outbox_id
-    ]
-    assert claimed
-    return claimed[0]
-
-
-async def _row(storage: SQLiteStorage, outbox_id: str) -> object:
-    row = await storage.get_outbox_item(outbox_id)
-    assert row is not None
-    return row
-
-
 async def test_reconcile_settles_complete_handoff_as_sent(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -792,40 +549,38 @@ async def test_reconcile_without_resolver_keeps_legacy_ambiguous_consumption(
     assert row.failure_kind_detail == "dispatch_outcome_unknown"  # type: ignore[attr-defined]
 
 
+@pytest.mark.parametrize("max_attempts", [1, 4])
 async def test_receipt_less_attempt_rechecks_acceptance_appended_during_reclaim(
-    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch, max_attempts: int
 ) -> None:
-    """A first read with no evidence still keeps the next recheck eligible."""
+    """A stale empty read cannot consume even the final reserved attempt."""
     stored, provenance = await _seed_reserved_claim(
         temp_storage, adapter="fake_presentation", channel=None
     )
     claimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-a")
-
     lifecycle = DeliveryLifecycleService()
     resolver = EvidenceBackedHandoffResolver(temp_storage)
-    retry_policy = RetryPolicy(max_attempts=4, jitter=False)
-    mark_retry_wait = temp_storage.mark_outbox_retry_wait
+    policy = RetryPolicy(max_attempts=max_attempts, jitter=False)
+    method = "mark_outbox_dead_lettered" if max_attempts == 1 else "mark_outbox_retry_wait"
+    original = getattr(temp_storage, method)
 
-    async def record_acceptance_then_consume(*args, **kwargs):
+    async def append_before_commit(*args, **kwargs):
         assert await temp_storage.append_delivery_observation(
             _observation("obs-late-acceptance", provenance, native_channel_id=None)
         )
-        return await mark_retry_wait(*args, **kwargs)
+        return await original(*args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(
-            temp_storage, "mark_outbox_retry_wait", record_acceptance_then_consume
-        )
-        finalization = await lifecycle.reconcile_retry_claim(
-            temp_storage, claimed, retry_policy, handoff_resolver=resolver
-        )
+        patch.setattr(temp_storage, method, append_before_commit)
+        with pytest.raises(RetryAttemptCommitRejected):
+            await lifecycle.reconcile_retry_claim(
+                temp_storage, claimed, policy, handoff_resolver=resolver
+            )
 
-    assert finalization is not None
-    assert finalization.outcome == "retry_wait"
-    row = await _due_row(temp_storage, stored.outbox_id, "reconciler-b")
-    assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
-    result = await lifecycle.recheck_last_uncertain_handoff(
-        temp_storage, row, retry_policy, handoff_resolver=resolver
+    row = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-b")
+    assert row.active_attempt == provenance.attempt_number
+    result = await lifecycle.reconcile_retry_claim(
+        temp_storage, row, policy, handoff_resolver=resolver
     )
     assert result is not None and result.outcome == "accepted"
 
@@ -1281,7 +1036,9 @@ async def test_pre_dispatch_recheck_leaves_unresolved_evidence_for_dispatch(
         RetryPolicy(max_attempts=4, jitter=False),
         handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
     )
-    assert final is None
+    assert isinstance(final, UncertainHandoffResolution)
+    assert final.verdict == "unresolved"
+    assert final.observation_count == 0
     row = await _row(temp_storage, stored.outbox_id)
     assert row.status == "in_progress"  # type: ignore[attr-defined]
     assert row.worker_id == "reconciler-b"  # type: ignore[attr-defined]

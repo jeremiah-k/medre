@@ -14,6 +14,7 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
         ("event-body-admission.schema.sql", {"event_body_identity"}),
         ("event-routing-facts.schema.sql", {"event_routing_facts"}),
         ("outbox-dispatch-snapshots.schema.sql", {"delivery_outbox_snapshots"}),
+        ("handoff-settlements.schema.sql", {"delivery_handoff_settlements"}),
         (
             "content-access-grants.schema.sql",
             {"event_content_access_policies", "event_content_access_grants"},
