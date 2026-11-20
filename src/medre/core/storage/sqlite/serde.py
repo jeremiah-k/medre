@@ -173,7 +173,14 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
 
 
 def _row_to_delivery_observation(row: dict[str, Any]) -> DeliveryObservation:
-    """Map a ``delivery_observations`` row to a delivery observation."""
+    """Map a ``delivery_observations`` row to a delivery observation.
+
+    An empty SQL metadata value is unreadable, not an empty JSON mapping.
+    The evidence resolver must not mistake malformed retained data for a
+    valid whole-message acceptance.
+    """
+    if row.get("metadata") in (None, ""):
+        raise ValueError("Retained delivery observation metadata is unreadable")
     return DeliveryObservation(
         sequence=row["sequence"],
         observation_id=row["observation_id"],
@@ -188,7 +195,7 @@ def _row_to_delivery_observation(row: dict[str, Any]) -> DeliveryObservation:
         state=row["state"],
         confirmation_level=row.get("confirmation_level") or "unknown",
         error=row.get("error"),
-        metadata=_decode_json(row.get("metadata") or "{}"),
+        metadata=_decode_json(row["metadata"]),
         observed_at=datetime.fromisoformat(row["observed_at"]),
     )
 
