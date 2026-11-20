@@ -116,6 +116,12 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.events.delivery import DeliverySource
+from medre.core.evidence.handoff_resolution import (
+    HANDOFF_NOT_SUBMITTED_DETAIL,
+    UNCERTAIN_NATIVE_HANDOFF_DETAIL,
+    UncertainHandoffResolution,
+    UncertainNativeHandoffResolver,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -155,6 +161,15 @@ _AMBIGUOUS_DISPATCH_FAILURE_DETAIL = "dispatch_outcome_unknown"
 _AMBIGUOUS_DISPATCH_ERROR = (
     "reserved retry dispatch was reclaimed without durable receipt evidence; "
     "outcome is unknown and the attempt identity is consumed"
+)
+_NOT_SUBMITTED_DISPATCH_ERROR = (
+    "reserved retry dispatch was reclaimed after retained evidence proved the "
+    "grant fence never authorized a native submission; the attempt identity is "
+    "consumed"
+)
+_UNCERTAIN_HANDOFF_ERROR_PREFIX = (
+    "reserved retry dispatch was reclaimed with an unresolved native handoff; "
+    "the attempt identity is consumed and the uncertainty stays explicit"
 )
 
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
@@ -1626,6 +1641,7 @@ class DeliveryLifecycleService:
         retry_policy: RetryPolicy,
         *,
         now: datetime | None = None,
+        handoff_resolver: UncertainNativeHandoffResolver | None = None,
     ) -> RetryAttemptFinalization | None:
         """Repair a claimed outbox row from already-persisted attempt evidence.
 
@@ -1640,11 +1656,22 @@ class DeliveryLifecycleService:
           the transport again.  A reservation without evidence is ambiguous:
           the prior process may have died before transport invocation, or the
           transport may still have accepted the send while receipt persistence
-          was lost.  The reserved identity is therefore consumed as a failed
-          attempt and the row moves to ``retry_wait`` (or ``dead_lettered``
-          when the attempt budget is exhausted).  A later dispatch MUST use a
-          strictly newer attempt number; retry recovery never reuses a reserved
-          dispatch identity.
+          was lost.  Before consuming such an identity, an optional
+          *handoff_resolver* runs the bounded uncertain-native-handoff
+          remediation pass (see :mod:`medre.core.evidence.handoff_resolution`):
+          evidence that the whole plan was handed off — or that a provider
+          accepted the message — settles the obligation ``sent`` through the
+          existing guarded transition without fabricating a receipt; evidence
+          that the grant fence never committed keeps the normal retry
+          semantics under an evidence-backed diagnostic; anything else stays
+          unresolved and is consumed conservatively with the explicit
+          ``uncertain_native_handoff`` operator-visible detail for bounded
+          re-resolution on later reclaims.  Without a resolver, or when the
+          pass finds nothing, the reserved identity is consumed as a failed
+          attempt exactly as before and the row moves to ``retry_wait`` (or
+          ``dead_lettered`` when the attempt budget is exhausted).  A later
+          dispatch MUST use a strictly newer attempt number; retry recovery
+          never reuses a reserved dispatch identity.
         * No reservation: check for next-attempt evidence at
           ``item.attempt_number + 1`` defensively (a superseded engine
           generation may have persisted evidence without the reservation
@@ -1670,12 +1697,29 @@ class DeliveryLifecycleService:
             attempt_number = item.active_attempt
             executor = RetryExecutor(retry_policy)
             error_summary = _AMBIGUOUS_DISPATCH_ERROR
+            failure_detail = _AMBIGUOUS_DISPATCH_FAILURE_DETAIL
+
+            if handoff_resolver is not None:
+                resolution = await handoff_resolver.resolve(item, attempt_number)
+                if resolution.verdict == "delivered_with_evidence":
+                    return await self._settle_resolved_handoff(
+                        storage, item, attempt_number, resolution
+                    )
+                if resolution.verdict == "definitively_not_submitted":
+                    failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
+                    error_summary = _NOT_SUBMITTED_DISPATCH_ERROR
+                elif resolution.uncertain:
+                    failure_detail = UNCERTAIN_NATIVE_HANDOFF_DETAIL
+                    error_summary = (
+                        f"{_UNCERTAIN_HANDOFF_ERROR_PREFIX} "
+                        f"({resolution.summary()})"
+                    )
 
             if executor.is_exhausted(attempt_number):
                 committed = await storage.mark_outbox_dead_lettered(
                     item.outbox_id,
                     failure_kind="retry_exhausted",
-                    failure_kind_detail=_AMBIGUOUS_DISPATCH_FAILURE_DETAIL,
+                    failure_kind_detail=failure_detail,
                     error_summary=error_summary,
                     attempt_number=attempt_number,
                     expected_worker_id=item.worker_id,
@@ -1689,9 +1733,11 @@ class DeliveryLifecycleService:
                 self._log.warning(
                     "Retry reservation %d for outbox %s was reclaimed without "
                     "durable evidence; consuming the ambiguous attempt and "
-                    "dead-lettering because the retry budget is exhausted",
+                    "dead-lettering because the retry budget is exhausted "
+                    "(%s)",
                     attempt_number,
                     item.outbox_id,
+                    failure_detail,
                 )
                 return RetryAttemptFinalization(
                     outcome="dead_lettered",
@@ -1707,7 +1753,7 @@ class DeliveryLifecycleService:
                 item.outbox_id,
                 next_attempt_at=next_attempt_at.isoformat(),
                 failure_kind=_AMBIGUOUS_DISPATCH_FAILURE_KIND,
-                failure_kind_detail=_AMBIGUOUS_DISPATCH_FAILURE_DETAIL,
+                failure_kind_detail=failure_detail,
                 error_summary=error_summary,
                 attempt_number=attempt_number,
                 expected_worker_id=item.worker_id,
@@ -1721,9 +1767,10 @@ class DeliveryLifecycleService:
             self._log.warning(
                 "Retry reservation %d for outbox %s was reclaimed without "
                 "durable evidence; consuming the ambiguous attempt before "
-                "any later dispatch",
+                "any later dispatch (%s)",
                 attempt_number,
                 item.outbox_id,
+                failure_detail,
             )
             return RetryAttemptFinalization(
                 outcome="retry_wait",
@@ -1747,6 +1794,49 @@ class DeliveryLifecycleService:
             unpersisted_error_summary=None,
             attempt_number=attempt_number,
             now=now,
+        )
+
+    async def _settle_resolved_handoff(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        attempt_number: int,
+        resolution: UncertainHandoffResolution,
+    ) -> RetryAttemptFinalization:
+        """Commit a delivered-with-evidence settlement from the remediation pass.
+
+        The retained handoff or observation evidence already proves the whole
+        plan reached its transport boundary, so the existing guarded ``sent``
+        transition settles the obligation. No receipt is fabricated: the
+        checkpoint and observation rows remain the evidence, and the settled
+        row intentionally carries no receipt pointer when none existed. The
+        guarded CAS refuses a stolen or already-settled row, so re-running
+        resolution after a lost commit converges instead of double-committing.
+        """
+        committed = await storage.mark_outbox_sent(
+            item.outbox_id,
+            attempt_number=attempt_number,
+            expected_worker_id=item.worker_id,
+        )
+        self._require_retry_commit(
+            committed,
+            item,
+            transition="sent",
+            attempt_number=attempt_number,
+        )
+        self._log.info(
+            "Uncertain native handoff resolved by retained evidence for outbox "
+            "%s attempt %d: %s; settling the obligation as sent without a "
+            "fabricated receipt",
+            item.outbox_id,
+            attempt_number,
+            ",".join(resolution.reasons),
+        )
+        return RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id=None,
+            failure_kind=None,
+            attempt_number=attempt_number,
         )
 
     async def finalize_retry_attempt_error(
