@@ -426,7 +426,13 @@ rewrite, classify, or retract any existing attempt evidence.
    retry worker on a degraded-to-healthy transition, and the worker MUST then
    redispatch that adapter's held obligations (bounded by their pushed
    `next_attempt_at`). Restart during deferral preserves the obligation:
-   deferred work is durable outbox state, not in-memory state.
+   deferred work is durable outbox state, not in-memory state. Attempt
+   accounting across a crash mid-deferral follows the existing
+   reconciliation rules: a committed deferral survives the restart with its
+   attempt unconsumed and the same attempt identity is re-reservable on the
+   next dispatch, while a reservation that never committed and is reclaimed
+   without durable evidence follows the ambiguous-dispatch rule and consumes
+   that attempt before any later dispatch.
 
 5. Safety net: an adapter that never recovers MUST NOT strand obligations
    silently. Each deferred obligation carries its own maximum deferral
