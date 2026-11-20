@@ -75,6 +75,20 @@ _HIGHER_COMMITTED_THAN_CURRENT = (
     ")"
 )
 
+# Receipt-less settlement wins only if no strictly newer outbox generation
+# has a committed receipt. In-progress later generations are not delivery
+# evidence and cannot supersede a settled result.
+_WINNING_SETTLEMENT = (
+    " AND NOT EXISTS ("
+    "   SELECT 1 FROM delivery_outbox later_generation"
+    "   JOIN delivery_receipts later_receipt"
+    "     ON later_receipt.outbox_id = later_generation.outbox_id"
+    "    AND later_receipt.receipt_id = later_generation.receipt_id"
+    f"   WHERE {_same_identity('later_generation')}"
+    "     AND later_generation.attempt_number > settled.attempt_number"
+    " )"
+)
+
 # For an outbox-less candidate, reject it only when the *winning* committed
 # outbox candidate has a later append sequence. A late append from an older
 # outbox generation must not hide newer-generation authority.
@@ -87,6 +101,15 @@ _LATER_WINNING_COMMITTED = (
     "  AND candidate_outbox.receipt_id = committed_receipt.receipt_id"
     f" WHERE {_same_identity('committed_receipt')}"
     " AND committed_receipt.sequence > dr.sequence"
+    # A newer evidence-only settlement retires this committed generation.
+    # Do not allow the retired receipt to hide a newer outbox-less failure.
+    " AND NOT EXISTS ("
+    "   SELECT 1 FROM delivery_outbox settled"
+    f"   WHERE {_same_identity('settled')}"
+    "     AND settled.status = 'sent' AND settled.receipt_id IS NULL"
+    "     AND settled.attempt_number > candidate_outbox.attempt_number"
+    + _WINNING_SETTLEMENT
+    + " )"
     " AND NOT EXISTS ("
     "   SELECT 1"
     "   FROM delivery_receipts higher_receipt"
@@ -111,7 +134,8 @@ _NEWER_RECEIPTLESS_SETTLEMENT = (
     " SELECT 1 FROM delivery_outbox settled"
     f" WHERE {_same_identity('settled')}"
     " AND settled.status = 'sent' AND settled.receipt_id IS NULL"
-    " AND ((dr.outbox_id IS NOT NULL"
+    + _WINNING_SETTLEMENT
+    + " AND ((dr.outbox_id IS NOT NULL"
     "       AND settled.attempt_number > committed_outbox.attempt_number)"
     "   OR (dr.outbox_id IS NULL AND EXISTS ("
     "       SELECT 1 FROM delivery_handoff_settlements handoff"

@@ -184,6 +184,31 @@ outboxless_current AS (
     FROM delivery_receipts r
     WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
       AND r.target_channel IS ? AND r.outbox_id IS NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM delivery_outbox settled
+          JOIN delivery_handoff_settlements handoff
+            ON handoff.outbox_id = settled.outbox_id
+           AND handoff.attempt_number = settled.attempt_number
+          WHERE settled.event_id = r.event_id
+            AND settled.delivery_plan_id = r.delivery_plan_id
+            AND settled.target_adapter = r.target_adapter
+            AND COALESCE(settled.target_channel, '') =
+                COALESCE(r.target_channel, '')
+            AND settled.status = 'sent' AND settled.receipt_id IS NULL
+            AND handoff.receipt_watermark >= r.sequence
+            AND NOT EXISTS (
+                SELECT 1 FROM delivery_outbox newer
+                JOIN delivery_receipts committed
+                  ON committed.outbox_id = newer.outbox_id
+                 AND committed.receipt_id = newer.receipt_id
+                WHERE newer.event_id = settled.event_id
+                  AND newer.delivery_plan_id = settled.delivery_plan_id
+                  AND newer.target_adapter = settled.target_adapter
+                  AND COALESCE(newer.target_channel, '') =
+                      COALESCE(settled.target_channel, '')
+                  AND newer.attempt_number > settled.attempt_number
+            )
+      )
     ORDER BY r.sequence DESC
     LIMIT 1
 ),
