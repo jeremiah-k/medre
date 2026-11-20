@@ -73,6 +73,7 @@ from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_
 from tests.helpers.storage_outbox import (
     FrozenOutboxSnapshotFakeMixin,
     allocate_new_outbox_generation,
+    defer_guarded_unsubmitted_attempt,
     find_existing_outbox_generation,
     find_existing_replay_run_claim,
     release_guarded_outbox_claim,
@@ -275,6 +276,22 @@ class _FakeStorage(FrozenOutboxSnapshotFakeMixin, CannedContentReads):
     ) -> DeliveryOutboxItem | None:
         return inspection_rows(
             self._outbox.get(outbox_id), "delivery_outbox", metadata_only
+        )
+
+    async def defer_unsubmitted_outbox_attempt(
+        self,
+        outbox_id: str,
+        *,
+        worker_id: str,
+        attempt_number: int,
+        next_attempt_at: str,
+    ) -> bool:
+        return defer_guarded_unsubmitted_attempt(
+            self._outbox,
+            outbox_id,
+            worker_id,
+            attempt_number=attempt_number,
+            next_attempt_at=next_attempt_at,
         )
 
     async def reserve_outbox_attempt(
