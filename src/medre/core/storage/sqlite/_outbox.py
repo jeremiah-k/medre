@@ -1092,6 +1092,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         next_attempt_at: str | None = None,
         expected_worker_id: str | None = None,
         clear_receipt_id: bool = False,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Shared helper for status transitions.
 
@@ -1204,6 +1205,16 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "OR active_attempt = ?)"
             )
             params.extend((attempt_number, attempt_number))
+        if expected_observation_count is not None:
+            if attempt_number is None:
+                raise ValueError("An observation guard requires an exact attempt")
+            # A concurrent callback can append evidence without changing the
+            # claim. Fence the exact attempt's append-only set in this write.
+            where_clauses.append(
+                "(SELECT COUNT(*) FROM delivery_observations "
+                "WHERE outbox_id = ? AND attempt_number = ?) = ?"
+            )
+            params.extend((outbox_id, attempt_number, expected_observation_count))
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
@@ -1254,6 +1265,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_worker_id: str | None = None,
         *,
         clear_receipt_id: bool = False,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1272,6 +1284,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
             clear_receipt_id=clear_receipt_id,
+            expected_observation_count=expected_observation_count,
         )
 
     async def mark_outbox_queued(
@@ -1305,6 +1318,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1323,6 +1338,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             error_summary=error_summary,
             next_attempt_at=next_attempt_at,
             expected_worker_id=expected_worker_id,
+            expected_observation_count=expected_observation_count,
         )
 
     async def mark_outbox_dead_lettered(
@@ -1334,6 +1350,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1355,6 +1373,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             failure_kind_detail=failure_kind_detail,
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
+            expected_observation_count=expected_observation_count,
         )
 
     async def mark_outbox_cancelled(

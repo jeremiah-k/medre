@@ -27,8 +27,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from medre.core.delivery_authority import DeliveryIdentity
-from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
-from medre.core.events import DeliveryObservation
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    DeliveryLifecycleService,
+    RetryAttemptCommitRejected,
+)
+from medre.core.events import DeliveryObservation, DeliveryReceipt
 from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.evidence.handoff_resolution import (
     HANDOFF_NOT_SUBMITTED_DETAIL,
@@ -41,6 +44,7 @@ from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartP
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio import StoredRadioAttempt
+from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
@@ -114,7 +118,13 @@ def _checkpoint(
     for ordinal, state in enumerate(states, 1):
         if state == "accepted":
             parts.append(
-                RadioPartProgress(ordinal, "accepted", f"radio:north:{ordinal}")
+                RadioPartProgress(
+                    ordinal,
+                    "accepted",
+                    RadioLocalHandoff(
+                        ordinal, f"native-{ordinal}", "ch-0", "local_transport"
+                    ).encode(),
+                )
             )
         else:
             parts.append(RadioPartProgress(ordinal, state))
@@ -134,7 +144,7 @@ def _observation(
     *,
     state: str = "delivered",
     confirmation_level: str = "end_to_end",
-    radio_packet: dict[str, object] | None = None,
+    radio_packet: object = None,
     native_channel_id: str | None = "ch-0",
     adapter_message_id: str | None = "native-1",
 ) -> DeliveryObservation:
@@ -450,22 +460,27 @@ def test_checkpoint_from_another_replay_run_never_settles() -> None:
     assert "checkpoint_provenance_incoherent" in resolution.reasons
 
 
-def test_checkpoint_with_coherent_replay_lineage_settles() -> None:
-    """Row-coherent dispatch provenance leaves a complete handoff decisive."""
-    provenance = _provenance(
-        "obox-run-coherent", 1, source="retry", replay_run_id="run-a"
-    )
+@pytest.mark.parametrize(
+    ("row_source", "checkpoint_source", "expected"),
+    [
+        ("replay", "retry", "delivered_with_evidence"),
+        ("retry", "retry", "delivered_with_evidence"),
+        ("retry", "replay", "unresolved"),
+    ],
+)
+def test_checkpoint_dispatch_source_matches_replay_origin(
+    row_source, checkpoint_source, expected
+) -> None:
+    provenance = _provenance("obox-source-coherence", 1, source=checkpoint_source)
     resolution = resolve_uncertain_handoff(
         outbox_id=provenance.outbox_id,
         attempt_number=1,
         identity=_identity(),
         checkpoint=_checkpoint(provenance, ["accepted", "accepted", "accepted"]),
         observations=[],
-        attempt_source="retry",
-        replay_run_id="run-a",
+        attempt_source=row_source,
     )
-    assert resolution.verdict == "delivered_with_evidence"
-    assert resolution.uncertain is False
+    assert resolution.verdict == expected
 
 
 def test_live_row_never_settles_from_a_replay_lineage_checkpoint() -> None:
@@ -485,24 +500,25 @@ def test_live_row_never_settles_from_a_replay_lineage_checkpoint() -> None:
     assert "checkpoint_provenance_incoherent" in resolution.reasons
 
 
-def test_malformed_packet_claim_is_never_whole_message_evidence() -> None:
-    """Invalid packet metadata cannot prove whole-message acceptance."""
+@pytest.mark.parametrize("with_acceptance", [False, True])
+def test_malformed_packet_claim_is_never_whole_message_evidence(
+    with_acceptance: bool,
+) -> None:
+    """Unreadable evidence blocks a verdict even beside qualifying acceptance."""
     provenance = _provenance("obox-bad-packet", 1)
+    observations = [_observation("obs-bad-packet", provenance, radio_packet="packet 1")]
+    if with_acceptance:
+        observations.append(_observation("obs-whole-message", provenance))
     resolution = resolve_uncertain_handoff(
         outbox_id=provenance.outbox_id,
         attempt_number=1,
         identity=_identity(),
         checkpoint=None,
-        observations=[
-            _observation(
-                "obs-bad-packet",
-                provenance,
-                radio_packet="packet 1 accepted",  # malformed: not a mapping
-            )
-        ],
+        observations=observations,
     )
     assert resolution.verdict == "unresolved"
-    assert resolution.uncertain is False
+    assert resolution.uncertain is True
+    assert "unreadable_packet_evidence" in resolution.reasons
 
 
 def test_malformed_packet_claim_holds_a_complete_handoff() -> None:
@@ -530,25 +546,57 @@ def test_malformed_packet_claim_holds_a_complete_handoff() -> None:
     assert "unreadable_packet_evidence" in resolution.reasons
 
 
-def test_unreadable_packet_claim_holds_a_not_submitted_fence() -> None:
-    """An empty grant fence is not proven while unreadable evidence exists."""
-    provenance = _provenance("obox-fence-unreadable", 1)
+@pytest.mark.parametrize(
+    "conflict", ["malformed_packet", "unsent_packet", "acceptance"]
+)
+def test_evidence_can_contradict_an_empty_fence(conflict: str) -> None:
+    provenance = _provenance("obox-fence-conflict", 1)
+    radio_packet = {
+        "malformed_packet": {"ordinal": "one"},
+        "unsent_packet": {
+            "ordinal": 1,
+            "origin_outbox_id": provenance.outbox_id,
+            "origin_attempt_number": 1,
+        },
+        "acceptance": None,
+    }[conflict]
     resolution = resolve_uncertain_handoff(
         outbox_id=provenance.outbox_id,
         attempt_number=1,
         identity=_identity(),
         checkpoint=_checkpoint(provenance, ["unsent", "unsent", "unsent"]),
         observations=[
-            _observation(
-                "obs-bad-ordinal",
-                provenance,
-                radio_packet={"ordinal": "one"},
-            )
+            _observation("obs-fence-conflict", provenance, radio_packet=radio_packet)
         ],
     )
     assert resolution.verdict == "unresolved"
     assert resolution.uncertain is True
-    assert "unreadable_packet_evidence" in resolution.reasons
+    assert resolution.reasons == (
+        (
+            "provider_acceptance_conflicts_with_empty_fence"
+            if conflict == "acceptance"
+            else "unreadable_packet_evidence"
+        ),
+    )
+
+
+def test_corrupt_accepted_handoff_reference_cannot_settle() -> None:
+    provenance = _provenance("obox-bad-reference", 1)
+    progress = RadioAttemptProgress(
+        provenance.outbox_id,
+        1,
+        _plan(),
+        tuple(RadioPartProgress(i, "accepted", "invalid") for i in range(1, 4)),
+    )
+    resolution = resolve_uncertain_handoff(
+        outbox_id=provenance.outbox_id,
+        attempt_number=1,
+        identity=_identity(),
+        checkpoint=StoredRadioAttempt(provenance, progress, 6),
+        observations=[],
+    )
+    assert resolution.verdict == "unresolved"
+    assert resolution.reasons == ("unreadable_handoff_reference",)
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +652,7 @@ async def _seed_reserved_claim(
     # carries source ``retry`` with its run lineage).
     reserved_row = await storage.get_outbox_item(outbox_id)
     assert reserved_row is not None
-    source = reserved_row.dispatch_source or ("replay" if replay_run_id else "live")
+    source = "retry" if replay_run_id else reserved_row.dispatch_source or "live"
     provenance = _provenance(
         outbox_id,
         reserved,
@@ -637,7 +685,9 @@ async def _bind_and_progress(
                 submitting,
                 worker,
                 ordinal,
-                handoff_id=f"radio:north:{ordinal}",
+                handoff_id=RadioLocalHandoff(
+                    ordinal, f"native-{ordinal}", "ch-0", "local_transport"
+                ).encode(),
             )
             assert observed is not None
             checkpoint = observed
@@ -742,27 +792,42 @@ async def test_reconcile_without_resolver_keeps_legacy_ambiguous_consumption(
     assert row.failure_kind_detail == "dispatch_outcome_unknown"  # type: ignore[attr-defined]
 
 
-async def test_reconcile_receipt_less_non_radio_with_resolver_keeps_legacy_detail(
-    temp_storage: SQLiteStorage,
+async def test_receipt_less_attempt_rechecks_acceptance_appended_during_reclaim(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No uncertainty evidence means the legacy ambiguity wording stands."""
-    stored, _provenance_info = await _seed_reserved_claim(
+    """A first read with no evidence still keeps the next recheck eligible."""
+    stored, provenance = await _seed_reserved_claim(
         temp_storage, adapter="fake_presentation", channel=None
     )
     claimed = await _claimed_row(temp_storage, stored.outbox_id, "reconciler-a")
 
     lifecycle = DeliveryLifecycleService()
-    finalization = await lifecycle.reconcile_retry_claim(
-        temp_storage,
-        claimed,
-        RetryPolicy(max_attempts=4, jitter=False),
-        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
-    )
+    resolver = EvidenceBackedHandoffResolver(temp_storage)
+    retry_policy = RetryPolicy(max_attempts=4, jitter=False)
+    mark_retry_wait = temp_storage.mark_outbox_retry_wait
+
+    async def record_acceptance_then_consume(*args, **kwargs):
+        assert await temp_storage.append_delivery_observation(
+            _observation("obs-late-acceptance", provenance, native_channel_id=None)
+        )
+        return await mark_retry_wait(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            temp_storage, "mark_outbox_retry_wait", record_acceptance_then_consume
+        )
+        finalization = await lifecycle.reconcile_retry_claim(
+            temp_storage, claimed, retry_policy, handoff_resolver=resolver
+        )
 
     assert finalization is not None
     assert finalization.outcome == "retry_wait"
-    row = await _row(temp_storage, stored.outbox_id)
-    assert row.failure_kind_detail == "dispatch_outcome_unknown"  # type: ignore[attr-defined]
+    row = await _due_row(temp_storage, stored.outbox_id, "reconciler-b")
+    assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+    result = await lifecycle.recheck_last_uncertain_handoff(
+        temp_storage, row, retry_policy, handoff_resolver=resolver
+    )
+    assert result is not None and result.outcome == "accepted"
 
 
 async def test_reconcile_settles_empty_grant_fence_with_not_submitted_detail(
@@ -987,9 +1052,8 @@ async def test_replay_origin_row_settles_without_provenance_rewrite(
 
     row = await _row(temp_storage, stored.outbox_id)
     assert row.status == "sent"  # type: ignore[attr-defined]
-    # The settlement never rewrites dispatch provenance: the run lineage the
-    # reservation stamped (retry source carrying the replay run) is intact.
-    assert row.dispatch_source == "retry"  # type: ignore[attr-defined]
+    # Replay origin and its run survive the retry reservation and settlement.
+    assert row.dispatch_source == "replay"  # type: ignore[attr-defined]
     assert row.replay_run_id == "run-remediation"  # type: ignore[attr-defined]
 
 
@@ -1016,10 +1080,6 @@ async def test_unreadable_checkpoint_evidence_stays_conservative(
     assert finalization.outcome == "retry_wait"
     row = await _row(temp_storage, stored.outbox_id)
     assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL  # type: ignore[attr-defined]
-
-
-def _row_sync_placeholder() -> None:  # pragma: no cover - guard helper
-    """Removed helper placeholder; kept out of the assertion paths."""
 
 
 # ---------------------------------------------------------------------------
@@ -1058,6 +1118,9 @@ async def test_unreadable_observation_evidence_stays_conservative(
     assert finalization.outcome == "retry_wait"
     row = await _row(temp_storage, stored.outbox_id)
     assert row.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL  # type: ignore[attr-defined]
+
+    assert "resolution_evidence_unreadable" in row.error_summary  # type: ignore[attr-defined]
+    assert "no retained radio checkpoint" not in row.error_summary  # type: ignore[attr-defined]
 
 
 async def test_evidence_settlement_clears_a_stale_receipt_pointer(
@@ -1248,3 +1311,138 @@ async def test_pre_dispatch_recheck_requires_the_uncertain_marker(
         handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
     )
     assert final is None
+
+
+async def test_reconcile_ignores_corrupt_observations_from_older_attempts(
+    temp_storage: SQLiteStorage,
+) -> None:
+    stored, first = await _seed_reserved_claim(temp_storage)
+    assert await temp_storage.append_delivery_observation(
+        _observation("obs-corrupt-older", first)
+    )
+    await temp_storage._write_rowcount(
+        "UPDATE delivery_observations SET metadata = '{' WHERE observation_id = ?",
+        ("obs-corrupt-older",),
+    )
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        _past().isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+    )
+    claimed = await _due_row(temp_storage, stored.outbox_id, "second-attempt")
+    assert (
+        await temp_storage.reserve_outbox_attempt(
+            claimed.outbox_id, "second-attempt", 1
+        )
+        == 2
+    )
+    assert await temp_storage.append_delivery_observation(
+        _observation("obs-current", _provenance(stored.outbox_id, 2))
+    )
+
+    reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    outcome = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        reclaimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert outcome is not None and outcome.outcome == "accepted"
+
+
+@pytest.mark.parametrize("empty_fence", [False, True])
+async def test_new_observation_prevents_settlement_from_a_stale_verdict(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch, empty_fence: bool
+) -> None:
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    if empty_fence:
+        await _bind_and_progress(temp_storage, provenance, ["unsent"] * 3)
+        original = temp_storage.mark_outbox_retry_wait
+        method = "mark_outbox_retry_wait"
+        late = _observation("obs-late-accepted", provenance)
+    else:
+        assert await temp_storage.append_delivery_observation(
+            _observation("obs-first-accepted", provenance)
+        )
+        original = temp_storage.mark_outbox_sent
+        method = "mark_outbox_sent"
+        late = _observation("obs-late-failed", provenance, state="failed")
+
+    async def append_before_commit(*args, **kwargs):
+        assert await temp_storage.append_delivery_observation(late)
+        return await original(*args, **kwargs)
+
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    lifecycle = DeliveryLifecycleService()
+    resolver = EvidenceBackedHandoffResolver(temp_storage)
+    policy = RetryPolicy(max_attempts=4)
+    with monkeypatch.context() as patch:
+        patch.setattr(temp_storage, method, append_before_commit)
+        with pytest.raises(RetryAttemptCommitRejected):
+            await lifecycle.reconcile_retry_claim(
+                temp_storage, claimed, policy, handoff_resolver=resolver
+            )
+
+    reclaimed = await _claimed_row(temp_storage, stored.outbox_id, "another-reclaimer")
+    outcome = await lifecycle.reconcile_retry_claim(
+        temp_storage, reclaimed, policy, handoff_resolver=resolver
+    )
+    assert outcome is not None and outcome.outcome == "retry_wait"
+    settled = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert settled is not None
+    assert settled.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+
+
+@pytest.mark.parametrize("replay_channel,expected_failures", [("ch-0", 0), ("ch-1", 1)])
+async def test_recovery_query_observes_receiptless_exact_settlement(
+    temp_storage: SQLiteStorage, replay_channel: str, expected_failures: int
+) -> None:
+    original, provenance = await _seed_reserved_claim(temp_storage)
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-first-failure",
+        event_id=provenance.event_id,
+        delivery_plan_id=provenance.delivery_plan_id,
+        target_adapter=provenance.target_adapter,
+        target_channel=provenance.target_channel,
+        status="dead_lettered",
+        failure_kind="adapter_permanent",
+        outbox_id=provenance.outbox_id,
+        attempt_number=provenance.attempt_number,
+    )
+    await temp_storage.append_receipt(receipt)
+    assert await temp_storage.mark_outbox_dead_lettered(
+        original.outbox_id,
+        receipt_id=receipt.receipt_id,
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+    )
+    assert len((await temp_storage.query_unresolved_deliveries()).items) == 1
+
+    replay, later = await _seed_reserved_claim(
+        temp_storage,
+        outbox_id="obox-replay-query",
+        replay_run_id="run-query",
+        channel=replay_channel,
+        attempt_number=1,
+    )
+    assert later.attempt_number > provenance.attempt_number
+    assert await temp_storage.append_delivery_observation(
+        _observation("obs-replay-sent", later)
+    )
+    claimed = await _claimed_row(temp_storage, replay.outbox_id, "reclaimer")
+    result = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert (
+        result is not None
+        and result.outcome == "accepted"
+        and result.receipt_id is None
+    )
+    assert (
+        len((await temp_storage.query_unresolved_deliveries()).items)
+        == expected_failures
+    )

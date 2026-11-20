@@ -64,14 +64,15 @@ Honesty boundaries
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import DeliveryObservation
-from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.rendering.radio_text import MAX_RADIO_TEXT_PARTS
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.radio_handoff import RadioLocalHandoff
 
 __all__ = [
     "HANDOFF_NOT_SUBMITTED_DETAIL",
@@ -114,9 +115,9 @@ class UncertainHandoffResolution:
 
     ``uncertain`` marks that the pass actually found unresolved native
     handoff state (an interrupted radio part, negative transport reports, or
-    unreadable evidence) rather than simply finding nothing; reconciliation
-    uses it to choose the operator-visible diagnostic. Part counts are
-    populated only for checkpoint-backed (radio) attempts.
+    unreadable evidence) rather than simply finding nothing. Part counts are
+    populated when the radio checkpoint can be classified. The observation
+    count fences a later settlement against newly appended evidence.
     """
 
     verdict: HandoffResolutionVerdict
@@ -127,16 +128,18 @@ class UncertainHandoffResolution:
     accepted_parts: int | None = None
     uncertain_parts: int | None = None
     unsent_parts: int | None = None
+    observation_count: int | None = None
 
     def summary(self) -> str:
         """Return a bounded human-readable statement of what was decided."""
-        if self.has_checkpoint:
-            return (
-                f"radio attempt {self.attempt_number}: {self.accepted_parts} "
-                f"accepted, {self.uncertain_parts} uncertain, "
+        reasons = ", ".join(self.reasons)
+        summary = f"attempt {self.attempt_number}: {reasons}"
+        if self.accepted_parts is not None:
+            summary += (
+                f"; {self.accepted_parts} accepted, {self.uncertain_parts} uncertain, "
                 f"{self.unsent_parts} unsent packet(s)"
             )
-        return f"attempt {self.attempt_number}: no retained radio checkpoint"
+        return summary
 
 
 def _resolution(
@@ -198,69 +201,45 @@ def _observation_scope(observation: DeliveryObservation) -> str:
     )
 
 
-def _packet_ordinal(
-    observation: DeliveryObservation,
-    provenance: DeliveryAttemptProvenance,
-    part_count: int,
-) -> int | None:
-    """Correlate a packet-scoped fact to this exact attempt, else ``None``.
-
-    The correlation mirrors the read-only packet projector and the guarded
-    ``append_radio_packet_observation`` admission: the fact must name the
-    ordinal and the original attempt in ``metadata.radio_packet`` and must
-    match the retained attempt identity. A fact for another attempt, or one
-    without a retained checkpoint correlation, is never adopted.
-    """
+def _packet_ordinal(observation: DeliveryObservation) -> int | None:
+    """Read a packet ordinal only for an exact, structurally valid claim."""
     payload = observation.metadata.get("radio_packet")
     if not isinstance(payload, Mapping):
         return None
     ordinal = payload.get("ordinal")
+    origin_attempt = payload.get("origin_attempt_number")
     if (
         type(ordinal) is not int
-        or not 1 <= ordinal <= part_count
-        or payload.get("origin_outbox_id") != provenance.outbox_id
-        or payload.get("origin_attempt_number") != provenance.attempt_number
-    ):
-        return None
-    if (
-        observation.event_id != provenance.event_id
-        or observation.delivery_plan_id != provenance.delivery_plan_id
-        or observation.target_adapter != provenance.target_adapter
-        or (observation.target_channel or None) != (provenance.target_channel or None)
-        or observation.outbox_id != provenance.outbox_id
-        or observation.attempt_number != provenance.attempt_number
+        or not 1 <= ordinal <= MAX_RADIO_TEXT_PARTS
+        or type(origin_attempt) is not int
+        or origin_attempt != observation.attempt_number
+        or payload.get("origin_outbox_id") != observation.outbox_id
     ):
         return None
     return ordinal
 
 
-def _message_level_observations(
+def _exact_observations(
     observations: Sequence[DeliveryObservation],
     *,
     outbox_id: str,
     attempt_number: int,
     identity: DeliveryIdentity,
 ) -> list[DeliveryObservation]:
-    """Select whole-message facts for the exact reclaimed attempt.
+    return [
+        observation
+        for observation in observations
+        if observation.outbox_id == outbox_id
+        and observation.attempt_number == attempt_number
+        and _matches_identity(observation, identity)
+    ]
 
-    Packet-scoped facts are excluded: without a retained checkpoint there is
-    no correlation authority for them, and trusting one would let an
-    uncorrelated row settle a whole radio send. An observation carrying
-    invalid packet metadata is unreadable evidence and is excluded the same
-    way — it must never be classified as whole-message evidence.
-    """
-    relevant: list[DeliveryObservation] = []
-    for observation in observations:
-        if observation.outbox_id != outbox_id:
-            continue
-        if observation.attempt_number != attempt_number:
-            continue
-        if not _matches_identity(observation, identity):
-            continue
-        if _observation_scope(observation) != _OBSERVATION_SCOPE_MESSAGE:
-            continue
-        relevant.append(observation)
-    return relevant
+
+def _proves_provider_acceptance(observation: DeliveryObservation) -> bool:
+    return (
+        observation.state == "delivered"
+        and observation.confirmation_level in _CONFIRMATION_LEVELS_PROVING_ACCEPTANCE
+    )
 
 
 def _resolve_message_level(
@@ -270,23 +249,31 @@ def _resolve_message_level(
     identity: DeliveryIdentity,
     observations: Sequence[DeliveryObservation],
 ) -> UncertainHandoffResolution:
-    relevant = _message_level_observations(
+    relevant = _exact_observations(
         observations,
         outbox_id=outbox_id,
         attempt_number=attempt_number,
         identity=identity,
     )
-    positive = [
-        observation
-        for observation in relevant
-        if observation.state == "delivered"
-        and observation.confirmation_level in _CONFIRMATION_LEVELS_PROVING_ACCEPTANCE
-    ]
-    negative = [
-        observation
-        for observation in relevant
-        if observation.state in _NEGATIVE_OBSERVATION_STATES
-    ]
+    message_level = []
+    for observation in relevant:
+        scope = _observation_scope(observation)
+        if scope == _OBSERVATION_SCOPE_MESSAGE:
+            message_level.append(observation)
+        elif (
+            scope == _OBSERVATION_SCOPE_UNREADABLE
+            or _packet_ordinal(observation) is None
+        ):
+            return _resolution(
+                "unresolved",
+                attempt_number,
+                uncertain=True,
+                reason="unreadable_packet_evidence",
+                has_checkpoint=False,
+            )
+
+    positive = any(_proves_provider_acceptance(item) for item in message_level)
+    negative = any(item.state in _NEGATIVE_OBSERVATION_STATES for item in message_level)
     if positive and not negative:
         return _resolution(
             "delivered_with_evidence",
@@ -352,9 +339,12 @@ def _resolve_checkpoint(
         # under a different replay run, or one whose dispatch-source lineage
         # disagrees with the row (live versus replay-lineage), never settles
         # anything.
+        coherent_source = provenance.source == attempt_source or (
+            attempt_source == "replay" and provenance.source == "retry"
+        )
         coherent = provenance.replay_run_id == replay_run_id and (
-            provenance.source == "live"
-        ) == (attempt_source == "live")
+            attempt_source is None or coherent_source
+        )
         if not coherent:
             return _resolution(
                 "unresolved",
@@ -364,7 +354,19 @@ def _resolve_checkpoint(
                 has_checkpoint=True,
             )
 
-    accepted = [part for part in parts if part.state == "accepted"]
+    accepted: dict[int, RadioLocalHandoff] = {}
+    try:
+        for part in parts:
+            if part.state == "accepted":
+                accepted[part.ordinal] = RadioLocalHandoff.from_part(part, provenance)
+    except (TypeError, ValueError):
+        return _resolution(
+            "unresolved",
+            attempt_number,
+            uncertain=True,
+            reason="unreadable_handoff_reference",
+            has_checkpoint=True,
+        )
     uncertain = [part for part in parts if part.state in _UNCERTAIN_PART_STATES]
     unsent = [part for part in parts if part.state == "unsent"]
 
@@ -378,25 +380,32 @@ def _resolve_checkpoint(
     # does not correlate exactly, is unreadable evidence: it neither proves
     # nor refutes and must never be classified as whole-message evidence —
     # fail closed to unresolved.
-    message_level: list[DeliveryObservation] = []
     negative_packet = False
     negative_message = False
+    positive_message = False
     unreadable_packet = False
-    for observation in observations:
-        if observation.outbox_id != outbox_id:
-            continue
-        if observation.attempt_number != attempt_number:
-            continue
-        if not _matches_identity(observation, identity):
-            continue
+    for observation in _exact_observations(
+        observations,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
+        identity=identity,
+    ):
         scope = _observation_scope(observation)
         if scope == _OBSERVATION_SCOPE_MESSAGE:
-            message_level.append(observation)
-            if observation.state in _NEGATIVE_OBSERVATION_STATES:
-                negative_message = True
-        elif scope == _OBSERVATION_SCOPE_UNREADABLE:
-            unreadable_packet = True
-        elif _packet_ordinal(observation, provenance, part_count) is None:
+            negative_message |= observation.state in _NEGATIVE_OBSERVATION_STATES
+            positive_message |= _proves_provider_acceptance(observation)
+            continue
+        ordinal = _packet_ordinal(observation)
+        handoff = accepted.get(ordinal) if ordinal is not None else None
+        if (
+            handoff is None
+            or handoff.origin is None
+            or handoff.origin.outbox_id != outbox_id
+            or handoff.origin.attempt_number != attempt_number
+            or handoff.native_message_id is None
+            or handoff.native_message_id != observation.adapter_message_id
+            or handoff.native_channel_id != observation.native_channel_id
+        ):
             unreadable_packet = True
         elif observation.state in _NEGATIVE_OBSERVATION_STATES:
             negative_packet = True
@@ -441,15 +450,17 @@ def _resolve_checkpoint(
             unsent_parts=0,
         )
     if not accepted:
-        if unreadable_packet:
-            # A packet-scoped row for an attempt whose grant fence is wholly
-            # empty cannot exist under the admission rules; treating it as
-            # readable would overclaim a proven non-submission.
+        if unreadable_packet or positive_message:
+            reason = (
+                "unreadable_packet_evidence"
+                if unreadable_packet
+                else "provider_acceptance_conflicts_with_empty_fence"
+            )
             return _resolution(
                 "unresolved",
                 attempt_number,
                 uncertain=True,
-                reason="unreadable_packet_evidence",
+                reason=reason,
                 has_checkpoint=True,
                 accepted_parts=0,
                 uncertain_parts=0,
@@ -534,8 +545,8 @@ class HandoffEvidenceStore(Protocol):
         self, outbox_id: str, attempt_number: int
     ) -> StoredRadioAttempt | None: ...
 
-    async def list_delivery_observations_for_outbox(
-        self, outbox_id: str
+    async def list_delivery_observations_for_attempt(
+        self, outbox_id: str, attempt_number: int
     ) -> list[DeliveryObservation]: ...
 
 
@@ -564,12 +575,13 @@ class EvidenceBackedHandoffResolver:
             item.target_adapter,
             item.target_channel,
         )
+        checkpoint = None
         try:
             checkpoint = await self._storage.get_radio_attempt(
                 item.outbox_id, attempt_number
             )
-            observations = await self._storage.list_delivery_observations_for_outbox(
-                item.outbox_id
+            observations = await self._storage.list_delivery_observations_for_attempt(
+                item.outbox_id, attempt_number
             )
         except StorageError:
             return _resolution(
@@ -577,7 +589,7 @@ class EvidenceBackedHandoffResolver:
                 attempt_number,
                 uncertain=True,
                 reason="resolution_evidence_unavailable",
-                has_checkpoint=False,
+                has_checkpoint=checkpoint is not None,
             )
         except (TypeError, ValueError):
             # Undecodable retained evidence (msgspec validation errors and
@@ -588,9 +600,9 @@ class EvidenceBackedHandoffResolver:
                 attempt_number,
                 uncertain=True,
                 reason="resolution_evidence_unreadable",
-                has_checkpoint=False,
+                has_checkpoint=checkpoint is not None,
             )
-        return resolve_uncertain_handoff(
+        resolution = resolve_uncertain_handoff(
             outbox_id=item.outbox_id,
             attempt_number=attempt_number,
             identity=identity,
@@ -599,3 +611,4 @@ class EvidenceBackedHandoffResolver:
             attempt_source=item.dispatch_source,
             replay_run_id=item.replay_run_id,
         )
+        return replace(resolution, observation_count=len(observations))

@@ -172,6 +172,11 @@ _UNCERTAIN_HANDOFF_ERROR_PREFIX = (
     "the attempt identity is consumed and the uncertainty stays explicit"
 )
 
+
+class _ObservationGuard(TypedDict, total=False):
+    expected_observation_count: int
+
+
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
 # retry.  Treat it as a permanent adapter failure so claim reconciliation can
 # terminate the row instead of repeating the same invariant violation forever.
@@ -308,6 +313,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_worker_id: str | None = None,
         *,
         clear_receipt_id: bool = False,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
 
@@ -342,6 +348,8 @@ class DeliveryLifecycleStorage(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Schedule the next attempt if the supplied attempt and owner match.
 
@@ -358,6 +366,8 @@ class DeliveryLifecycleStorage(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Commit terminal failure if the supplied attempt and owner match.
 
@@ -1674,8 +1684,8 @@ class DeliveryLifecycleService:
           ``uncertain_native_handoff`` operator-visible detail for bounded
           re-resolution on later reclaims and for the bounded pre-dispatch
           evidence recheck (:meth:`recheck_last_uncertain_handoff`) that
-          runs before a newer attempt dispatches.  Without a resolver, or
-          when the pass finds nothing, the reserved identity is consumed as
+          runs before a newer attempt dispatches, even when no evidence was
+          visible on the first read. Without a resolver, the identity is consumed as
           a failed attempt exactly as before and the row moves to
           ``retry_wait`` (or ``dead_lettered`` when the attempt budget is
           exhausted).  A later dispatch MUST use a strictly newer attempt
@@ -1706,6 +1716,7 @@ class DeliveryLifecycleService:
             executor = RetryExecutor(retry_policy)
             error_summary = _AMBIGUOUS_DISPATCH_ERROR
             failure_detail = _AMBIGUOUS_DISPATCH_FAILURE_DETAIL
+            evidence_guard: _ObservationGuard = {}
 
             if handoff_resolver is not None:
                 resolution = await handoff_resolver.resolve(item, attempt_number)
@@ -1716,7 +1727,11 @@ class DeliveryLifecycleService:
                 if resolution.verdict == "definitively_not_submitted":
                     failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
                     error_summary = _NOT_SUBMITTED_DISPATCH_ERROR
-                elif resolution.uncertain:
+                    if resolution.observation_count is not None:
+                        evidence_guard["expected_observation_count"] = (
+                            resolution.observation_count
+                        )
+                else:
                     failure_detail = UNCERTAIN_NATIVE_HANDOFF_DETAIL
                     error_summary = (
                         f"{_UNCERTAIN_HANDOFF_ERROR_PREFIX} "
@@ -1731,6 +1746,7 @@ class DeliveryLifecycleService:
                     error_summary=error_summary,
                     attempt_number=attempt_number,
                     expected_worker_id=item.worker_id,
+                    **evidence_guard,
                 )
                 self._require_retry_commit(
                     committed,
@@ -1739,10 +1755,8 @@ class DeliveryLifecycleService:
                     attempt_number=attempt_number,
                 )
                 self._log.warning(
-                    "Retry reservation %d for outbox %s was reclaimed without "
-                    "durable evidence; consuming the ambiguous attempt and "
-                    "dead-lettering because the retry budget is exhausted "
-                    "(%s)",
+                    "Reclaimed retry reservation %d for outbox %s was "
+                    "dead-lettered after exhausting the retry budget (%s)",
                     attempt_number,
                     item.outbox_id,
                     failure_detail,
@@ -1765,6 +1779,7 @@ class DeliveryLifecycleService:
                 error_summary=error_summary,
                 attempt_number=attempt_number,
                 expected_worker_id=item.worker_id,
+                **evidence_guard,
             )
             self._require_retry_commit(
                 committed,
@@ -1773,9 +1788,8 @@ class DeliveryLifecycleService:
                 attempt_number=attempt_number,
             )
             self._log.warning(
-                "Retry reservation %d for outbox %s was reclaimed without "
-                "durable evidence; consuming the ambiguous attempt before "
-                "any later dispatch (%s)",
+                "Reclaimed retry reservation %d for outbox %s was "
+                "consumed before any later dispatch (%s)",
                 attempt_number,
                 item.outbox_id,
                 failure_detail,
@@ -1827,6 +1841,7 @@ class DeliveryLifecycleService:
             attempt_number=attempt_number,
             expected_worker_id=item.worker_id,
             clear_receipt_id=True,
+            expected_observation_count=resolution.observation_count,
         )
         self._require_retry_commit(
             committed,
@@ -1903,6 +1918,7 @@ class DeliveryLifecycleService:
             error_summary=_NOT_SUBMITTED_DISPATCH_ERROR,
             attempt_number=attempt_number,
             expected_worker_id=item.worker_id,
+            expected_observation_count=resolution.observation_count,
         )
         self._require_retry_commit(
             committed,
