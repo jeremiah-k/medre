@@ -309,3 +309,14 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 "observation", rows, identity_column="observation_id"
             )
         return [_row_to_delivery_observation(row) for row in rows]
+
+    async def list_delivery_observations_for_attempt(
+        self, outbox_id: str, attempt_number: int
+    ) -> list[DeliveryObservation]:
+        """Read one attempt before decoding, independently of older evidence."""
+        rows = await self._read_all(
+            "SELECT * FROM delivery_observations "
+            "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
+            (outbox_id, attempt_number),
+        )
+        return [_row_to_delivery_observation(row) for row in rows]

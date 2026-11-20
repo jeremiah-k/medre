@@ -27,6 +27,7 @@ from medre.core.events import DeliveryObservation
 from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
@@ -139,7 +140,9 @@ async def _bind_radio_checkpoint(
                 submitting,
                 worker,
                 ordinal,
-                handoff_id=f"radio:north:{ordinal}",
+                handoff_id=RadioLocalHandoff(
+                    ordinal, f"native-{ordinal}", "ch-0", "local_transport"
+                ).encode(),
             )
         else:
             observed = await temp_storage.observe_radio_part(

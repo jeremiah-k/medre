@@ -99,7 +99,20 @@ _LATER_WINNING_COMMITTED = (
     ")"
 )
 
+# A newer committed sent settlement may carry retained handoff evidence
+# instead of a receipt. Its exact delivery generation supersedes an older
+# failure without hiding a newer failure or one for a different destination.
+_NEWER_RECEIPTLESS_SETTLEMENT = (
+    "NOT EXISTS ("  # nosec B608
+    " SELECT 1 FROM delivery_outbox settled"
+    f" WHERE {_same_identity('settled')}"
+    " AND settled.status = 'sent' AND settled.receipt_id IS NULL"
+    " AND settled.attempt_number > COALESCE(committed_outbox.attempt_number, dr.attempt_number)"
+    ")"
+)
+
 _AUTHORITY_PREDICATE = (
+    f" AND {_NEWER_RECEIPTLESS_SETTLEMENT}"
     " AND ((dr.outbox_id IS NULL"
     f" AND {_OUTBOXLESS_NEWER}"
     f" AND {_LATER_WINNING_COMMITTED})"

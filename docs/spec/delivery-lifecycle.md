@@ -356,7 +356,8 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
   checkpoint and observation rows remain the evidence, the settled row
   carries no receipt pointer when none existed, and any stale receipt
   pointer left by an earlier attempt is cleared in the same transaction as
-  the settlement.
+  the settlement. A newer receipt-less settlement supersedes an older
+  failure for the same delivery identity in unresolved-delivery queries.
 - `definitively_not_submitted` — a retained radio checkpoint whose grant
   fence is wholly empty proves the transport was never authorized for any
   packet of this attempt. Normal retry semantics follow: the attempt is
@@ -365,11 +366,10 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
   detail rather than the ambiguity wording.
 - `unresolved` — everything else. The attempt is consumed conservatively
   exactly as the ambiguous rule prescribes, and the row records the explicit
-  `uncertain_native_handoff` detail with a bounded statement of the retained
-  part counts, so the undetermined outcome stays operator-visible. A row
-  consumed as uncertain is reconsidered on two bounded surfaces only: every
-  later reclaim of a reservation within the retry budget, and the bounded
-  pre-dispatch evidence recheck described below.
+  `uncertain_native_handoff` detail with the reason and any known part counts.
+  This includes a first evidence read that finds nothing. When the backend
+  lacks an evidence resolver, reconciliation keeps `dispatch_outcome_unknown`
+  and the pre-dispatch evidence recheck is unavailable.
 
 Honesty boundaries of the pass:
 
@@ -381,18 +381,23 @@ Honesty boundaries of the pass:
 - The pass is pure and read-only. Every settlement commits through an
   existing guarded compare-and-set transition fenced to the reclaiming
   worker; a stale or superseded worker's settlement is refused and reported
-  as an uncommitted transition, so recovery can run twice without
-  double-committing and a lost settlement commit converges on the next
-  reclaim.
+  as an uncommitted transition. A decisive evidence settlement also checks
+  that the exact attempt's append-only observation set is unchanged in the
+  same write. A new observation causes the write to be refused so the next
+  reclaim can reconsider the evidence.
 - Unreadable evidence is held, never decisive: an observation record that
   fails to decode, or a packet-scoped claim whose metadata is invalid or
-  does not correlate exactly, neither proves nor refutes and never raises
-  out of reconciliation; the verdict fails closed to `unresolved`.
+  does not correlate exactly leaves the verdict `unresolved`. Filter by
+  outbox and attempt before decoding observations. A radio checkpoint must
+  provide a decodable handoff reference for each accepted part. A packet
+  observation must match the accepted original part. Provider acceptance
+  contradicting an empty grant fence also leaves the attempt unresolved.
 - Identity is validated exactly: a checkpoint whose provenance contradicts
   the reclaimed row never settles it, and neither does a checkpoint whose
   dispatch provenance is incoherent with the row — a checkpoint bound under
-  a different replay run, or one whose source lineage disagrees with the
-  row, never settles anything. Observations must carry the exact delivery
+  a different replay run, or one whose dispatch source disagrees with the
+  row, never settles anything. A replay-origin row can carry a checkpoint
+  from its retry-lane dispatch. Observations must carry the exact delivery
   identity and the reclaimed attempt, and packet-scoped facts are trusted
   only against their retained checkpoint (existing storage interfaces admit
   a packet observation only against a retained original acceptance, so an

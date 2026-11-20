@@ -1874,6 +1874,7 @@ class StorageBackend(Protocol):
         expected_worker_id: str | None = None,
         *,
         clear_receipt_id: bool = False,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1913,6 +1914,8 @@ class StorageBackend(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1933,6 +1936,8 @@ class StorageBackend(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_observation_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 

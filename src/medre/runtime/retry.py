@@ -322,7 +322,7 @@ class RetryWorker:
                 storage
                 if (
                     getattr(storage, "get_radio_attempt", None) is not None
-                    and getattr(storage, "list_delivery_observations_for_outbox", None)
+                    and getattr(storage, "list_delivery_observations_for_attempt", None)
                     is not None
                 )
                 else None
