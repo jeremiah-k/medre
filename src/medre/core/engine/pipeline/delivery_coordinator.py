@@ -32,6 +32,7 @@ from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEviden
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import (
     OUTBOX_CREATION_FAILED_REASON,
+    REPLAY_REFUSAL_RECONCILED_DETAIL,
     OutboxContext,
     OutboxManager,
 )
@@ -1084,11 +1085,27 @@ class DeliveryCoordinator:
             # no failure occurred, no attempt was consumed, and the durable
             # obligation was either released to retry_wait or retained for
             # reconciliation by the admission path. Finalization must not touch that row.
+            # An explicit replay has no releasable reservation: its generation
+            # was allocated directly by the coordinator, so the release guard
+            # can never match. A refused replay generation is therefore
+            # reconciled explicitly — terminal cancelled, never left dangling
+            # in_progress for the recovery claim to auto-redispatch as a retry.
+            reconciled = False
+            if ctx.source == "replay" and not exc.committed:
+                reconciled = (
+                    await self._outbox_manager.reconcile_refused_replay_generation(
+                        outbox_ctx,
+                        reason=str(exc),
+                    )
+                )
             outcome = self._build_outcome(
                 ctx,
                 status="skipped",
                 receipt=None,
                 error=str(exc),
+                failure_kind_detail=(
+                    REPLAY_REFUSAL_RECONCILED_DETAIL if reconciled else None
+                ),
             )
             return _ExecutionResult(outcome, DeliveryExecutionEvidence())
         except asyncio.CancelledError:

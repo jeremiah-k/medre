@@ -472,8 +472,8 @@ remain in force; health admission does not retract an authorized packet or
 rewrite retained progress. An explicitly requested replay is refused before
 allocation if health already blocks admission. Replay generation allocation
 is not an attempt-zero live reservation; a later refusal without a releasable
-reservation leaves that generation for reconciliation rather than silently
-renumbering it or promising automatic redispatch.
+reservation MUST reconcile the allocated generation as specified in
+§5.1.3 rather than silently renumbering it or promising automatic redispatch.
 
 ## 4. Evidence Boundary
 
@@ -590,6 +590,37 @@ another target awaited admission. Creation MUST NOT clear scheduled backoff or
 restart attempt numbering. The retry worker owns further dispatch of existing
 work; live replanning may admit only targets whose requested generation has no
 equal or newer existing row. See Storage Specification §9.3.
+
+### 5.1.3 Replay Refusal Reconciliation
+
+A replay generation allocated by the delivery coordinator can still be
+refused before any native submission: post-allocation health admission
+(which has no releasable reservation to defer against, because the
+allocation is not an attempt-zero reservation), a content-authority denial,
+or the final dispatch-start bound fence. Such a refusal is a decision, not
+a failure: no `deliver()` call was made and no attempt evidence exists.
+
+A refused replay generation MUST reach one deterministic terminal state and
+MUST NOT remain as reclaimable outstanding work. When the refusal leaves
+the generation non-terminal with no attempt evidence, the outbox authority
+reconciles it: the generation transitions to terminal `cancelled` through
+the guarded terminal transaction, which appends one `cancelled` lifecycle
+receipt carrying the generation's delivery identity, attempt number,
+`source="replay"`, and named `replay_run_id` in the same write. The
+reconciliation records one log line and never raises; if the guarded
+transition does not commit (a competing transition won), the row keeps its
+pre-existing semantics and the loss is logged once.
+
+The reconciled generation is terminal, so recovery claims never select it
+and a refused explicit replay is never auto-redispatched. Later replays of
+the same obligation allocate the next generation above it and remain
+unblocked. Refusals that already carry their own deterministic completion
+— content-authority and dispatch-start bound denials finalize the
+generation `dead_lettered`, adapter declines finalize through ordinary
+attempt evidence and retry rules, and adapter-reported cancellation
+follows the deferred-feedback transition — are unchanged by this
+reconciliation. The refusal itself is surfaced once through the existing
+diagnostics discipline; the reconciliation adds only its single record.
 
 ### 5.2 Replay Must Not Rewrite History
 
