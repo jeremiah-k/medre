@@ -205,6 +205,17 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
     apply_prerelease_migrations(db)
 
 
+def _validate_table_columns(db: sqlite3.Connection, path: str, table: str) -> None:
+    required = _REQUIRED_COLUMNS[table]
+    columns = {str(row[1]) for row in db.execute(f"PRAGMA table_xinfo({table})")}
+    missing = sorted(required - columns)
+    extra = sorted(columns - required)
+    if missing or extra:
+        raise PreReleaseSchemaMismatchError(
+            path, table, missing, unexpected_columns=extra
+        )
+
+
 def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     """Validate without writes; return False only for an empty database.
 
@@ -222,29 +233,21 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
         actual[grant_key] = _expected_definitions()[grant_key]
     if not actual:
         return False
-    if ("table", "_medre_schema_meta") not in actual:
+    version_table = "_medre_schema_meta"
+    if ("table", version_table) not in actual:
         raise PreReleaseSchemaMismatchError(
             path,
-            "_medre_schema_meta",
+            version_table,
             detail="unstamped database; missing schema_version metadata",
         )
-    for table, required in _REQUIRED_COLUMNS.items():
-        columns = {str(row[1]) for row in db.execute(f"PRAGMA table_xinfo({table})")}
-        missing = sorted(required - columns)
-        extra = sorted(columns - required)
-        if missing or extra:
-            raise PreReleaseSchemaMismatchError(
-                path,
-                table,
-                missing,
-                unexpected_columns=extra,
-            )
+    # Report an invalid stamp before differences in application table shapes.
+    _validate_table_columns(db, path, version_table)
     version = db.execute(
         "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
     ).fetchone()
     if version is None:
         raise PreReleaseSchemaMismatchError(
-            path, "_medre_schema_meta", detail="schema_version stamp is missing"
+            path, version_table, detail="schema_version stamp is missing"
         )
     try:
         stored = int(version[0])
@@ -262,6 +265,9 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
             "or silent reset is performed. Preserve the database and verify a backup "
             "before using a compatible build or choosing an explicit reset."
         )
+    for table in _REQUIRED_COLUMNS:
+        if table != version_table:
+            _validate_table_columns(db, path, table)
     expected = _expected_definitions()
     # Inspect table constraints before missing indexes so diagnostics identify
     # the owning invariant even when an incompatible fixture has no indexes.

@@ -2010,6 +2010,10 @@ All other unsupported layouts MUST be rejected without modification.
 
 On a fresh database, the version row is inserted automatically into `_medre_schema_meta`. If the stored version mismatches `_EXPECTED_SCHEMA_VERSION`, `StorageInitializationError` **MUST** be raised with guidance to resolve the mismatch manually (preserve and verify a backup, then use a compatible build or explicitly reset).
 
+Once the metadata table shape is valid, this refusal takes precedence over
+application table shape diagnostics. A malformed or mismatched stamp MUST
+leave the catalog and persisted data unchanged.
+
 Because `_EXPECTED_SCHEMA_VERSION` remains `1`, this check catches databases with a different stamped version. It does not catch databases that report version `1` but were created by an older build with a different column shape (that is the job of Section 10.2).
 
 ### 10.2 Column-Shape Validation

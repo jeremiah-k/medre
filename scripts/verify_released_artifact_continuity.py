@@ -23,9 +23,9 @@ Scenarios
    (``medre storage status``), confirming the bytes are unchanged.
 4. On a COPY, perform a writable reopen with a clean candidate wheel built
    from this checkout with the repo's pinned build backend (``python -m
-   build --wheel --no-isolation``, provenance recorded).  Compare the full
-   catalog and every table row, and the event/reference/receipt/delivery
-   identities, before and after each of TWO startup cycles.
+   build --wheel --no-isolation``, provenance recorded). Compare each
+   of two startup cycles against the full released catalog and rows plus
+   the empty, allowlisted handoff settlement table.
 5. Verify the consumer console script classifies the reopened copy as
    ``Catalog: current``.
 6. On separate copies, overwrite the schema version stamp (``99`` and
@@ -141,6 +141,7 @@ _IDENTITY_TABLES = (
     "delivery_outbox_snapshots",
     "adapter_checkpoints",
 )
+_HANDOFF_SETTLEMENTS = "delivery_handoff_settlements"
 
 _OPEN_STORAGE_SNIPPET = """
 import asyncio, sys
@@ -411,6 +412,29 @@ def _dump_state(path: Path) -> dict[str, Any]:
     }
 
 
+def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
+    """The exact 0.1.0 state after the approved table addition."""
+    _require(
+        _HANDOFF_SETTLEMENTS not in released["rows"],
+        "the released database already contains the handoff settlement table",
+    )
+    ddl = (_REPO_ROOT / "docs/schemas/handoff-settlements.schema.sql").read_text(
+        encoding="utf-8"
+    )
+    with closing(sqlite3.connect(":memory:")) as reference:
+        reference.executescript(ddl)
+        entry = reference.execute(
+            "SELECT type,name,sql FROM sqlite_master WHERE type='table' AND name=?",
+            (_HANDOFF_SETTLEMENTS,),
+        ).fetchone()
+    _require(entry is not None, "the handoff settlement table definition is missing")
+    return {
+        **released,
+        "catalog": sorted([*released["catalog"], entry]),
+        "rows": {**released["rows"], _HANDOFF_SETTLEMENTS: []},
+    }
+
+
 def _storage_open_writable(
     venv: Path, work: Path, env: dict[str, str], path: Path
 ) -> None:
@@ -551,6 +575,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
     copy_path = sandbox / "reopen-copy.sqlite"
     copy_path.write_bytes(db_path.read_bytes())
     before = _dump_state(copy_path)
+    expected = _expected_d0_reopen_state(before)
     before_sha = _sha256(copy_path)
 
     consumer = _make_venv(sandbox, "consumer-venv")
@@ -574,6 +599,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             {
                 "open": index,
                 "state_equal": after == before,
+                "expected_state_equal": after == expected,
                 "identities_equal": after["identities"] == before["identities"],
                 "foreign_keys_clean": after["foreign_key_violations"] == [],
                 "schema_version_stamp": after["schema_version_stamp"],
@@ -582,10 +608,13 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
         )
     _require(
         all(
-            o["state_equal"] and o["identities_equal"] and o["foreign_keys_clean"]
+            o["expected_state_equal"]
+            and o["identities_equal"]
+            and o["foreign_keys_clean"]
             for o in opens
         ),
-        "writable reopen changed persisted state or identities",
+        "writable reopen differs from the released state plus the empty "
+        "handoff settlement table",
     )
     stamp_changed = any(
         o["schema_version_stamp"] != before["schema_version_stamp"] for o in opens
@@ -684,8 +713,9 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "table_count": len(before["rows"]),
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
+            "expected_added_tables": [_HANDOFF_SETTLEMENTS],
             "persisted_changes_detected": persisted_changes_detected,
-            "migration_evidence_scope": "persisted state and schema stamp comparison; no internal migration instrumentation",
+            "migration_evidence_scope": "exact persisted state comparison against the approved additive layout",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,
             "consumer_cli_healthy": "Status: HEALTHY" in consumer_status,
         },
