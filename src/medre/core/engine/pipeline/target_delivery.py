@@ -637,15 +637,25 @@ class TargetDeliveryService:
         # dispatch into an expected transient failure. Instead the delivery
         # is held: deliver() is not invoked, no attempt is consumed, and the
         # durable obligation's next attempt is pushed out by a bounded
-        # horizon. The runtime notifies the retry worker on the degraded ->
-        # healthy transition, which redispatches held obligations. When no
-        # health observation exists the delivery proceeds unchanged.
+        # horizon. Each obligation carries its own horizon keyed by the
+        # outbox identity, so later-arriving work in a continuously
+        # unhealthy lane starts a fresh horizon instead of inheriting an
+        # adapter-wide episode. The runtime notifies the retry worker on the
+        # degraded -> healthy transition, which redispatches held
+        # obligations. When no health observation exists the delivery
+        # proceeds unchanged.
         async def check_health() -> None:
-            health = (
-                self._adapter_health_gate.blocking_health(adapter_id or "")
-                if self._adapter_health_gate is not None
-                else None
+            gate = self._adapter_health_gate
+            if gate is None:
+                return
+            # Episode bookkeeping happens before the blocking decision: a
+            # re-arm of an obligation already inside its deferral episode
+            # reschedules silently, keeping the one-line-per-episode
+            # logging and diagnostics contract.
+            episode_held = outbox_id is not None and gate.holds_obligation(
+                adapter_id or "", outbox_id
             )
+            health = gate.blocking_health(adapter_id or "", obligation_id=outbox_id)
             if health is None:
                 return
             committed = False
@@ -676,9 +686,10 @@ class TargetDeliveryService:
                     outbox_id,
                 )
             deferred = _DeliveryDeferred(adapter_id or "", health, committed=committed)
-            self._diagnostician.record_deferral(
-                event.event_id, adapter_id or "", str(deferred)
-            )
+            if not episode_held:
+                self._diagnostician.record_deferral(
+                    event.event_id, adapter_id or "", str(deferred)
+                )
             raise deferred from None
 
         # Check delivery plan deadline.

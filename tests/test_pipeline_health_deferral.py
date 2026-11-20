@@ -16,6 +16,10 @@ deferral behavior:
 * non-transient failures keep traceback logging (regression guard);
 * the maximum deferral horizon resumes normal retry rules so an adapter
   that never recovers cannot strand obligations;
+* each deferred obligation carries its own horizon keyed by the outbox
+  identity: later work in a continuously unhealthy lane starts a fresh
+  horizon, one obligation's expiry re-attempts only that obligation, and
+  re-arms inside an episode stay silent;
 * restart during deferral preserves the obligation through storage.
 """
 
@@ -264,7 +268,8 @@ async def test_recovery_redispatches_deferred_obligation(
         )
         worker.notify_adapter_health("fake_presentation", "healthy")
         assert worker._health_gate is not None
-        assert worker._health_gate._deferral_started == {}
+        assert worker._health_gate._obligation_started == {}
+        assert worker._health_gate._lane_started == {}
         assert await worker._health_excluded_adapters(datetime.now(timezone.utc)) == ()
 
         with caplog.at_level(logging.INFO, logger="medre.runtime.retry"):
@@ -357,10 +362,12 @@ async def test_deferral_horizon_expires_to_normal_retry_rules(
         now = datetime.now(timezone.utc)
         assert await worker._health_excluded_adapters(now) == ("fake_presentation",)
 
-        # Simulate the adapter having been degraded for the full horizon.
-        shared_gate._deferral_started["fake_presentation"] = (
-            monotonic() - MAX_DEFERRAL_HORIZON_SECONDS
-        )
+        # Simulate the obligation having been deferred for the full horizon:
+        # age every horizon the gate recorded for this lane.
+        lane_clocks = shared_gate._obligation_started["fake_presentation"]
+        assert lane_clocks
+        for obligation_id in list(lane_clocks):
+            lane_clocks[obligation_id] = monotonic() - MAX_DEFERRAL_HORIZON_SECONDS
         with caplog.at_level(
             logging.INFO, logger="medre.core.engine.pipeline.adapter_health"
         ):
@@ -471,6 +478,187 @@ async def test_restart_during_deferral_preserves_obligation(
         assert rows[0]["status"] == "sent"
     finally:
         await restarted.stop()
+
+
+# ---------------------------------------------------------------------------
+# Per-obligation horizons: later work in a continuously unhealthy lane
+# starts its own horizon and one expiry never strands its siblings
+# ---------------------------------------------------------------------------
+
+
+async def test_later_obligation_gets_fresh_horizon_and_sibling_expiry_reopens_lane(
+    temp_storage: SQLiteStorage,
+    router_with_routes: Router,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Obligations deferred minutes apart each keep a full horizon of their own."""
+    clock = [0.0]
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.adapter_health.monotonic", lambda: clock[0]
+    )
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.target_delivery."
+        "DEFERRAL_NEXT_ATTEMPT_PUSH_SECONDS",
+        0.0,
+    )
+    adapter = FakePresentationAdapter(adapter_id="fake_presentation")
+    runner = await _make_runner(
+        temp_storage, router_with_routes, {"fake_presentation": adapter}
+    )
+    health: dict[str, str] = {"fake_presentation": "degraded"}
+    shared_gate = AdapterHealthGate(health.get)
+    runner.set_adapter_health_gate(shared_gate)
+    try:
+        with caplog.at_level(logging.INFO):
+            await runner.handle_ingress(make_event(event_id="horizon-001"))
+            clock[0] = MAX_DEFERRAL_HORIZON_SECONDS / 2
+            await runner.handle_ingress(make_event(event_id="horizon-002"))
+
+            first = (await _outbox_rows(temp_storage, "horizon-001"))[0]
+            second = (await _outbox_rows(temp_storage, "horizon-002"))[0]
+            assert first["status"] == "retry_wait" and second["status"] == "retry_wait"
+            assert first["attempt_number"] == 0 and second["attempt_number"] == 0
+
+            worker = RetryWorker(
+                cast(StorageBackend, temp_storage),
+                runner,
+                None,
+                enabled=True,
+                interval_seconds=0.05,
+                available_target_adapters=["fake_presentation"],
+                adapter_health_gate=shared_gate,
+            )
+            now = datetime.now(timezone.utc)
+
+            # Both horizons run: the lane stays excluded for the full window.
+            assert await worker._health_excluded_adapters(now) == ("fake_presentation",)
+
+            # The first obligation's horizon expires; the lane opens for it
+            # while the later obligation keeps its own remaining horizon.
+            clock[0] = MAX_DEFERRAL_HORIZON_SECONDS
+            assert await worker._health_excluded_adapters(now) == ()
+            await worker._process_due(now)
+            assert len(adapter.delivered_payloads) == 1
+            first = (await _outbox_rows(temp_storage, "horizon-001"))[0]
+            assert first["status"] == "sent"
+
+            # The opened lane no longer shields the sibling from claims, but
+            # its own running horizon keeps admission re-arming it silently:
+            # repeat dispatch cycles neither deliver it nor burn an attempt,
+            # and add no new deferral lines or diagnostics. Each re-arm
+            # pushes next_attempt_at forward, so re-capture the clock.
+            await worker._process_due(now)
+            await worker._process_due(datetime.now(timezone.utc))
+            second = (await _outbox_rows(temp_storage, "horizon-002"))[0]
+            assert second["status"] == "retry_wait"
+            assert second["attempt_number"] == 0
+
+            # Its own horizon expiring admits it under normal rules.
+            clock[0] = MAX_DEFERRAL_HORIZON_SECONDS * 1.5
+            assert await worker._health_excluded_adapters(now) == ()
+            await worker._process_due(datetime.now(timezone.utc))
+            assert len(adapter.delivered_payloads) == 2
+            second = (await _outbox_rows(temp_storage, "horizon-002"))[0]
+            assert second["status"] == "sent"
+
+            # Exactly one deferral episode per obligation: two deferral
+            # lines, two deferral diagnostics, two horizon expiry lines, no
+            # re-arm chatter for the sibling between the two expiries.
+            deferred_lines = [
+                record
+                for record in caplog.records
+                if "Deferred: adapter=" in record.getMessage()
+            ]
+            assert len(deferred_lines) == 2
+            expiry_lines = [
+                record
+                for record in caplog.records
+                if record.name == "medre.core.engine.pipeline.adapter_health"
+                and "Deferral horizon expired" in record.getMessage()
+            ]
+            assert len(expiry_lines) == 2
+            diagnostician = runner._diagnostician
+            assert diagnostician.snapshot()["deferrals"] == {"fake_presentation": 2}
+    finally:
+        await runner.stop()
+
+
+def test_gate_horizon_is_per_obligation_and_expiry_logs_once(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Each obligation's horizon runs from its own first blocked admission."""
+    clock = [0.0]
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.adapter_health.monotonic", lambda: clock[0]
+    )
+    gate = AdapterHealthGate(lambda _: "degraded", max_horizon_seconds=10)
+    with caplog.at_level(
+        logging.INFO, logger="medre.core.engine.pipeline.adapter_health"
+    ):
+        assert gate.blocking_health("radio", obligation_id="ob-1") == "degraded"
+        assert gate.holds_obligation("radio", "ob-1")
+        clock[0] = 5
+        assert gate.blocking_health("radio", obligation_id="ob-1") == "degraded"
+        # A later arrival starts its own horizon instead of inheriting the
+        # first obligation's elapsed time.
+        assert gate.blocking_health("radio", obligation_id="ob-2") == "degraded"
+        # The first horizon expiring admits that obligation only.
+        clock[0] = 10
+        assert gate.blocking_health("radio", obligation_id="ob-1") is None
+        assert gate.blocking_health("radio", obligation_id="ob-2") == "degraded"
+        # The consumed horizon stays admitted; the later one expires on its
+        # own schedule.
+        clock[0] = 15
+        assert gate.blocking_health("radio", obligation_id="ob-1") is None
+        clock[0] = 21
+        assert gate.blocking_health("radio", obligation_id="ob-2") is None
+
+    expiry_lines = [
+        record
+        for record in caplog.records
+        if "Deferral horizon expired" in record.getMessage()
+    ]
+    assert len(expiry_lines) == 2
+    assert "obligation=ob-1" in expiry_lines[0].getMessage()
+    assert "obligation=ob-2" in expiry_lines[1].getMessage()
+
+
+def test_drained_lane_and_healthy_observation_clear_all_horizons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An observed empty lane or healthy observation ends every episode."""
+    clock = [0.0]
+    monkeypatch.setattr(
+        "medre.core.engine.pipeline.adapter_health.monotonic", lambda: clock[0]
+    )
+    health = {"radio": "degraded"}
+    gate = AdapterHealthGate(health.get, max_horizon_seconds=10)
+    assert gate.blocking_health("radio", obligation_id="ob-1") == "degraded"
+    assert gate.blocking_health("radio", obligation_id="ob-2") == "degraded"
+
+    # Drained-lane observation: all obligation horizons end with the
+    # episode, and the unhealthy idle lane stays excluded from claims.
+    clock[0] = 1
+    assert gate.excluded_adapters(["radio"], held=[]) == ("radio",)
+    assert gate._obligation_started == {} and gate._obligation_expired == {}
+
+    # The next blocked admission starts a fresh episode, not a residual one.
+    clock[0] = 2
+    assert gate.blocking_health("radio", obligation_id="ob-1") == "degraded"
+    clock[0] = 12
+    assert gate.blocking_health("radio", obligation_id="ob-1") is None
+
+    # A healthy observation clears the fallback episode too, so a later
+    # degradation anchors a new lane episode from its own first block.
+    health["radio"] = "healthy"
+    gate.observe("radio", "healthy")
+    health["radio"] = "degraded"
+    clock[0] = 20
+    assert gate.blocking_health("radio") == "degraded"
+    clock[0] = 31
+    assert gate.blocking_health("radio") is None
 
 
 # ---------------------------------------------------------------------------
