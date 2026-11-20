@@ -185,6 +185,29 @@ non-selection element or a repeated identity — with `ValueError` before any
 replay runs; the selection class itself refuses incomplete identities and
 the empty-string channel.
 
+The operator CLI supplies those selections through two spellings. The
+compact colon spelling (`--exact-target EVENT:PLAN:ADAPTER[:CHANNEL]` and
+the explicit no-channel form `--exact-no-channel EVENT:PLAN:ADAPTER`)
+anchors a canonical colon-bearing plan id on its `plan:` prefix and
+otherwise keeps the historical left-to-right split; it is preserved
+unchanged. Because a legacy identity whose plan component is literally
+`plan` and a colon-bearing channel tail is byte-identical to the canonical
+plan-id spelling, the compact string alone cannot distinguish every
+pair of interpretations. The explicit JSON spelling
+(`--exact-target-json '["EVENT","TARGET","ADAPTER","CHANNEL|null"]'`) names
+the four identity fields positionally and MUST be accepted for colon-bearing
+event ids, plan ids, and channels: its elements are read byte-exact, `null`
+names the no-channel identity, repeated flags accumulate selections, and one
+delivery identity MUST NOT repeat across any of the flags. Each JSON value
+MUST be valid JSON, an array of exactly four elements whose first three
+elements are nonblank strings and whose fourth is a nonblank string or
+`null`; any violation — invalid JSON, a non-array, wrong arity, a non-string
+element, an empty or blank string — MUST be refused as a configuration error
+(exit code `2`) before configuration loading or runtime assembly, exactly
+like a malformed compact spec. The compact flags keep their exact current
+behavior; neither spelling may silently select a different delivery
+obligation than the one the operator named.
+
 Each plan that names a selection is additionally verified against persisted
 state at admission time, before any outbox generation is admitted or a send
 is staged. The verification calls `preview_exact_target` with the same

@@ -411,7 +411,9 @@ async def _build_event_recovery_runbook(
             "identity has no channel; a canonical colon-bearing "
             "plan:EVENT:ROUTE:INDEX:HASH plan id is consumed as one plan "
             "component, with the event before it and the adapter and "
-            "channel after it); "
+            "channel after it); when the event id or channel itself carries "
+            'colons, use \'--exact-target-json ["EVENT","PLAN","ADAPTER",'
+            '"CHANNEL"]\' (null CHANNEL for no channel) instead; '
             "replays without that flag still select adapters and routes only."
         )
 

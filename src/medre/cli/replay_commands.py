@@ -12,6 +12,7 @@ afterwards.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import time as _time
@@ -133,34 +134,98 @@ def _split_identity_spec(
     return event, parts[1], parts[2], None if len(parts) == 3 else parts[3]
 
 
-def _parse_exact_target_specs(
-    exact_targets: list[str] | None, exact_no_channel: list[str] | None
-) -> tuple[ExactTargetSelection, ...]:
-    """Parse repeatable ``--exact-target``/``--exact-no-channel`` values.
+#: The ``--exact-target-json`` value shape, stated for error messages: a
+#: JSON array of exactly four elements, the last a string or ``null``.
+_JSON_IDENTITY_SHAPE = (
+    "expected a JSON array of four nonblank strings"
+    " [EVENT, TARGET, ADAPTER, CHANNEL|null]"
+)
 
-    One syntax: ``--exact-target EVENT:PLAN:ADAPTER`` names the deliberate
-    no-channel identity and ``--exact-target EVENT:PLAN:ADAPTER:CHANNEL``
-    names one channel. The plan component may itself contain colons: a
-    canonical ``plan:{event}:{route}:{index}:{hash}`` plan id is consumed
-    as one five-component plan, so the event is anchored before it and the
-    adapter and channel tail after it. Colon-free plan ids keep the
-    historical three-colon split. A blank channel component is rejected:
-    persistence would normalize it to the no-channel identity and silently
-    widen the selection. ``--exact-no-channel EVENT:PLAN:ADAPTER`` is the
-    explicit spelling of the three-component form and accepts exactly three
-    components (or a colon-bearing plan id with no channel tail). Each flag
-    is repeatable; one delivery identity may not repeat across them.
+
+def _parse_json_identity_spec(value: str) -> tuple[str, str, str, str | None]:
+    """Decode one ``--exact-target-json`` value into identity fields.
+
+    The JSON form is the explicit grammar for colon-bearing identifiers:
+    ``["EVENT", "TARGET", "ADAPTER", "CHANNEL-or-null"]`` is positional and
+    unambiguous, so a colon-bearing event id, a canonical colon-bearing
+    plan id (``plan:{event}:{route}:{index}:{hash}``), and a colon-bearing
+    channel all survive byte-exact. The compact colon spelling cannot make
+    that distinction from the overloaded string alone — a legacy identity
+    whose plan component is literally ``plan`` next to a colon-bearing
+    channel is byte-identical to the canonical plan-id spelling — which is
+    exactly why this form exists. Validation is strict: the value must be
+    valid JSON, an array, exactly four elements, the first three nonblank
+    strings, and the fourth a nonblank string or ``null`` (``null`` is the
+    no-channel spelling). Any violation raises :class:`ValueError`, which
+    the caller maps to the same configuration-error exit as the compact
+    form's malformed specs.
+    """
+    try:
+        decoded = json.loads(value)
+    except ValueError as exc:
+        raise ValueError(f"{_JSON_IDENTITY_SHAPE}: invalid JSON") from exc
+    if not isinstance(decoded, list):
+        raise ValueError(_JSON_IDENTITY_SHAPE)
+    if len(decoded) != 4:
+        raise ValueError(f"{_JSON_IDENTITY_SHAPE}; got {len(decoded)} element(s)")
+    event, target, adapter, channel = decoded
+    for name, element in (
+        ("EVENT", event),
+        ("TARGET", target),
+        ("ADAPTER", adapter),
+    ):
+        if not isinstance(element, str) or not element.strip():
+            raise ValueError(
+                f"{_JSON_IDENTITY_SHAPE}: {name} must be a nonblank string"
+            )
+    if channel is not None and (not isinstance(channel, str) or not channel.strip()):
+        raise ValueError(
+            f"{_JSON_IDENTITY_SHAPE}: CHANNEL must be a nonblank string or" " null"
+        )
+    return event, target, adapter, channel
+
+
+def _parse_exact_target_specs(
+    exact_targets: list[str] | None,
+    exact_no_channel: list[str] | None,
+    exact_target_json: list[str] | None = None,
+) -> tuple[ExactTargetSelection, ...]:
+    """Parse repeatable exact-target values into delivery selections.
+
+    Compact syntax: ``--exact-target EVENT:PLAN:ADAPTER`` names the
+    deliberate no-channel identity and ``--exact-target
+    EVENT:PLAN:ADAPTER:CHANNEL`` names one channel. The plan component may
+    itself contain colons: a canonical ``plan:{event}:{route}:{index}:{hash}``
+    plan id is consumed as one five-component plan, so the event is anchored
+    before it and the adapter and channel tail after it. Colon-free plan ids
+    keep the historical three-colon split. ``--exact-no-channel
+    EVENT:PLAN:ADAPTER`` is the explicit spelling of the three-component form
+    and accepts exactly three components (or a colon-bearing plan id with no
+    channel tail).
+
+    Explicit JSON syntax: ``--exact-target-json
+    '["EVENT","TARGET","ADAPTER","CHANNEL-or-null"]'`` names the four identity
+    fields positionally, so colon-bearing event ids, plan ids, and channels
+    are all expressed without the compact form's shape detection. ``null`` is
+    the no-channel spelling.
+
+    A blank channel component is rejected: persistence would normalize it to
+    the no-channel identity and silently widen the selection. Each flag is
+    repeatable and selections accumulate; one delivery identity may not
+    repeat across all three flags.
     """
     selections: list[ExactTargetSelection] = []
     seen: set[DeliveryIdentity] = set()
 
-    def add(spec: str, *, no_channel: bool, flag: str) -> None:
-        try:
-            event, plan, adapter, channel = _split_identity_spec(
-                spec, no_channel=no_channel
-            )
-        except ValueError as exc:
-            raise ValueError(f"Invalid {flag} {spec!r}: {exc}") from exc
+    def add(
+        event: str,
+        plan: str,
+        adapter: str,
+        channel: str | None,
+        *,
+        flag: str,
+        spec: str,
+    ) -> None:
         if any(not part.strip() for part in (event, plan, adapter)):
             raise ValueError(
                 f"Invalid {flag} {spec!r}: event, plan and adapter must be" " nonblank"
@@ -189,9 +254,23 @@ def _parse_exact_target_specs(
         selections.append(selection)
 
     for spec in exact_targets or []:
-        add(spec, no_channel=False, flag="--exact-target")
+        try:
+            event, plan, adapter, channel = _split_identity_spec(spec, no_channel=False)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --exact-target {spec!r}: {exc}") from exc
+        add(event, plan, adapter, channel, flag="--exact-target", spec=spec)
     for spec in exact_no_channel or []:
-        add(spec, no_channel=True, flag="--exact-no-channel")
+        try:
+            event, plan, adapter, channel = _split_identity_spec(spec, no_channel=True)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --exact-no-channel {spec!r}: {exc}") from exc
+        add(event, plan, adapter, channel, flag="--exact-no-channel", spec=spec)
+    for value in exact_target_json or []:
+        try:
+            event, plan, adapter, channel = _parse_json_identity_spec(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid --exact-target-json {value!r}: {exc}") from exc
+        add(event, plan, adapter, channel, flag="--exact-target-json", spec=value)
     return tuple(selections)
 
 
@@ -313,6 +392,7 @@ async def _replay(
     run_id: str = "",
     exact_targets: list[str] | None = None,
     exact_no_channel: list[str] | None = None,
+    exact_target_json: list[str] | None = None,
 ) -> None:
     """Execute a replay operation via the built (not started) runtime."""
     # Validate mode.
@@ -328,7 +408,9 @@ async def _replay(
     # Validate exact-target selections before touching any configuration:
     # malformed operator input is a config error, never a runtime failure.
     try:
-        exact_selections = _parse_exact_target_specs(exact_targets, exact_no_channel)
+        exact_selections = _parse_exact_target_specs(
+            exact_targets, exact_no_channel, exact_target_json
+        )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
