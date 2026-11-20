@@ -43,6 +43,7 @@ from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.events.bus import EventBus
 from medre.core.observability.metrics import Diagnostician
+from medre.core.observability.sanitization import sanitize_error_line
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline
@@ -747,7 +748,7 @@ class RuntimeBuilder:
                     "Failed to build adapter %r (%s): %s",
                     adapter_id,
                     transport,
-                    exc,
+                    sanitize_error_line(str(exc)) or type(exc).__name__,
                 )
 
         return failures

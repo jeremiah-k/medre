@@ -66,12 +66,16 @@ single readiness line:
 The banner renders after every adapter has settled, so adapter blocks
 report confirmed facts rather than startup previews. Each adapter block
 carries the instance name, its status (`ready`, `degraded`, `failed`, or
-`build failed`) and startup duration, with the adapter's startup-info
-facts packed beneath in the shared `label value · label value` grammar;
+`build failed`) and startup attempt duration (where a start was attempted),
+with the adapter's startup-info facts packed beneath in the shared
+`label value · label value` grammar;
 last-known cached facts keep their `(cached)` marker, and suppressed
 rows keep the `… +N more` marker. Degraded and failed blocks render a
-reason line. The final line claims full readiness only when every
-attempted adapter is ready; otherwise it reports the honest count, for
+reason line. A failed start keeps its attempt duration, excluding cleanup;
+a build failure has no startup duration. Failed instances may show last-known
+cached facts, which do not imply connectivity or readiness. The final line
+claims full readiness only when every attempted adapter is ready; otherwise
+it reports the honest count, for
 example `MEDRE runtime running — 1/2 adapter(s) ready, 1 failed`.
 
 This abbreviated text example omits some component logs.

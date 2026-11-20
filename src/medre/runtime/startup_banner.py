@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from medre.core.observability.sanitization import sanitize_error_line
 from medre.core.startup_info import AdapterStartupInfo, render_startup_info_block
 
 __all__ = [
@@ -39,8 +40,8 @@ class AdapterBannerEntry:
     """One adapter instance's block inside the banner adapters section.
 
     ``info`` carries the adapter's last-known startup facts; ``None``
-    means the adapter reported none. ``reason`` carries a sanitized
-    failure explanation for ``failed`` / ``build failed`` entries.
+    means the adapter reported none. ``reason`` carries an explanation
+    for degraded or unsuccessful entries, sanitized at rendering.
     """
 
     name: str
@@ -55,7 +56,7 @@ class StartupBanner:
     """Inputs for one consolidated startup banner rendering.
 
     Every text field is pre-formatted, display-only content owned by the
-    caller; the renderer only lays the rows out. Absent facts (``None``
+    caller; the renderer lays the rows out and sanitizes failure reasons. Absent facts (``None``
     or empty tuples) omit their rows cleanly.
     """
 
@@ -104,7 +105,9 @@ def _adapter_blocks(entries: tuple[AdapterBannerEntry, ...]) -> list[str]:
         else:
             block = heading
         if entry.reason:
-            block += f"\n  reason {entry.reason}"
+            safe_reason = sanitize_error_line(entry.reason)
+            if safe_reason:
+                block += f"\n  reason {safe_reason}"
         blocks.append(block)
     return blocks
 
@@ -160,7 +163,13 @@ def render_outcome_line(
     started but never count as ready. The all-ready form is reserved for
     a fully healthy settle so the line never overclaims.
     """
-    if total > 0 and ready == total and degraded == 0 and failed == 0:
+    if (
+        total > 0
+        and ready == total
+        and degraded == 0
+        and failed == 0
+        and build_failed == 0
+    ):
         return "All adapters ready — MEDRE runtime running"
     parts = [f"{ready}/{total} adapter(s) ready"]
     if degraded:

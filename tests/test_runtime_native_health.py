@@ -204,6 +204,7 @@ async def test_native_recovery_supersedes_startup_probe(
     try:
         await app.start()
         assert results[probe_number - 1] == "healthy"
+        assert app.adapter_start_health_reasons == {}
         assert app.boot_summary.runtime_health == "healthy"
         assert app.adapter_states[adapter.adapter_id] is AdapterState.READY
     finally:

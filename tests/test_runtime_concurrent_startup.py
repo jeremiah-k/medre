@@ -59,7 +59,7 @@ async def test_slow_first_adapter_does_not_delay_independent_peer(
 
 
 async def test_failed_start_cleanup_does_not_hold_back_a_healthy_peer(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, caplog
 ):
     """Failure isolation includes cleanup, not only connection establishment."""
     app = _build_app(
@@ -71,7 +71,7 @@ async def test_failed_start_cleanup_does_not_hold_back_a_healthy_peer(
 
     async def fail_start(ctx):
         """Fail setup before its deliberately delayed resource cleanup."""
-        raise ConnectionError("Unavailable test transport")
+        raise ConnectionError("Unavailable test transport token=fixture-private-token")
 
     async def slow_stop(timeout=5):
         """Keep failed setup cleanup open while the peer starts."""
@@ -95,6 +95,11 @@ async def test_failed_start_cleanup_does_not_hold_back_a_healthy_peer(
         assert app.started_adapter_ids == ["beta"]
         assert app.boot_summary is not None
         assert app.boot_summary.failed_adapter_ids == ("alpha",)
+        assert app.adapter_start_duration_ms["alpha"] >= 0
+        assert app.adapter_start_errors["alpha"] == (
+            "Unavailable test transport [REDACTED]"
+        )
+        assert "fixture-private-token" not in caplog.text
         await app.stop()
 
 
@@ -312,6 +317,13 @@ async def test_unavailable_initial_health_is_bounded_and_keeps_the_adapter(
         assert app.boot_summary.runtime_health == "degraded"
         assert app.started_adapter_ids == ["alpha", "beta"]
         assert app.boot_summary.failed_adapter_ids == ()
+        assert app.adapter_start_health_reasons == {
+            "alpha": (
+                "startup health unavailable (OSError)"
+                if raises
+                else "startup health check timed out"
+            )
+        }
     finally:
         await app.stop()
 

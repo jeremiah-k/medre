@@ -289,7 +289,9 @@ class TestAllAdaptersBuildFailure:
     with EXIT_BUILD.  The builder itself does NOT raise — it records failures.
     """
 
-    def test_all_single_adapter_build_failure(self, tmp_paths: MedrePaths) -> None:
+    def test_all_single_adapter_build_failure(
+        self, tmp_paths: MedrePaths, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Single enabled adapter fails -> build() returns app with empty adapters."""
         rt = MatrixRuntimeConfig(
             adapter_id="broken",
@@ -306,13 +308,15 @@ class TestAllAdaptersBuildFailure:
         with patch.object(
             builder,
             "_build_single_adapter",
-            side_effect=RuntimeConfigError("simulated missing SDK"),
+            side_effect=RuntimeConfigError("simulated missing SDK token=fixture-build-token"),
         ):
             app = builder.build()
 
         assert len(app.adapters) == 0
         assert len(app.build_failures) == 1
         assert app.build_failures[0].adapter_id == "broken"
+        assert "fixture-build-token" not in caplog.text
+        assert "simulated missing SDK [REDACTED]" in caplog.text
 
     def test_all_multiple_adapters_build_failure(self, tmp_paths: MedrePaths) -> None:
         """Multiple enabled adapters all fail -> empty adapters, all recorded."""

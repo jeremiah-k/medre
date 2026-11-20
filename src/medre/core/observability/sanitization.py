@@ -40,6 +40,7 @@ __all__ = [
     "SECRET_KEY_PATTERNS",
     "contains_credential_shape",
     "sanitize_error",
+    "sanitize_error_line",
     "sanitize_for_log",
 ]
 
@@ -251,3 +252,10 @@ def sanitize_error(error: str) -> str:
         # can detect that the original was truncated.
         sanitized = sanitized + "..."
     return sanitized
+
+
+def sanitize_error_line(error: str) -> str:
+    """Redact a diagnostic and keep it on a single printable log row."""
+    return " ".join(
+        "".join(c if c.isprintable() else " " for c in sanitize_error(error)).split()
+    )
