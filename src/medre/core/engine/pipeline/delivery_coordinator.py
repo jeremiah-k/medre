@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVa
 from weakref import WeakValueDictionary
 
 from medre.core.contracts.adapter import AdapterContract, AdapterSendError
-from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
+from medre.core.engine.pipeline.adapter_health import AdapterHealthGate
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import (
