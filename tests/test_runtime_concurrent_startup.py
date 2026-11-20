@@ -603,7 +603,7 @@ async def test_boot_route_count_tracks_retained_stored_work_routes(
     tmp_path, monkeypatch
 ):
     """Live-unavailable source routes remain registered for admitted stored work."""
-    from medre.runtime.summaries import startup_route_summary
+    from medre.runtime.summaries import startup_route_totals
 
     config = replace(
         _config_with_two_fake_adapters(),
@@ -632,7 +632,7 @@ async def test_boot_route_count_tracks_retained_stored_work_routes(
         assert len(app.router.registered_route_ids) == 1
         assert app.boot_summary.route_count == 1
         assert "0 live-eligible, 2 startup-blocked (2 build-registered)" in (
-            startup_route_summary(app.route_eligibility, app.startup_readiness)
+            startup_route_totals(app.route_eligibility, app.startup_readiness)
         )
         assert app.router.match(
             SimpleNamespace(
