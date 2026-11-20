@@ -1025,58 +1025,25 @@ inside a route that fans out to several channels. Review every preview target;
 do not turn a preview into `best_effort` until its scope matches the intended
 recovery. These commands do not execute changes or settle uncertain handoffs.
 When one exact destination has been identified and verified, name it with
-`medre replay --exact-target EVENT:PLAN:ADAPTER:CHANNEL` (or
-`medre replay --exact-no-channel EVENT:PLAN:ADAPTER` for a channel-less
-identity) to restrict delivery
-admission to that single identity; replays without that flag still select
-adapters and routes only. `dry_run` does not evaluate exact-target selection:
-it reports route/plan/render stages and suppresses all delivery, even if its
-named exact identities would be refused by `best_effort`. Use the exact-target
-preview to check the persisted identity before a side-effecting replay.
+`--exact-target-json` to restrict delivery admission to the identity
+shown by the exact-target preview. Use `best_effort` to evaluate admission.
+A `dry_run` reports route, plan, and render stages and suppresses delivery.
 
-Delivery plan ids contain colons: every persisted plan carries the canonical
-`plan:EVENT:ROUTE:INDEX:HASH` shape. Name the plan as one component — the
-value before it is the event, the value after it the adapter, and the channel
-tail stays everything after the adapter. Copy the `delivery_plan_id` exactly
-as the preview or evidence output reports it:
+Copy the event, plan, adapter, and channel values in that order. Generated
+plan IDs contain colons. Use JSON to preserve the entire ID. Set the fourth
+value to `null` when the stored target has no channel.
 
 ```bash
-medre replay --mode best_effort --config bridge.yaml \
-  --event 9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01 --json \
-  --exact-target '9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01:plan:9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01:mx-bridge:target:0f1e2d3c4b5a6978:matrix:!a4b3c2d1:mesh.example.org'
+medre replay --mode best_effort --config bridge.yaml --event 'event:1' --json \
+  --exact-target-json '["event:1","plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978","matrix","!room:example.org"]'
 ```
 
-A colon-free plan id keeps the historical reading — the plan is the second
-component and the channel is everything after the third colon — and
-`--exact-no-channel` accepts the same spelling with no channel tail. A plan
-id whose embedded event differs from the named event exits with `2`
-(configuration) instead of silently selecting nothing.
-
-### Explicit JSON identity form
-
-The compact colon spelling cannot distinguish every identity from the
-overloaded string alone: a legacy value whose plan component is literally
-`plan` next to a colon-bearing channel is byte-identical to the canonical
-plan-id spelling, and a colon-bearing event id has no compact spelling at
-all. When any identifier carries colons, prefer the explicit JSON form
-`--exact-target-json '["EVENT","TARGET","ADAPTER","CHANNEL"]'`. The four
-elements are positional and read byte-exact; `null` in the channel position
-is the no-channel spelling. The flag is repeatable and selections accumulate
-across it and the compact flags; one delivery identity may still not repeat
-across them.
-
-```bash
-medre replay --mode best_effort --config bridge.yaml \
-  --event 9f3a1c02-7b4e-4c2d-8a5f-1e3d5b7c9a01 --json \
-  --exact-target-json '["event:1","plan:event:1:mx-bridge:target:0f1e2d3c4b5a6978","matrix","!a4b3c2d1:mesh.example.org"]' \
-  --exact-target-json '["event:2","plan","mx-bridge",null]'
-```
-
-Malformed input — invalid JSON, a non-array value, an element count other
-than four, a non-string element in the first three positions, or an empty
-or blank string (the channel may be `null`) — exits with `2`
-(configuration) before any configuration is loaded, exactly like a
-malformed compact spec.
+The compact `--exact-target EVENT:PLAN:ADAPTER[:CHANNEL]` form still
+accepts colon-free event, plan, and adapter IDs. It treats everything after
+the third colon as the channel. The explicit `--exact-no-channel` form
+requires exactly three fields. Repeat any of these flags to select distinct
+identities. Malformed values and duplicate identities exit with code `2`
+before configuration loading.
 
 ## Inspect one exact delivery leg before intervention
 
@@ -1093,14 +1060,9 @@ Use `--exact-no-channel` in place of `--exact-channel` when the stored
 delivery identity has no channel. The returned `observed_fingerprint` identifies
 the current snapshot and `excluded_sibling_count` makes the limited scope
 visible. **This is not a send command.** A replay without an exact-target
-flag still uses broad adapter/route selection and can affect other rooms;
-name the identified destination with `medre replay --exact-target
-EVENT:PLAN:ADAPTER:CHANNEL` or `medre replay --exact-no-channel
-EVENT:PLAN:ADAPTER` when that exact target is the intended recovery scope
-(the plan component may be the canonical colon-bearing
-`plan:EVENT:ROUTE:INDEX:HASH` id; see above; when the event id or the
-channel itself carries colons, use the explicit `--exact-target-json` form
-instead). Uncertain, active or scheduled
+flag still uses broad adapter/route selection and can affect other rooms.
+Use `medre replay --exact-target-json` with the values from the exact
+preview to scope replay to one delivery. Uncertain, active or scheduled
 attempts remain under their original
 lifecycle owner; an audited resume/resolve decision over an unstarted target
 is recorded separately with `medre resolve --action` (see
