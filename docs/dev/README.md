@@ -1,9 +1,7 @@
 # Developer Documentation
 
-This directory contains documentation for contributors, adapter authors, and
-anyone extending the MEDRE runtime. Historical audit snapshots are not kept
-here; Git history is the archive, and findings that remain current live in
-the relevant spec/ops/dev page.
+Set up your [development environment](environment.md), then use the
+[testing guide](testing.md) to choose the checks for your change.
 
 | Document                                                         | Purpose                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -35,22 +33,16 @@ the relevant spec/ops/dev page.
 | [sqlite-measurement.md](sqlite-measurement.md)                   | Disposable synthetic SQLite append/reopen baseline measurement               |
 | [native-evidence-index.json](native-evidence-index.json)         | Recorded native qualification runs with exact source revisions               |
 
-## How to Add Documentation
+Follow the [documentation style guide](documentation-style.md) when editing
+docs and the [versioning policy](versioning-policy.md) when changing a
+published contract.
 
-1. **Spec semantics** (data models, contracts, guarantees) go into existing
-   `docs/spec/` pages. Explain the need for a new spec page in the PR description.
-2. **Operator procedures** (commands, workflows, troubleshooting) go into
-   `docs/ops/` pages.
-3. **Developer references** (patterns, testing, adapter authoring) go into
-   `docs/dev/` pages.
-4. Do not create new top-level directories under `docs/` without explicit
-   approval.
-5. Do not create contract-style or runbook-style files. The old
-   `docs/contracts/` and `docs/runbooks/` systems have been replaced.
+## Repository skills
 
-## Release and development status
+If you use a coding agent, link it to the relevant skill in your request.
 
-Begin with the development environment guide above and use the testing guide
-for evidence tiers and scoped verification. The [versioning policy](versioning-policy.md) governs
-changes to published contracts. If usage documentation conflicts with runtime
-contracts, `docs/spec/` is the authority.
+- [Configure MEDRE](../../skills/medre-configure/SKILL.md) for drafting,
+  previewing, and troubleshooting bridge routes.
+- [Develop MEDRE core](../../skills/medre-core-development/SKILL.md) for
+  tracing behavior to its owner and choosing the right regression and
+  compatibility checks.

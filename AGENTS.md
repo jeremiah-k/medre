@@ -12,6 +12,11 @@ suites in `tests/conformance`, `tests/lifecycle`, and `tests/operational`.
 Docs are split into `docs/spec`, `docs/ops`, `docs/dev`, `docs/schemas`, and
 `docs/changes`. Example configs are in `examples/configs`.
 
+## Repository Skills
+
+- Draft, review, or troubleshoot operator routes with [medre-configure](skills/medre-configure/SKILL.md).
+- Change core behavior or shared contracts with [medre-core-development](skills/medre-core-development/SKILL.md).
+
 ## Build, Test, and Development Commands
 
 - `.trunk/trunk check --fix --all`: format and apply supported lint fixes.
