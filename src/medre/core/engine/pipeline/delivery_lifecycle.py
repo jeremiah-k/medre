@@ -1275,12 +1275,15 @@ class DeliveryLifecycleService:
         error_summary: str,
         expected_observation_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_receipt_count: int | None = None,
     ) -> None:
-        """Persist terminal abandonment for an unreconstructable retry item."""
+        """Persist terminal abandonment only against unchanged attempt evidence."""
         evidence_guard: _ObservationGuard = {}
         if expected_observation_count is not None:
             evidence_guard["expected_observation_count"] = expected_observation_count
             evidence_guard["expected_receipt_count"] = 0
+        if expected_receipt_count is not None:
+            evidence_guard["expected_receipt_count"] = expected_receipt_count
         if expected_checkpoint_revision is not None:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
@@ -1291,7 +1294,11 @@ class DeliveryLifecycleService:
             attempt_number=(
                 item.active_attempt
                 if item.active_attempt is not None
-                else item.attempt_number if evidence_guard else None
+                else (
+                    item.attempt_number
+                    if evidence_guard and item.attempt_number >= 1
+                    else None
+                )
             ),
             expected_worker_id=item.worker_id,
             **evidence_guard,

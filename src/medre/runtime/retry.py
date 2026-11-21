@@ -1423,43 +1423,77 @@ class RetryWorker:
                 # generation or append-only acceptance evidence. Before
                 # declaring the missing context corrupt, check the actual
                 # content read authority. If it is gone, never send again.
-                authorized = await self._storage.read_event_for_outbox(
-                    item.event_id, item.outbox_id
-                )
+                try:
+                    authorized = await self._storage.read_event_for_outbox(
+                        item.event_id, item.outbox_id
+                    )
+                except Exception as authority_error:
+                    # An unavailable authority read cannot prove corruption or
+                    # content expiry. Leave the claim for lease-based reclaim;
+                    # never classify a transient storage failure as terminal.
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        authority_error,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                    return
                 if authorized.status != "retained":
-                    if (
-                        item.active_attempt is not None
-                        and previous_receipt is not None
-                        and previous_receipt.status in {"sent", "queued"}
-                    ):
-                        # Receipt-driven settlement needs no frozen render
-                        # context. The lifecycle independently binds the
-                        # receipt to this exact active attempt.
-                        try:
-                            settled = await self._lifecycle.reconcile_retry_claim(
+                    # Reconcile exact-attempt evidence before terminal content
+                    # denial, even without a sent/queued receipt. A complete
+                    # radio checkpoint or provider acceptance can still settle.
+                    try:
+                        resolved: (
+                            RetryAttemptFinalization | UncertainHandoffResolution | None
+                        )
+                        if item.active_attempt is not None:
+                            resolved = await self._lifecycle.reconcile_retry_claim(
                                 self._lifecycle_storage,
                                 item,
                                 RetryPolicy(max_attempts=self._max_attempts),
                                 handoff_resolver=self._handoff_resolver,
                             )
-                        except RetryAttemptCommitRejected as stale:
-                            self.state.processed += 1
-                            self._log_superseded_transition(item, stale)
-                            return
-                        except Exception as lifecycle_exc:
-                            # Persistence failure is not evidence of a
-                            # terminal outcome; leave the claim for reclaim.
-                            self.state.processed += 1
-                            self._record_lifecycle_persistence_error(
-                                item,
-                                lifecycle_exc,
-                                attempt_number=item.active_attempt,
+                        elif (
+                            self._handoff_resolver is not None
+                            and item.attempt_number >= 1
+                            and item.failure_kind_detail
+                            == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+                        ):
+                            resolved = (
+                                await self._lifecycle.recheck_last_uncertain_handoff(
+                                    self._lifecycle_storage,
+                                    item,
+                                    RetryPolicy(max_attempts=self._max_attempts),
+                                    handoff_resolver=self._handoff_resolver,
+                                )
                             )
+                        else:
+                            resolved = None
+                    except RetryAttemptCommitRejected as stale:
+                        self.state.processed += 1
+                        self._log_superseded_transition(item, stale)
+                        return
+                    except Exception as lifecycle_exc:
+                        self.state.processed += 1
+                        self._record_lifecycle_persistence_error(
+                            item,
+                            lifecycle_exc,
+                            attempt_number=item.active_attempt or item.attempt_number,
+                        )
+                        return
+                    evidence_count: int | None = None
+                    checkpoint_revision: int | None = None
+                    if isinstance(resolved, UncertainHandoffResolution):
+                        if resolved.observation_count is None:
+                            self.state.processed += 1
                             return
-                        if settled is not None:
+                        evidence_count = resolved.observation_count
+                        checkpoint_revision = resolved.checkpoint_revision
+                    else:
+                        if resolved is not None:
                             self.state.processed += 1
                             self._record_retry_finalization(
-                                item, settled, reconciled=True
+                                item, resolved, reconciled=True
                             )
                             return
                     self.state.processed += 1
@@ -1469,9 +1503,22 @@ class RetryWorker:
                             self._lifecycle_storage,
                             item,
                             error_summary="content_authority_denied",
+                            expected_observation_count=evidence_count,
+                            expected_checkpoint_revision=checkpoint_revision,
+                            expected_receipt_count=(
+                                0
+                                if (item.active_attempt or item.attempt_number) >= 1
+                                else None
+                            ),
                         )
                     except RetryAttemptCommitRejected as stale:
                         self._log_superseded_transition(item, stale)
+                    except Exception as lifecycle_exc:
+                        self._record_lifecycle_persistence_error(
+                            item,
+                            lifecycle_exc,
+                            attempt_number=item.active_attempt or item.attempt_number,
+                        )
                     return
             retry_context = reconstruct_retry_delivery_plan(
                 item=item,
