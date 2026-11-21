@@ -9,6 +9,12 @@ left, and only then records the content-free enforcement receipt. The
 normative invariant and the store-by-store census live in
 [the ceiling specification](../spec/content-privacy-ceiling.md).
 
+The sweep is **disabled by default**. An elapsed ceiling denies content
+reads, but does not by itself purge physical SQLite rows or create a receipt.
+Set `enabled = true` under `[retry.ceiling_sweep]` (see
+[configuration](configuration.md#content-ceiling-sweep)) to run enforcement.
+The purge and its receipt occur when the enabled sweep processes the event.
+
 Two read-only commands let an operator check that contract against the
 real database. Both emit JSON only, read storage strictly read-only, and
 never purge, rewrite, or record anything: remediation is always the
@@ -39,7 +45,7 @@ scriptable.
 ## Options
 
 ```bash
-medre storage ceiling audit --storage-path PATH [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
+medre storage ceiling audit --storage-path PATH [--limit N] [--as-of UTC_TIMESTAMP] [--event EVENT_ID | --after-event EVENT_ID]
 medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
 ```
 
@@ -54,12 +60,19 @@ medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID |
   present; the verification fails closed when the event carries no
   receipt, because absence of proof is not proof.
 
+- `--as-of UTC_TIMESTAMP` — choose an offset-aware ISO 8601 audit cutoff
+  (e.g. `2026-11-21T18:00:00Z`). Reuse the *same* cutoff across all audit
+  pages. Without it, each invocation uses its current UTC clock; a policy
+  whose ceiling elapses after an earlier page has passed its event ID can
+  otherwise be omitted by the remaining pages. Receipt verification is
+  independent of an elapsed-time cutoff.
 - `--after-event EVENT_ID` — continue in event ID order. Pass the report's
   `receipts_next_after_event` to verify the next receipt page. For audit,
   page the pending and residual lists independently using their
   `*_next_after_event` values. A null continuation means the list ended.
-  Each invocation reads its own snapshot. Stop writes for a whole-store
-  verification across pages.
+  Each invocation reads its own snapshot. Keep the store quiescent across
+  a whole-store verification or audit, and reuse `--as-of` for audit pages.
+  Pagination is not a single database snapshot across invocations.
 
 ## Reading the output
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from medre.core.events import NativeMessageRef
-from medre.core.storage.sqlite._content_identity import ceiling_read_time
+from medre.core.storage.sqlite._content_identity import CEILING_CLOCK_AT_EXECUTION
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
@@ -142,7 +142,7 @@ class _NativeRefMixin:
                 (adapter, native_channel_id, native_message_id)
                 if metadata_only
                 else (
-                    ceiling_read_time(),
+                    CEILING_CLOCK_AT_EXECUTION,
                     adapter,
                     native_channel_id,
                     native_message_id,
@@ -174,6 +174,6 @@ class _NativeRefMixin:
                 "native_message_refs",
                 metadata_only,
             ),
-            (event_id,) if metadata_only else (ceiling_read_time(), event_id),
+            (event_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, event_id),
         )
         return [_row_to_native_ref(r) for r in rows]

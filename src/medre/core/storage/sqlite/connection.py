@@ -28,6 +28,10 @@ from medre.core.storage.backend import (
     ContentCeilingMismatchError,
     PreReleaseSchemaMismatchError,
 )
+from medre.core.storage.sqlite._content_identity import (
+    CEILING_CLOCK_AT_EXECUTION,
+    ceiling_read_time,
+)
 from medre.core.storage.sqlite.ingress_sql import (
     CLAIM_INGRESS_SELECT,
     CLAIM_INGRESS_UPDATE,
@@ -582,6 +586,16 @@ def sync_finalize_outbox_terminal(
             raise
 
 
+def _bind_execution_clock(params: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Resolve each deferred ceiling clock after the executor owns the DB lock."""
+    if not any(value is CEILING_CLOCK_AT_EXECUTION for value in params):
+        return params
+    observed = ceiling_read_time()
+    return tuple(
+        observed if value is CEILING_CLOCK_AT_EXECUTION else value for value in params
+    )
+
+
 def sync_read_one(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -590,7 +604,7 @@ def sync_read_one(
 ) -> dict[str, Any] | None:
     """Read one row, return dict or None."""
     with lock:
-        row = db.execute(sql, params).fetchone()
+        row = db.execute(sql, _bind_execution_clock(params)).fetchone()
     return dict(row) if row else None
 
 
@@ -602,7 +616,9 @@ def sync_read_all(
 ) -> list[dict[str, Any]]:
     """Read all rows as dicts."""
     with lock:
-        return [dict(r) for r in db.execute(sql, params).fetchall()]
+        return [
+            dict(r) for r in db.execute(sql, _bind_execution_clock(params)).fetchall()
+        ]
 
 
 ReadStatements = list[tuple[str, tuple[Any, ...] | dict[str, Any]]]

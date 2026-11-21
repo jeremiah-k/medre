@@ -788,6 +788,18 @@ def test_cli_refusals(tmp_path: Path) -> None:
     )
     assert code == EXIT_CONFIG
 
+    code, _, stderr = _run_cli(
+        "storage",
+        "ceiling",
+        "audit",
+        "--storage-path",
+        no_store,
+        "--as-of",
+        "2026-11-21T12:00:00",
+    )
+    assert code == EXIT_CONFIG
+    assert "offset-aware" in stderr
+
 
 def test_cli_single_event_modes(tmp_path: Path) -> None:
     """--event reports exactly one event and verify fails closed without it."""
@@ -822,6 +834,18 @@ def test_cli_single_event_modes(tmp_path: Path) -> None:
     assert audit["state"] == "enforced_clean"
     assert audit["residual_stores"] == {}
     assert audit["receipt"]["rows_removed"] > 0
+
+    code, stdout, stderr = _run_cli(
+        "storage",
+        "ceiling",
+        "audit",
+        "--storage-path",
+        db_path,
+        "--as-of",
+        "2026-11-21T12:00:00Z",
+    )
+    assert code == 0, stderr
+    assert _parse_cli_json(stdout)["observed"] == "2026-11-21T12:00:00.000000+00:00"
 
 
 def test_cli_commands_are_strictly_read_only(tmp_path: Path) -> None:

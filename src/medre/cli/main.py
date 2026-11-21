@@ -1152,6 +1152,13 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Audit exactly one event instead of the bounded window",
     )
 
+    ceiling_audit_p.add_argument(
+        "--as-of",
+        default=None,
+        metavar="UTC_TIMESTAMP",
+        help="Fix the audit ceiling cutoff across paginated windows (UTC timestamp)",
+    )
+
     ceiling_verify_p = ceiling_sub.add_parser(
         "verify",
         help=(
@@ -1663,6 +1670,7 @@ def main(argv: list[str] | None = None) -> None:
                         limit=args.limit,
                         event_id=args.event,
                         after_event=args.after_event,
+                        as_of=args.as_of,
                     )
                 )
             elif args.ceiling_command == "verify":

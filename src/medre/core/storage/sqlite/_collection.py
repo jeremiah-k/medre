@@ -94,8 +94,6 @@ def _read_collection_state(
     ceiling_receipt = db.execute(
         "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?", (event_id,)
     ).fetchone()
-    if previous is not None and rows:
-        raise StorageError("Collected content was unexpectedly recreated")
     if (
         ceiling_receipt is not None
         and int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0]) != 0
@@ -105,6 +103,8 @@ def _read_collection_state(
             # It is a blocked collection, so later retention candidates can run.
             return "blocked", blockers, rows, logical_bytes
         raise StorageError("Ceiling-purged content was unexpectedly recreated")
+    if previous is not None and rows:
+        raise StorageError("Collected content was unexpectedly recreated")
     if ceiling_receipt is not None:
         # The hard-ceiling enforcement transition already removed this
         # event's content and recorded its own immutable receipt; nothing

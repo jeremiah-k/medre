@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.core.storage.sqlite._content_identity import (
-    ceiling_read_time,
+    CEILING_CLOCK_AT_EXECUTION,
     event_content_denied_sql,
 )
 
@@ -190,7 +190,7 @@ class _EvidenceDiagnosticsReadMixin:
         fetched: list[dict[str, Any]] = []
         parent_table, parent_id = _DIAGNOSTIC_PARENTS[family]
         identities = list(wanted)
-        observed = ceiling_read_time()
+        observed = CEILING_CLOCK_AT_EXECUTION
         event_id = (
             "d.row_id"
             if family == "ingress"

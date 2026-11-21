@@ -26,6 +26,11 @@ def event_content_denied_sql(event_id: str) -> str:
     )
 
 
+# Internal-only sentinel: resolved under the SQLite connection lock, never bound
+# to SQL. A queued read must not evaluate expiry against an earlier instant.
+CEILING_CLOCK_AT_EXECUTION = object()
+
+
 def ceiling_read_time() -> str:
     """Use the same fixed UTC precision as persisted ceiling instants."""
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")

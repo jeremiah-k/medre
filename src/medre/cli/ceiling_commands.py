@@ -14,6 +14,7 @@ record, or rewrite anything: remediation belongs to the guarded sweep.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,7 @@ async def _storage_ceiling_audit(
     limit: int = 25,
     event_id: str | None = None,
     after_event: str | None = None,
+    as_of: str | None = None,
 ) -> None:
     """Report per-store residuals for elapsed ceilings; read-only.
 
@@ -78,6 +80,18 @@ async def _storage_ceiling_audit(
     from .storage_helpers import _open_readonly_storage
 
     _validate_ceiling_flags(limit, event_id, after_event)
+    cutoff = None
+    if as_of is not None:
+        try:
+            cutoff = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+            if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+                raise ValueError("UTC offset required")
+            cutoff = cutoff.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            print(
+                "Error: --as-of requires an offset-aware ISO 8601 time", file=sys.stderr
+            )
+            raise SystemExit(EXIT_CONFIG) from None
     _require_ceiling_database(storage_path)
     storage = await _open_readonly_storage(
         storage_path,
@@ -88,7 +102,7 @@ async def _storage_ceiling_audit(
     )
     try:
         report: dict[str, Any] = await storage.audit_content_ceilings(
-            limit=limit, event_id=event_id, after_event=after_event
+            now=cutoff, limit=limit, event_id=event_id, after_event=after_event
         )
     except (StorageError, ValueError):
         print(

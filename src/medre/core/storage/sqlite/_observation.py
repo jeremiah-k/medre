@@ -28,7 +28,7 @@ from medre.core.events import (
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_identity import (
-    ceiling_read_time,
+    CEILING_CLOCK_AT_EXECUTION,
     event_content_denied_sql,
 )
 from medre.core.storage.sqlite._evidence_diagnostics import (
@@ -398,7 +398,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 if metadata_only
                 else _SELECT_OBSERVATIONS_FOR_EVENT
             ),
-            (event_id,) if metadata_only else (ceiling_read_time(), event_id),
+            (event_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, event_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -420,7 +420,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 if metadata_only
                 else _SELECT_OBSERVATIONS_FOR_OUTBOX
             ),
-            (outbox_id,) if metadata_only else (ceiling_read_time(), outbox_id),
+            (outbox_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, outbox_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -436,6 +436,6 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             "SELECT * "
             + _OBSERVATION_CONTENT_SAFE_FROM
             + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
-            (ceiling_read_time(), outbox_id, attempt_number),
+            (CEILING_CLOCK_AT_EXECUTION, outbox_id, attempt_number),
         )
         return [_row_to_delivery_observation(row) for row in rows]
