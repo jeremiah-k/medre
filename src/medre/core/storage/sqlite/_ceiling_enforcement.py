@@ -482,6 +482,10 @@ def _measure_and_purge(
             attempt_number=observation["attempt_number"],
         )
         if scope is not None:
+            # The upsert re-fences scopes derived from legacy pre-fence
+            # claims whose retained row still carries a richer scope than
+            # the validated packet scope computed here; scope_json is never
+            # content-bearing, so rewriting it tightens, not leaks.
             db.execute(
                 "INSERT INTO delivery_observation_scopes "
                 "(observation_id, scope_json) VALUES (?, ?) "

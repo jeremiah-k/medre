@@ -64,17 +64,18 @@ medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID |
 ## Reading the output
 
 Both reports are metadata-only: event identifiers and census store labels
-are content-free identity. SQLite evaluates residual predicates against stored values and returns
-counts and identifiers. The reports contain no message text, excerpt,
-blob bytes, or other content values.
+are content-free identity. SQLite evaluates residual predicates against
+stored values and returns counts and identifiers. The reports contain no
+message text, excerpts, blob bytes, or other content values.
 
 - `elapsed_pending` — elapsed ceilings without a receipt: the sweep's next
   candidates, with the per-store residual counts that would be purged.
 - `residual_enforced` — enforced events still carrying residual values:
   the honest boundary between "gone by enforcement" and writes already
   authorized before the instant. Read mediation keeps such content
-  unreachable until a subsequent sweep reaches the receipt and purges the residual values
-  without rewriting the immutable receipt, and the verification passes
+  unreachable until a subsequent sweep reaches the receipt and purges the
+  residual values without rewriting the immutable receipt, and the
+  verification passes
   again afterwards.
 - `receipts` (verify) — one entry per enforcement receipt: `enforced_at`,
   the ceiling, the recorded counters, and `status` plus `residual_stores`

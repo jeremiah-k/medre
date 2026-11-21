@@ -264,4 +264,7 @@ authenticated delayed observations to be recorded during `retry_wait` after
 free-form failure diagnostics and radio wire plans are erased. They confer
 **no** packet submission authority. Packet observations retain only their
 closed ordinal/outbox/attempt scope; clearing provider metadata must not
-turn a packet ACK into whole-message acceptance.
+turn a packet ACK into whole-message acceptance. When a re-sweep revisits an
+observation, the retained scope is re-derived from the validated packet
+claim and re-fenced: the scope column carries closed identity only, so the
+rewrite tightens legacy pre-fence scopes rather than exposing content.
