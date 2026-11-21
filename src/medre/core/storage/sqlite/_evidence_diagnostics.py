@@ -260,8 +260,12 @@ class _EvidenceDiagnosticsReadMixin:
                 placeholders = ",".join("?" for _ in fact_chunk)
                 typed_rows = await self._read_all(
                     "SELECT outbox_id, attempt_number, state "
-                    "FROM delivery_handoff_uncertainty "
-                    f"WHERE outbox_id IN ({placeholders})",  # nosec B608 - generated placeholders only; identities are bound values
+                    "FROM delivery_handoff_uncertainty u "
+                    f"WHERE u.outbox_id IN ({placeholders}) "
+                    "AND NOT EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d "
+                    "WHERE d.family='outbox' AND d.row_id=u.outbox_id "
+                    "AND d.attempt=u.attempt_number "
+                    "AND d.field='failure_kind_detail')",  # nosec B608 - generated placeholders only; identities are bound values
                     tuple(str(row[identity_column]) for row in fact_chunk),
                 )
                 by_id = {str(fact["outbox_id"]): fact for fact in typed_rows}

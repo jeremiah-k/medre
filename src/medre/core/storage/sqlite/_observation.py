@@ -72,10 +72,18 @@ WHERE o.outbox_id = ?
                 AND d.field = 'failure_kind_detail'
               ORDER BY d.diag_id DESC LIMIT 1
           ) = 'uncertain_native_handoff'
-          OR EXISTS (
-              SELECT 1 FROM delivery_handoff_uncertainty u
-              WHERE u.outbox_id=o.outbox_id AND u.attempt_number=o.attempt_number
-                AND u.state='uncertain_native_handoff'
+          OR (
+              (SELECT d.diagnostic FROM delivery_evidence_diagnostics d
+               WHERE d.family='outbox' AND d.row_id=o.outbox_id
+                 AND d.attempt=o.attempt_number
+                 AND d.field='failure_kind_detail'
+               ORDER BY d.diag_id DESC LIMIT 1) IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM delivery_handoff_uncertainty u
+                  WHERE u.outbox_id=o.outbox_id
+                    AND u.attempt_number=o.attempt_number
+                    AND u.state='uncertain_native_handoff'
+              )
           ))
       )
   )

@@ -847,13 +847,12 @@ async def test_explicit_new_retry_failure_retires_stale_uncertainty_fact(temp_st
         expected_worker_id=_WORKER,
         failure_kind_detail="adapter_transient",
     )
-    assert (
-        await temp_storage._read_one(
-            "SELECT 1 FROM delivery_handoff_uncertainty WHERE outbox_id=?",
-            (stored.outbox_id,),
-        )
-        is None
+    historical = await temp_storage._read_one(
+        "SELECT attempt_number, state FROM delivery_handoff_uncertainty "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
     )
+    assert historical == {"attempt_number": 1, "state": "uncertain_native_handoff"}
     row = await temp_storage.get_outbox_item(stored.outbox_id)
     assert row is not None and row.failure_kind_detail == "adapter_transient"
     assert not await temp_storage.append_delivery_observation(

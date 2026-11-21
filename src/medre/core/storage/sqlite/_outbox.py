@@ -1353,18 +1353,9 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     (outbox_id,),
                 )
             )
-        elif new_status == "retry_wait" and failure_kind_detail is not None:
-            # A new, explicit failure classification for this attempt retires
-            # the previous uncertainty fact. An operational deferral omits
-            # the detail and must not erase a genuine uncertain handoff.
-            follow_ups.append(
-                (
-                    "DELETE FROM delivery_handoff_uncertainty "
-                    "WHERE outbox_id=? AND attempt_number=("
-                    "SELECT attempt_number FROM delivery_outbox WHERE outbox_id=?)",
-                    (outbox_id, outbox_id),
-                )
-            )
+        # An explicitly changed failure detail supersedes an older typed
+        # uncertainty fact in the observation/read guards. Retain the typed
+        # row as historical closed evidence; do not delete ledger facts.
         # Terminal settlement retains historical attempt facts; they cannot
         # reopen the terminal row. A newer reservation changes the attempt
         # identity and cannot consume an older fact.
