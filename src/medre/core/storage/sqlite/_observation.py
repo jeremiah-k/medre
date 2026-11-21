@@ -87,12 +87,14 @@ FROM delivery_observations o) AS observed
 """
 
 _SELECT_OBSERVATIONS_FOR_EVENT = (
-    "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+    "SELECT * "
+    + _OBSERVATION_CONTENT_SAFE_FROM
     + "WHERE event_id = ? ORDER BY sequence ASC"
 )
 
 _SELECT_OBSERVATIONS_FOR_OUTBOX = (
-    "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+    "SELECT * "
+    + _OBSERVATION_CONTENT_SAFE_FROM
     + "WHERE outbox_id = ? ORDER BY sequence ASC"
 )
 
@@ -345,7 +347,8 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Read one attempt before decoding, independently of older evidence."""
         rows = await self._read_all(
-            "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+            "SELECT * "
+            + _OBSERVATION_CONTENT_SAFE_FROM
             + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
             (outbox_id, attempt_number),
         )
