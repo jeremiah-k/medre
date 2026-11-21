@@ -383,17 +383,46 @@ def _verify_wheel_package_files(wheel: Path) -> None:
         f"package modules differ from source; absent from wheel={sorted(expected - actual)}, absent from source={sorted(actual - expected)}. Source inventory includes untracked .py files: remove abandoned modules or rebuild the wheel after adding them. Remove stale build/lib outputs before rebuilding.",
     )
     _verify_wheel_schema_files(wheel)
-    with ZipFile(wheel) as archive:
-        for filename in ("adapter-config.schema.json", "runtime-config.schema.json"):
-            path = f"current/{filename}"
-            packaged = f"medre/_schemas/{path}"
-            _expect(
-                packaged in archive.namelist()
-                and archive.read(packaged)
-                == (_REPO_ROOT / "docs" / "schemas" / path).read_bytes(),
-                "wheel schemas",
-                f"packaged current schema is missing or differs from source: {filename}",
-            )
+    try:
+        with ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+            for filename in (
+                "adapter-config.schema.json",
+                "runtime-config.schema.json",
+            ):
+                path = f"current/{filename}"
+                packaged = f"medre/_schemas/{path}"
+                _expect(
+                    packaged in names,
+                    "wheel schemas",
+                    f"packaged current schema is missing: {filename}",
+                )
+                try:
+                    wheel_schema = archive.read(packaged)
+                except (OSError, BadZipFile, RuntimeError, EOFError, KeyError) as exc:
+                    _fail(
+                        "wheel schemas",
+                        f"cannot read packaged current schema {filename}: "
+                        f"{type(exc).__name__}",
+                    )
+                source_path = _REPO_ROOT / "docs" / "schemas" / path
+                try:
+                    source_schema = source_path.read_bytes()
+                except OSError as exc:
+                    _fail(
+                        "wheel schemas",
+                        f"cannot read source current schema {filename}: "
+                        f"{type(exc).__name__}",
+                    )
+                _expect(
+                    wheel_schema == source_schema,
+                    "wheel schemas",
+                    f"packaged current schema differs from source: {filename}",
+                )
+    except (OSError, BadZipFile) as exc:
+        _fail(
+            "wheel schemas", f"cannot open current wheel schemas: {type(exc).__name__}"
+        )
 
 
 def _verify_wheel_schema_files(wheel: Path, *, required: bool = True) -> None:

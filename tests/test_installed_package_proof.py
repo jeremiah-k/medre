@@ -268,3 +268,33 @@ def test_core_schema_proof_requires_the_installed_resource_path(
     proof._verify_wheel_schema_files(wheel, required=False)
     with pytest.raises(SystemExit):
         proof._verify_wheel_schema_files(wheel, required=True)
+
+
+def test_unreadable_current_wheel_schema_reports_named_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CRC failures are wheel-schema failures, never uncaught exceptions."""
+    from zipfile import ZipFile
+
+    proof = _load_proof_module()
+    monkeypatch.setattr(proof, "_REPO_ROOT", tmp_path)
+    monkeypatch.setattr(proof, "_verify_wheel_schema_files", lambda _: None)
+    source = tmp_path / "src/medre/__init__.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("", encoding="utf-8")
+    current = tmp_path / "docs/schemas/current"
+    current.mkdir(parents=True)
+    for name in ("adapter-config.schema.json", "runtime-config.schema.json"):
+        (current / name).write_bytes(b'{"marker":"A"}')
+    wheel = tmp_path / "medre-test.whl"
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr("medre/__init__.py", b"")
+        for name in ("adapter-config.schema.json", "runtime-config.schema.json"):
+            archive.writestr(f"medre/_schemas/current/{name}", b'{"marker":"A"}')
+    wheel.write_bytes(
+        wheel.read_bytes().replace(b'{"marker":"A"}', b'{"marker":"B"}', 1)
+    )
+    with pytest.raises(SystemExit) as error:
+        proof._verify_wheel_package_files(wheel)
+    assert error.value.code == 1
+    assert "wheel schemas" in capsys.readouterr().err
