@@ -1195,8 +1195,10 @@ class RetryWorker:
             )
             if retry_scan and group is not None:
                 self._next_retry_scan = now + timedelta(seconds=self._interval)
-            # The health exclusion read above can itself take longer than
-            # a lease. Timestamp the claim only after that final await.
+            # The health exclusion read can itself take longer than a
+            # lease. Resolve it first, then timestamp the claim only
+            # after that final await.
+            health_excluded = await self._health_excluded_adapters(now)
             claim_now = max(now, datetime.now(timezone.utc))
             items = await self._storage.claim_due_outbox_items(
                 now=claim_now.isoformat(),
@@ -1206,7 +1208,7 @@ class RetryWorker:
                 excluded_adapters=(
                     *self._active,
                     *self._adapter_deferred_until,
-                    *await self._health_excluded_adapters(now),
+                    *health_excluded,
                 ),
                 one_per_adapter=group is not None,
                 initial_only=self._initial_dispatch and not retry_scan,
