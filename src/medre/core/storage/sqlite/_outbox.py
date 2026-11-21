@@ -1326,12 +1326,21 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         if new_status == "abandoned":
             # A second receipt read after reconciliation is not evidence
             # authority: it can see an acceptance that reconciliation did
-            # not. Refuse abandonment even when the supplied count matches.
+            # not. Refuse a fresh abandonment even when the supplied count
+            # matches. Recording an explicit terminal receipt is exempt:
+            # that abandonment decision is already durable evidence on
+            # this outbox, and committing it cannot discard acceptance.
             where_clauses.append(
-                "NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
+                "((? IS NOT NULL AND EXISTS ("
+                "SELECT 1 FROM delivery_receipts terminal "
+                "WHERE terminal.receipt_id=? "
+                "AND terminal.outbox_id=delivery_outbox.outbox_id "
+                "AND terminal.status='abandoned')) "
+                "OR NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
                 "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
-                "AND accepted.status IN ('sent', 'queued'))"
+                "AND accepted.status IN ('sent', 'queued')))"
             )
+            params.extend((receipt_id, receipt_id))
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
