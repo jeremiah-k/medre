@@ -259,7 +259,9 @@ def _read_schema_meta(
     """
     if directory is None:
         directory, _ = _schema_location()
-    path = directory.joinpath(filename)
+    path = directory
+    for component in filename.split("/"):
+        path = path.joinpath(component)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:

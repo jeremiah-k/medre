@@ -107,6 +107,46 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "config,valid",
+    [
+        ({"logging": {"level": "dEbUg", "format": "JSON"}}, True),
+        ({"logging": {"level": 10}}, False),
+        ({"logging": {"format": "yaml"}}, False),
+        (
+            {"retry": {"interval_seconds": 0.5, "batch_size": 1, "max_attempts": 1}},
+            True,
+        ),
+        ({"retry": {"interval_seconds": 0}}, False),
+        ({"retry": {"batch_size": 0}}, False),
+        ({"retry": {"max_attempts": 0}}, False),
+    ],
+)
+def test_current_runtime_schema_checks_logging_and_retry_values(config, valid):
+    validator = pytest.importorskip("jsonschema").Draft202012Validator
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    assert validator(current).is_valid(config) is valid
+
+
+@pytest.mark.parametrize(
+    "target,valid", [({"dest_context": "room"}, True), ("room", False)]
+)
+def test_current_runtime_schema_requires_structured_context_for_typing(target, valid):
+    validator = pytest.importorskip("jsonschema").Draft202012Validator
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    route = {
+        "source_adapters": ["source"],
+        "dest_adapters": ["target"],
+        "forward_typing": True,
+        "context_map": {"source-channel": target},
+    }
+    assert validator(current).is_valid({"routes": {"bridge": route}}) is valid
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load and parse a YAML config file as a Python dict."""
     import yaml
