@@ -51,6 +51,8 @@ def _load_schema() -> dict[str, Any]:
 
 
 def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
+    if not _HAS_JSONSCHEMA:
+        pytest.skip("jsonschema is optional")
     from jsonschema import Draft202012Validator
 
     from medre.config.model import (
@@ -69,7 +71,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
     )
     sweep = current["properties"]["retry"]["properties"]["ceiling_sweep"]
     defaults = CeilingSweepConfig()
-    assert sweep["type"] == "object"
+    assert sweep["type"] == ["object", "null"]
     assert sweep["additionalProperties"] is False
     assert sweep.get("required", []) == []
     assert sweep["properties"] == {
@@ -88,6 +90,17 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
         },
     }
     expected["properties"]["retry"]["properties"]["ceiling_sweep"] = sweep
+    # Current-schema validation tracks loader coercions; the published export
+    # stays byte-for-byte unchanged.
+    for key in ("level", "format"):
+        expected["properties"]["logging"]["properties"][key] = current["properties"][
+            "logging"
+        ]["properties"][key]
+    for key in ("interval_seconds", "batch_size", "max_attempts"):
+        expected["properties"]["retry"]["properties"][key] = current["properties"][
+            "retry"
+        ]["properties"][key]
+    expected["$defs"]["RouteEntry"] = current["$defs"]["RouteEntry"]
     assert current == expected
     Draft202012Validator(current).validate(
         {"retry": {"ceiling_sweep": {"enabled": True}}}

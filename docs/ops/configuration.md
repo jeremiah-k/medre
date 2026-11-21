@@ -1570,8 +1570,10 @@ medre storage ceiling audit [--storage-path PATH] [--limit N] [--event EVENT_ID]
 medre storage ceiling verify [--storage-path PATH] [--limit N] [--event EVENT_ID]
     Storage management (read-only). Re-runs the ceiling residual battery
     over the enforcement receipts and reports pass/fail per receipt with
-    the receipt's recorded counters — the one-shot post-sweep proof that
-    expired content is gone. Exits 1 when the verdict is failed. See
+    the receipt's recorded counters — proof limited to those receipts checked
+    against the current logical store. It does not cover unchecked receipts
+    or elapsed events lacking a receipt; inspect `*_has_more` and the audit's
+    `elapsed_pending` list. Exits 1 when the verdict is failed. See
     content-ceiling-audit.md.
 
 medre storage reset [--storage-path PATH]

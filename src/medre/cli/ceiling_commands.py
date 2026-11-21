@@ -70,7 +70,13 @@ async def _storage_ceiling_audit(
 
     _validate_ceiling_flags(limit, event_id)
     _require_ceiling_database(storage_path)
-    storage = await _open_readonly_storage(storage_path)
+    storage = await _open_readonly_storage(
+        storage_path,
+        refusal=(
+            "Ceiling audit refused: storage state is not safe to read",
+            EXIT_BUILD,
+        ),
+    )
     try:
         report: dict[str, Any] = await storage.audit_content_ceilings(
             limit=limit, event_id=event_id
@@ -123,7 +129,13 @@ async def _storage_ceiling_verify(
 
     _validate_ceiling_flags(limit, event_id)
     _require_ceiling_database(storage_path)
-    storage = await _open_readonly_storage(storage_path)
+    storage = await _open_readonly_storage(
+        storage_path,
+        refusal=(
+            "Ceiling receipt verification refused: storage state is not safe to read",
+            EXIT_BUILD,
+        ),
+    )
     try:
         report: dict[str, Any] = await storage.verify_content_ceiling_receipts(
             limit=limit, event_id=event_id

@@ -30,11 +30,13 @@ target dependency deadline; the deadline machinery may only end earlier.
 
 ## 2. The invariant
 
-When a ceiling (or a retention epoch, or a delivery deadline acting as the
-effective bound) expires content, expiry enforcement MUST leave that
-content unreachable and gone across every store enumerated in the census
-below, according to that store's declared "gone" class, before the
-enforcement receipt commits.
+When an event's immutable **hard content ceiling** elapses, enforcement MUST
+leave its content unreachable and gone across every store enumerated in the
+census below, according to that store's declared "gone" class, before its
+enforcement receipt commits. A delivery deadline can expire one target's send
+authority earlier without expiring content used by another target. A retention
+epoch permits guarded best-effort collection; neither trigger promises the
+event-wide ceiling purge before the hard ceiling itself elapses.
 
 The invariant has two layers, and both MUST hold:
 
@@ -107,8 +109,10 @@ plus the SQLite-level remnants. Coverage classes:
 
 The registry contract (`STORAGE_COLUMN_CLASSES`) is the column-level
 authority for "content-potential": the enforcement purge and the residual
-verification battery clear and re-check exactly those columns on
-event-attributable rows. A new persistent table MUST be added to the
+verification battery clear and re-check event-attributable content-potential
+columns except expressly retained or unmeasured entries. In particular,
+`operator_delivery_decisions.target_channel` is an expressly retained
+operator-decision identity field, not part of the residual battery. A new persistent table MUST be added to the
 registry with reviewed classes and, if it can hold event-attributable
 content-potential values, to the purge and the battery in the same
 change.
@@ -121,8 +125,11 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   purge, the verification, the authority tombstones, and the receipt
   commit atomically or not at all.
 - Candidate discovery MUST be bounded per invocation with a durable keyset
-  cursor that wraps at queue end, so backdated admissions are still
-  enforced and one event can never starve others.
+  cursor and a finite traversal high-water mark. A completed cycle MUST wrap
+  to revisit backdated admissions and residuals even under a sustained stream
+  of newer entries. Independent pending/residual budgets ensure progress on
+  **successful sweeps**; an event that persistently fails verification MUST
+  roll the transaction back and requires operator intervention.
 - Each sweep MUST bound the number of elapsed policies examined for first-time
   enforcement, including policies that already have a receipt. This budget
   MUST be independent of the residual-repair receipt page. The residual cursor
@@ -169,10 +176,14 @@ An operator who requires byte-level erasure MUST, after enforcement:
 
 1. quiesce all runtime and other SQLite writers and readers (including any
    open transaction or connection that can block a checkpoint),
-2. run `VACUUM` on the database file to rebuild it without deleted content
-   pages, **then** run `PRAGMA wal_checkpoint(TRUNCATE)` on a connection
-   outside any transaction, and verify its result has a zero busy indicator
-   and the WAL is truncated before claiming this operation completed.
+2. audit the stopped logical store, complete any needed ceiling enforcement or
+   residual repair, and verify all affected events. Resolve pagination via
+   `*_has_more` or verify events explicitly; a bounded clean page is not a
+   global logical-cleanliness certificate,
+3. while the store stays quiescent, run `VACUUM` on the database file to
+   rebuild it without deleted content pages, **then** run
+   `PRAGMA wal_checkpoint(TRUNCATE)` outside any transaction. Verify its busy
+   result is zero and the WAL is truncated before claiming completion.
 
 `PRAGMA secure_delete=ON` enabled **before** enforcement can zero freed
 pages but does **not** remove content-bearing WAL frames. Even with that

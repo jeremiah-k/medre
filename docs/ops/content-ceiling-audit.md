@@ -74,10 +74,14 @@ content value is ever read or printed.
 
 A failing verification means content-potential values exist now for an
 enforced event. It does not mean the receipt was wrong: the receipt
-records what its transaction removed and verified. Run the sweep (or wait
-for the default-off `retry.ceiling_sweep` cycle if enabled) and re-run the
-verification; if a failure persists after a sweep, stop and investigate —
-that is a loud inconsistency, not a normal state.
+records what its transaction removed and verified. Run sweeps until the
+receipt's page is revisited, then re-run verification; a bounded sweep may
+process other receipts first. If a receipt is absent (`event_state=no_receipt`),
+there is no purge proof: verify the event exists and its ceiling has elapsed
+before asking enforcement to create a receipt. An unknown event cannot be
+fixed by sweeping. If a receipt exists but residual stores remain after its
+page was processed, stop and investigate — that is a loud inconsistency,
+not a normal state.
 
 ## Safety and boundaries
 

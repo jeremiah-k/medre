@@ -1641,7 +1641,13 @@ def main(argv: list[str] | None = None) -> None:
                 _storage_ceiling_verify,
             )
 
-            path = args.storage_path or str(resolve_paths().database_path)
+            if args.storage_path == "":
+                parser.error("--storage-path must not be empty")
+            path = (
+                str(resolve_paths().database_path)
+                if args.storage_path is None
+                else args.storage_path
+            )
             if args.ceiling_command == "audit":
                 asyncio.run(
                     _storage_ceiling_audit(path, limit=args.limit, event_id=args.event)
