@@ -16,6 +16,21 @@ if TYPE_CHECKING:
     from medre.core.events import CanonicalEvent
 
 
+def event_content_denied_sql(event_id: str) -> str:
+    """Match an elapsed ceiling or a completed purge for a trusted event expression."""
+    return (
+        f"(EXISTS (SELECT 1 FROM event_content_access_policies p "  # nosec B608
+        f"WHERE p.event_id={event_id} AND p.hard_ceiling<=?) OR "
+        f"EXISTS (SELECT 1 FROM event_content_ceiling_log l "
+        f"WHERE l.event_id={event_id}))"
+    )
+
+
+def ceiling_read_time() -> str:
+    """Use the same fixed UTC precision as persisted ceiling instants."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
 def body_admission_op(
     event: CanonicalEvent, recorded_at: str
 ) -> tuple[str, tuple[Any, ...]]:

@@ -18,6 +18,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
+from medre.core.storage.sqlite._content_identity import (
+    ceiling_read_time,
+    event_content_denied_sql,
+)
+
 #: Per family: the separated diagnostic field names, in parent-row column
 #: order.  ``field`` is the side-table discriminator and the row key the
 #: resolved value is attached to.
@@ -42,6 +47,17 @@ _DIAGNOSTIC_PARENTS: dict[str, tuple[str, str]] = {
     "outbox": ("delivery_outbox", "outbox_id"),
     "ingress": ("durable_ingress_work", "event_id"),
 }
+
+_INSERT_OBSERVATION_DIAGNOSTIC = """
+INSERT INTO delivery_evidence_diagnostics
+    (family, row_id, attempt, field, diagnostic, created_at)
+SELECT ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM delivery_observations o
+    JOIN event_content_ceiling_log l ON l.event_id=o.event_id
+    WHERE o.observation_id=?
+)
+"""
 
 _INSERT_DIAGNOSTIC = """
 INSERT INTO delivery_evidence_diagnostics
@@ -90,12 +106,11 @@ def diagnostic_write_ops(
     for field in _DIAGNOSTIC_FIELDS[family]:
         value = values.get(field)
         if isinstance(value, str) and value:
-            ops.append(
-                (
-                    _INSERT_DIAGNOSTIC,
-                    (family, row_id, attempt, field, value, created_at),
-                )
-            )
+            params = (family, row_id, attempt, field, value, created_at)
+            if family == "observation":
+                ops.append((_INSERT_OBSERVATION_DIAGNOSTIC, (*params, row_id)))
+            else:
+                ops.append((_INSERT_DIAGNOSTIC, params))
     return ops
 
 
@@ -175,23 +190,31 @@ class _EvidenceDiagnosticsReadMixin:
         fetched: list[dict[str, Any]] = []
         parent_table, parent_id = _DIAGNOSTIC_PARENTS[family]
         identities = list(wanted)
+        observed = ceiling_read_time()
+        event_id = (
+            "d.row_id"
+            if family == "ingress"
+            else (
+                f"(SELECT p.event_id FROM {parent_table} p WHERE p.{parent_id}=d.row_id)"  # nosec B608 - closed parent table and column names
+            )
+        )
+        # Keep only the closed legacy uncertainty label when diagnostic text
+        # is denied; the original attempt can still accept late evidence.
+        denied = event_content_denied_sql(event_id)
         for start in range(0, len(identities), _LOOKUP_CHUNK_SIZE):
             chunk = identities[start : start + _LOOKUP_CHUNK_SIZE]
             placeholders = ",".join("?" for _ in chunk)
             fetched.extend(
                 await self._read_all(
-                    "SELECT d.diag_id, d.row_id, d.field, d.attempt, d.diagnostic"
-                    " FROM delivery_evidence_diagnostics d"
-                    f" WHERE d.family = ? AND d.row_id IN ({placeholders})"  # nosec B608 - generated placeholders only; identities are bound values
-                    " AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
-                    + (
-                        "WHERE l.event_id=d.row_id)"
-                        if family == "ingress"
-                        else f"WHERE EXISTS (SELECT 1 FROM {parent_table} p "  # nosec B608 - closed parent table and ID allowlist; bound identities only
-                        f"WHERE p.{parent_id}=d.row_id AND p.event_id=l.event_id))"
-                    )
-                    + " ORDER BY d.diag_id ASC",  # nosec B608 - closed parent table and ID allowlist; bound identities only
-                    (family, *chunk),
+                    "SELECT d.diag_id, d.row_id, d.field, d.attempt, "  # nosec B608 - closed SQL and bound identities
+                    f"CASE WHEN NOT {denied} THEN d.diagnostic "  # nosec B608 - closed SQL and bound identities
+                    "WHEN d.family='outbox' AND d.field='failure_kind_detail' "
+                    "AND d.diagnostic='uncertain_native_handoff' "
+                    "THEN 'uncertain_native_handoff' END AS diagnostic "
+                    "FROM delivery_evidence_diagnostics d "
+                    f"WHERE d.family = ? AND d.row_id IN ({placeholders}) "
+                    "ORDER BY d.diag_id ASC",  # nosec B608 - closed SQL and bound identities
+                    (observed, family, *chunk),
                 )
             )
         # Preserve the global append order when the IDs span multiple chunks.
@@ -202,11 +225,12 @@ class _EvidenceDiagnosticsReadMixin:
         for diagnostic_row in fetched:
             row_id = str(diagnostic_row["row_id"])
             field = str(diagnostic_row["field"])
+            diagnostic = diagnostic_row["diagnostic"] or ""
             if attempt_column is None:
-                latest_unscoped[(row_id, field)] = str(diagnostic_row["diagnostic"])
+                latest_unscoped[(row_id, field)] = str(diagnostic)
             else:
                 latest_scoped[(row_id, field, int(diagnostic_row["attempt"]))] = str(
-                    diagnostic_row["diagnostic"]
+                    diagnostic
                 )
         for row in rows:
             row_id = str(row[identity_column])

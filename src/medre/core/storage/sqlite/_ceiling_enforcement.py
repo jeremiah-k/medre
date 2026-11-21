@@ -468,19 +468,24 @@ def _measure_and_purge(
     # packet claim remains explicitly unreadable rather than being promoted
     # to whole-message acceptance by the redaction to '{}'.
     for observation in db.execute(
-        "SELECT observation_id, metadata FROM delivery_observations WHERE event_id=?",
+        "SELECT observation_id, outbox_id, attempt_number, metadata "
+        "FROM delivery_observations WHERE event_id=? AND metadata<>'{}'",
         (event_id,),
     ).fetchall():
         try:
             metadata = json.loads(observation["metadata"])
         except (TypeError, ValueError):
             metadata = {"radio_packet": None}
-        scope = observation_scope(metadata)
+        scope = observation_scope(
+            metadata,
+            outbox_id=observation["outbox_id"],
+            attempt_number=observation["attempt_number"],
+        )
         if scope is not None:
             db.execute(
                 "INSERT INTO delivery_observation_scopes "
                 "(observation_id, scope_json) VALUES (?, ?) "
-                "ON CONFLICT(observation_id) DO NOTHING",
+                "ON CONFLICT(observation_id) DO UPDATE SET scope_json=excluded.scope_json",
                 (observation["observation_id"], scope),
             )
     db.execute(

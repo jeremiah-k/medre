@@ -4,7 +4,7 @@
 -- can be purged at the hard ceiling without losing late-ACK correlation.
 -- This state never grants another transport dispatch.
 CREATE TABLE IF NOT EXISTS delivery_handoff_uncertainty (
-    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    outbox_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
     state TEXT NOT NULL CHECK (state = 'uncertain_native_handoff')
 );
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observation_scopes (
-    observation_id TEXT PRIMARY KEY REFERENCES delivery_observations(observation_id),
+    observation_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_observations(observation_id),
     scope_json TEXT NOT NULL CHECK (json_valid(scope_json))
 );
 

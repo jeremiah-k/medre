@@ -618,6 +618,26 @@ async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
     )
     assert len(observed) == 1 and observed[0].metadata == {}
     assert observed[0].confirmation_level == "end_to_end"
+    assert await temp_storage.append_delivery_observation(
+        _observation(
+            "late-malformed-scope",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": "unverified provider text",
+            },
+        )
+    )
+    scope = await temp_storage._read_one(
+        "SELECT scope_json FROM delivery_observation_scopes "
+        "WHERE observation_id='late-malformed-scope'"
+    )
+    assert scope == {"scope_json": '{"radio_packet":null}'}
+    assert await temp_storage.mark_outbox_cancelled(stored.outbox_id)
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-after-cancel", provenance)
+    )
 
 
 async def test_ceiling_keeps_accepted_packet_scope_but_erases_wire_plan(temp_storage):
@@ -667,14 +687,24 @@ async def test_ceiling_keeps_accepted_packet_scope_but_erases_wire_plan(temp_sto
         }
     }
     assert "sensitive" not in repr(read)
+    raw = await temp_storage._read_one(
+        "SELECT metadata FROM delivery_observations WHERE observation_id='late-radio-packet'"
+    )
+    assert raw is not None and raw["metadata"] == "{}"
+    resolved = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert resolved.verdict == "unresolved"
 
 
 async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
     temp_storage,
 ):
     stored, provenance = await _seed_reserved_claim(temp_storage)
+    fingerprint = "fa" * 32
     await _bind_and_progress(
-        temp_storage, provenance, ["accepted", "accepted", "accepted"]
+        temp_storage,
+        provenance,
+        ["accepted", "accepted", "accepted"],
+        payload_fingerprint=fingerprint,
     )
     now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
@@ -685,6 +715,14 @@ async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
     assert all(
         "payload_fingerprint" not in (part.handoff_id or "") for part in summary.parts
     )
+    retained = await temp_storage._read_one(
+        "SELECT parts_json, provenance_json FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (stored.outbox_id,),
+    )
+    assert retained is not None
+    assert fingerprint not in repr(retained)
+
     claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
     verdict = await DeliveryLifecycleService().reconcile_retry_claim(
         temp_storage,
@@ -696,3 +734,12 @@ async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
     settled = await temp_storage.get_outbox_item(stored.outbox_id)
     assert settled is not None and settled.status == "sent"
     assert await temp_storage.list_receipts_for_outbox(stored.outbox_id) == []
+
+
+async def test_expired_attempt_cannot_rebind_erased_wire_plan(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan()) is None
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None

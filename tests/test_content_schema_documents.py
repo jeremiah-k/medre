@@ -16,6 +16,15 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
         ("outbox-dispatch-snapshots.schema.sql", {"delivery_outbox_snapshots"}),
         ("handoff-settlements.schema.sql", {"delivery_handoff_settlements"}),
         (
+            "current/content-free-handoff-facts.schema.sql",
+            {
+                "delivery_handoff_uncertainty",
+                "radio_accepted_part_facts",
+                "radio_attempt_evidence_summaries",
+                "delivery_observation_scopes",
+            },
+        ),
+        (
             "event-content-ceiling-log.schema.sql",
             {"event_content_ceiling_log"},
         ),

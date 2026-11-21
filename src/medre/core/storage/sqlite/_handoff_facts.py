@@ -10,10 +10,12 @@ import json
 from collections.abc import Mapping
 
 
-def observation_scope(metadata: object) -> str | None:
+def observation_scope(
+    metadata: object, *, outbox_id: str, attempt_number: int
+) -> str | None:
     """Retain only packet correlation; malformed claims never become messages."""
     if not isinstance(metadata, Mapping):
-        return "null"
+        return '{"radio_packet":null}'
     if "radio_packet" not in metadata:
         return None
     packet = metadata["radio_packet"]
@@ -26,17 +28,17 @@ def observation_scope(metadata: object) -> str | None:
         type(ordinal) is not int
         or not 1 <= ordinal <= 128
         or type(attempt) is not int
-        or attempt < 1
+        or attempt != attempt_number
         or not isinstance(outbox, str)
-        or not outbox
+        or outbox != outbox_id
     ):
         return '{"radio_packet":null}'
     return json.dumps(
         {
             "radio_packet": {
                 "ordinal": ordinal,
-                "origin_attempt_number": attempt,
-                "origin_outbox_id": outbox,
+                "origin_attempt_number": attempt_number,
+                "origin_outbox_id": outbox_id,
             }
         },
         separators=(",", ":"),

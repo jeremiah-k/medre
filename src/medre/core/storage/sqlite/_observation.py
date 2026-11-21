@@ -27,6 +27,10 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._content_identity import (
+    ceiling_read_time,
+    event_content_denied_sql,
+)
 from medre.core.storage.sqlite._evidence_diagnostics import (
     _EvidenceDiagnosticsReadMixin,
     diagnostic_write_ops,
@@ -48,7 +52,9 @@ SELECT
     ?, o.event_id, o.delivery_plan_id, o.target_adapter,
     o.target_channel, ?, o.outbox_id,
     COALESCE(o.active_attempt, o.attempt_number), ?,
-    ?, ?, ?, ?
+    ?, ?, CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=o.event_id
+    ) THEN '{}' ELSE ? END, ?
 FROM delivery_outbox AS o
 WHERE o.outbox_id = ?
   AND o.event_id = ?
@@ -59,7 +65,7 @@ WHERE o.outbox_id = ?
       o.status IN ('in_progress', 'queued', 'sent')
       OR (
           o.status = 'retry_wait' AND o.active_attempt IS NULL
-          AND (
+          AND ((
               SELECT d.diagnostic FROM delivery_evidence_diagnostics d
               WHERE d.family = 'outbox' AND d.row_id = o.outbox_id
                 AND d.attempt = o.attempt_number
@@ -70,7 +76,7 @@ WHERE o.outbox_id = ?
               SELECT 1 FROM delivery_handoff_uncertainty u
               WHERE u.outbox_id=o.outbox_id AND u.attempt_number=o.attempt_number
                 AND u.state='uncertain_native_handoff'
-          )
+          ))
       )
   )
 ON CONFLICT(observation_id) DO NOTHING
@@ -78,22 +84,25 @@ ON CONFLICT(observation_id) DO NOTHING
 
 #: Keep the typed observation fields and exact attempt identity; mask only
 #: content-potential metadata before values cross the SQLite read boundary.
-#: SELECT * is intentionally the outer projection so inspection_sql can
-#: apply its separate metadata_only field allowlist without changing callers.
-_OBSERVATION_CONTENT_SAFE_FROM = """
+#: A legacy packet claim without a retained scope stays unreadable before
+#: the first purge rather than being promoted to whole-message evidence.
+_OBSERVATION_CONTENT_SAFE_FROM = f"""
 FROM (SELECT
-    CASE WHEN EXISTS (
-        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=o.event_id
-    ) THEN COALESCE((
+    CASE WHEN {event_content_denied_sql("o.event_id")} THEN COALESCE((
         SELECT s.scope_json FROM delivery_observation_scopes s
         WHERE s.observation_id=o.observation_id
-    ), '{}') ELSE o.metadata END AS metadata,
+    ), CASE WHEN json_valid(o.metadata) THEN CASE
+        WHEN json_type(o.metadata)='object'
+         AND json_type(o.metadata, '$.radio_packet') IS NULL THEN '{{}}'
+        ELSE '{{"radio_packet":null}}' END
+        ELSE '{{"radio_packet":null}}' END)
+    ELSE o.metadata END AS metadata,
     o.sequence, o.observation_id, o.event_id, o.delivery_plan_id,
     o.target_adapter, o.target_channel, o.native_channel_id, o.outbox_id,
     o.attempt_number, o.adapter_message_id, o.state, o.confirmation_level,
     o.observed_at
 FROM delivery_observations o) AS observed
-"""
+"""  # nosec B608 - static SQL fragments and bound values
 
 _SELECT_OBSERVATIONS_FOR_EVENT = (
     "SELECT * "
@@ -185,6 +194,11 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
         the row keeps the column ``NULL`` and the text lands in
         ``delivery_evidence_diagnostics`` in the same transaction.
         """
+        scope = observation_scope(
+            observation.metadata,
+            outbox_id=observation.outbox_id,
+            attempt_number=observation.attempt_number,
+        )
         rowcount = await self._write_rowcount_with_followups(
             _INSERT_OBSERVATION,
             _observation_insert_params(observation),
@@ -195,11 +209,11 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                         "(observation_id, scope_json) VALUES (?, ?)",
                         (
                             observation.observation_id,
-                            observation_scope(observation.metadata),
+                            scope,
                         ),
                     )
                 ]
-                if observation_scope(observation.metadata) is not None
+                if scope is not None
                 else []
             )
             + diagnostic_write_ops(
@@ -312,6 +326,13 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                     return False
             # Both the original checkpoint and its content-free post-ceiling
             # acceptance fact are append-only evidence, never send grants.
+            purged = (
+                db.execute(
+                    "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?",
+                    (observation.event_id,),
+                ).fetchone()
+                is not None
+            )
             db.execute(
                 """INSERT INTO delivery_observations (
                     observation_id, event_id, delivery_plan_id, target_adapter,
@@ -332,7 +353,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                     observation.adapter_message_id,
                     observation.state,
                     observation.confirmation_level,
-                    _encode_json(dict(observation.metadata)),
+                    "{}" if purged else _encode_json(dict(observation.metadata)),
                     observation.observed_at.isoformat(),
                 ),
             )
@@ -340,7 +361,11 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             if inserted == 1:
                 # Same transaction: the separated diagnostic text lands only
                 # with its committed parent observation row.
-                scope = observation_scope(observation.metadata)
+                scope = observation_scope(
+                    observation.metadata,
+                    outbox_id=observation.outbox_id,
+                    attempt_number=observation.attempt_number,
+                )
                 if scope is not None:
                     db.execute(
                         "INSERT INTO delivery_observation_scopes "
@@ -364,10 +389,16 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Return observations for an event in append order."""
         rows = await self._read_all(
-            inspection_sql(
-                _SELECT_OBSERVATIONS_FOR_EVENT, "delivery_observations", metadata_only
+            (
+                inspection_sql(
+                    "SELECT * FROM delivery_observations WHERE event_id = ? ORDER BY sequence ASC",
+                    "delivery_observations",
+                    True,
+                )
+                if metadata_only
+                else _SELECT_OBSERVATIONS_FOR_EVENT
             ),
-            (event_id,),
+            (event_id,) if metadata_only else (ceiling_read_time(), event_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -380,10 +411,16 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Return observations for one exact outbox item in append order."""
         rows = await self._read_all(
-            inspection_sql(
-                _SELECT_OBSERVATIONS_FOR_OUTBOX, "delivery_observations", metadata_only
+            (
+                inspection_sql(
+                    "SELECT * FROM delivery_observations WHERE outbox_id = ? ORDER BY sequence ASC",
+                    "delivery_observations",
+                    True,
+                )
+                if metadata_only
+                else _SELECT_OBSERVATIONS_FOR_OUTBOX
             ),
-            (outbox_id,),
+            (outbox_id,) if metadata_only else (ceiling_read_time(), outbox_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -399,6 +436,6 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             "SELECT * "
             + _OBSERVATION_CONTENT_SAFE_FROM
             + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
-            (outbox_id, attempt_number),
+            (ceiling_read_time(), outbox_id, attempt_number),
         )
         return [_row_to_delivery_observation(row) for row in rows]

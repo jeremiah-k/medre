@@ -200,6 +200,8 @@ async def _bind_and_progress(
     provenance: DeliveryAttemptProvenance,
     states: list[str],
     worker: str = _WORKER,
+    *,
+    payload_fingerprint: str | None = None,
 ) -> None:
     """Drive the real guarded transitions through the requested states."""
     plan = _plan()
@@ -216,7 +218,11 @@ async def _bind_and_progress(
                 worker,
                 ordinal,
                 handoff_id=RadioLocalHandoff(
-                    ordinal, f"native-{ordinal}", "ch-0", "local_transport"
+                    ordinal,
+                    f"native-{ordinal}",
+                    "ch-0",
+                    "local_transport",
+                    payload_fingerprint=payload_fingerprint,
                 ).encode(),
             )
             assert observed is not None

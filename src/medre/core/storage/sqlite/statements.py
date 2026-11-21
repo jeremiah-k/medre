@@ -7,6 +7,8 @@ execution APIs.
 
 from __future__ import annotations
 
+from medre.core.storage.sqlite._content_identity import event_content_denied_sql
+
 # ---------------------------------------------------------------------------
 # INSERT statements
 # ---------------------------------------------------------------------------
@@ -258,16 +260,15 @@ SELECT * FROM delivery_receipts
 ORDER BY sequence ASC
 """
 
-_NATIVE_REFERENCE_SAFE_FROM = """
+_NATIVE_REFERENCE_SAFE_FROM = f"""
 FROM (SELECT
     n.id, n.event_id, n.adapter, n.native_channel_id,
     n.native_message_id, n.native_thread_id, n.native_relation_id,
     n.direction, n.created_at,
-    CASE WHEN EXISTS (
-        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=n.event_id
-    ) THEN '{}' ELSE n.metadata END AS metadata
+    CASE WHEN {event_content_denied_sql("n.event_id")}
+    THEN '{{}}' ELSE n.metadata END AS metadata
 FROM native_message_refs n) AS safe_refs
-"""
+"""  # nosec B608 - static SQL fragments and bound values
 
 _SELECT_NREFS_FOR_EVENT = (
     "SELECT * "

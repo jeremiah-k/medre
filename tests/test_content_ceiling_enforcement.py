@@ -606,6 +606,44 @@ async def test_first_time_enforcement_advances_across_a_page_of_receipts(
     assert [item.event_id for item in enforced] == [pending]
 
 
+async def test_evidence_reads_hide_provider_values_at_expiry_without_receipt(
+    temp_storage: SQLiteStorage,
+    monkeypatch,
+) -> None:
+    from medre.core.storage.sqlite import (
+        _evidence_diagnostics,
+        _native_ref,
+        _observation,
+    )
+
+    event_id = "ceiling-expiry-read"
+    await _admit_with_ceiling(temp_storage, event_id)
+    outbox_id = await _seed_every_copy(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    for module in (_evidence_diagnostics, _native_ref, _observation):
+        monkeypatch.setattr(
+            module,
+            "ceiling_read_time",
+            lambda: ceiling.isoformat(timespec="microseconds"),
+        )
+
+    refs = await temp_storage.list_native_refs_for_event(event_id)
+    assert refs and all(not ref.metadata for ref in refs)
+    references = await temp_storage.get_native_ref(
+        refs[0].adapter, refs[0].native_channel_id, refs[0].native_message_id
+    )
+    assert references is not None and not references.metadata
+    observations = await temp_storage.list_delivery_observations_for_outbox(outbox_id)
+    assert observations and all(
+        not row.metadata and row.error is None for row in observations
+    )
+    assert not await temp_storage._read_one("SELECT 1 FROM event_content_ceiling_log")
+    assert await temp_storage._read_one(
+        "SELECT 1 FROM native_message_refs WHERE event_id=? AND metadata<>'{}'",
+        (event_id,),
+    )
+
+
 async def test_pending_event_is_not_starved_by_residual_repair(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -871,6 +909,9 @@ async def test_recreated_diagnostic_after_ceiling_is_not_already_collected(
     temp_storage: SQLiteStorage,
 ) -> None:
     """All-store battery, not just body rows, governs collector consistency."""
+    epoch = await temp_storage.open_retention_epoch(
+        activated_by="operator", now=datetime.now(timezone.utc)
+    )
     event_id = "ceiling-recreated-diagnostic"
     await _admit_with_ceiling(temp_storage, event_id)
     outbox_id = await _seed_every_copy(temp_storage, event_id)
@@ -892,6 +933,12 @@ async def test_recreated_diagnostic_after_ceiling_is_not_already_collected(
 
     with pytest.raises(StorageError, match="unexpectedly recreated"):
         await temp_storage.collect_event_content(event_id)
+
+    result = await temp_storage.collect_event_content(
+        event_id,
+        retention_epoch=epoch.epoch,
+    )
+    assert result["status"] == "blocked"
 
 
 async def test_late_native_reference_metadata_is_neither_written_nor_read(

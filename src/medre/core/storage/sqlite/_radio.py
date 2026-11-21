@@ -30,6 +30,10 @@ from medre.core.storage.sqlite._content_grants import (
     _native_submission_authorized,
     _utc,
 )
+from medre.core.storage.sqlite._content_identity import (
+    ceiling_read_time,
+    event_content_denied_sql,
+)
 from medre.core.storage.sqlite.serde import _now_iso
 
 if TYPE_CHECKING:
@@ -299,6 +303,14 @@ class _RadioMixin:
 
         def bind(db: sqlite3.Connection) -> StoredRadioAttempt | None:
             if not _owns(db, provenance, worker_id):
+                return None
+            if db.execute(
+                "SELECT "
+                + event_content_denied_sql(
+                    "?"
+                ),  # nosec B608 - static SQL and bound event ID
+                (provenance.event_id, ceiling_read_time(), provenance.event_id),
+            ).fetchone()[0]:
                 return None
             prior = db.execute(
                 """SELECT progress.* FROM radio_attempt_progress AS progress

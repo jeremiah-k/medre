@@ -45,7 +45,10 @@ if TYPE_CHECKING:
 
 
 def _read_collection_state(
-    db: sqlite3.Connection, event_id: str
+    db: sqlite3.Connection,
+    event_id: str,
+    *,
+    is_worker: bool = False,
 ) -> tuple[str, list[str], int, int]:
     """Read the collector's decision inputs for one event in the caller's snapshot.
 
@@ -97,6 +100,10 @@ def _read_collection_state(
         ceiling_receipt is not None
         and int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0]) != 0
     ):
+        if is_worker:
+            # A receipt makes the ceiling sweep the only owner of this repair.
+            # It is a blocked collection, so later retention candidates can run.
+            return "blocked", blockers, rows, logical_bytes
         raise StorageError("Ceiling-purged content was unexpectedly recreated")
     if ceiling_receipt is not None:
         # The hard-ceiling enforcement transition already removed this
@@ -181,7 +188,7 @@ def sync_collect_event_content(
                         "Candidate is outside the current activation boundary"
                     )
             base_state, blockers, rows, logical_bytes = _read_collection_state(
-                db, event_id
+                db, event_id, is_worker=retention_epoch is not None
             )
             if base_state == "already_collected":
                 state = "already_collected"
