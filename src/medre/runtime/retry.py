@@ -71,7 +71,7 @@ from medre.core.evidence.handoff_resolution import (
     UncertainHandoffResolution,
     UncertainNativeHandoffResolver,
 )
-from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryPolicy
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
@@ -318,7 +318,12 @@ class RetryWorker:
         self._lifecycle = lifecycle
         self._retries_enabled = enabled if enabled is not None else config.enabled
         self._initial_dispatch = initial_dispatch
-        self._enabled = self._retries_enabled or initial_dispatch
+        self._enabled = (
+            self._retries_enabled
+            or initial_dispatch
+            or config.deadline_sweep.enabled
+            or config.ceiling_sweep.enabled
+        )
         self._active: dict[str, asyncio.Task[None]] = {}
         self._adapter_deferred_until: dict[str, datetime] = {}
         self._interval = (
@@ -1152,6 +1157,9 @@ class RetryWorker:
         """
         await self._run_deadline_sweep(now)
         await self._run_ceiling_sweep(now)
+        # Maintenance may have held the SQLite write reservation for a long
+        # period; claims need a fresh lease clock, not the pre-sweep instant.
+        now = max(now, datetime.now(timezone.utc))
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1166,7 +1174,7 @@ class RetryWorker:
             if group is None
             else min(self._batch_size, max(0, limit - len(self._active)))
         )
-        if available:
+        if available and (self._retries_enabled or self._initial_dispatch):
             retry_scan = self._retries_enabled and (
                 group is None
                 or self._next_retry_scan is None
@@ -1408,6 +1416,61 @@ class RetryWorker:
                 target_adapter=item.target_adapter,
                 target_channel=item.target_channel,
             )
+            if dispatch_snapshot is None and not item.metadata:
+                # The ceiling sweep retires dispatch context, not the outbox
+                # generation or append-only acceptance evidence. Before
+                # declaring the missing context corrupt, check the actual
+                # content read authority. If it is gone, never send again.
+                authorized = await self._storage.read_event_for_outbox(
+                    item.event_id, item.outbox_id
+                )
+                if authorized.status != "retained":
+                    if (
+                        item.active_attempt is not None
+                        and previous_receipt is not None
+                        and previous_receipt.status in {"sent", "queued"}
+                    ):
+                        # Receipt-driven settlement needs no frozen render
+                        # context. The lifecycle independently binds the
+                        # receipt to this exact active attempt.
+                        try:
+                            settled = await self._lifecycle.reconcile_retry_claim(
+                                self._lifecycle_storage,
+                                item,
+                                RetryPolicy(max_attempts=self._max_attempts),
+                                handoff_resolver=self._handoff_resolver,
+                            )
+                        except RetryAttemptCommitRejected as stale:
+                            self.state.processed += 1
+                            self._log_superseded_transition(item, stale)
+                            return
+                        except Exception as lifecycle_exc:
+                            # Persistence failure is not evidence of a
+                            # terminal outcome; leave the claim for reclaim.
+                            self.state.processed += 1
+                            self._record_lifecycle_persistence_error(
+                                item,
+                                lifecycle_exc,
+                                attempt_number=item.active_attempt,
+                            )
+                            return
+                        if settled is not None:
+                            self.state.processed += 1
+                            self._record_retry_finalization(
+                                item, settled, reconciled=True
+                            )
+                            return
+                    self.state.processed += 1
+                    self.state.failed += 1
+                    try:
+                        await self._lifecycle.abandon_retry_outbox(
+                            self._lifecycle_storage,
+                            item,
+                            error_summary="content_authority_denied",
+                        )
+                    except RetryAttemptCommitRejected as stale:
+                        self._log_superseded_transition(item, stale)
+                    return
             retry_context = reconstruct_retry_delivery_plan(
                 item=item,
                 previous_receipt=previous_receipt,

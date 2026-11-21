@@ -110,6 +110,8 @@ async def test_ceiling_sweep_failure_is_isolated(
         raise RuntimeError("synthetic ceiling sweep failure")
 
     monkeypatch.setattr(temp_storage, "enforce_content_ceilings", failing)
+    claims = AsyncMock(wraps=temp_storage.claim_due_outbox_items)
+    monkeypatch.setattr(temp_storage, "claim_due_outbox_items", claims)
     runner, _, _ = _pipeline(temp_storage)
     worker = RetryWorker(
         temp_storage,
@@ -121,9 +123,18 @@ async def test_ceiling_sweep_failure_is_isolated(
         initial_dispatch=True,
         interval_seconds=10,
     )
-    await worker._process_due(datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    await worker._process_due(now)
     assert worker.state.ceiling_sweep_errors == 1
     assert worker.state.ceiling_sweep_runs == 0
+    assert claims.await_count == 1  # failed sweep did not skip delivery
+    succeeded = AsyncMock(return_value=[])
+    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", succeeded)
+    # The due timer uses the supplied clock; no arbitrary sleeps.
+    await worker._process_due(now + timedelta(seconds=61))
+    assert worker.state.ceiling_sweep_runs == 1
+    assert worker.state.ceiling_sweep_errors == 1
+    assert claims.await_count == 2
 
 
 def test_ceiling_sweep_config_rejects_invalid_declarations() -> None:
@@ -134,3 +145,27 @@ def test_ceiling_sweep_config_rejects_invalid_declarations() -> None:
         CeilingSweepConfig(limit=501).validate()
     with pytest.raises(ConfigValidationError, match="ceiling_sweep.interval_seconds"):
         CeilingSweepConfig(interval_seconds=0).validate()
+
+
+async def test_ceiling_only_worker_does_not_claim_delivery(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A default-off retry policy can run maintenance without transport work."""
+    sweep = AsyncMock(return_value=[])
+    claims = AsyncMock(return_value=[])
+    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", sweep)
+    monkeypatch.setattr(temp_storage, "claim_due_outbox_items", claims)
+    runner, _, _ = _pipeline(temp_storage)
+    worker = RetryWorker(
+        temp_storage,
+        runner,
+        None,
+        retry_config=RetryConfig(
+            enabled=False, ceiling_sweep=CeilingSweepConfig(enabled=True)
+        ),
+        initial_dispatch=False,
+    )
+    assert worker._enabled is True
+    await worker._process_due(datetime.now(timezone.utc))
+    sweep.assert_awaited_once()
+    claims.assert_not_awaited()
