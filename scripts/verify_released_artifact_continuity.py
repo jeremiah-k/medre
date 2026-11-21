@@ -419,6 +419,7 @@ def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
         "the released database already contains the handoff settlement table",
     )
     _CEILING_LOG = "event_content_ceiling_log"
+    _HANDOFF_FACTS = "docs/schemas/current/content-free-handoff-facts.schema.sql"
     added = (
         (
             _HANDOFF_SETTLEMENTS,
@@ -428,6 +429,10 @@ def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
             _CEILING_LOG,
             "docs/schemas/event-content-ceiling-log.schema.sql",
         ),
+        ("delivery_handoff_uncertainty", _HANDOFF_FACTS),
+        ("radio_accepted_part_facts", _HANDOFF_FACTS),
+        ("radio_attempt_evidence_summaries", _HANDOFF_FACTS),
+        ("delivery_observation_scopes", _HANDOFF_FACTS),
     )
     entries = []
     for table, export in added:

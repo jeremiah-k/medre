@@ -219,7 +219,14 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
         )
         released = driver._dump_state(path)
         expected = driver._expected_d0_reopen_state(released)
-        approved = ("delivery_handoff_settlements", "event_content_ceiling_log")
+        approved = (
+            "delivery_handoff_settlements",
+            "event_content_ceiling_log",
+            "delivery_handoff_uncertainty",
+            "radio_accepted_part_facts",
+            "radio_attempt_evidence_summaries",
+            "delivery_observation_scopes",
+        )
         for kind, name, sql in expected["catalog"]:
             if kind == "table" and name in approved:
                 db.execute(sql)
