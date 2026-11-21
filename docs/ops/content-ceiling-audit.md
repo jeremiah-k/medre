@@ -10,7 +10,9 @@ normative invariant and the store-by-store census live in
 [the ceiling specification](../spec/content-privacy-ceiling.md).
 
 The sweep is **disabled by default**. An elapsed ceiling denies content
-reads, but does not by itself purge physical SQLite rows or create a receipt.
+reads and scrubs provider metadata from newly written native references at
+insertion time, but does not by itself purge physical SQLite rows or create
+a receipt.
 Enable the sweep in the bridge YAML configuration (SQLite storage only):
 
 ```yaml
