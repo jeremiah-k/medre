@@ -1158,8 +1158,10 @@ class RetryWorker:
         await self._run_deadline_sweep(now)
         await self._run_ceiling_sweep(now)
         # Maintenance may have held the SQLite write reservation for a long
-        # period; claims need a fresh lease clock, not the pre-sweep instant.
-        now = max(now, datetime.now(timezone.utc))
+        # period; the claim lease needs a fresh clock, not the pre-sweep
+        # instant. Scheduling bookkeeping keeps the supplied clock so
+        # controlled cadences stay exact.
+        claim_now = max(now, datetime.now(timezone.utc))
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1183,7 +1185,7 @@ class RetryWorker:
             if retry_scan and group is not None:
                 self._next_retry_scan = now + timedelta(seconds=self._interval)
             items = await self._storage.claim_due_outbox_items(
-                now=now.isoformat(),
+                now=claim_now.isoformat(),
                 worker_id=f"retry-worker-{uuid.uuid4().hex}",
                 lease_seconds=max(30, int(self._interval * 1.5)),
                 limit=available,
