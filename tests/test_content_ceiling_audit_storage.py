@@ -46,8 +46,28 @@ async def test_full_lifecycle_audit_and_verify_prove_purge(
     # Pre-sweep: the audit reports exactly what the enforcement would
     # remove, per store, without purging anything.
     ceiling = await _read_ceiling(temp_storage, event_id)
+    before_observation = await temp_storage._read_one(
+        "SELECT metadata FROM delivery_observations WHERE observation_id=?",
+        (f"obs-{event_id}",),
+    )
+    before_native = await temp_storage._read_one(
+        "SELECT metadata FROM native_message_refs WHERE event_id=?", (event_id,)
+    )
     pre_audit = await temp_storage.audit_content_ceilings(
         now=ceiling + timedelta(seconds=1)
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT metadata FROM delivery_observations WHERE observation_id=?",
+            (f"obs-{event_id}",),
+        )
+        == before_observation
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT metadata FROM native_message_refs WHERE event_id=?", (event_id,)
+        )
+        == before_native
     )
     assert pre_audit["elapsed_pending_has_more"] is False
     assert pre_audit["residual_enforced_has_more"] is False
@@ -172,6 +192,8 @@ async def test_shared_blob_bytes_go_with_last_referent_across_receipts(
     # first sweep enforces exactly one receipt.
     await _admit_with_ceiling(temp_storage, owner_b, seconds=86400)
     await _insert_blob(temp_storage, _BLOB_REF)
+    orphan_ref = "orphan-not-associated"
+    await _insert_blob(temp_storage, orphan_ref)
     await _associate_blob(temp_storage, owner_a, _BLOB_REF)
     await _associate_blob(temp_storage, owner_b, _BLOB_REF)
 
@@ -212,6 +234,10 @@ async def test_shared_blob_bytes_go_with_last_referent_across_receipts(
         )
         == 0
     )
+    orphan = await temp_storage._read_one(
+        "SELECT data FROM attachment_blobs WHERE content_ref=?", (orphan_ref,)
+    )
+    assert orphan == {"data": b"ATTACHDATA"}
     both = await temp_storage.verify_content_ceiling_receipts()
     assert both["receipts_examined"] == 2
     assert both["verdict"] == "passed"
@@ -360,6 +386,12 @@ async def test_single_event_audit_and_verify_fail_closed(
     assert proven["verdict"] == "passed"
     assert proven["event_state"] == "receipt_verified"
     assert proven["receipts"][0]["status"] == "passed"
+    other = "ceiling-e2e-other-without-receipt"
+    await _admit_with_ceiling(temp_storage, other)
+    still_unproven = await temp_storage.verify_content_ceiling_receipts(event_id=other)
+    assert still_unproven["verdict"] == "failed"
+    assert still_unproven["event_state"] == "no_receipt"
+    assert still_unproven["receipts_examined"] == 0
 
 
 async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -> None:
@@ -368,6 +400,8 @@ async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -
         await _admit_with_ceiling(temp_storage, event_id)
     now = await _read_ceiling(temp_storage, events[0]) + timedelta(seconds=1)
     first_audit = await temp_storage.audit_content_ceilings(now=now, limit=1)
+    assert [row["event_id"] for row in first_audit["elapsed_pending"]] == [events[0]]
+    assert first_audit["elapsed_pending_has_more"] is True
     key = first_audit["elapsed_pending_next_after_event"]
     assert key == events[0]
     second_audit = await temp_storage.audit_content_ceilings(
@@ -375,9 +409,12 @@ async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -
     )
     assert [row["event_id"] for row in second_audit["elapsed_pending"]] == events[1:]
     assert second_audit["elapsed_pending_next_after_event"] is None
+    assert second_audit["elapsed_pending_has_more"] is False
 
     await temp_storage.enforce_content_ceilings(now=now)
     first_verify = await temp_storage.verify_content_ceiling_receipts(limit=1)
+    assert [row["event_id"] for row in first_verify["receipts"]] == [events[0]]
+    assert first_verify["receipts_has_more"] is True
     key = first_verify["receipts_next_after_event"]
     assert key == events[0]
     second_verify = await temp_storage.verify_content_ceiling_receipts(
@@ -385,3 +422,4 @@ async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -
     )
     assert [row["event_id"] for row in second_verify["receipts"]] == events[1:]
     assert second_verify["receipts_next_after_event"] is None
+    assert second_verify["receipts_has_more"] is False
