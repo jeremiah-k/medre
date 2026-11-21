@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -531,10 +532,19 @@ class TestNoDeleteInStorageModule:
                 stripped = line.lstrip()
                 if stripped.startswith("#") or not delete_pattern.search(line):
                     continue
+                # Inspect every statement on the source line, not merely the
+                # first DELETE or a table mentioned by a nested subquery.
+                targets = re.findall(
+                    r"\bDELETE\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)",
+                    line,
+                    flags=re.IGNORECASE,
+                )
+                if len(targets) != len(delete_pattern.findall(line)):
+                    violations.append(f"{py_file.name}:{line_no}: {line.strip()}")
+                    continue
                 if py_file.name == "_collection.py":
-                    matches = {table for table in permitted if table in line}
-                    if len(matches) == 1:
-                        found.update(matches)
+                    if targets and all(target in permitted for target in targets):
+                        found.update(targets)
                         continue
                 # Frozen work context is an owned, transient projection, not
                 # durable delivery evidence. Its one exact-table DELETE is
@@ -550,6 +560,22 @@ class TestNoDeleteInStorageModule:
             violations
         )
         assert found == permitted
+
+    def test_multiple_deletes_on_one_line_cannot_hide_a_forbidden_target(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A permitted first DELETE never masks a forbidden second DELETE."""
+        source = tmp_path / "_collection.py"
+        source.write_text(
+            'sql = "DELETE FROM event_body_content; '
+            'DELETE FROM delivery_receipts"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            sys.modules[__name__], "_sqlite_source_files", lambda: [source]
+        )
+        with pytest.raises(AssertionError, match="Unexpected storage DELETE"):
+            self.test_only_classified_content_rows_are_deleted()
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.
